@@ -1,0 +1,233 @@
+'use client';
+
+import { useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { Save } from 'lucide-react';
+import { useLocale } from '@/i18n/provider';
+import { api, ApiError } from '@/lib/api-client';
+import { Alert, Badge, Button, Card, CardBody, CardFooter, CardHeader } from '@/ui/primitives';
+import { Checkbox, Field, Input, MoneyInput, Select } from '@/ui/form';
+import { useToast } from '@/ui/overlay';
+import { cn } from '@/ui/utils';
+import { AppearanceSettings } from './appearance-settings';
+import {
+  SETTING_CATEGORIES,
+  type SettingCategory,
+  type SettingDefinition,
+} from '@/modules/settings/settings.catalog';
+
+type SettingWithValue = SettingDefinition & { value: unknown };
+
+/**
+ * Settings.
+ *
+ * The form is generated from the catalogue, so adding a setting to
+ * `settings.catalog.ts` makes it appear here with the right control, labels and
+ * validation — there is no per-setting UI code to keep in step.
+ */
+export function SettingsView({
+  settings,
+  canManage,
+}: {
+  settings: SettingWithValue[];
+  canManage: boolean;
+}) {
+  const { t } = useLocale();
+  const router = useRouter();
+  const toast = useToast();
+
+  const [category, setCategory] = useState<SettingCategory | 'appearance'>('appearance');
+  const [draft, setDraft] = useState<Record<string, unknown>>({});
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const byCategory = useMemo(() => {
+    const groups = new Map<SettingCategory, SettingWithValue[]>();
+    for (const setting of settings) {
+      const list = groups.get(setting.category) ?? [];
+      list.push(setting);
+      groups.set(setting.category, list);
+    }
+    return groups;
+  }, [settings]);
+
+  const dirty = Object.keys(draft).length > 0;
+
+  const valueOf = (setting: SettingWithValue) =>
+    draft[setting.key] !== undefined ? draft[setting.key] : setting.value;
+
+  const save = async () => {
+    setError(null);
+    setSaving(true);
+    try {
+      await api.patch('/api/admin/settings', { values: draft });
+      toast.success(t('common.saved'));
+      setDraft({});
+      router.refresh();
+    } catch (caught) {
+      setError(
+        caught instanceof ApiError
+          ? t(caught.messageKey as never, caught.params) || caught.message
+          : t('errors.generic'),
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const renderControl = (setting: SettingWithValue) => {
+    const value = valueOf(setting);
+    const disabled = !canManage;
+
+    switch (setting.type) {
+      case 'boolean':
+        return (
+          <Checkbox
+            checked={Boolean(value)}
+            disabled={disabled}
+            onChange={(event) =>
+              setDraft((current) => ({ ...current, [setting.key]: event.target.checked }))
+            }
+            label={t(`settings.category.${setting.category}` as never)}
+          />
+        );
+
+      case 'number':
+        return (
+          <Input
+            type="number"
+            value={String(value ?? '')}
+            min={setting.min}
+            max={setting.max}
+            disabled={disabled}
+            dir="ltr"
+            onChange={(event) =>
+              setDraft((current) => ({ ...current, [setting.key]: Number(event.target.value) }))
+            }
+          />
+        );
+
+      case 'money':
+        return (
+          <MoneyInput
+            value={String(value ?? '')}
+            disabled={disabled}
+            onValueChange={(next) => setDraft((current) => ({ ...current, [setting.key]: next }))}
+          />
+        );
+
+      case 'select':
+        return (
+          <Select
+            options={(setting.options ?? []).map((option) => ({
+              value: option.value,
+              label: option.labelEn,
+            }))}
+            value={String(value ?? '')}
+            disabled={disabled}
+            onChange={(event) =>
+              setDraft((current) => ({ ...current, [setting.key]: event.target.value }))
+            }
+          />
+        );
+
+      default:
+        return (
+          <Input
+            value={String(value ?? '')}
+            disabled={disabled}
+            onChange={(event) =>
+              setDraft((current) => ({ ...current, [setting.key]: event.target.value }))
+            }
+          />
+        );
+    }
+  };
+
+  const tabs: { id: SettingCategory | 'appearance'; label: string }[] = [
+    { id: 'appearance', label: t('settings.appearance') },
+    ...SETTING_CATEGORIES.map((id) => ({
+      id,
+      label: t(`settings.category.${id}` as never),
+    })),
+  ];
+
+  return (
+    <div className="grid grid-cols-1 gap-4 lg:grid-cols-4">
+      <nav className="lg:col-span-1">
+        <ul className="flex gap-1 overflow-x-auto lg:flex-col lg:overflow-visible">
+          {tabs.map((tab) => (
+            <li key={tab.id}>
+              <button
+                type="button"
+                onClick={() => setCategory(tab.id)}
+                className={cn(
+                  'w-full whitespace-nowrap rounded-[var(--radius-control)] px-3 py-2 text-start text-sm transition-colors',
+                  category === tab.id
+                    ? 'bg-primary-subtle font-medium text-primary-text'
+                    : 'text-content-secondary hover:bg-surface-hover',
+                )}
+              >
+                {tab.label}
+              </button>
+            </li>
+          ))}
+        </ul>
+      </nav>
+
+      <div className="lg:col-span-3">
+        {category === 'appearance' ? (
+          <AppearanceSettings />
+        ) : (
+          <Card>
+            <CardHeader
+              title={t(`settings.category.${category}` as never)}
+              actions={dirty && <Badge tone="warning">{t('settings.unsavedChanges')}</Badge>}
+            />
+            <CardBody className="space-y-5">
+              {error && <Alert tone="danger">{error}</Alert>}
+
+              {(byCategory.get(category) ?? []).map((setting) => (
+                <div key={setting.key}>
+                  <Field
+                    label={
+                      <span className="flex items-center gap-2">
+                        {setting.labelEn}
+                        {setting.isSensitive && (
+                          <Badge tone="warning">{t('roles.sensitive')}</Badge>
+                        )}
+                      </span>
+                    }
+                    hint={setting.descriptionEn}
+                  >
+                    {() => renderControl(setting)}
+                  </Field>
+                  <p className="mt-1 text-xs text-content-tertiary" dir="rtl">
+                    {setting.labelAr} — {setting.descriptionAr}
+                  </p>
+                </div>
+              ))}
+            </CardBody>
+
+            {canManage && (
+              <CardFooter>
+                <Button variant="secondary" disabled={!dirty || saving} onClick={() => setDraft({})}>
+                  {t('common.reset')}
+                </Button>
+                <Button
+                  variant="primary"
+                  icon={<Save />}
+                  loading={saving}
+                  disabled={!dirty}
+                  onClick={() => void save()}
+                >
+                  {t('settings.saveChanges')}
+                </Button>
+              </CardFooter>
+            )}
+          </Card>
+        )}
+      </div>
+    </div>
+  );
+}

@@ -1,0 +1,1079 @@
+// ---------------------------------------------------------------------------
+// IFMS — International Financial Management System
+// Persistence model for the modular monolith.
+//
+// CONVENTIONS
+//   * Money is NEVER stored as a float. Every monetary value is a BigInt of
+//     minor units scaled by 1e8 (see src/core/money). 1.00 USD => 100000000n.
+//     Exchange rates use the same scale.
+//   * Enum-like columns are `String` with a documented value set, enforced by
+//     Zod at the application boundary. This keeps the schema portable across
+//     SQLite (default) and PostgreSQL, neither of which agree on enum support.
+//   * JSON payloads are stored as serialized `String` for the same reason.
+//   * Ledger and audit rows are append-only. The application layer never
+//     issues UPDATE/DELETE against them; corrections are made by reversal.
+// ---------------------------------------------------------------------------
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  // To deploy on PostgreSQL: change provider to "postgresql" and point
+  // DATABASE_URL at the server. No model changes are required.
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ===========================================================================
+// ORGANISATION
+// ===========================================================================
+
+model Branch {
+  id        String   @id @default(cuid())
+  code      String   @unique
+  nameEn    String
+  nameAr    String
+  address   String?
+  phone     String?
+  timezone  String   @default("Asia/Hebron")
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users        User[]
+  accounts     Account[]
+  transactions Transaction[]
+  customers    Customer[]
+  businessDays BusinessDay[]
+
+  @@map("branches")
+}
+
+// ===========================================================================
+// IDENTITY & ACCESS
+// ===========================================================================
+
+model User {
+  id       String @id @default(cuid())
+  username String @unique
+  email    String @unique
+
+  employeeCode String? @unique
+  fullNameEn   String
+  fullNameAr   String
+  phone        String?
+  jobTitleEn   String?
+  jobTitleAr   String?
+
+  // Credentials — scrypt (N=2^15). Format: scrypt$N$r$p$salt$hash
+  passwordHash      String
+  passwordUpdatedAt DateTime @default(now())
+  mustChangePassword Boolean @default(false)
+
+  // Second factor (TOTP). Ready to enable per user.
+  twoFactorSecret      String?
+  twoFactorEnabled     Boolean   @default(false)
+  twoFactorConfirmedAt DateTime?
+  recoveryCodes        String? // JSON: string[] of scrypt-hashed single-use codes
+
+  // ACTIVE | SUSPENDED | LOCKED | DISABLED
+  status           String    @default("ACTIVE")
+  failedLoginCount Int       @default(0)
+  lockedUntil      DateTime?
+
+  // Preferences
+  locale   String @default("ar") // ar | en
+  theme    String @default("system") // light | dark | system
+  density  String @default("comfortable") // comfortable | compact
+  timezone String @default("Asia/Hebron")
+
+  lastLoginAt DateTime?
+  lastLoginIp String?
+
+  branchId String?
+  branch   Branch? @relation(fields: [branchId], references: [id], onDelete: SetNull)
+
+  isSystem  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  createdById String?
+
+  roles           UserRole[]
+  permissions     UserPermission[]
+  sessions        Session[]
+  passwordHistory PasswordHistory[]
+  drafts          Draft[]
+  notifications   NotificationRecipient[]
+
+  createdTransactions  Transaction[] @relation("TransactionCreatedBy")
+  approvedTransactions Transaction[] @relation("TransactionApprovedBy")
+  journalEntries       JournalEntry[]
+  approvalActions      TransactionApproval[]
+  openedDays           BusinessDay[] @relation("DayOpenedBy")
+  closedDays           BusinessDay[] @relation("DayClosedBy")
+  backups              Backup[]
+  wallets              Wallet[]
+  rates                ExchangeRate[]
+
+  @@index([status])
+  @@index([branchId])
+  @@map("users")
+}
+
+model Role {
+  id          String  @id @default(cuid())
+  key         String  @unique // ADMIN, MANAGER, TELLER, AUDITOR, ...
+  nameEn      String
+  nameAr      String
+  description String?
+  // Lower number = higher authority. Used for "can this user manage that user".
+  level       Int     @default(100)
+  isSystem    Boolean @default(false)
+  isActive    Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users       UserRole[]
+  permissions RolePermission[]
+
+  @@map("roles")
+}
+
+model Permission {
+  id          String  @id @default(cuid())
+  key         String  @unique // "exchange.transaction.approve"
+  module      String
+  action      String
+  nameEn      String
+  nameAr      String
+  description String?
+  // Permissions flagged sensitive require an explicit grant and are audited.
+  isSensitive Boolean @default(false)
+
+  roles RolePermission[]
+  users UserPermission[]
+
+  @@index([module])
+  @@map("permissions")
+}
+
+model UserRole {
+  userId     String
+  roleId     String
+  assignedAt DateTime @default(now())
+  assignedBy String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([userId, roleId])
+  @@map("user_roles")
+}
+
+model RolePermission {
+  roleId       String
+  permissionId String
+  assignedAt   DateTime @default(now())
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@map("role_permissions")
+}
+
+/// Per-user override on top of role permissions. DENY always wins.
+model UserPermission {
+  userId       String
+  permissionId String
+  effect       String    @default("ALLOW") // ALLOW | DENY
+  reason       String?
+  expiresAt    DateTime?
+  assignedAt   DateTime  @default(now())
+  assignedBy   String?
+
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([userId, permissionId])
+  @@map("user_permissions")
+}
+
+model Session {
+  id        String @id @default(cuid())
+  userId    String
+  tokenHash String @unique // SHA-256 of the opaque session token
+
+  ip        String?
+  userAgent String?
+
+  createdAt         DateTime  @default(now())
+  lastSeenAt        DateTime  @default(now())
+  expiresAt         DateTime // sliding idle expiry
+  absoluteExpiresAt DateTime // hard ceiling, never extended
+  revokedAt         DateTime?
+  revokedReason     String?
+
+  // Set once the second factor has been satisfied for this session.
+  twoFactorAt DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("sessions")
+}
+
+model PasswordHistory {
+  id        String   @id @default(cuid())
+  userId    String
+  hash      String
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@map("password_history")
+}
+
+model LoginAttempt {
+  id         String   @id @default(cuid())
+  username   String
+  ip         String?
+  userAgent  String?
+  successful Boolean
+  reason     String?
+  at         DateTime @default(now())
+
+  @@index([username, at])
+  @@index([ip, at])
+  @@map("login_attempts")
+}
+
+// ===========================================================================
+// CURRENCIES, RATES
+// ===========================================================================
+
+model Currency {
+  code      String  @id // ILS, USD, JOD, USDT
+  nameEn    String
+  nameAr    String
+  symbol    String
+  // Display precision. Storage precision is always 1e8.
+  decimals  Int     @default(2)
+  kind      String  @default("FIAT") // FIAT | CRYPTO
+  isActive  Boolean @default(true)
+  isBase    Boolean @default(false)
+  sortOrder Int     @default(0)
+
+  accounts          Account[]
+  baseRates         ExchangeRate[] @relation("RateBase")
+  quoteRates        ExchangeRate[] @relation("RateQuote")
+  customerBalances  CustomerBalance[]
+
+  @@map("currencies")
+}
+
+/// Rate rows are never mutated. Superseding a rate closes the previous row by
+/// stamping `effectiveTo`, which yields a complete, queryable rate history.
+model ExchangeRate {
+  id        String @id @default(cuid())
+  baseCode  String
+  quoteCode String
+
+  buyRate  BigInt // scaled 1e8 — company BUYS base at this rate
+  sellRate BigInt // scaled 1e8 — company SELLS base at this rate
+  midRate  BigInt
+
+  source     String    @default("MANUAL") // MANUAL | PROVIDER | IMPORT
+  providerRef String?
+  effectiveFrom DateTime @default(now())
+  effectiveTo   DateTime?
+  isActive      Boolean  @default(true)
+
+  note        String?
+  createdById String?
+  createdBy   User?    @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt   DateTime @default(now())
+
+  base  Currency @relation("RateBase", fields: [baseCode], references: [code])
+  quote Currency @relation("RateQuote", fields: [quoteCode], references: [code])
+
+  transactions Transaction[]
+
+  @@index([baseCode, quoteCode, isActive])
+  @@index([effectiveFrom])
+  @@map("exchange_rates")
+}
+
+// ===========================================================================
+// LEDGER — double entry
+// ===========================================================================
+
+model Account {
+  id     String @id @default(cuid())
+  code   String @unique
+  nameEn String
+  nameAr String
+
+  // ASSET | LIABILITY | EQUITY | INCOME | EXPENSE
+  type String
+  // CASH | BANK | CRYPTO | INTERNAL — how the account is operated.
+  kind String @default("INTERNAL")
+
+  currencyCode String
+  currency     Currency @relation(fields: [currencyCode], references: [code])
+
+  branchId String?
+  branch   Branch? @relation(fields: [branchId], references: [id], onDelete: SetNull)
+
+  /// Cached balance in minor units (1e8). Authoritative value is the sum of
+  /// journal lines; this column is maintained inside the same transaction and
+  /// is verified by the reconciliation job.
+  balance BigInt @default(0)
+
+  allowNegative Boolean @default(false)
+  isActive      Boolean @default(true)
+  isSystem      Boolean @default(false)
+  sortOrder     Int     @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  lines            JournalLine[]
+  sourceOf         Transaction[]    @relation("TransactionSourceAccount")
+  destinationOf    Transaction[]    @relation("TransactionDestinationAccount")
+  wallets          Wallet[]
+  dayClosingLines  DayClosingLine[]
+
+  @@index([type])
+  @@index([currencyCode])
+  @@index([branchId, isActive])
+  @@map("accounts")
+}
+
+/// Append-only. A journal entry always balances: sum(debit) == sum(credit)
+/// per currency. Enforced in src/modules/ledger before persisting.
+model JournalEntry {
+  id        String   @id @default(cuid())
+  reference String   @unique
+  postedAt  DateTime @default(now())
+  valueDate DateTime @default(now())
+
+  description   String
+  descriptionAr String?
+
+  transactionId String?
+  transaction   Transaction? @relation(fields: [transactionId], references: [id], onDelete: SetNull)
+
+  // Reversal bookkeeping — corrections never edit history.
+  isReversal      Boolean @default(false)
+  reversesEntryId String? @unique
+  reversesEntry   JournalEntry?  @relation("EntryReversal", fields: [reversesEntryId], references: [id], onDelete: SetNull)
+  reversedBy      JournalEntry?  @relation("EntryReversal")
+
+  createdById String?
+  createdBy   User?    @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt   DateTime @default(now())
+
+  lines JournalLine[]
+
+  @@index([postedAt])
+  @@index([transactionId])
+  @@map("journal_entries")
+}
+
+model JournalLine {
+  id      String @id @default(cuid())
+  entryId String
+  entry   JournalEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
+
+  accountId String
+  account   Account @relation(fields: [accountId], references: [id])
+
+  currencyCode String
+  debit        BigInt @default(0)
+  credit       BigInt @default(0)
+  /// Account balance immediately after this line was applied.
+  balanceAfter BigInt @default(0)
+
+  memo     String?
+  sequence Int     @default(0)
+
+  createdAt DateTime @default(now())
+
+  @@index([accountId, createdAt])
+  @@index([entryId])
+  @@map("journal_lines")
+}
+
+// ===========================================================================
+// CUSTOMERS
+// ===========================================================================
+
+model Customer {
+  id   String @id @default(cuid())
+  code String @unique
+
+  type       String @default("INDIVIDUAL") // INDIVIDUAL | COMPANY
+  fullNameEn String
+  fullNameAr String
+  phone      String?
+  altPhone   String?
+  email      String?
+
+  nationalId String?
+  passportNo String?
+  taxNumber  String?
+
+  address String?
+  city    String?
+  country String  @default("PS")
+
+  // NONE | PENDING | VERIFIED | REJECTED | EXPIRED
+  kycStatus    String  @default("NONE")
+  kycVerifiedAt DateTime?
+  riskLevel    String  @default("LOW") // LOW | MEDIUM | HIGH
+  isBlocked    Boolean @default(false)
+  blockReason  String?
+
+  /// Maximum negative balance allowed, scaled 1e8, in `creditCurrency`.
+  creditLimit     BigInt  @default(0)
+  creditCurrency  String?
+
+  notes String?
+  tags  String? // JSON: string[]
+
+  branchId String?
+  branch   Branch? @relation(fields: [branchId], references: [id], onDelete: SetNull)
+
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  transactions Transaction[]
+  documents    CustomerDocument[]
+  balances     CustomerBalance[]
+
+  @@index([fullNameEn])
+  @@index([fullNameAr])
+  @@index([phone])
+  @@index([kycStatus])
+  @@map("customers")
+}
+
+model CustomerDocument {
+  id         String    @id @default(cuid())
+  customerId String
+  type       String // ID_CARD | PASSPORT | TRADE_LICENSE | OTHER
+  number     String
+  issuedAt   DateTime?
+  expiresAt  DateTime?
+  issuer     String?
+  fileRef    String?
+  notes      String?
+  createdAt  DateTime  @default(now())
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([customerId])
+  @@map("customer_documents")
+}
+
+/// What the company owes the customer (positive) or the customer owes (negative).
+model CustomerBalance {
+  customerId   String
+  currencyCode String
+  balance      BigInt   @default(0)
+  updatedAt    DateTime @updatedAt
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  currency Currency @relation(fields: [currencyCode], references: [code])
+
+  @@id([customerId, currencyCode])
+  @@map("customer_balances")
+}
+
+// ===========================================================================
+// EXCHANGE — transactions & approvals
+// ===========================================================================
+
+model Transaction {
+  id        String @id @default(cuid())
+  reference String @unique // TXN-20260806-00001
+
+  /// CASH_IN | CASH_OUT | EXCHANGE | TRANSFER_IN | TRANSFER_OUT
+  /// | DEPOSIT | WITHDRAWAL | USDT_IN | USDT_OUT | ADJUSTMENT
+  type String
+  /// DRAFT | PENDING_APPROVAL | APPROVED | POSTED | REJECTED | CANCELLED | REVERSED
+  status String @default("DRAFT")
+  /// COUNTER | ONLINE | BLOCKCHAIN | SYSTEM
+  channel String @default("COUNTER")
+
+  branchId String
+  branch   Branch @relation(fields: [branchId], references: [id])
+
+  customerId String?
+  customer   Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+
+  // --- Amounts (all scaled 1e8) -------------------------------------------
+  fromCurrency String
+  fromAmount   BigInt @default(0)
+  toCurrency   String
+  toAmount     BigInt @default(0)
+  /// Applied rate, scaled 1e8. 1 unit of fromCurrency = rate units of toCurrency.
+  rate         BigInt @default(100000000)
+  rateId       String?
+  appliedRate  ExchangeRate? @relation(fields: [rateId], references: [id], onDelete: SetNull)
+
+  feeCurrency String?
+  feeAmount   BigInt  @default(0)
+  /// Profit realised versus the mid rate, in `toCurrency`.
+  profitAmount BigInt @default(0)
+
+  sourceAccountId      String?
+  sourceAccount        Account? @relation("TransactionSourceAccount", fields: [sourceAccountId], references: [id], onDelete: SetNull)
+  destinationAccountId String?
+  destinationAccount   Account? @relation("TransactionDestinationAccount", fields: [destinationAccountId], references: [id], onDelete: SetNull)
+
+  // --- Counterparty (walk-in, no customer record) -------------------------
+  counterpartyName  String?
+  counterpartyPhone String?
+  counterpartyDoc   String?
+
+  notes         String?
+  internalNotes String?
+  metadata      String? // JSON
+
+  // --- Workflow ------------------------------------------------------------
+  requiresApproval Boolean @default(false)
+
+  createdById String
+  createdBy   User   @relation("TransactionCreatedBy", fields: [createdById], references: [id])
+
+  approvedById String?
+  approvedBy   User?     @relation("TransactionApprovedBy", fields: [approvedById], references: [id], onDelete: SetNull)
+  approvedAt   DateTime?
+
+  rejectedById    String?
+  rejectedAt      DateTime?
+  rejectionReason String?
+
+  postedAt  DateTime?
+  valueDate DateTime  @default(now())
+
+  reversalOfId String?      @unique
+  reversalOf   Transaction? @relation("TransactionReversal", fields: [reversalOfId], references: [id], onDelete: SetNull)
+  reversedBy   Transaction? @relation("TransactionReversal")
+
+  businessDayId String?
+  businessDay   BusinessDay? @relation(fields: [businessDayId], references: [id], onDelete: SetNull)
+
+  /// Optimistic concurrency guard — bumped on every state change.
+  version Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  approvals        TransactionApproval[]
+  journalEntries   JournalEntry[]
+  receipts         Receipt[]
+  chainTransaction ChainTransaction?
+
+  @@index([status, createdAt])
+  @@index([type, createdAt])
+  @@index([branchId, createdAt])
+  @@index([customerId])
+  @@index([createdById])
+  @@index([valueDate])
+  @@map("transactions")
+}
+
+model TransactionApproval {
+  id            String @id @default(cuid())
+  transactionId String
+  transaction   Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+
+  step             Int    @default(1)
+  requiredPermission String
+  /// PENDING | APPROVED | REJECTED | SKIPPED
+  status           String @default("PENDING")
+
+  actedById String?
+  actedBy   User?     @relation(fields: [actedById], references: [id], onDelete: SetNull)
+  actedAt   DateTime?
+  comment   String?
+
+  createdAt DateTime @default(now())
+
+  @@index([transactionId, step])
+  @@index([status])
+  @@map("transaction_approvals")
+}
+
+model Receipt {
+  id            String @id @default(cuid())
+  transactionId String
+  transaction   Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+
+  number       String   @unique
+  locale       String   @default("ar")
+  printedCount Int      @default(0)
+  lastPrintedAt DateTime?
+  lastPrintedById String?
+  createdAt    DateTime @default(now())
+
+  @@index([transactionId])
+  @@map("receipts")
+}
+
+// ===========================================================================
+// DAILY CLOSING
+// ===========================================================================
+
+model BusinessDay {
+  id       String   @id @default(cuid())
+  branchId String
+  branch   Branch   @relation(fields: [branchId], references: [id])
+  /// Calendar date at 00:00 local time.
+  date     DateTime
+
+  /// OPEN | CLOSING | CLOSED | REOPENED
+  status String @default("OPEN")
+
+  openedById String
+  openedBy   User     @relation("DayOpenedBy", fields: [openedById], references: [id])
+  openedAt   DateTime @default(now())
+
+  closedById String?
+  closedBy   User?     @relation("DayClosedBy", fields: [closedById], references: [id], onDelete: SetNull)
+  closedAt   DateTime?
+
+  notes String?
+
+  transactions Transaction[]
+  closingLines DayClosingLine[]
+
+  @@unique([branchId, date])
+  @@index([status])
+  @@map("business_days")
+}
+
+model DayClosingLine {
+  id            String @id @default(cuid())
+  businessDayId String
+  businessDay   BusinessDay @relation(fields: [businessDayId], references: [id], onDelete: Cascade)
+
+  accountId String
+  account   Account @relation(fields: [accountId], references: [id])
+
+  currencyCode   String
+  openingBalance BigInt @default(0)
+  totalIn        BigInt @default(0)
+  totalOut       BigInt @default(0)
+  systemBalance  BigInt @default(0)
+  countedBalance BigInt @default(0)
+  difference     BigInt @default(0)
+  note           String?
+
+  @@unique([businessDayId, accountId])
+  @@map("day_closing_lines")
+}
+
+// ===========================================================================
+// USDT / BLOCKCHAIN MONITORING
+// ===========================================================================
+
+model Wallet {
+  id      String @id @default(cuid())
+  label   String
+  labelAr String
+
+  /// TRON | ETHEREUM | BSC
+  network         String
+  address         String
+  contractAddress String?
+  tokenSymbol     String @default("USDT")
+
+  /// Watch-only wallets are monitored but never debited by the system.
+  isWatchOnly Boolean @default(true)
+  isActive    Boolean @default(true)
+
+  /// Ledger account mirroring this wallet's balance.
+  accountId String?
+  account   Account? @relation(fields: [accountId], references: [id], onDelete: SetNull)
+
+  balance          BigInt    @default(0)
+  balanceUpdatedAt DateTime?
+
+  minConfirmations  Int     @default(19)
+  notifyOnIncoming  Boolean @default(true)
+  notifyOnOutgoing  Boolean @default(true)
+  autoCreateTransaction Boolean @default(true)
+
+  syncCursor     String?
+  lastSyncedAt   DateTime?
+  lastSyncStatus String? // OK | ERROR | NEVER
+  lastSyncError  String?
+
+  createdById String?
+  createdBy   User?    @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  transactions ChainTransaction[]
+  snapshots    WalletSnapshot[]
+  syncRuns     WalletSyncRun[]
+
+  @@unique([network, address, tokenSymbol])
+  @@index([isActive])
+  @@map("wallets")
+}
+
+model WalletSnapshot {
+  id       String   @id @default(cuid())
+  walletId String
+  wallet   Wallet   @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  balance  BigInt
+  at       DateTime @default(now())
+
+  @@index([walletId, at])
+  @@map("wallet_snapshots")
+}
+
+model WalletSyncRun {
+  id       String @id @default(cuid())
+  walletId String
+  wallet   Wallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
+
+  provider   String
+  startedAt  DateTime  @default(now())
+  finishedAt DateTime?
+  /// RUNNING | OK | ERROR
+  status     String    @default("RUNNING")
+  fetched    Int       @default(0)
+  created    Int       @default(0)
+  updated    Int       @default(0)
+  error      String?
+
+  @@index([walletId, startedAt])
+  @@map("wallet_sync_runs")
+}
+
+model ChainTransaction {
+  id       String @id @default(cuid())
+  walletId String
+  wallet   Wallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
+
+  txHash    String
+  network   String
+  direction String // IN | OUT
+
+  fromAddress     String
+  toAddress       String
+  amount          BigInt // scaled 1e8
+  tokenSymbol     String @default("USDT")
+  contractAddress String?
+
+  blockNumber    BigInt?
+  blockTimestamp DateTime?
+  confirmations  Int       @default(0)
+  networkFee     BigInt    @default(0)
+
+  /// PENDING | CONFIRMED | FAILED | ORPHANED
+  status String @default("PENDING")
+
+  /// Internal transaction created from this on-chain movement.
+  linkedTransactionId String?      @unique
+  linkedTransaction   Transaction? @relation(fields: [linkedTransactionId], references: [id], onDelete: SetNull)
+
+  isReconciled Boolean   @default(false)
+  processedAt  DateTime?
+  notes        String?
+
+  firstSeenAt DateTime @default(now())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([walletId, txHash, direction])
+  @@index([status, blockTimestamp])
+  @@index([walletId, blockTimestamp])
+  @@index([txHash])
+  @@map("chain_transactions")
+}
+
+// ===========================================================================
+// NOTIFICATIONS
+// ===========================================================================
+
+model Notification {
+  id String @id @default(cuid())
+
+  /// CRITICAL | WARNING | INFO | SUCCESS
+  severity String @default("INFO")
+  /// Machine key used for i18n, e.g. "usdt.incoming".
+  eventKey String
+  module   String
+
+  titleEn String
+  titleAr String
+  bodyEn  String
+  bodyAr  String
+
+  entityType String?
+  entityId   String?
+  link       String?
+  payload    String? // JSON
+
+  isBroadcast Boolean   @default(false)
+  createdById String?
+  createdAt   DateTime  @default(now())
+  expiresAt   DateTime?
+
+  recipients NotificationRecipient[]
+
+  @@index([createdAt])
+  @@index([severity])
+  @@map("notifications")
+}
+
+model NotificationRecipient {
+  id             String @id @default(cuid())
+  notificationId String
+  notification   Notification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  readAt     DateTime?
+  archivedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@unique([notificationId, userId])
+  @@index([userId, readAt])
+  @@index([userId, createdAt])
+  @@map("notification_recipients")
+}
+
+// ===========================================================================
+// AUDIT — append only, hash chained
+// ===========================================================================
+
+/// Immutable audit trail. Each row carries the hash of the previous row, so any
+/// mutation or deletion breaks the chain and is detected by the verifier
+/// (src/modules/audit/verify). The application never updates or deletes rows.
+model AuditLog {
+  /// Monotonic sequence AND primary key — the chain is ordered by this value.
+  id Int @id @default(autoincrement())
+
+  at DateTime @default(now())
+
+  actorId   String?
+  actorName String?
+  actorIp   String?
+  userAgent String?
+  sessionId String?
+
+  /// CREATE | UPDATE | DELETE | LOGIN | LOGOUT | APPROVE | REJECT | POST
+  /// | REVERSE | PERMISSION_CHANGE | RATE_CHANGE | WALLET_CHANGE | BACKUP
+  /// | RESTORE | SETTING_CHANGE | EXPORT | PRINT | SYNC | SECURITY
+  action     String
+  module     String
+  entityType String?
+  entityId   String?
+
+  summaryEn String
+  summaryAr String
+
+  beforeData String? // JSON snapshot
+  afterData  String? // JSON snapshot
+  metadata   String? // JSON
+
+  /// SHA-256 chain: hash = H(prevHash || canonical(record))
+  prevHash String
+  hash     String @unique
+
+  @@index([at])
+  @@index([actorId, at])
+  @@index([module, at])
+  @@index([entityType, entityId])
+  @@index([action])
+  @@map("audit_logs")
+}
+
+// ===========================================================================
+// SETTINGS
+// ===========================================================================
+
+model SystemSetting {
+  key         String  @id
+  value       String // JSON encoded
+  valueType   String  @default("string") // string | number | boolean | json
+  category    String  @default("general")
+  isSecret    Boolean @default(false)
+  description String?
+
+  updatedById String?
+  updatedAt   DateTime @updatedAt
+
+  @@index([category])
+  @@map("system_settings")
+}
+
+model ApiCredential {
+  id       String  @id @default(cuid())
+  name     String
+  provider String // TRON | ETHERSCAN | SMTP | WEBHOOK
+  /// AES-256-GCM ciphertext, keyed from AUTH_SECRET.
+  secretCiphertext String?
+  baseUrl  String?
+  config   String? // JSON, non-secret
+  isActive Boolean @default(true)
+
+  lastUsedAt   DateTime?
+  lastStatus   String?
+  createdById  String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([provider, name])
+  @@map("api_credentials")
+}
+
+// ===========================================================================
+// BACKUP
+// ===========================================================================
+
+model Backup {
+  id       String @id @default(cuid())
+  filename String
+  path     String
+  sizeBytes BigInt @default(0)
+  checksum String? // SHA-256 of the archive
+
+  /// AUTOMATIC | MANUAL
+  type String @default("MANUAL")
+  /// PENDING | RUNNING | COMPLETED | FAILED | VERIFIED | CORRUPT
+  status String @default("PENDING")
+
+  startedAt  DateTime  @default(now())
+  finishedAt DateTime?
+  verifiedAt DateTime?
+  error      String?
+  notes      String?
+
+  appVersion String?
+  tableCount Int     @default(0)
+  rowCount   Int     @default(0)
+
+  createdById String?
+  createdBy   User?   @relation(fields: [createdById], references: [id], onDelete: SetNull)
+
+  restores RestoreRun[]
+
+  @@index([status, startedAt])
+  @@map("backups")
+}
+
+model RestoreRun {
+  id       String @id @default(cuid())
+  backupId String
+  backup   Backup @relation(fields: [backupId], references: [id], onDelete: Cascade)
+
+  /// RUNNING | COMPLETED | FAILED
+  status      String    @default("RUNNING")
+  startedAt   DateTime  @default(now())
+  finishedAt  DateTime?
+  error       String?
+  rowsRestored Int      @default(0)
+  requestedById String?
+
+  @@index([backupId])
+  @@map("restore_runs")
+}
+
+// ===========================================================================
+// BACKGROUND WORK
+// ===========================================================================
+
+model Job {
+  id    String @id @default(cuid())
+  name  String
+  queue String @default("default")
+  payload String? // JSON
+
+  /// PENDING | RUNNING | COMPLETED | FAILED | CANCELLED
+  status   String @default("PENDING")
+  priority Int    @default(100)
+
+  attempts    Int @default(0)
+  maxAttempts Int @default(3)
+
+  runAt      DateTime  @default(now())
+  startedAt  DateTime?
+  finishedAt DateTime?
+  lastError  String?
+  result     String?
+
+  /// Prevents duplicate enqueues of the same logical work.
+  uniqueKey String?
+
+  createdAt DateTime @default(now())
+
+  @@index([status, runAt])
+  @@index([queue, status])
+  @@index([uniqueKey])
+  @@map("jobs")
+}
+
+model ScheduledTask {
+  id          String  @id @default(cuid())
+  key         String  @unique
+  nameEn      String
+  nameAr      String
+  jobName     String
+  payload     String?
+  intervalSeconds Int
+  isEnabled   Boolean @default(true)
+
+  lastRunAt  DateTime?
+  nextRunAt  DateTime  @default(now())
+  lastStatus String? // OK | ERROR
+  lastError  String?
+  runCount   Int       @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([isEnabled, nextRunAt])
+  @@map("scheduled_tasks")
+}
+
+/// Monotonic counters for human-readable document references.
+model Sequence {
+  key    String @id // "TXN:20260806"
+  value  Int    @default(0)
+  updatedAt DateTime @updatedAt
+
+  @@map("sequences")
+}
+
+/// Autosaved form state so a teller never loses work in progress.
+model Draft {
+  id      String @id @default(cuid())
+  userId  String
+  user    User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  formKey  String
+  entityId String @default("new")
+  payload  String // JSON
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, formKey, entityId])
+  @@index([userId, updatedAt])
+  @@map("drafts")
+}

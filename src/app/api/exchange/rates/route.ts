@@ -1,0 +1,52 @@
+import { z } from 'zod';
+import { route } from '@/core/http/route';
+import { parseMoney } from '@/core/money/money';
+import { publishRate, rateBoard, rateHistory } from '@/modules/exchange/rates.service';
+
+const rate = z
+  .string()
+  .or(z.number())
+  .transform((value, ctx) => {
+    try {
+      return parseMoney(value);
+    } catch {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Invalid rate' });
+      return z.NEVER;
+    }
+  });
+
+const querySchema = z.object({
+  history: z.coerce.boolean().default(false),
+  baseCode: z.string().optional(),
+  quoteCode: z.string().optional(),
+  limit: z.coerce.number().int().min(1).max(1000).default(200),
+});
+
+export const GET = route<unknown, z.infer<typeof querySchema>>({
+  permissions: ['exchange.rate.view'],
+  querySchema,
+  handler: async ({ query }) => {
+    if (query.history) {
+      return rateHistory({
+        baseCode: query.baseCode,
+        quoteCode: query.quoteCode,
+        limit: query.limit,
+      });
+    }
+    return rateBoard();
+  },
+});
+
+const publishSchema = z.object({
+  baseCode: z.string().min(2).max(8),
+  quoteCode: z.string().min(2).max(8),
+  buyRate: rate,
+  sellRate: rate,
+  note: z.string().max(500).optional(),
+});
+
+export const POST = route<z.infer<typeof publishSchema>>({
+  permissions: ['exchange.rate.manage'],
+  bodySchema: publishSchema,
+  handler: async ({ body, actor }) => publishRate(body, actor),
+});
