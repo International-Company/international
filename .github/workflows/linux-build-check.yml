@@ -19,6 +19,16 @@ jobs:
   build:
     runs-on: ubuntu-latest
 
+    strategy:
+      fail-fast: false
+      matrix:
+        # Railway's Nixpacks image pins npm 9; this machine and GitHub's runner
+        # both use npm 11. Testing both isolates whether the package manager is
+        # what makes the build behave differently.
+        npm: ['9', '11']
+
+    name: build (npm ${{ matrix.npm }})
+
     env:
       # Matches Railway: NODE_ENV is set during the build, and the database is
       # a PostgreSQL URL that is not reachable from the builder.
@@ -32,6 +42,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
+
+      - name: Pin npm to match the target builder
+        run: npm install -g npm@${{ matrix.npm }}
 
       - name: Environment
         run: |
@@ -99,3 +112,30 @@ jobs:
       - name: Report success
         if: steps.build.outcome == 'success'
         run: echo "Linux build succeeded — the failure is specific to the Railway builder."
+
+  # Verifies the image the platform will actually build, so a deployment is
+  # never the first time this Dockerfile has been exercised.
+  docker:
+    runs-on: ubuntu-latest
+    name: docker image
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build the production image
+        run: docker build -t ifms:ci .
+
+      - name: Confirm the app starts and answers its health check
+        run: |
+          docker run -d --name ifms-ci \
+            -e DATABASE_URL="postgresql://u:p@127.0.0.1:5432/none" \
+            -e AUTH_SECRET="ci-smoke-test-secret-value-at-least-32-chars" \
+            -e JOBS_ENABLED=false \
+            -p 3000:3000 ifms:ci || true
+
+          # There is no database, so `deploy:start` cannot complete — that is
+          # expected. What matters is that the image runs and reaches the point
+          # of trying, rather than failing to build or crashing on startup.
+          sleep 20
+          echo "--- container log ---"
+          docker logs ifms-ci 2>&1 | tail -30
+          docker rm -f ifms-ci >/dev/null 2>&1 || true

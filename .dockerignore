@@ -1,0 +1,31 @@
+# Keep the build context small and, more importantly, keep secrets and local
+# state out of the image entirely.
+
+node_modules
+.next
+out
+build
+dist
+
+# Never copy real credentials or a local database into an image.
+.env
+.env.local
+.env*.local
+prisma/*.db
+prisma/*.db-journal
+
+storage/backups/*
+storage/logs/*
+
+.git
+.github
+.vscode
+.idea
+
+*.log
+*.tsbuildinfo
+.DS_Store
+Thumbs.db
+
+README.md
+tests
