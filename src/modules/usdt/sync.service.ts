@@ -306,6 +306,13 @@ export async function createInternalTransaction(
     const incoming = record.direction === 'IN';
     const reference = await nextReference('TXN', tx);
 
+    // Honour the branch's approval policy rather than forcing a second
+    // signature. With the workflow off the transfer is left as a draft, not
+    // posted automatically: the chain proves the money moved, it does not
+    // prove whose it is, and posting a receipt to the wrong customer is far
+    // more expensive to unwind than asking an operator to confirm it.
+    const policy = await settings.approvalPolicy(tx);
+
     const transaction = await tx.transaction.create({
       data: {
         reference,
@@ -321,7 +328,7 @@ export async function createInternalTransaction(
         rate: 100_000_000n,
         counterpartyName: maskAddress(incoming ? record.fromAddress : record.toAddress),
         notes: `On-chain ${record.network} transfer ${record.txHash}`,
-        requiresApproval: true,
+        requiresApproval: policy.enabled,
         valueDate: record.blockTimestamp ?? new Date(),
         createdById: systemUser,
         metadata: JSON.stringify({
@@ -338,19 +345,21 @@ export async function createInternalTransaction(
       data: { linkedTransactionId: transaction.id, processedAt: new Date() },
     });
 
-    await tx.transactionApproval.create({
-      data: {
-        transactionId: transaction.id,
-        step: 1,
-        requiredPermission: 'exchange.transaction.approve',
-        status: 'PENDING',
-      },
-    });
+    if (policy.enabled) {
+      await tx.transactionApproval.create({
+        data: {
+          transactionId: transaction.id,
+          step: 1,
+          requiredPermission: 'exchange.transaction.approve',
+          status: 'PENDING',
+        },
+      });
 
-    await tx.transaction.update({
-      where: { id: transaction.id },
-      data: { status: 'PENDING_APPROVAL' },
-    });
+      await tx.transaction.update({
+        where: { id: transaction.id },
+        data: { status: 'PENDING_APPROVAL' },
+      });
+    }
 
     await audit.record(
       {
@@ -366,20 +375,30 @@ export async function createInternalTransaction(
       tx,
     );
 
+    const amount = `${toDecimalString(record.amount, 6)} ${record.tokenSymbol}`;
+    const direction = incoming ? 'received' : 'sent';
+    const directionAr = incoming ? 'واردة' : 'صادرة';
+
     await notifications.notify(
       {
         severity: 'WARNING',
-        eventKey: 'usdt.awaitingApproval',
+        eventKey: policy.enabled ? 'usdt.awaitingApproval' : 'usdt.awaitingReview',
         module: 'usdt',
         titleEn: 'On-chain transfer needs review',
         titleAr: 'تحويل شبكي بانتظار المراجعة',
-        bodyEn: `${reference} — ${toDecimalString(record.amount, 6)} ${record.tokenSymbol} ${incoming ? 'received' : 'sent'}. Confirm the customer and approve.`,
-        bodyAr: `${reference} — ${toDecimalString(record.amount, 6)} ${record.tokenSymbol} ${incoming ? 'واردة' : 'صادرة'}. أكد العميل ثم اعتمد العملية.`,
+        bodyEn: policy.enabled
+          ? `${reference} — ${amount} ${direction}. Confirm the customer and approve.`
+          : `${reference} — ${amount} ${direction}. Saved as a draft: confirm the customer, then submit it.`,
+        bodyAr: policy.enabled
+          ? `${reference} — ${amount} ${directionAr}. أكد العميل ثم اعتمد العملية.`
+          : `${reference} — ${amount} ${directionAr}. حُفظت كمسودة: أكد العميل ثم أرسلها.`,
         entityType: 'Transaction',
         entityId: transaction.id,
         link: `/exchange/transactions/${transaction.id}`,
       },
-      { permission: 'exchange.transaction.approve' },
+      // With no approval step there is no approver; route it to whoever can
+      // act on the transaction instead.
+      { permission: policy.enabled ? 'exchange.transaction.approve' : 'exchange.transaction.update' },
       tx,
     );
 

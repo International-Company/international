@@ -17,7 +17,21 @@ export interface NavItem {
   /** Match child routes for the active state. */
   matchPrefix?: boolean;
   shortcut?: string;
+  /**
+   * Hides the item when the named capability is switched off. A screen for a
+   * workflow the branch does not use is clutter, and worse, it implies a step
+   * that does not actually exist.
+   */
+  feature?: FeatureKey;
 }
+
+export type FeatureKey = 'approvals';
+
+export interface NavFeatures {
+  approvals: boolean;
+}
+
+export const DEFAULT_NAV_FEATURES: NavFeatures = { approvals: false };
 
 export interface NavSection {
   id: string;
@@ -77,6 +91,7 @@ export const NAVIGATION: NavSection[] = [
         labelKey: 'nav.approvals',
         icon: 'approvals',
         permissions: ['exchange.transaction.approve'],
+        feature: 'approvals',
       },
       {
         href: '/exchange/rates',
@@ -193,15 +208,22 @@ export const NAVIGATION: NavSection[] = [
   },
 ];
 
-/** Removes items and then empty sections the user cannot access. */
-export function visibleNavigation(permissions: string[]): NavSection[] {
+/**
+ * Removes items the user cannot access or that belong to a disabled feature,
+ * then drops any section left empty.
+ */
+export function visibleNavigation(
+  permissions: string[],
+  features: NavFeatures = DEFAULT_NAV_FEATURES,
+): NavSection[] {
   const granted = new Set(permissions);
 
   return NAVIGATION.map((section) => ({
     ...section,
-    items: section.items.filter(
-      (item) => !item.permissions || item.permissions.some((p) => granted.has(p)),
-    ),
+    items: section.items.filter((item) => {
+      if (item.feature && !features[item.feature]) return false;
+      return !item.permissions || item.permissions.some((p) => granted.has(p));
+    }),
   })).filter((section) => section.items.length > 0);
 }
 

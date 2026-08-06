@@ -112,10 +112,12 @@ export const SETTINGS: SettingDefinition[] = [
 
   // --- Approvals -----------------------------------------------------------
   {
-    key: 'approvals.enabled', category: 'approvals', type: 'boolean', defaultValue: true,
+    key: 'approvals.enabled', category: 'approvals', type: 'boolean', defaultValue: false,
     labelEn: 'Enable approval workflow', labelAr: 'تفعيل مسار الاعتماد',
-    descriptionEn: 'Route large transactions for a second signature',
-    descriptionAr: 'توجيه العمليات الكبيرة للحصول على توقيع ثانٍ',
+    descriptionEn:
+      'Off: every transaction posts to the ledger immediately, whatever its value. On: transactions at or above the threshold below wait for a second signature.',
+    descriptionAr:
+      'معطّل: تُرحَّل كل عملية إلى الدفاتر فوراً مهما بلغت قيمتها. مفعّل: العمليات التي تبلغ الحد أدناه أو تتجاوزه تنتظر توقيعاً ثانياً.',
   },
   {
     key: 'approvals.threshold', category: 'approvals', type: 'money', defaultValue: '10000',

@@ -333,12 +333,9 @@ async function main() {
   console.log('                               Adjustment, one per currency:');
   console.log('                               From "Opening Balance" → To "Cash Drawer".');
   console.log('    4. Administration → Users  create the real staff accounts.\n');
-  console.log('  Note on step 3: an opening balance usually exceeds the approval');
-  console.log('  threshold, and nobody may approve their own entry. Either have a');
-  console.log('  teller record it and approve it yourself, or switch on');
-  console.log('  Settings → Approvals → Allow self-approval for the setup only and');
-  console.log('  switch it back off afterwards. Both the setting change and the');
-  console.log('  entries are recorded in the audit trail.\n');
+  console.log('  Approvals are off: every transaction posts immediately, whatever');
+  console.log('  its value. Turn them on under Settings → Approvals if the branch');
+  console.log('  grows and you want a second signature on large amounts.\n');
 }
 
 main()

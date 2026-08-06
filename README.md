@@ -65,10 +65,23 @@ Bringing a branch live:
    the first record rather than having a figure written into it.
 4. **Administration → Users** — create the real staff accounts.
 
-An opening balance usually exceeds the approval threshold, and nobody may
-approve their own entry. Either have a teller record it and approve it yourself,
-or switch on *Settings → Approvals → Allow self-approval* for the setup and
-switch it back off. Both the setting change and the entries are audited.
+### Approvals are off by default
+
+Every transaction posts to the ledger immediately, whatever its value and
+whoever records it. With a two-person branch, routing work for a second
+signature mostly means the manager waiting on themselves.
+
+The workflow is not deleted — it is a setting. *Settings → Approvals → Enable
+approval workflow* turns it back on, and from that moment any transaction at or
+above the threshold waits for someone other than its author to approve it. The
+Approvals screen appears in the navigation only while it is on, so the interface
+never advertises a step that does not exist.
+
+**What you give up:** nothing prevents one person from both recording and
+posting a movement of money. Reversals still require a reason and stay visible
+forever, the audit trail still records who did what, and the daily cash count
+still has to reconcile — those controls are unaffected. But the second pair of
+eyes is gone. If the branch grows past two people, turn it back on.
 
 To clear test data before going live:
 
