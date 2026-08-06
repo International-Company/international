@@ -46,6 +46,19 @@ export const metadata: Metadata = {
   icons: { icon: '/favicon.svg' },
 };
 
+/**
+ * Nothing in this application may be prerendered at build time.
+ *
+ * Every page is specific to the signed-in operator, their permissions, their
+ * branch and their language — there is no page whose HTML is the same for two
+ * users, so a build-time snapshot is never correct. The layout already reads
+ * cookies, which makes routes dynamic as a side effect; stating it explicitly
+ * makes that a guarantee rather than an accident, and stops the builder from
+ * attempting to prerender shells like `/404` in an environment that has no
+ * request, no session and no reachable database.
+ */
+export const dynamic = 'force-dynamic';
+
 export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,

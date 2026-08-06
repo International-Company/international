@@ -6,7 +6,25 @@ import { z } from 'zod';
  * deployment fails loudly at boot instead of subtly at runtime.
  */
 const schema = z.object({
-  NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
+  /**
+   * Normalised rather than validated as an enum, and biased towards production.
+   *
+   * Hosting platforms set this to values outside the standard three, and a
+   * strict enum would refuse to boot over a cosmetic mismatch. More importantly,
+   * `isProduction` gates the `secure` flag on session cookies: treating an
+   * unrecognised value as development would silently ship cookies that travel
+   * over plain HTTP. Anything that is not explicitly development or test is
+   * therefore production.
+   */
+  NODE_ENV: z
+    .string()
+    .default('development')
+    .transform((value) => {
+      const normalized = value.trim().toLowerCase();
+      if (normalized === 'development' || normalized === 'dev') return 'development' as const;
+      if (normalized === 'test') return 'test' as const;
+      return 'production' as const;
+    }),
 
   DATABASE_URL: z.string().min(1),
 
@@ -19,7 +37,17 @@ const schema = z.object({
 
   APP_NAME: z.string().default('IFMS'),
   APP_URL: z.string().url().default('http://localhost:3000'),
-  LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
+  LOG_LEVEL: z
+    .string()
+    .default('info')
+    .transform((value) => {
+      const normalized = value.trim().toLowerCase();
+      return (['debug', 'info', 'warn', 'error'] as const).includes(
+        normalized as 'debug' | 'info' | 'warn' | 'error',
+      )
+        ? (normalized as 'debug' | 'info' | 'warn' | 'error')
+        : ('info' as const);
+    }),
 
   JOBS_ENABLED: z
     .string()
