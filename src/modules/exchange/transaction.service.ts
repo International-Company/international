@@ -239,7 +239,13 @@ async function needsApproval(
   db: DbClient,
 ): Promise<boolean> {
   const policy = await settings.approvalPolicy(db);
-  if (!policy.enabled || policy.threshold <= 0n) return false;
+  if (!policy.enabled) return false;
+
+  // A threshold of zero means every transaction needs a second signature.
+  // Treating it as "no transaction does" would turn the whole workflow into a
+  // silent no-op the moment someone enabled it without setting a figure — the
+  // control would appear active while doing nothing at all.
+  if (policy.threshold <= 0n) return true;
 
   if (input.fromCurrency === policy.baseCurrency) {
     return input.fromAmount >= policy.threshold;

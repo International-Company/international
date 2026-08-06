@@ -18,6 +18,13 @@ const en = {
     actions: 'Actions',
     add: 'Add',
     all: 'All',
+    // Filter dropdowns stack on a phone, where a column of identical "All"
+    // options tells the operator nothing about what each one filters.
+    allStatuses: 'All statuses',
+    allTypes: 'All types',
+    allWallets: 'All wallets',
+    allDirections: 'All directions',
+    allModules: 'All modules',
     apply: 'Apply',
     approve: 'Approve',
     back: 'Back',

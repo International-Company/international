@@ -153,6 +153,24 @@
 }
 
 /* ---------------------------------------------------------------------------
+   Touch targets.
+
+   A finger is not a mouse pointer. Below the `sm` breakpoint every control
+   grows to at least 44px — the smallest target Apple's guidance considers
+   reliably tappable — regardless of the density preference, which exists to fit
+   more rows on a desk monitor and has no business shrinking a phone control.
+--------------------------------------------------------------------------- */
+@media (max-width: 639px) {
+  :root,
+  :root[data-density='compact'] {
+    --control-height: 2.75rem;
+    --row-height: 3rem;
+    --cell-padding-y: 0.75rem;
+    --cell-padding-x: 0.875rem;
+  }
+}
+
+/* ---------------------------------------------------------------------------
    Expose the tokens to Tailwind so `bg-surface`, `text-secondary`,
    `border-strong` etc. are real utilities.
 --------------------------------------------------------------------------- */
@@ -230,6 +248,16 @@
     /* Prevent the viewport shifting when a dialog locks scrolling. */
     scrollbar-gutter: stable;
     -webkit-text-size-adjust: 100%;
+
+    /*
+     * The mobile navigation drawer sits off-canvas, translated a full width
+     * beyond the edge. Chrome counts that towards the scrollable area, so the
+     * whole page could be dragged sideways to reveal a closed menu.
+     *
+     * `clip` rather than `hidden`: hidden would turn this into a scroll
+     * container and break every `position: sticky` header in the application.
+     */
+    overflow-x: clip;
   }
 
   body {
@@ -294,6 +322,11 @@
   }
   ::-webkit-scrollbar-thumb:hover {
     background-color: var(--text-tertiary);
+  }
+
+  /* Keep content clear of the home indicator and notch on modern phones. */
+  body {
+    padding-bottom: env(safe-area-inset-bottom);
   }
 
   /* Respect the operating system's motion preference. */
@@ -415,4 +448,24 @@
 
 .print-only {
   display: none;
+}
+
+/* ---------------------------------------------------------------------------
+   iOS text-field zoom.
+
+   Mobile Safari zooms the viewport whenever a focused field renders below 16px,
+   and it does not zoom back out. Every control in this system is 14px by
+   design, which is right on a desktop and unusable on a phone: tapping the
+   amount field would leave a teller scrolled sideways mid-transaction.
+
+   Deliberately outside `@layer` and marked important, because it has to beat
+   the Tailwind text-size utility on the element itself. Checkboxes and radios
+   are excluded — they have no text to zoom.
+--------------------------------------------------------------------------- */
+@media (max-width: 639px) {
+  input:not([type='checkbox']):not([type='radio']),
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
 }

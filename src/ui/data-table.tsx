@@ -27,10 +27,20 @@ export interface Column<T> {
   /** Sort key sent to the server. Omit to make the column unsortable. */
   sortKey?: string;
   width?: string;
-  /** Hide below the `sm` breakpoint to keep mobile readable. */
+  /**
+   * Drop this column from the table on narrow screens. It still appears in the
+   * card layout, where there is room for it.
+   */
   hideOnMobile?: boolean;
   /** Numeric columns get tabular figures and LTR isolation. */
   numeric?: boolean;
+  /**
+   * Promotes the column to the card headline on mobile instead of appearing as
+   * a labelled row. Defaults to the first column.
+   */
+  primary?: boolean;
+  /** Never render this column in the card layout. */
+  hideOnCard?: boolean;
 }
 
 export interface SortState {
@@ -96,13 +106,41 @@ export function DataTable<T>({
 
   return (
     <div className={cn('flex flex-col', className)}>
-      <div className="overflow-x-auto">
+      {/* ---------------------------------------------------------------- */}
+      {/* Card layout — phones                                             */}
+      {/*                                                                  */}
+      {/* A dense financial table does not survive a 375px screen, and     */}
+      {/* horizontal scrolling hides exactly the columns an operator needs */}
+      {/* to compare. Each row becomes a card instead: the headline stays  */}
+      {/* scannable and every other column is labelled, so nothing is lost */}
+      {/* the way it is when columns are simply dropped.                   */}
+      {/* ---------------------------------------------------------------- */}
+      {!loading && rows.length > 0 && (
+        <ul className="divide-y divide-border-base sm:hidden">
+          {rows.map((row, index) => (
+            <MobileCard
+              key={rowKey(row)}
+              row={row}
+              index={index}
+              columns={columns}
+              onRowClick={onRowClick}
+              renderSubRow={renderSubRow}
+            />
+          ))}
+        </ul>
+      )}
+
+      <div className="hidden overflow-x-auto sm:block">
         <table className="w-full border-collapse">
           <thead>
             <tr className="border-b border-border-base bg-surface-sunken">
               {columns.map((column) => {
                 const sortable = Boolean(column.sortKey && onSortChange);
-                const isSorted = sort?.field === column.sortKey;
+                // Both sides must exist. `sort?.field === column.sortKey` reads
+                // as undefined === undefined on an unsorted table whose column
+                // has no sort key — which is true, and then dereferences a
+                // `sort` that is not there.
+                const isSorted = Boolean(sort && column.sortKey && sort.field === column.sortKey);
 
                 return (
                   <th
@@ -181,6 +219,95 @@ export function DataTable<T>({
         <Pagination pagination={pagination} isRtl={isRtl} />
       )}
     </div>
+  );
+}
+
+/**
+ * One row rendered as a card for narrow screens.
+ *
+ * The headline column carries the row's identity — a reference, a name — and
+ * everything else is shown as a labelled pair. Columns hidden from the table on
+ * mobile reappear here, because the card has the room the table did not.
+ */
+function MobileCard<T>({
+  row,
+  index,
+  columns,
+  onRowClick,
+  renderSubRow,
+}: {
+  row: T;
+  index: number;
+  columns: Column<T>[];
+  onRowClick?: (row: T) => void;
+  renderSubRow?: (row: T) => ReactNode;
+}) {
+  const headline = columns.find((column) => column.primary) ?? columns[0];
+  const details = columns.filter(
+    (column) => column !== headline && !column.hideOnCard,
+  );
+
+  const subRow = renderSubRow?.(row);
+
+  return (
+    <li>
+      <div
+        onClick={onRowClick ? () => onRowClick(row) : undefined}
+        role={onRowClick ? 'button' : undefined}
+        tabIndex={onRowClick ? 0 : undefined}
+        onKeyDown={
+          onRowClick
+            ? (event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                  event.preventDefault();
+                  onRowClick(row);
+                }
+              }
+            : undefined
+        }
+        className={cn(
+          'px-4 py-3 transition-colors',
+          onRowClick && 'cursor-pointer active:bg-surface-active',
+        )}
+      >
+        {headline && (
+          <div className="mb-2 text-sm font-medium text-content">
+            {headline.cell(row, index)}
+          </div>
+        )}
+
+        <dl className="space-y-1.5">
+          {details.map((column) => {
+            const value = column.cell(row, index);
+            if (value === null || value === undefined || value === '') return null;
+
+            // A column with no header is an action group — give it the full
+            // width rather than an empty label beside it.
+            const hasLabel = column.header !== '' && column.header !== undefined;
+
+            return hasLabel ? (
+              <div key={column.key} className="flex items-start justify-between gap-3">
+                <dt className="shrink-0 text-xs text-content-secondary">{column.header}</dt>
+                <dd
+                  className={cn(
+                    'min-w-0 text-end text-sm text-content',
+                    column.numeric && 'tabular-nums numeric',
+                  )}
+                >
+                  {value}
+                </dd>
+              </div>
+            ) : (
+              <div key={column.key} className="pt-1">
+                {value}
+              </div>
+            );
+          })}
+        </dl>
+      </div>
+
+      {subRow && <div className="bg-surface-sunken px-4 py-3">{subRow}</div>}
+    </li>
   );
 }
 

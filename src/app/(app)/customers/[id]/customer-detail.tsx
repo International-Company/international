@@ -219,38 +219,40 @@ export function CustomerDetail({
         {customer.transactions.length === 0 ? (
           <EmptyState title={t('transactions.emptyTitle')} />
         ) : (
-          <table className="w-full">
-            <tbody className="divide-y divide-border-base">
-              {customer.transactions.map((transaction) => (
-                <tr key={transaction.id} className="hover:bg-surface-hover">
-                  <td className="px-4 py-2.5">
-                    <Link
-                      href={`/exchange/transactions/${transaction.id}`}
-                      className="font-mono text-xs text-primary-text ltr-content hover:underline"
-                    >
-                      {transaction.reference}
-                    </Link>
-                  </td>
-                  <td className="px-4 py-2.5">
-                    <TransactionTypeBadge type={transaction.type} />
-                  </td>
-                  <td className="px-4 py-2.5 text-end">
-                    <Money
-                      value={transaction.fromAmount}
-                      currency={transaction.fromCurrency}
-                      className="text-sm font-medium"
-                    />
-                  </td>
-                  <td className="px-4 py-2.5">
-                    <StatusBadge status={transaction.status} />
-                  </td>
-                  <td className="px-4 py-2.5 text-end text-xs text-content-tertiary">
-                    <DateText value={transaction.createdAt} />
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <tbody className="divide-y divide-border-base">
+                {customer.transactions.map((transaction) => (
+                  <tr key={transaction.id} className="hover:bg-surface-hover">
+                    <td className="px-4 py-2.5">
+                      <Link
+                        href={`/exchange/transactions/${transaction.id}`}
+                        className="font-mono text-xs text-primary-text ltr-content hover:underline"
+                      >
+                        {transaction.reference}
+                      </Link>
+                    </td>
+                    <td className="px-4 py-2.5">
+                      <TransactionTypeBadge type={transaction.type} />
+                    </td>
+                    <td className="px-4 py-2.5 text-end">
+                      <Money
+                        value={transaction.fromAmount}
+                        currency={transaction.fromCurrency}
+                        className="text-sm font-medium"
+                      />
+                    </td>
+                    <td className="px-4 py-2.5">
+                      <StatusBadge status={transaction.status} />
+                    </td>
+                    <td className="px-4 py-2.5 text-end text-xs text-content-tertiary">
+                      <DateText value={transaction.createdAt} />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </Card>
 

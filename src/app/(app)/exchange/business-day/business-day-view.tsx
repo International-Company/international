@@ -194,90 +194,163 @@ export function BusinessDayView({
         <Card>
           <CardHeader title={t('businessDay.countSheet')} description={t('businessDay.countHint')} />
 
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-border-base bg-surface-sunken">
-                  <th className="px-4 py-2 text-start text-xs font-medium text-content-secondary">
-                    {t('accounts.accountName')}
-                  </th>
-                  <th className="hidden px-4 py-2 text-end text-xs font-medium text-content-secondary sm:table-cell">
-                    {t('businessDay.openingBalance')}
-                  </th>
-                  <th className="hidden px-4 py-2 text-end text-xs font-medium text-content-secondary md:table-cell">
-                    {t('businessDay.totalIn')}
-                  </th>
-                  <th className="hidden px-4 py-2 text-end text-xs font-medium text-content-secondary md:table-cell">
-                    {t('businessDay.totalOut')}
-                  </th>
-                  <th className="px-4 py-2 text-end text-xs font-medium text-content-secondary">
-                    {t('businessDay.systemBalance')}
-                  </th>
-                  <th className="px-4 py-2 text-end text-xs font-medium text-content-secondary">
-                    {t('businessDay.countedBalance')}
-                  </th>
-                  <th className="px-4 py-2 text-end text-xs font-medium text-content-secondary">
-                    {t('businessDay.difference')}
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border-base">
-                {sheet.map((row) => {
-                  const entered = counts[row.accountId] ?? '';
-                  let difference = 0n;
-                  try {
-                    difference =
-                      (entered === '' ? BigInt(row.systemBalance) : parseMoney(entered)) -
-                      BigInt(row.systemBalance);
-                  } catch {
-                    difference = 0n;
-                  }
+          {/* ------------------------------------------------------------ */}
+          {/* Counting on a phone.                                         */}
+          {/*                                                              */}
+          {/* The count is done standing at the drawer, not at a desk, so  */}
+          {/* this is the one screen most likely to be used on a handset.  */}
+          {/* A seven-column table cannot serve that: each drawer gets its */}
+          {/* own card, with the figure to type into placed directly under */}
+          {/* the figure to compare it against.                            */}
+          {/* ------------------------------------------------------------ */}
+          <ul className="divide-y divide-border-base sm:hidden">
+            {sheet.map((row) => {
+              const entered = counts[row.accountId] ?? '';
+              let difference = 0n;
+              try {
+                difference =
+                  (entered === '' ? BigInt(row.systemBalance) : parseMoney(entered)) -
+                  BigInt(row.systemBalance);
+              } catch {
+                difference = 0n;
+              }
 
-                  return (
-                    <tr key={row.accountId}>
-                      <td className="px-4 py-2">
-                        <p className="text-sm text-content">{ln(row, 'name')}</p>
-                        <p className="font-mono text-[10px] text-content-tertiary ltr-content">
-                          {row.code}
-                        </p>
-                      </td>
-                      <td className="hidden px-4 py-2 text-end text-sm text-content-secondary sm:table-cell">
-                        <Money value={row.openingBalance} />
-                      </td>
-                      <td className="hidden px-4 py-2 text-end text-sm text-success-text md:table-cell">
-                        <Money value={row.totalIn} />
-                      </td>
-                      <td className="hidden px-4 py-2 text-end text-sm text-danger-text md:table-cell">
-                        <Money value={row.totalOut} />
-                      </td>
-                      <td className="px-4 py-2 text-end text-sm font-medium">
-                        <Money value={row.systemBalance} currency={row.currencyCode} />
-                      </td>
-                      <td className="px-4 py-2">
-                        <MoneyInput
-                          value={entered}
-                          onValueChange={(value) =>
-                            setCounts((current) => ({ ...current, [row.accountId]: value }))
-                          }
-                          className="h-8 max-w-[10rem] ms-auto"
-                          aria-label={`${t('businessDay.countedBalance')} ${row.code}`}
-                        />
-                      </td>
-                      <td
-                        className={cn(
-                          'px-4 py-2 text-end text-sm font-medium tabular-nums',
-                          difference > 0n && 'text-success-text',
-                          difference < 0n && 'text-danger-text',
-                          difference === 0n && 'text-content-tertiary',
-                        )}
-                      >
-                        {difference === 0n ? '—' : <Money value={difference} signed />}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+              return (
+                <li key={row.accountId} className="p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-content">{ln(row, 'name')}</p>
+                      <p className="font-mono text-[10px] text-content-tertiary ltr-content">
+                        {row.code}
+                      </p>
+                    </div>
+                    <span className="shrink-0 text-xs text-content-secondary">
+                      {t('businessDay.systemBalance')}
+                    </span>
+                  </div>
+
+                  <p className="mt-1 text-end text-base font-semibold text-content">
+                    <Money value={row.systemBalance} currency={row.currencyCode} />
+                  </p>
+
+                  <div className="mt-3">
+                    <label className="mb-1 block text-xs font-medium text-content">
+                      {t('businessDay.countedBalance')}
+                    </label>
+                    <MoneyInput
+                      value={entered}
+                      onValueChange={(value) =>
+                        setCounts((current) => ({ ...current, [row.accountId]: value }))
+                      }
+                      currency={row.currencyCode}
+                      aria-label={`${t('businessDay.countedBalance')} ${row.code}`}
+                    />
+                  </div>
+
+                  <div
+                    className={cn(
+                      'mt-2 flex items-center justify-between text-sm',
+                      difference > 0n && 'text-success-text',
+                      difference < 0n && 'text-danger-text',
+                      difference === 0n && 'text-content-tertiary',
+                    )}
+                  >
+                    <span className="text-xs">{t('businessDay.difference')}</span>
+                    <span className="font-medium">
+                      {difference === 0n ? '—' : <Money value={difference} signed />}
+                    </span>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+
+          <div className="hidden overflow-x-auto sm:block">
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-border-base bg-surface-sunken">
+                    <th className="px-4 py-2 text-start text-xs font-medium text-content-secondary">
+                      {t('accounts.accountName')}
+                    </th>
+                    <th className="hidden px-4 py-2 text-end text-xs font-medium text-content-secondary sm:table-cell">
+                      {t('businessDay.openingBalance')}
+                    </th>
+                    <th className="hidden px-4 py-2 text-end text-xs font-medium text-content-secondary md:table-cell">
+                      {t('businessDay.totalIn')}
+                    </th>
+                    <th className="hidden px-4 py-2 text-end text-xs font-medium text-content-secondary md:table-cell">
+                      {t('businessDay.totalOut')}
+                    </th>
+                    <th className="px-4 py-2 text-end text-xs font-medium text-content-secondary">
+                      {t('businessDay.systemBalance')}
+                    </th>
+                    <th className="px-4 py-2 text-end text-xs font-medium text-content-secondary">
+                      {t('businessDay.countedBalance')}
+                    </th>
+                    <th className="px-4 py-2 text-end text-xs font-medium text-content-secondary">
+                      {t('businessDay.difference')}
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border-base">
+                  {sheet.map((row) => {
+                    const entered = counts[row.accountId] ?? '';
+                    let difference = 0n;
+                    try {
+                      difference =
+                        (entered === '' ? BigInt(row.systemBalance) : parseMoney(entered)) -
+                        BigInt(row.systemBalance);
+                    } catch {
+                      difference = 0n;
+                    }
+
+                    return (
+                      <tr key={row.accountId}>
+                        <td className="px-4 py-2">
+                          <p className="text-sm text-content">{ln(row, 'name')}</p>
+                          <p className="font-mono text-[10px] text-content-tertiary ltr-content">
+                            {row.code}
+                          </p>
+                        </td>
+                        <td className="hidden px-4 py-2 text-end text-sm text-content-secondary sm:table-cell">
+                          <Money value={row.openingBalance} />
+                        </td>
+                        <td className="hidden px-4 py-2 text-end text-sm text-success-text md:table-cell">
+                          <Money value={row.totalIn} />
+                        </td>
+                        <td className="hidden px-4 py-2 text-end text-sm text-danger-text md:table-cell">
+                          <Money value={row.totalOut} />
+                        </td>
+                        <td className="px-4 py-2 text-end text-sm font-medium">
+                          <Money value={row.systemBalance} currency={row.currencyCode} />
+                        </td>
+                        <td className="px-4 py-2">
+                          <MoneyInput
+                            value={entered}
+                            onValueChange={(value) =>
+                              setCounts((current) => ({ ...current, [row.accountId]: value }))
+                            }
+                            className="h-8 max-w-[10rem] ms-auto"
+                            aria-label={`${t('businessDay.countedBalance')} ${row.code}`}
+                          />
+                        </td>
+                        <td
+                          className={cn(
+                            'px-4 py-2 text-end text-sm font-medium tabular-nums',
+                            difference > 0n && 'text-success-text',
+                            difference < 0n && 'text-danger-text',
+                            difference === 0n && 'text-content-tertiary',
+                          )}
+                        >
+                          {difference === 0n ? '—' : <Money value={difference} signed />}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           </div>
 
           {differences.length > 0 && (
@@ -296,29 +369,31 @@ export function BusinessDayView({
         {history.length === 0 ? (
           <EmptyState title={t('common.noResults')} />
         ) : (
-          <table className="w-full">
-            <tbody className="divide-y divide-border-base">
-              {history.map((record) => (
-                <tr key={record.id} className="hover:bg-surface-hover">
-                  <td className="px-4 py-2.5 text-sm text-content">
-                    <DateText value={record.date} />
-                  </td>
-                  <td className="px-4 py-2.5">
-                    <StatusBadge status={record.status} scope="businessDay" />
-                  </td>
-                  <td className="hidden px-4 py-2.5 text-sm text-content-secondary sm:table-cell">
-                    {t('businessDay.transactionCount', { count: record._count?.transactions ?? 0 })}
-                  </td>
-                  <td className="hidden px-4 py-2.5 text-sm text-content-secondary sm:table-cell">
-                    {record.closedBy ? ln(record.closedBy, 'fullName') : '—'}
-                  </td>
-                  <td className="px-4 py-2.5 text-end text-xs text-content-tertiary">
-                    {record.closedAt ? <DateText value={record.closedAt} withTime /> : '—'}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <tbody className="divide-y divide-border-base">
+                {history.map((record) => (
+                  <tr key={record.id} className="hover:bg-surface-hover">
+                    <td className="px-4 py-2.5 text-sm text-content">
+                      <DateText value={record.date} />
+                    </td>
+                    <td className="px-4 py-2.5">
+                      <StatusBadge status={record.status} scope="businessDay" />
+                    </td>
+                    <td className="hidden px-4 py-2.5 text-sm text-content-secondary sm:table-cell">
+                      {t('businessDay.transactionCount', { count: record._count?.transactions ?? 0 })}
+                    </td>
+                    <td className="hidden px-4 py-2.5 text-sm text-content-secondary sm:table-cell">
+                      {record.closedBy ? ln(record.closedBy, 'fullName') : '—'}
+                    </td>
+                    <td className="px-4 py-2.5 text-end text-xs text-content-tertiary">
+                      {record.closedAt ? <DateText value={record.closedAt} withTime /> : '—'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </Card>
 

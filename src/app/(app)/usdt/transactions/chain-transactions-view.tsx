@@ -252,7 +252,7 @@ export function ChainTransactionsView({
       <div className="flex flex-col gap-3 border-b border-border-base p-3 sm:flex-row">
         <Select
           options={[
-            { value: '', label: t('common.all') },
+            { value: '', label: t('common.allWallets') },
             ...wallets.map((wallet) => ({ value: wallet.id, label: ln(wallet, 'label') })),
           ]}
           value={walletId}
@@ -264,7 +264,7 @@ export function ChainTransactionsView({
         />
         <Select
           options={[
-            { value: '', label: t('common.all') },
+            { value: '', label: t('common.allDirections') },
             { value: 'IN', label: t('usdt.incoming') },
             { value: 'OUT', label: t('usdt.outgoing') },
           ]}
@@ -277,7 +277,7 @@ export function ChainTransactionsView({
         />
         <Select
           options={[
-            { value: '', label: t('common.all') },
+            { value: '', label: t('common.allStatuses') },
             { value: 'PENDING', label: t('usdt.status.PENDING') },
             { value: 'CONFIRMED', label: t('usdt.status.CONFIRMED') },
             { value: 'FAILED', label: t('usdt.status.FAILED') },

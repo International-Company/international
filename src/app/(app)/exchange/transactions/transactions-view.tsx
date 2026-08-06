@@ -155,7 +155,7 @@ export function TransactionsView({ permissions }: { permissions: string[] }) {
   ];
 
   const statusOptions = [
-    { value: '', label: t('common.all') },
+    { value: '', label: t('common.allStatuses') },
     ...TRANSACTION_STATUSES.map((value) => ({
       value,
       label: t(`transactions.status.${value}` as never),
@@ -163,7 +163,7 @@ export function TransactionsView({ permissions }: { permissions: string[] }) {
   ];
 
   const typeOptions = [
-    { value: '', label: t('common.all') },
+    { value: '', label: t('common.allTypes') },
     ...TRANSACTION_TYPES.map((value) => ({
       value,
       label: t(`transactions.type.${value}` as never),
@@ -205,6 +205,7 @@ export function TransactionsView({ permissions }: { permissions: string[] }) {
           <Select
             options={statusOptions}
             value={status}
+            aria-label={t('common.status')}
             onChange={(event) => {
               setStatus(event.target.value);
               setPage(1);
@@ -214,6 +215,7 @@ export function TransactionsView({ permissions }: { permissions: string[] }) {
           <Select
             options={typeOptions}
             value={type}
+            aria-label={t('common.type')}
             onChange={(event) => {
               setType(event.target.value);
               setPage(1);

@@ -132,12 +132,17 @@ export function AppShell({
       {/* ---------------------------------------------------------------- */}
       <aside
         className={cn(
-          'fixed inset-y-0 z-40 flex flex-col border-e border-border-base bg-surface',
-          'transition-[width,transform] duration-200 ease-out',
+          'fixed inset-y-0 z-40 flex-col border-e border-border-base bg-surface',
+          'transition-[width] duration-200 ease-out',
           collapsed ? 'w-16' : 'w-60',
           'inset-inline-start-0',
-          mobileOpen ? 'translate-x-0' : 'ltr:-translate-x-full rtl:translate-x-full',
-          'lg:translate-x-0',
+          // Closed on a phone means removed, not parked off-screen. A fixed
+          // element translated past the edge still counts towards the page's
+          // scrollable width — and `overflow: clip` on an ancestor cannot
+          // reclaim it, because a fixed element's containing block is the
+          // viewport. The result was a page that could be dragged sideways to
+          // reveal a menu that was supposed to be shut.
+          mobileOpen ? 'flex animate-in' : 'hidden lg:flex',
         )}
       >
         <div className="flex h-14 items-center gap-2.5 border-b border-border-base px-4">
@@ -224,7 +229,11 @@ export function AppShell({
             type="button"
             onClick={() => setPaletteOpen(true)}
             className={cn(
-              'flex h-9 flex-1 items-center gap-2 rounded-[var(--radius-control)] px-3 sm:max-w-md',
+              // `min-w-0` is load-bearing: a flex item will not shrink below
+              // its content's intrinsic width without it, so on a narrow phone
+              // this button kept its natural size and pushed the action buttons
+              // beyond the right edge, making the whole page scroll sideways.
+              'flex h-9 min-w-0 flex-1 items-center gap-2 rounded-[var(--radius-control)] px-3 sm:max-w-md',
               'border border-border-base bg-surface-sunken text-sm text-content-tertiary',
               'transition-colors hover:bg-surface-hover',
             )}
@@ -236,7 +245,7 @@ export function AppShell({
             </kbd>
           </button>
 
-          <div className="ms-auto flex items-center gap-0.5">
+          <div className="ms-auto flex shrink-0 items-center gap-0.5">
             <Button
               variant="ghost"
               size="icon"

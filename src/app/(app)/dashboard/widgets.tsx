@@ -185,36 +185,38 @@ export function DashboardWidgets({ data }: { data: DashboardData }) {
               {t('rates.noRates')}
             </p>
           ) : (
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-border-base">
-                  <th className="px-4 py-2 text-start text-xs font-medium text-content-secondary">
-                    {t('rates.pair')}
-                  </th>
-                  <th className="px-4 py-2 text-end text-xs font-medium text-content-secondary">
-                    {t('rates.buyRate')}
-                  </th>
-                  <th className="px-4 py-2 text-end text-xs font-medium text-content-secondary">
-                    {t('rates.sellRate')}
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border-base">
-                {data.rates.slice(0, 6).map((rate) => (
-                  <tr key={rate.id}>
-                    <td className="px-4 py-2 text-sm font-medium text-content ltr-content">
-                      {rate.baseCode}/{rate.quoteCode}
-                    </td>
-                    <td className="px-4 py-2 text-end text-sm text-content">
-                      <Rate value={rate.buyRate} />
-                    </td>
-                    <td className="px-4 py-2 text-end text-sm text-content">
-                      <Rate value={rate.sellRate} />
-                    </td>
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-border-base">
+                    <th className="px-4 py-2 text-start text-xs font-medium text-content-secondary">
+                      {t('rates.pair')}
+                    </th>
+                    <th className="px-4 py-2 text-end text-xs font-medium text-content-secondary">
+                      {t('rates.buyRate')}
+                    </th>
+                    <th className="px-4 py-2 text-end text-xs font-medium text-content-secondary">
+                      {t('rates.sellRate')}
+                    </th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody className="divide-y divide-border-base">
+                  {data.rates.slice(0, 6).map((rate) => (
+                    <tr key={rate.id}>
+                      <td className="px-4 py-2 text-sm font-medium text-content ltr-content">
+                        {rate.baseCode}/{rate.quoteCode}
+                      </td>
+                      <td className="px-4 py-2 text-end text-sm text-content">
+                        <Rate value={rate.buyRate} />
+                      </td>
+                      <td className="px-4 py-2 text-end text-sm text-content">
+                        <Rate value={rate.sellRate} />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </Card>
       </div>
@@ -242,43 +244,45 @@ export function DashboardWidgets({ data }: { data: DashboardData }) {
             </p>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full">
-                <tbody className="divide-y divide-border-base">
-                  {data.recentTransactions.map((transaction) => (
-                    <tr key={transaction.id} className="hover:bg-surface-hover">
-                      <td className="px-4 py-2.5">
-                        <Link
-                          href={`/exchange/transactions/${transaction.id}`}
-                          className="font-mono text-xs text-primary-text ltr-content hover:underline"
-                        >
-                          {transaction.reference}
-                        </Link>
-                        <p className="mt-0.5 text-xs text-content-tertiary">
-                          {transaction.customer
-                            ? ln(transaction.customer, 'fullName')
-                            : ln(transaction.createdBy, 'fullName')}
-                        </p>
-                      </td>
-                      <td className="px-4 py-2.5 hidden sm:table-cell">
-                        <TransactionTypeBadge type={transaction.type} />
-                      </td>
-                      <td className="px-4 py-2.5 text-end">
-                        <Money
-                          value={transaction.fromAmount}
-                          currency={transaction.fromCurrency}
-                          className="text-sm font-medium"
-                        />
-                      </td>
-                      <td className="px-4 py-2.5 hidden sm:table-cell">
-                        <StatusBadge status={transaction.status} />
-                      </td>
-                      <td className="px-4 py-2.5 text-end text-xs text-content-tertiary">
-                        <DateText value={transaction.createdAt} relative />
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <tbody className="divide-y divide-border-base">
+                    {data.recentTransactions.map((transaction) => (
+                      <tr key={transaction.id} className="hover:bg-surface-hover">
+                        <td className="px-4 py-2.5">
+                          <Link
+                            href={`/exchange/transactions/${transaction.id}`}
+                            className="font-mono text-xs text-primary-text ltr-content hover:underline"
+                          >
+                            {transaction.reference}
+                          </Link>
+                          <p className="mt-0.5 text-xs text-content-tertiary">
+                            {transaction.customer
+                              ? ln(transaction.customer, 'fullName')
+                              : ln(transaction.createdBy, 'fullName')}
+                          </p>
+                        </td>
+                        <td className="px-4 py-2.5 hidden sm:table-cell">
+                          <TransactionTypeBadge type={transaction.type} />
+                        </td>
+                        <td className="px-4 py-2.5 text-end">
+                          <Money
+                            value={transaction.fromAmount}
+                            currency={transaction.fromCurrency}
+                            className="text-sm font-medium"
+                          />
+                        </td>
+                        <td className="px-4 py-2.5 hidden sm:table-cell">
+                          <StatusBadge status={transaction.status} />
+                        </td>
+                        <td className="px-4 py-2.5 text-end text-xs text-content-tertiary">
+                          <DateText value={transaction.createdAt} relative />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
           )}
         </Card>

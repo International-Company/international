@@ -92,7 +92,7 @@ export function NotificationsView({ initial }: { initial: InboxResponse }) {
       <div className="flex flex-col gap-3 border-b border-border-base p-3 sm:flex-row sm:items-center">
         <Select
           options={[
-            { value: '', label: t('common.all') },
+            { value: '', label: t('common.allTypes') },
             ...['CRITICAL', 'WARNING', 'INFO', 'SUCCESS'].map((value) => ({
               value,
               label: t(`notifications.severity.${value}` as never),

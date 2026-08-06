@@ -188,7 +188,7 @@ export function AuditView({
           />
           <Select
             options={[
-              { value: '', label: t('common.all') },
+              { value: '', label: t('common.allModules') },
               ...MODULES.map((value) => ({ value, label: value })),
             ]}
             value={module}

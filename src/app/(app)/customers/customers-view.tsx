@@ -238,7 +238,7 @@ export function CustomersView({
           />
           <Select
             options={[
-              { value: '', label: t('common.all') },
+              { value: '', label: t('common.allStatuses') },
               ...['NONE', 'PENDING', 'VERIFIED', 'REJECTED', 'EXPIRED'].map((value) => ({
                 value,
                 label: t(`customers.kycStatus.${value}` as never),

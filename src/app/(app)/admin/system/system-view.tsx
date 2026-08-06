@@ -220,46 +220,48 @@ export function SystemView({
         {tasks.length === 0 ? (
           <EmptyState title={t('common.noResults')} />
         ) : (
-          <table className="w-full">
-            <tbody className="divide-y divide-border-base">
-              {tasks.map((task) => (
-                <tr key={task.id} className="hover:bg-surface-hover">
-                  <td className="px-4 py-2.5">
-                    <p className="text-sm text-content">{ln(task, 'name')}</p>
-                    <p className="font-mono text-[10px] text-content-tertiary ltr-content">
-                      {task.jobName}
-                    </p>
-                  </td>
-                  <td className="hidden px-4 py-2.5 text-sm text-content-secondary sm:table-cell">
-                    {t('system.interval')}: {task.intervalSeconds}s
-                  </td>
-                  <td className="px-4 py-2.5">
-                    {task.lastStatus ? (
-                      <StatusBadge status={task.lastStatus} scope="usdt" />
-                    ) : (
-                      <Badge tone="neutral">{t('common.never')}</Badge>
-                    )}
-                  </td>
-                  <td className="hidden px-4 py-2.5 text-xs text-content-secondary md:table-cell">
-                    {t('system.nextRun')}: <DateText value={task.nextRunAt} relative />
-                  </td>
-                  <td className="px-4 py-2.5 text-end">
-                    {canManage && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        icon={<Play />}
-                        loading={busy === task.key}
-                        onClick={() => void runTask(task.key)}
-                      >
-                        {t('system.runNow')}
-                      </Button>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <tbody className="divide-y divide-border-base">
+                {tasks.map((task) => (
+                  <tr key={task.id} className="hover:bg-surface-hover">
+                    <td className="px-4 py-2.5">
+                      <p className="text-sm text-content">{ln(task, 'name')}</p>
+                      <p className="font-mono text-[10px] text-content-tertiary ltr-content">
+                        {task.jobName}
+                      </p>
+                    </td>
+                    <td className="hidden px-4 py-2.5 text-sm text-content-secondary sm:table-cell">
+                      {t('system.interval')}: {task.intervalSeconds}s
+                    </td>
+                    <td className="px-4 py-2.5">
+                      {task.lastStatus ? (
+                        <StatusBadge status={task.lastStatus} scope="usdt" />
+                      ) : (
+                        <Badge tone="neutral">{t('common.never')}</Badge>
+                      )}
+                    </td>
+                    <td className="hidden px-4 py-2.5 text-xs text-content-secondary md:table-cell">
+                      {t('system.nextRun')}: <DateText value={task.nextRunAt} relative />
+                    </td>
+                    <td className="px-4 py-2.5 text-end">
+                      {canManage && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          icon={<Play />}
+                          loading={busy === task.key}
+                          onClick={() => void runTask(task.key)}
+                        >
+                          {t('system.runNow')}
+                        </Button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </Card>
 
@@ -276,55 +278,57 @@ export function SystemView({
         {jobs.length === 0 ? (
           <EmptyState title={t('system.noJobs')} />
         ) : (
-          <table className="w-full">
-            <tbody className="divide-y divide-border-base">
-              {jobs.map((job) => (
-                <tr key={job.id} className="hover:bg-surface-hover">
-                  <td className="px-4 py-2.5">
-                    <p className="font-mono text-xs text-content ltr-content">{job.name}</p>
-                    {job.lastError && (
-                      <p className="mt-0.5 truncate text-xs text-danger-text">{job.lastError}</p>
-                    )}
-                  </td>
-                  <td className="px-4 py-2.5">
-                    <StatusBadge status={job.status} scope="system" />
-                  </td>
-                  <td className="hidden px-4 py-2.5 text-sm text-content-secondary tabular-nums sm:table-cell">
-                    {job.attempts}/{job.maxAttempts}
-                  </td>
-                  <td className="hidden px-4 py-2.5 text-xs text-content-secondary md:table-cell">
-                    <DateText value={job.runAt} relative />
-                  </td>
-                  <td className="px-4 py-2.5 text-end">
-                    {canManage && (
-                      <div className="flex justify-end gap-1">
-                        {job.status === 'FAILED' && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            loading={busy === job.id}
-                            onClick={() => void jobAction(job.id, 'retryJob')}
-                          >
-                            {t('system.retryJob')}
-                          </Button>
-                        )}
-                        {job.status === 'PENDING' && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            loading={busy === job.id}
-                            onClick={() => void jobAction(job.id, 'cancelJob')}
-                          >
-                            {t('system.cancelJob')}
-                          </Button>
-                        )}
-                      </div>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <tbody className="divide-y divide-border-base">
+                {jobs.map((job) => (
+                  <tr key={job.id} className="hover:bg-surface-hover">
+                    <td className="px-4 py-2.5">
+                      <p className="font-mono text-xs text-content ltr-content">{job.name}</p>
+                      {job.lastError && (
+                        <p className="mt-0.5 truncate text-xs text-danger-text">{job.lastError}</p>
+                      )}
+                    </td>
+                    <td className="px-4 py-2.5">
+                      <StatusBadge status={job.status} scope="system" />
+                    </td>
+                    <td className="hidden px-4 py-2.5 text-sm text-content-secondary tabular-nums sm:table-cell">
+                      {job.attempts}/{job.maxAttempts}
+                    </td>
+                    <td className="hidden px-4 py-2.5 text-xs text-content-secondary md:table-cell">
+                      <DateText value={job.runAt} relative />
+                    </td>
+                    <td className="px-4 py-2.5 text-end">
+                      {canManage && (
+                        <div className="flex justify-end gap-1">
+                          {job.status === 'FAILED' && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              loading={busy === job.id}
+                              onClick={() => void jobAction(job.id, 'retryJob')}
+                            >
+                              {t('system.retryJob')}
+                            </Button>
+                          )}
+                          {job.status === 'PENDING' && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              loading={busy === job.id}
+                              onClick={() => void jobAction(job.id, 'cancelJob')}
+                            >
+                              {t('system.cancelJob')}
+                            </Button>
+                          )}
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </Card>
     </div>

@@ -104,10 +104,13 @@ export const SETTINGS: SettingDefinition[] = [
     descriptionEn: 'Copies printed per transaction', descriptionAr: 'عدد النسخ المطبوعة لكل عملية',
   },
   {
-    key: 'operations.lowBalanceThreshold', category: 'operations', type: 'money', defaultValue: '1000',
-    labelEn: 'Low balance alert', labelAr: 'تنبيه الرصيد المنخفض',
-    descriptionEn: 'Notify when a cash drawer falls below this amount',
-    descriptionAr: 'تنبيه عندما ينخفض رصيد الصندوق عن هذا المبلغ',
+    key: 'operations.lowBalanceThreshold', category: 'operations', type: 'money', defaultValue: '0',
+    labelEn: 'Low balance alert',
+    labelAr: 'تنبيه الرصيد المنخفض',
+    descriptionEn:
+      'Notify when a cash drawer falls below this amount. Zero disables the alert — set the figure your branch actually works to, rather than inheriting one.',
+    descriptionAr:
+      'تنبيه عندما ينخفض رصيد الصندوق عن هذا المبلغ. القيمة صفر تعطّل التنبيه — اضبط الرقم الذي يعمل به فرعك فعلاً بدل قيمة موروثة.',
   },
 
   // --- Approvals -----------------------------------------------------------
@@ -120,10 +123,13 @@ export const SETTINGS: SettingDefinition[] = [
       'معطّل: تُرحَّل كل عملية إلى الدفاتر فوراً مهما بلغت قيمتها. مفعّل: العمليات التي تبلغ الحد أدناه أو تتجاوزه تنتظر توقيعاً ثانياً.',
   },
   {
-    key: 'approvals.threshold', category: 'approvals', type: 'money', defaultValue: '10000',
-    labelEn: 'Approval threshold', labelAr: 'حد الاعتماد',
-    descriptionEn: 'Transactions at or above this value require approval, expressed in the reporting currency',
-    descriptionAr: 'العمليات التي تبلغ هذه القيمة أو تتجاوزها تتطلب اعتماداً، بعملة التقارير',
+    key: 'approvals.threshold', category: 'approvals', type: 'money', defaultValue: '0',
+    labelEn: 'Approval threshold',
+    labelAr: 'حد الاعتماد',
+    descriptionEn:
+      'Transactions at or above this value require approval, in the reporting currency. Zero means every transaction does — so switching approvals on without setting a figure fails safe rather than doing nothing.',
+    descriptionAr:
+      'العمليات التي تبلغ هذه القيمة أو تتجاوزها تتطلب اعتماداً، بعملة التقارير. القيمة صفر تعني أن كل عملية تتطلب اعتماداً — فتفعيل الاعتمادات دون ضبط رقم يفشل إلى الجانب الآمن بدل ألا يفعل شيئاً.',
   },
   {
     key: 'approvals.selfApproval', category: 'approvals', type: 'boolean', defaultValue: false,
