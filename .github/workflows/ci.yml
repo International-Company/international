@@ -1,0 +1,81 @@
+name: CI
+
+# Everything here runs on Linux, because that is where this system is deployed
+# and development happens on Windows. That gap is exactly how a build can pass
+# locally and fail in production, so CI closes it on every push.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    name: typecheck, tests, build
+
+    env:
+      NODE_ENV: production
+      # Only decides the Prisma provider; nothing here connects.
+      DATABASE_URL: postgresql://user:pass@unreachable.internal:5432/ci
+      AUTH_SECRET: continuous-integration-secret-value-not-a-real-one
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci --no-audit --no-fund
+
+      - name: Generate Prisma client
+        run: npm run db:generate
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Unit tests
+        # Money arithmetic and audit-chain tamper detection — the two places a
+        # silent regression would be most expensive.
+        run: npm test
+
+      - name: Production build
+        run: npm run build
+
+  image:
+    runs-on: ubuntu-latest
+    name: production image
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build
+        run: docker build -t ifms:ci .
+
+      - name: Start it
+        run: |
+          docker run -d --name ifms-ci \
+            -e DATABASE_URL="postgresql://u:p@127.0.0.1:5432/none" \
+            -e AUTH_SECRET="continuous-integration-secret-value-not-a-real" \
+            -e JOBS_ENABLED=false \
+            -p 3000:3000 ifms:ci
+
+          sleep 20
+          echo "--- container log ---"
+          docker logs ifms-ci 2>&1 | tail -25
+
+          # With no database reachable, `deploy:start` is expected to stop at
+          # the schema step. What this proves is that the image builds, boots,
+          # and resolves the right database provider — the deployment is never
+          # the first time this Dockerfile has been run.
+          if docker logs ifms-ci 2>&1 | grep -q 'Datasource "db": PostgreSQL'; then
+            echo "OK: image starts and targets PostgreSQL"
+          else
+            echo "FAIL: image did not reach the schema step"
+            exit 1
+          fi
+
+          docker rm -f ifms-ci >/dev/null 2>&1 || true
