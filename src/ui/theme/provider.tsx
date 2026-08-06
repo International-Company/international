@@ -18,8 +18,9 @@ import {
  * choice always wins over the OS.
  *
  * The resolved class is applied to <html> in a layout effect and mirrored to a
- * cookie, so the inline boot script (see `ThemeScript`) can set the correct
- * class before first paint. Without that, every page load would flash white.
+ * cookie, so the inline boot script (`src/app/preference-script.tsx`) can set
+ * the correct class before first paint. Without it, every page load on a
+ * dark-themed workstation would flash white.
  */
 
 export type ThemePreference = 'light' | 'dark' | 'system';
@@ -136,30 +137,7 @@ export function useTheme(): ThemeContextValue {
   return context;
 }
 
-/**
- * Runs before React hydrates and before the first paint. It reads the stored
- * preference and stamps the class on <html> synchronously, which is the only
- * way to avoid a white flash on a dark-themed workstation.
- */
-export function ThemeScript({
-  theme = 'system',
-  density = 'comfortable',
-}: {
-  theme?: ThemePreference;
-  density?: Density;
-}) {
-  const script = `
-(function(){
-  try {
-    var pref = ${JSON.stringify(theme)};
-    var dark = pref === 'dark' ||
-      (pref === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
-    var root = document.documentElement;
-    root.classList.toggle('dark', dark);
-    root.style.colorScheme = dark ? 'dark' : 'light';
-    root.dataset.density = ${JSON.stringify(density)};
-  } catch (e) {}
-})();`.trim();
-
-  return <script dangerouslySetInnerHTML={{ __html: script }} suppressHydrationWarning />;
-}
+// The pre-paint boot script lives in `src/app/preference-script.tsx`. It also
+// applies language and direction, and reads its values from cookies in the
+// browser rather than taking them as props — the root layout is static and
+// cannot read cookies itself. Keeping one script avoids two that can disagree.

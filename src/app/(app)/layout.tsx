@@ -1,7 +1,16 @@
 import { redirect } from 'next/navigation';
+import { cookies } from 'next/headers';
 import { getSession } from '@/modules/auth/context';
 import { unreadCount } from '@/modules/notifications/notifications.service';
+import { resolveLocale, LOCALE_COOKIE } from '@/i18n/config';
+import {
+  DENSITY_COOKIE,
+  THEME_COOKIE,
+  type Density,
+  type ThemePreference,
+} from '@/ui/theme/provider';
 import { AppShell } from '../_shell/app-shell';
+import { Providers } from '../providers';
 import { bootstrap } from '@/core/bootstrap';
 
 /**
@@ -29,23 +38,37 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   const unread = await unreadCount(session.user.id);
 
+  // Preferences come from the profile first, then the cookie. This layout is
+  // already dynamic, so resolving them here costs nothing and means the first
+  // server render is in the right language and theme.
+  const store = await cookies();
+  const locale = resolveLocale(session.user.locale || store.get(LOCALE_COOKIE)?.value);
+  const theme = (session.user.theme ||
+    store.get(THEME_COOKIE)?.value ||
+    'system') as ThemePreference;
+  const density = (session.user.density ||
+    store.get(DENSITY_COOKIE)?.value ||
+    'comfortable') as Density;
+
   return (
-    <AppShell
-      user={{
-        id: session.user.id,
-        fullNameEn: session.user.fullNameEn,
-        fullNameAr: session.user.fullNameAr,
-        jobTitleEn: session.user.jobTitleEn,
-        jobTitleAr: session.user.jobTitleAr,
-        username: session.user.username,
-        branchNameEn: session.user.branchNameEn,
-        branchNameAr: session.user.branchNameAr,
-        permissions: session.user.permissions,
-        roles: session.user.roles,
-      }}
-      unreadCount={unread}
-    >
-      {children}
-    </AppShell>
+    <Providers locale={locale} theme={theme} density={density}>
+      <AppShell
+        user={{
+          id: session.user.id,
+          fullNameEn: session.user.fullNameEn,
+          fullNameAr: session.user.fullNameAr,
+          jobTitleEn: session.user.jobTitleEn,
+          jobTitleAr: session.user.jobTitleAr,
+          username: session.user.username,
+          branchNameEn: session.user.branchNameEn,
+          branchNameAr: session.user.branchNameAr,
+          permissions: session.user.permissions,
+          roles: session.user.roles,
+        }}
+        unreadCount={unread}
+      >
+        {children}
+      </AppShell>
+    </Providers>
   );
 }

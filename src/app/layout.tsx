@@ -1,25 +1,23 @@
 import type { Metadata, Viewport } from 'next';
 import { IBM_Plex_Sans_Arabic, Inter } from 'next/font/google';
-import { cookies } from 'next/headers';
-import { LOCALE_COOKIE, LOCALE_META, resolveLocale } from '@/i18n/config';
-import { LocaleProvider } from '@/i18n/provider';
-import {
-  DENSITY_COOKIE,
-  THEME_COOKIE,
-  ThemeProvider,
-  ThemeScript,
-  type Density,
-  type ThemePreference,
-} from '@/ui/theme/provider';
-import { ToastProvider } from '@/ui/overlay';
+import { DEFAULT_LOCALE, LOCALE_META } from '@/i18n/config';
+import { PreferenceScript } from './preference-script';
 import './globals.css';
 
 /**
- * Root layout.
+ * Root layout — the document shell, and nothing else.
  *
- * `lang` and `dir` are resolved on the server from the locale cookie, so the
- * very first paint is already in the correct direction — an Arabic operator
- * never sees the interface assemble left-to-right and then flip.
+ * It deliberately performs **no I/O**: no cookies, no session, no database.
+ * Anything dynamic here makes every route in the application dynamic, including
+ * `/_not-found`, which forces Next to generate the 404 from the pages-router
+ * error shell instead of the App Router's own. Keeping this layout static lets
+ * the App Router own its 404.
+ *
+ * Language and theme are therefore applied by `PreferenceScript`, which runs
+ * before first paint and reads the same cookies the server would have. The
+ * server-rendered attributes below are only the defaults it corrects.
+ * Authenticated pages still resolve the locale on the server — see
+ * `(app)/layout.tsx`, which is dynamic and passes it into the providers.
  */
 
 const latin = Inter({
@@ -46,19 +44,6 @@ export const metadata: Metadata = {
   icons: { icon: '/favicon.svg' },
 };
 
-/**
- * Nothing in this application may be prerendered at build time.
- *
- * Every page is specific to the signed-in operator, their permissions, their
- * branch and their language — there is no page whose HTML is the same for two
- * users, so a build-time snapshot is never correct. The layout already reads
- * cookies, which makes routes dynamic as a side effect; stating it explicitly
- * makes that a guarantee rather than an accident, and stops the builder from
- * attempting to prerender shells like `/404` in an environment that has no
- * request, no session and no reachable database.
- */
-export const dynamic = 'force-dynamic';
-
 export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
@@ -69,31 +54,19 @@ export const viewport: Viewport = {
   ],
 };
 
-export default async function RootLayout({ children }: { children: React.ReactNode }) {
-  const store = await cookies();
-
-  const locale = resolveLocale(store.get(LOCALE_COOKIE)?.value);
-  const theme = (store.get(THEME_COOKIE)?.value ?? 'system') as ThemePreference;
-  const density = (store.get(DENSITY_COOKIE)?.value ?? 'comfortable') as Density;
-
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html
-      lang={locale}
-      dir={LOCALE_META[locale].dir}
-      data-locale={locale}
-      data-density={density}
+      lang={DEFAULT_LOCALE}
+      dir={LOCALE_META[DEFAULT_LOCALE].dir}
+      // The preference script rewrites lang/dir/class/data-density before
+      // hydration, so React must not object to the attributes changing.
       suppressHydrationWarning
     >
       <head>
-        <ThemeScript theme={theme} density={density} />
+        <PreferenceScript />
       </head>
-      <body className={`${latin.variable} ${arabic.variable} antialiased`}>
-        <ThemeProvider initialTheme={theme} initialDensity={density}>
-          <LocaleProvider initialLocale={locale}>
-            <ToastProvider>{children}</ToastProvider>
-          </LocaleProvider>
-        </ThemeProvider>
-      </body>
+      <body className={`${latin.variable} ${arabic.variable} antialiased`}>{children}</body>
     </html>
   );
 }

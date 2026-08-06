@@ -1,34 +1,39 @@
-'use client';
-
 import Link from 'next/link';
-import { useLocale } from '@/i18n/provider';
 
 /**
  * The 404 page.
  *
- * Deliberately a client component. Next prerenders this route at build time,
- * where there is no request and no reachable database — so resolving the
- * session here (to read the user's saved language) fails the build, and Next
- * reports it as the misleading "`<Html>` should not be imported" error from its
- * fallback error shell.
+ * Rendered under the static root layout, so it has no locale context and must
+ * not read cookies, resolve a session or touch the database — doing any of that
+ * is what made this route dynamic and pushed 404 generation onto the
+ * pages-router error shell, which fails to build.
  *
- * It renders inside the root layout, so `LocaleProvider` already has the locale
- * that was resolved from the cookie on the server. Translation works exactly as
- * everywhere else, with no I/O of its own.
+ * Both languages are shown rather than one. A 404 is frequently reached from a
+ * stale link or a typed URL, where there may be no session and therefore no
+ * language preference to honour; showing both is more useful than guessing.
  */
 export default function NotFound() {
-  const { t } = useLocale();
-
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center gap-3 bg-canvas px-4 text-center">
+    <div className="flex min-h-screen flex-col items-center justify-center gap-2 bg-canvas px-4 text-center">
       <p className="font-mono text-5xl font-bold text-content-tertiary">404</p>
-      <h1 className="text-lg font-semibold text-content">{t('errors.pageNotFound')}</h1>
-      <p className="max-w-sm text-sm text-content-secondary">{t('errors.pageNotFoundBody')}</p>
+
+      <h1 className="mt-2 text-lg font-semibold text-content">Page not found</h1>
+      <p className="text-lg font-semibold text-content" dir="rtl">
+        الصفحة غير موجودة
+      </p>
+
+      <p className="mt-2 max-w-sm text-sm text-content-secondary">
+        The page you are looking for does not exist or has moved.
+      </p>
+      <p className="max-w-sm text-sm text-content-secondary" dir="rtl">
+        الصفحة التي تبحث عنها غير موجودة أو تم نقلها.
+      </p>
+
       <Link
         href="/dashboard"
-        className="mt-2 rounded-[var(--radius-control)] bg-primary px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-primary-hover"
+        className="mt-5 rounded-[var(--radius-control)] bg-primary px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-primary-hover"
       >
-        {t('errors.goHome')}
+        Dashboard · لوحة المعلومات
       </Link>
     </div>
   );
