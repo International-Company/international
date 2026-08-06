@@ -1,22 +1,26 @@
 import { PrismaClient } from '@prisma/client';
 import { generatePassword, hashPassword } from '../src/core/security/scrypt';
 import { PERMISSIONS, SYSTEM_ROLES, resolveRolePermissions } from '../src/core/security/permissions';
-import { chartForCurrency, ACCOUNT_CODES } from '../src/modules/ledger/accounts';
+import { chartForCurrency } from '../src/modules/ledger/accounts';
 import { SETTINGS } from '../src/modules/settings/settings.catalog';
 import { DEFAULT_SCHEDULE } from '../src/core/jobs/schedule';
-import { parseMoney } from '../src/core/money/money';
 
 /**
  * Database seeder.
  *
- * Idempotent by design — every write is an upsert keyed on a natural key, so
- * running it against an existing database refreshes reference data (permissions,
- * the chart of accounts, the schedule) without touching operational records or
- * resetting anybody's password.
+ * Installs **reference data only** — the branch, currencies, chart of accounts,
+ * permissions, roles, settings, the background schedule, and the accounts needed
+ * to sign in. Nothing operational.
  *
- * Demonstration data (customers, rates, a wallet, opening balances) is only
- * created when the database is empty, so a live deployment never grows sample
- * rows after an upgrade.
+ * There are deliberately no sample customers, no exchange rates and no opening
+ * balances. Invented rates are dangerous on a live desk — a teller can trade
+ * against a placeholder nobody remembered to replace — and invented balances
+ * mean the books disagree with the drawer from the first day. With no rates
+ * published, pricing fails closed until a manager publishes real ones.
+ *
+ * Idempotent: every write is an upsert on a natural key, so re-running against
+ * an existing database refreshes reference data without touching operational
+ * records or resetting anybody's password.
  */
 
 const prisma = new PrismaClient();
@@ -29,31 +33,26 @@ const CURRENCIES = [
 ];
 
 /**
- * Development accounts. Passwords are printed once at the end of the run and
- * every account is flagged `mustChangePassword`, so none of these can survive
- * into production unchanged.
+ * The accounts needed to sign in on a fresh installation.
+ *
+ * Every one is flagged `mustChangePassword`, and outside development only the
+ * manager is created — with a generated password printed once to the deploy log.
+ * The manager then creates real staff accounts through the interface.
  */
 const USERS = [
   { username: 'admin', email: 'admin@ifms.local', fullNameEn: 'Manager', fullNameAr: 'المدير', jobTitleEn: 'Manager', jobTitleAr: 'المدير', role: 'ADMIN', password: 'Admin!Pass2026' },
   { username: 'teller', email: 'teller@ifms.local', fullNameEn: 'Front Desk Teller', fullNameAr: 'موظف الواجهة', jobTitleEn: 'Teller', jobTitleAr: 'التلر', role: 'TELLER', password: 'Teller!Pass2026' },
 ];
 
-/** Indicative mid-market rates; the desk publishes its own on day one. */
-const RATES = [
-  { baseCode: 'USD', quoteCode: 'ILS', buy: '3.6200', sell: '3.7100' },
-  { baseCode: 'JOD', quoteCode: 'ILS', buy: '5.0800', sell: '5.2400' },
-  { baseCode: 'USDT', quoteCode: 'ILS', buy: '3.6000', sell: '3.7300' },
-  { baseCode: 'USD', quoteCode: 'JOD', buy: '0.7050', sell: '0.7150' },
-];
-
 async function main() {
   console.log('▶ Seeding IFMS…\n');
 
-  // Governs both demonstration records and which accounts get provisioned.
-  // Never true in production unless explicitly forced.
-  const allowDemoData =
-    process.env.SEED_DEMO_DATA === 'true' ||
-    (process.env.SEED_DEMO_DATA !== 'false' && process.env.NODE_ENV !== 'production');
+  // Whether to provision the extra teller account with a known password for
+  // local testing. A production install gets the manager alone, with a password
+  // that is generated rather than written down anywhere.
+  const seedTestAccounts =
+    process.env.SEED_TEST_ACCOUNTS === 'true' ||
+    (process.env.SEED_TEST_ACCOUNTS !== 'false' && process.env.NODE_ENV !== 'production');
 
   // --- Branch ---------------------------------------------------------------
   const branch = await prisma.branch.upsert({
@@ -260,14 +259,14 @@ async function main() {
 
   // --- Users -----------------------------------------------------------------
   //
-  // In production only the administrator is provisioned, and never with the
-  // fixed development password — those are published in the README, which
-  // would make every deployment trivially compromised. The password comes from
+  // In production only the manager is provisioned, and never with the fixed
+  // development password — those are published in the README, which would make
+  // every deployment trivially compromised. The password comes from
   // ADMIN_PASSWORD if supplied, otherwise it is generated and printed once to
   // the deploy log.
   const created: { username: string; password: string; role: string }[] = [];
 
-  const accountsToCreate = allowDemoData
+  const accountsToCreate = seedTestAccounts
     ? USERS
     : USERS.filter((user) => user.role === 'ADMIN').map((user) => ({
         ...user,
@@ -306,169 +305,8 @@ async function main() {
     `  users           ${created.length} created, ${accountsToCreate.length - created.length} existing`,
   );
 
-  // --- Demonstration data ------------------------------------------------------
-  //
-  // Never seeded into production. Indicative rates and sample customers are
-  // useful on a developer's machine and actively dangerous on a live desk: a
-  // teller could trade against a placeholder rate that nobody published. With
-  // no rates, pricing fails closed until an administrator publishes real ones,
-  // which is the correct behaviour on day one.
-  const hasRates = (await prisma.exchangeRate.count()) > 0;
-
-  if (!allowDemoData) {
-    console.log('  demo data       skipped (production — publish real rates in the UI)');
-  } else if (!hasRates) {
-    const admin = await prisma.user.findUnique({ where: { username: 'admin' } });
-
-    for (const rate of RATES) {
-      const buyRate = parseMoney(rate.buy);
-      const sellRate = parseMoney(rate.sell);
-
-      await prisma.exchangeRate.create({
-        data: {
-          baseCode: rate.baseCode,
-          quoteCode: rate.quoteCode,
-          buyRate,
-          sellRate,
-          midRate: (buyRate + sellRate) / 2n,
-          source: 'MANUAL',
-          note: 'Initial rate board',
-          createdById: admin?.id ?? null,
-        },
-      });
-    }
-    console.log(`  rates           ${RATES.length}`);
-
-    // Opening balances, posted as a proper balanced journal entry per currency
-    // rather than written directly to the accounts — the ledger is the only
-    // thing permitted to move a balance, including at go-live.
-    const openingBalances: { currency: string; amount: string }[] = [
-      { currency: 'ILS', amount: '250000' },
-      { currency: 'USD', amount: '80000' },
-      { currency: 'JOD', amount: '30000' },
-      { currency: 'USDT', amount: '50000' },
-    ];
-
-    let sequence = 0;
-    for (const opening of openingBalances) {
-      const currency = CURRENCIES.find((c) => c.code === opening.currency)!;
-      const assetCode =
-        currency.kind === 'CRYPTO'
-          ? ACCOUNT_CODES.crypto(opening.currency)
-          : ACCOUNT_CODES.cash(opening.currency);
-
-      const [asset, equity] = await Promise.all([
-        prisma.account.findUnique({ where: { code: assetCode } }),
-        prisma.account.findUnique({ where: { code: ACCOUNT_CODES.openingBalance(opening.currency) } }),
-      ]);
-      if (!asset || !equity) continue;
-
-      const amount = parseMoney(opening.amount);
-      sequence++;
-
-      await prisma.$transaction(async (tx) => {
-        const entry = await tx.journalEntry.create({
-          data: {
-            reference: `JRN-OPENING-${String(sequence).padStart(3, '0')}`,
-            description: `Opening balance — ${opening.currency}`,
-            descriptionAr: `رصيد افتتاحي — ${opening.currency}`,
-          },
-        });
-
-        await tx.journalLine.createMany({
-          data: [
-            {
-              entryId: entry.id,
-              accountId: asset.id,
-              currencyCode: opening.currency,
-              debit: amount,
-              credit: 0n,
-              balanceAfter: amount,
-              memo: 'Opening balance',
-              sequence: 0,
-            },
-            {
-              entryId: entry.id,
-              accountId: equity.id,
-              currencyCode: opening.currency,
-              debit: 0n,
-              credit: amount,
-              balanceAfter: amount,
-              memo: 'Opening balance',
-              sequence: 1,
-            },
-          ],
-        });
-
-        await tx.account.update({ where: { id: asset.id }, data: { balance: amount } });
-        await tx.account.update({ where: { id: equity.id }, data: { balance: amount } });
-      });
-    }
-    console.log(`  opening entries ${sequence}`);
-
-    // Sample customers
-    const customers = [
-      { code: 'CUS-000001', fullNameEn: 'Ahmad Mahmoud', fullNameAr: 'أحمد محمود', phone: '0599123456', nationalId: '401234567', kycStatus: 'VERIFIED' },
-      { code: 'CUS-000002', fullNameEn: 'Layla Hassan', fullNameAr: 'ليلى حسن', phone: '0567891234', nationalId: '402345678', kycStatus: 'VERIFIED' },
-      { code: 'CUS-000003', fullNameEn: 'Nour Trading Co.', fullNameAr: 'شركة نور التجارية', phone: '0227654321', taxNumber: '556677889', kycStatus: 'PENDING', type: 'COMPANY' },
-    ];
-
-    for (const customer of customers) {
-      await prisma.customer.upsert({
-        where: { code: customer.code },
-        create: { ...customer, branchId: branch.id, city: 'Ramallah', country: 'PS' },
-        update: {},
-      });
-    }
-
-    // Keep the reference counter ahead of the codes just inserted.
-    await prisma.sequence.upsert({
-      where: { key: 'CUS:ALL' },
-      create: { key: 'CUS:ALL', value: customers.length },
-      update: { value: customers.length },
-    });
-    console.log(`  customers       ${customers.length}`);
-
-    // A monitored wallet on the MANUAL network.
-    //
-    // Deliberately not TRON: a placeholder address is not a real one, and
-    // pointing a live provider at it would fail validation on every sync cycle
-    // and fill the log with errors that look like an outage. Add real addresses
-    // through the UI, where the provider validates them on entry.
-    const cryptoAccount = await prisma.account.findUnique({
-      where: { code: ACCOUNT_CODES.crypto('USDT') },
-    });
-
-    await prisma.wallet.upsert({
-      where: {
-        network_address_tokenSymbol: {
-          network: 'MANUAL',
-          address: 'TREASURY-USDT-DEMO',
-          tokenSymbol: 'USDT',
-        },
-      },
-      create: {
-        label: 'Main Treasury Wallet',
-        labelAr: 'محفظة الخزينة الرئيسية',
-        network: 'MANUAL',
-        address: 'TREASURY-USDT-DEMO',
-        tokenSymbol: 'USDT',
-        isWatchOnly: true,
-        minConfirmations: 19,
-        accountId: cryptoAccount?.id ?? null,
-        balance: parseMoney('50000'),
-        balanceUpdatedAt: new Date(),
-        lastSyncStatus: 'NEVER',
-      },
-      update: {},
-    });
-    console.log('  wallets         1 (manual — add real addresses in the UI)');
-  } else {
-    console.log('  demo data       skipped (database already has rates)');
-  }
-
   // --- Summary ----------------------------------------------------------------
-  console.log('\n✔ Seed complete.\n');
+  console.log('\n✔ Seed complete — reference data only, no operational records.\n');
 
   if (created.length > 0) {
     console.log('  Sign-in accounts — every one must change its password on first use:\n');
@@ -476,14 +314,31 @@ async function main() {
       console.log(`    ${user.username.padEnd(12)} ${user.password.padEnd(20)} ${user.role}`);
     }
 
-    if (allowDemoData) {
+    if (seedTestAccounts) {
       console.log('\n  ⚠  Development credentials. Change them before any real use,');
-      console.log('     and set a strong AUTH_SECRET before deploying.\n');
+      console.log('     and set a strong AUTH_SECRET before deploying.');
     } else {
       console.log('\n  ⚠  This password is shown ONCE and only in this deploy log.');
-      console.log('     Sign in, change it immediately, then create real accounts.\n');
+      console.log('     Sign in and change it immediately.');
     }
   }
+
+  // The system is deliberately empty. Say what has to happen before it can be
+  // used, so nobody discovers it at the counter with a customer waiting.
+  console.log('\n  Before the first transaction:\n');
+  console.log('    1. Exchange → Rates        publish a rate for every pair you trade.');
+  console.log('                               Until then pricing refuses to quote.');
+  console.log('    2. Daily Closing           open the business day.');
+  console.log('    3. Transactions → New      enter opening balances as an Internal');
+  console.log('                               Adjustment, one per currency:');
+  console.log('                               From "Opening Balance" → To "Cash Drawer".');
+  console.log('    4. Administration → Users  create the real staff accounts.\n');
+  console.log('  Note on step 3: an opening balance usually exceeds the approval');
+  console.log('  threshold, and nobody may approve their own entry. Either have a');
+  console.log('  teller record it and approve it yourself, or switch on');
+  console.log('  Settings → Approvals → Allow self-approval for the setup only and');
+  console.log('  switch it back off afterwards. Both the setting change and the');
+  console.log('  entries are recorded in the audit trail.\n');
 }
 
 main()

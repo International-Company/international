@@ -268,6 +268,11 @@ const ar: Dictionary = {
     noApprovalNeeded: 'تُرحّل مباشرة',
     quote: 'التسعير',
     quoteHint: 'يُطبَّق السعر من لوحة الأسعار الحيّة عند الحفظ.',
+    adjustmentFrom: 'من حساب',
+    adjustmentTo: 'إلى حساب',
+    adjustmentHint:
+      'يجب أن يكون الحسابان بنفس العملة. لتعبئة صندوق النقد عند بدء التشغيل، حوّل من حساب الرصيد الافتتاحي.',
+    adjustmentSameAccount: 'يجب أن يختلف الحساب المصدر عن الحساب الهدف',
     youReceive: 'العميل يدفع',
     youGive: 'العميل يستلم',
     emptyTitle: 'لا توجد عمليات بعد',

@@ -47,6 +47,41 @@ threshold themselves, nobody can approve it. Either let the teller enter it, add
 a second manager account, or turn on *Settings → Approvals → Allow self-approval*
 — which trades that control away.
 
+### The system starts empty
+
+There are **no sample customers, no exchange rates and no opening balances** —
+not in development and not in production. Invented rates are dangerous on a live
+desk, because a teller can trade against a placeholder nobody remembered to
+replace; invented balances mean the books disagree with the drawer from day one.
+With no rates published, pricing refuses to quote rather than guessing.
+
+Bringing a branch live:
+
+1. **Exchange → Rates** — publish a rate for every pair you trade.
+2. **Daily Closing** — open the business day.
+3. **Transactions → New** — enter opening balances as an *Internal Adjustment*,
+   one per currency: from **Opening Balance** to **Cash Drawer**. This posts a
+   real double entry (debit cash, credit equity), so the ledger balances from
+   the first record rather than having a figure written into it.
+4. **Administration → Users** — create the real staff accounts.
+
+An opening balance usually exceeds the approval threshold, and nobody may
+approve their own entry. Either have a teller record it and approve it yourself,
+or switch on *Settings → Approvals → Allow self-approval* for the setup and
+switch it back off. Both the setting change and the entries are audited.
+
+To clear test data before going live:
+
+```bash
+npm run db:clear-operational -- --confirm
+```
+
+That removes every transaction, journal entry, customer, wallet, rate, business
+day, notification and audit record, and resets all balances to zero — keeping
+the branch, currencies, chart of accounts, permissions, roles, users and
+settings. It deletes the audit trail wholesale rather than in part, so the
+hash chain restarts cleanly from genesis instead of being left broken.
+
 ### Scripts
 
 | Command             | What it does                                     |

@@ -264,6 +264,11 @@ const en = {
     noApprovalNeeded: 'Posts immediately',
     quote: 'Quote',
     quoteHint: 'The rate is applied from the live board when you save.',
+    adjustmentFrom: 'From account',
+    adjustmentTo: 'To account',
+    adjustmentHint:
+      'Both accounts must be in the same currency. To load a cash drawer at go-live, move from the opening balance account.',
+    adjustmentSameAccount: 'The source and destination account must differ',
     youReceive: 'Customer gives',
     youGive: 'Customer receives',
     emptyTitle: 'No transactions yet',

@@ -92,6 +92,8 @@ export function NewTransactionForm({
   const [counterpartyName, setCounterpartyName] = useState('');
   const [counterpartyPhone, setCounterpartyPhone] = useState('');
   const [notes, setNotes] = useState('');
+  const [sourceAccountId, setSourceAccountId] = useState('');
+  const [destinationAccountId, setDestinationAccountId] = useState('');
 
   const [quote, setQuote] = useState<Quote | null>(null);
   const [quoting, setQuoting] = useState(false);
@@ -101,6 +103,19 @@ export function NewTransactionForm({
 
   const amountRef = useRef<HTMLInputElement>(null);
   const meta = TRANSACTION_TYPE_META[type];
+
+  /**
+   * An internal adjustment names both sides explicitly — it is the only way to
+   * move value between two of the company's own accounts, and the mechanism a
+   * manager uses to enter opening balances at go-live (equity → cash drawer).
+   * Both sides must share a currency; crossing currencies is what an exchange
+   * is for.
+   */
+  const isAdjustment = type === 'ADJUSTMENT';
+  const adjustmentAccounts = useMemo(
+    () => accounts.filter((account) => account.currencyCode === fromCurrency),
+    [accounts, fromCurrency],
+  );
 
   // --- Restore an interrupted draft ---------------------------------------
   useEffect(() => {
@@ -211,6 +226,7 @@ export function NewTransactionForm({
           fromAmount: amount,
           ...(meta.isCrossCurrency ? { toCurrency } : {}),
           ...(feeAmount ? { feeCurrency: fromCurrency, feeAmount } : {}),
+          ...(isAdjustment ? { sourceAccountId, destinationAccountId } : {}),
           customerId: customer?.id ?? null,
           counterpartyName: counterpartyName || null,
           counterpartyPhone: counterpartyPhone || null,
@@ -244,12 +260,26 @@ export function NewTransactionForm({
     }
   };
 
-  const canSubmit = Boolean(amount) && Number(amount) > 0 && !submitting &&
-    (!meta.isCrossCurrency || (quote !== null && !quoteError));
+  const canSubmit =
+    Boolean(amount) &&
+    Number(amount) > 0 &&
+    !submitting &&
+    (!meta.isCrossCurrency || (quote !== null && !quoteError)) &&
+    // An adjustment with one side missing, or both sides the same, would be
+    // rejected by the ledger — catch it before the round trip.
+    (!isAdjustment ||
+      (Boolean(sourceAccountId) &&
+        Boolean(destinationAccountId) &&
+        sourceAccountId !== destinationAccountId));
 
   const currencyOptions = currencies.map((currency) => ({
     value: currency.code,
     label: `${currency.code} — ${ln(currency, 'name')}`,
+  }));
+
+  const accountOptions = adjustmentAccounts.map((account) => ({
+    value: account.id,
+    label: `${account.code} — ${ln(account, 'name')}`,
   }));
 
   const typeOptions = TRANSACTION_TYPES.map((value) => ({
@@ -370,6 +400,49 @@ export function NewTransactionForm({
                   </span>
                 )}
               </div>
+            )}
+
+            {isAdjustment && (
+              <>
+                <FormGrid columns={2}>
+                  <Field
+                    label={t('transactions.adjustmentFrom')}
+                    hint={t('transactions.adjustmentHint')}
+                    required
+                    error={fieldErrors.sourceAccountId}
+                  >
+                    {(props) => (
+                      <Select
+                        {...props}
+                        options={accountOptions}
+                        value={sourceAccountId}
+                        placeholder={t('common.select')}
+                        onChange={(event) => setSourceAccountId(event.target.value)}
+                      />
+                    )}
+                  </Field>
+
+                  <Field
+                    label={t('transactions.adjustmentTo')}
+                    required
+                    error={fieldErrors.destinationAccountId}
+                  >
+                    {(props) => (
+                      <Select
+                        {...props}
+                        options={accountOptions}
+                        value={destinationAccountId}
+                        placeholder={t('common.select')}
+                        onChange={(event) => setDestinationAccountId(event.target.value)}
+                      />
+                    )}
+                  </Field>
+                </FormGrid>
+
+                {sourceAccountId !== '' && sourceAccountId === destinationAccountId && (
+                  <p className="text-xs text-danger-text">{t('transactions.adjustmentSameAccount')}</p>
+                )}
+              </>
             )}
 
             <FormGrid columns={2}>
