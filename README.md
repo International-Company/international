@@ -18,16 +18,34 @@ npm run dev               # http://localhost:3000
 `npm run setup` prints the seeded sign-in accounts. Every one of them is flagged
 **must change password on first sign-in**.
 
-| Username     | Role         | Sees                                            |
-| ------------ | ------------ | ----------------------------------------------- |
-| `admin`      | Administrator| Everything                                      |
-| `manager`    | Branch Manager | Operations, approvals, rates, daily close     |
-| `teller`     | Teller       | Own transactions, customers, rate board          |
-| `accountant` | Accountant   | Ledger, reconciliation, financial reports        |
-| `auditor`    | Auditor      | Read-only across every module + audit chain      |
+| Username  | Role    | Permissions | Sees                                                        |
+| --------- | ------- | ----------- | ----------------------------------------------------------- |
+| `admin`   | Manager | 58 / 58     | Everything — approvals, rates, daily close, users, settings |
+| `teller`  | Teller  | 17          | Own transactions, customers, rate board                     |
 
 > These are development credentials. Change them and set a strong `AUTH_SECRET`
 > before any real use.
+
+### Two roles, deliberately
+
+The system ships exactly two: a **manager** who supervises, and a **teller** who
+operates. That is what makes the approval workflow mean anything — the teller
+records a transaction, the manager approves it, so no one person both creates
+and authorises a movement of money.
+
+The teller cannot approve, reverse, publish a rate, close the day, or see
+another teller's transactions. Intermediate roles were removed rather than kept
+"just in case": each one blurs that line without adding capability, since the
+manager already holds every permission.
+
+The permission catalogue is still complete (58 entries), so a bespoke role can
+be created under *Administration → Roles* without touching code.
+
+**One consequence worth knowing:** approval is disabled for the person who
+created the transaction. If the manager records a transaction above the approval
+threshold themselves, nobody can approve it. Either let the teller enter it, add
+a second manager account, or turn on *Settings → Approvals → Allow self-approval*
+— which trades that control away.
 
 ### Scripts
 

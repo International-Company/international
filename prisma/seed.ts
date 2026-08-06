@@ -34,11 +34,8 @@ const CURRENCIES = [
  * into production unchanged.
  */
 const USERS = [
-  { username: 'admin', email: 'admin@ifms.local', fullNameEn: 'System Administrator', fullNameAr: 'مدير النظام', jobTitleEn: 'Administrator', jobTitleAr: 'مدير النظام', role: 'ADMIN', password: 'Admin!Pass2026' },
-  { username: 'manager', email: 'manager@ifms.local', fullNameEn: 'Branch Manager', fullNameAr: 'مدير الفرع', jobTitleEn: 'Branch Manager', jobTitleAr: 'مدير الفرع', role: 'MANAGER', password: 'Manager!Pass2026' },
-  { username: 'teller', email: 'teller@ifms.local', fullNameEn: 'Front Desk Teller', fullNameAr: 'صرّاف الواجهة', jobTitleEn: 'Teller', jobTitleAr: 'صرّاف', role: 'TELLER', password: 'Teller!Pass2026' },
-  { username: 'accountant', email: 'accountant@ifms.local', fullNameEn: 'Chief Accountant', fullNameAr: 'المحاسب الرئيسي', jobTitleEn: 'Accountant', jobTitleAr: 'محاسب', role: 'ACCOUNTANT', password: 'Account!Pass2026' },
-  { username: 'auditor', email: 'auditor@ifms.local', fullNameEn: 'Internal Auditor', fullNameAr: 'المدقق الداخلي', jobTitleEn: 'Auditor', jobTitleAr: 'مدقق', role: 'AUDITOR', password: 'Auditor!Pass2026' },
+  { username: 'admin', email: 'admin@ifms.local', fullNameEn: 'Manager', fullNameAr: 'المدير', jobTitleEn: 'Manager', jobTitleAr: 'المدير', role: 'ADMIN', password: 'Admin!Pass2026' },
+  { username: 'teller', email: 'teller@ifms.local', fullNameEn: 'Front Desk Teller', fullNameAr: 'موظف الواجهة', jobTitleEn: 'Teller', jobTitleAr: 'التلر', role: 'TELLER', password: 'Teller!Pass2026' },
 ];
 
 /** Indicative mid-market rates; the desk publishes its own on day one. */
@@ -167,6 +164,52 @@ async function main() {
     });
   }
   console.log(`  roles           ${SYSTEM_ROLES.length}`);
+
+  // --- Retire roles removed from the catalogue -------------------------------
+  //
+  // Deleting a role here cascades to its permissions and its user assignments,
+  // so a user who held only that role is left with none — and therefore with no
+  // permissions at all. That is the safe direction (access fails closed rather
+  // than lingering), but it must never happen silently: the affected accounts
+  // are reported so an administrator can reassign them.
+  //
+  // Only system roles are pruned. A role an administrator created through the
+  // UI is theirs, and is left alone.
+  const obsolete = await prisma.role.findMany({
+    where: { isSystem: true, key: { notIn: SYSTEM_ROLES.map((r) => r.key) } },
+    include: { users: { include: { user: { select: { id: true, username: true } } } } },
+  });
+
+  if (obsolete.length > 0) {
+    const stranded = new Map<string, string>();
+
+    for (const role of obsolete) {
+      for (const assignment of role.users) {
+        // Count the roles this user will still hold once the pruning is done.
+        const remaining = await prisma.userRole.count({
+          where: {
+            userId: assignment.userId,
+            role: { key: { in: SYSTEM_ROLES.map((r) => r.key) } },
+          },
+        });
+        if (remaining === 0) stranded.set(assignment.user.username, role.key);
+      }
+
+      await prisma.role.delete({ where: { id: role.id } });
+    }
+
+    console.log(`  retired roles   ${obsolete.map((r) => r.key).join(', ')}`);
+
+    if (stranded.size > 0) {
+      console.log('');
+      console.log('  ⚠  These accounts now hold no role and can sign in but do nothing:');
+      for (const [username, previousRole] of stranded) {
+        console.log(`       ${username.padEnd(14)} (was ${previousRole})`);
+      }
+      console.log('     Assign a role under Administration → Users, or disable them.');
+      console.log('');
+    }
+  }
 
   // --- Settings -------------------------------------------------------------
   for (const setting of SETTINGS) {

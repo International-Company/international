@@ -232,50 +232,38 @@ export interface RoleDefinition {
   permissions: string[] | '*';
 }
 
+/**
+ * The system has exactly two roles: a manager who supervises, and a teller who
+ * operates. Nothing else.
+ *
+ * That split is what makes the approval workflow meaningful — the teller records
+ * a transaction and the manager approves it, so no single person can both create
+ * and authorise a movement of money. Adding intermediate roles would blur that
+ * line without adding capability, since the manager already holds everything.
+ *
+ * The permission catalogue remains complete, so a bespoke role can still be
+ * created through Administration → Roles without touching this file.
+ */
 export const SYSTEM_ROLES: RoleDefinition[] = [
   {
     key: 'ADMIN',
-    nameEn: 'Administrator',
-    nameAr: 'مدير النظام',
-    descriptionEn: 'Full control over the entire system',
-    descriptionAr: 'تحكم كامل بجميع أجزاء النظام',
+    nameEn: 'Manager',
+    nameAr: 'المدير',
+    descriptionEn:
+      'Supervises the teller and controls the system: approves transactions, publishes rates, closes the day, and manages users, settings and backups',
+    descriptionAr:
+      'يشرف على عمل التلر ويتحكم بالنظام: يعتمد العمليات وينشر الأسعار وينفذ الإغلاق اليومي ويدير المستخدمين والإعدادات والنسخ الاحتياطي',
     level: 0,
     permissions: '*',
   },
   {
-    key: 'MANAGER',
-    nameEn: 'Branch Manager',
-    nameAr: 'مدير الفرع',
-    descriptionEn: 'Runs daily operations, approves transactions and closes the day',
-    descriptionAr: 'يدير العمليات اليومية ويعتمد العمليات وينفذ الإغلاق',
-    level: 10,
-    permissions: [
-      'dashboard.view', 'dashboard.financials.view',
-      'exchange.transaction.view', 'exchange.transaction.viewAll', 'exchange.transaction.create',
-      'exchange.transaction.update', 'exchange.transaction.delete', 'exchange.transaction.approve',
-      'exchange.transaction.reject', 'exchange.transaction.post', 'exchange.transaction.reverse',
-      'exchange.transaction.overrideLimit', 'exchange.receipt.print',
-      'exchange.rate.view', 'exchange.rate.manage',
-      'exchange.account.view', 'exchange.account.manage',
-      'exchange.day.view', 'exchange.day.open', 'exchange.day.close',
-      'usdt.wallet.view', 'usdt.wallet.manage', 'usdt.wallet.sync',
-      'usdt.transaction.view', 'usdt.transaction.link', 'usdt.transaction.reconcile',
-      'customers.view', 'customers.create', 'customers.update', 'customers.block',
-      'customers.kyc.manage', 'customers.balance.view',
-      'reports.view', 'reports.financial.view', 'reports.export',
-      'notifications.view', 'notifications.broadcast',
-      'users.view', 'users.sessions.manage',
-      'audit.view',
-      'settings.view',
-      'system.monitor', 'system.backup.view',
-    ],
-  },
-  {
     key: 'TELLER',
     nameEn: 'Teller',
-    nameAr: 'صرّاف',
-    descriptionEn: 'Front-desk operator: records transactions and serves customers',
-    descriptionAr: 'موظف الواجهة: يسجل العمليات ويخدم العملاء',
+    nameAr: 'التلر',
+    descriptionEn:
+      'Front-desk operator: records transactions, serves customers and prints receipts. Cannot approve their own work.',
+    descriptionAr:
+      'موظف الواجهة: يسجل العمليات ويخدم العملاء ويطبع الإيصالات. لا يستطيع اعتماد عمله بنفسه.',
     level: 50,
     permissions: [
       'dashboard.view',
@@ -288,49 +276,6 @@ export const SYSTEM_ROLES: RoleDefinition[] = [
       'customers.view', 'customers.create', 'customers.update', 'customers.balance.view',
       'reports.view',
       'notifications.view',
-    ],
-  },
-  {
-    key: 'ACCOUNTANT',
-    nameEn: 'Accountant',
-    nameAr: 'محاسب',
-    descriptionEn: 'Reviews the ledger, reconciles balances and produces reports',
-    descriptionAr: 'يراجع القيود ويسوي الأرصدة ويصدر التقارير',
-    level: 20,
-    permissions: [
-      'dashboard.view', 'dashboard.financials.view',
-      'exchange.transaction.view', 'exchange.transaction.viewAll', 'exchange.transaction.reverse',
-      'exchange.receipt.print',
-      'exchange.rate.view',
-      'exchange.account.view', 'exchange.account.manage',
-      'exchange.day.view', 'exchange.day.close',
-      'usdt.wallet.view', 'usdt.transaction.view', 'usdt.transaction.reconcile',
-      'customers.view', 'customers.balance.view',
-      'reports.view', 'reports.financial.view', 'reports.export',
-      'notifications.view',
-      'audit.view',
-      'system.backup.view',
-    ],
-  },
-  {
-    key: 'AUDITOR',
-    nameEn: 'Auditor',
-    nameAr: 'مدقق',
-    descriptionEn: 'Read-only oversight across every module',
-    descriptionAr: 'صلاحية اطلاع فقط على جميع الوحدات',
-    level: 30,
-    permissions: [
-      'dashboard.view', 'dashboard.financials.view',
-      'exchange.transaction.view', 'exchange.transaction.viewAll',
-      'exchange.rate.view', 'exchange.account.view', 'exchange.day.view',
-      'usdt.wallet.view', 'usdt.transaction.view',
-      'customers.view', 'customers.balance.view',
-      'reports.view', 'reports.financial.view', 'reports.export',
-      'notifications.view',
-      'users.view',
-      'audit.view', 'audit.verify', 'audit.export',
-      'settings.view',
-      'system.monitor', 'system.backup.view',
     ],
   },
 ];
