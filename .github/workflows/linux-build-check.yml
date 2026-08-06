@@ -1,0 +1,101 @@
+name: Linux build check
+
+# Reproduces the Railway build on Linux.
+#
+# The production build passes on Windows and fails on the Railway builder, so
+# there is no way to see the real fault from a developer machine here. This runs
+# the identical command on Ubuntu and, when it fails, dumps enough of the build
+# output to identify what is actually being pulled into the failing chunk —
+# rather than the misleading message Next.js surfaces.
+#
+# Safe to delete once the deployment is stable.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    env:
+      # Matches Railway: NODE_ENV is set during the build, and the database is
+      # a PostgreSQL URL that is not reachable from the builder.
+      NODE_ENV: production
+      DATABASE_URL: postgresql://user:pass@unreachable.internal:5432/railway
+      AUTH_SECRET: github-actions-build-check-secret-not-a-real-one
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Environment
+        run: |
+          echo "node: $(node -v)"
+          echo "npm:  $(npm -v)"
+          echo "os:   $(uname -a)"
+
+      - name: Install exactly as the builder does
+        run: npm ci
+
+      - name: Check for duplicate framework copies
+        run: |
+          echo "--- next ---";       npm ls next --all 2>&1 | grep -c "next@" || true
+          echo "--- react ---";      npm ls react --all 2>&1 | grep "react@" | sort -u || true
+          echo "--- react-dom ---";  npm ls react-dom --all 2>&1 | grep "react-dom@" | sort -u || true
+          echo "--- anything importing next/document ---"
+          grep -rl "next/document" node_modules --include=*.js --exclude-dir=next 2>/dev/null | head -20 || echo "none outside next itself"
+
+      - name: Build
+        id: build
+        continue-on-error: true
+        run: npm run build 2>&1 | tee /tmp/build.log
+
+      - name: Diagnose the failure
+        if: steps.build.outcome == 'failure'
+        run: |
+          echo "=============== BUILD FAILED — DIAGNOSTICS ==============="
+
+          echo; echo "--- which chunks contain the <Html> guard ---"
+          grep -rl "should not be imported outside of pages/_document" .next/server 2>/dev/null || echo "none found"
+
+          echo; echo "--- what else lives in those chunks (module paths) ---"
+          for f in $(grep -rl "should not be imported outside of pages/_document" .next/server/chunks 2>/dev/null); do
+            echo "### $f ($(wc -c < "$f") bytes)"
+            # Webpack leaves module paths in the sourcemap; failing that, look
+            # for recognisable package names inside the chunk itself.
+            if [ -f "$f.map" ]; then
+              node -e "
+                const m = require('$f.map');
+                const s = (m.sources || []).filter(x => !x.includes('webpack/runtime'));
+                console.log(s.slice(0, 40).join('\n'));
+              " 2>/dev/null || true
+            else
+              grep -o "node_modules/[a-z0-9@._/-]*" "$f" | sort -u | head -40 || true
+            fi
+          done
+
+          echo; echo "--- app vs pages route ownership ---"
+          ls -la .next/server/pages/ 2>/dev/null || echo "no pages dir"
+          echo "app not-found:"; ls -la .next/server/app/_not-found* 2>/dev/null || echo "absent"
+
+          echo; echo "--- prerender manifest routes ---"
+          node -e "
+            try {
+              const m = require('./.next/prerender-manifest.json');
+              console.log(Object.keys(m.routes || {}).join('\n') || '(none)');
+            } catch (e) { console.log('unreadable: ' + e.message); }
+          " || true
+
+          echo; echo "--- last 60 lines of the build log ---"
+          tail -60 /tmp/build.log
+
+          exit 1
+
+      - name: Report success
+        if: steps.build.outcome == 'success'
+        run: echo "Linux build succeeded — the failure is specific to the Railway builder."
