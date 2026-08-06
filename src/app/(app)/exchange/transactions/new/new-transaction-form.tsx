@@ -237,12 +237,7 @@ export function NewTransactionForm({
 
       localStorage.removeItem(DRAFT_KEY);
 
-      toast.success(
-        result.status === 'POSTED'
-          ? t('transactions.status.POSTED')
-          : t('transactions.status.PENDING_APPROVAL'),
-        result.reference,
-      );
+      toast.success(t('transactions.status.POSTED'), result.reference);
 
       router.push(`/exchange/transactions/${result.id}`);
       router.refresh();
@@ -603,7 +598,7 @@ export function NewTransactionForm({
             icon={<Check />}
             iconEnd={<ArrowRight />}
           >
-            {t('transactions.submitForApproval')}
+            {t('transactions.submit')}
           </Button>
         </div>
       </form>

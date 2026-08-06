@@ -17,9 +17,9 @@ import { containsInsensitive } from '@/core/db/search';
  *
  * When a confirmed transfer is detected the system does not simply log it: it
  * creates a real internal transaction in DRAFT, links the two records, and
- * notifies whoever is authorised to act. That transaction then travels the same
- * approval and posting path as a counter operation, so on-chain money enters
- * the books through exactly one door.
+ * notifies whoever can act on it. The draft is never posted automatically —
+ * the chain proves money moved, not whose it is, and posting a receipt to the
+ * wrong customer costs far more to unwind than a moment's confirmation.
  */
 
 const log = createLogger('usdt:sync');
@@ -253,7 +253,7 @@ async function notifyTransfer(chainTransactionId: string, db: DbClient): Promise
 
 /**
  * Runs once a transfer reaches the wallet's confirmation threshold: creates the
- * matching internal transaction so it enters the approval queue.
+ * matching internal transaction, saved as a draft for the teller to confirm.
  */
 async function onConfirmed(chainTransactionId: string, db: DbClient): Promise<void> {
   const record = await db.chainTransaction.findUnique({
@@ -306,12 +306,6 @@ export async function createInternalTransaction(
     const incoming = record.direction === 'IN';
     const reference = await nextReference('TXN', tx);
 
-    // Honour the branch's approval policy rather than forcing a second
-    // signature. With the workflow off the transfer is left as a draft, not
-    // posted automatically: the chain proves the money moved, it does not
-    // prove whose it is, and posting a receipt to the wrong customer is far
-    // more expensive to unwind than asking an operator to confirm it.
-    const policy = await settings.approvalPolicy(tx);
 
     const transaction = await tx.transaction.create({
       data: {
@@ -328,7 +322,6 @@ export async function createInternalTransaction(
         rate: 100_000_000n,
         counterpartyName: maskAddress(incoming ? record.fromAddress : record.toAddress),
         notes: `On-chain ${record.network} transfer ${record.txHash}`,
-        requiresApproval: policy.enabled,
         valueDate: record.blockTimestamp ?? new Date(),
         createdById: systemUser,
         metadata: JSON.stringify({
@@ -345,21 +338,6 @@ export async function createInternalTransaction(
       data: { linkedTransactionId: transaction.id, processedAt: new Date() },
     });
 
-    if (policy.enabled) {
-      await tx.transactionApproval.create({
-        data: {
-          transactionId: transaction.id,
-          step: 1,
-          requiredPermission: 'exchange.transaction.approve',
-          status: 'PENDING',
-        },
-      });
-
-      await tx.transaction.update({
-        where: { id: transaction.id },
-        data: { status: 'PENDING_APPROVAL' },
-      });
-    }
 
     await audit.record(
       {
@@ -382,23 +360,18 @@ export async function createInternalTransaction(
     await notifications.notify(
       {
         severity: 'WARNING',
-        eventKey: policy.enabled ? 'usdt.awaitingApproval' : 'usdt.awaitingReview',
+        eventKey: 'usdt.awaitingReview',
         module: 'usdt',
         titleEn: 'On-chain transfer needs review',
         titleAr: 'تحويل شبكي بانتظار المراجعة',
-        bodyEn: policy.enabled
-          ? `${reference} — ${amount} ${direction}. Confirm the customer and approve.`
-          : `${reference} — ${amount} ${direction}. Saved as a draft: confirm the customer, then submit it.`,
-        bodyAr: policy.enabled
-          ? `${reference} — ${amount} ${directionAr}. أكد العميل ثم اعتمد العملية.`
-          : `${reference} — ${amount} ${directionAr}. حُفظت كمسودة: أكد العميل ثم أرسلها.`,
+        bodyEn: `${reference} — ${amount} ${direction}. Saved as a draft: confirm the customer, then submit it.`,
+        bodyAr: `${reference} — ${amount} ${directionAr}. حُفظت كمسودة: أكد العميل ثم أرسلها.`,
         entityType: 'Transaction',
         entityId: transaction.id,
         link: `/exchange/transactions/${transaction.id}`,
       },
-      // With no approval step there is no approver; route it to whoever can
-      // act on the transaction instead.
-      { permission: policy.enabled ? 'exchange.transaction.approve' : 'exchange.transaction.update' },
+      // Routed to whoever can act on the transaction — there is no approver.
+      { permission: 'exchange.transaction.update' },
       tx,
     );
 

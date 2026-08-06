@@ -107,9 +107,7 @@ model User {
   notifications   NotificationRecipient[]
 
   createdTransactions  Transaction[] @relation("TransactionCreatedBy")
-  approvedTransactions Transaction[] @relation("TransactionApprovedBy")
   journalEntries       JournalEntry[]
-  approvalActions      TransactionApproval[]
   openedDays           BusinessDay[] @relation("DayOpenedBy")
   closedDays           BusinessDay[] @relation("DayClosedBy")
   backups              Backup[]
@@ -143,7 +141,7 @@ model Role {
 
 model Permission {
   id          String  @id @default(cuid())
-  key         String  @unique // "exchange.transaction.approve"
+  key         String  @unique // "exchange.transaction.reverse"
   module      String
   action      String
   nameEn      String
@@ -497,7 +495,7 @@ model CustomerBalance {
 }
 
 // ===========================================================================
-// EXCHANGE — transactions & approvals
+// EXCHANGE — transactions
 // ===========================================================================
 
 model Transaction {
@@ -507,7 +505,7 @@ model Transaction {
   /// CASH_IN | CASH_OUT | EXCHANGE | TRANSFER_IN | TRANSFER_OUT
   /// | DEPOSIT | WITHDRAWAL | USDT_IN | USDT_OUT | ADJUSTMENT
   type String
-  /// DRAFT | PENDING_APPROVAL | APPROVED | POSTED | REJECTED | CANCELLED | REVERSED
+  /// DRAFT | POSTED | CANCELLED | REVERSED — recording a transaction posts it.
   status String @default("DRAFT")
   /// COUNTER | ONLINE | BLOCKCHAIN | SYSTEM
   channel String @default("COUNTER")
@@ -547,19 +545,12 @@ model Transaction {
   internalNotes String?
   metadata      String? // JSON
 
-  // --- Workflow ------------------------------------------------------------
-  requiresApproval Boolean @default(false)
-
+  // --- Lifecycle -----------------------------------------------------------
   createdById String
   createdBy   User   @relation("TransactionCreatedBy", fields: [createdById], references: [id])
 
-  approvedById String?
-  approvedBy   User?     @relation("TransactionApprovedBy", fields: [approvedById], references: [id], onDelete: SetNull)
-  approvedAt   DateTime?
-
-  rejectedById    String?
-  rejectedAt      DateTime?
-  rejectionReason String?
+  /// Why a draft was abandoned. Posted work is undone by reversal, not here.
+  cancelReason String?
 
   postedAt  DateTime?
   valueDate DateTime  @default(now())
@@ -577,7 +568,6 @@ model Transaction {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  approvals        TransactionApproval[]
   journalEntries   JournalEntry[]
   receipts         Receipt[]
   chainTransaction ChainTransaction?
@@ -589,28 +579,6 @@ model Transaction {
   @@index([createdById])
   @@index([valueDate])
   @@map("transactions")
-}
-
-model TransactionApproval {
-  id            String @id @default(cuid())
-  transactionId String
-  transaction   Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
-
-  step             Int    @default(1)
-  requiredPermission String
-  /// PENDING | APPROVED | REJECTED | SKIPPED
-  status           String @default("PENDING")
-
-  actedById String?
-  actedBy   User?     @relation(fields: [actedById], references: [id], onDelete: SetNull)
-  actedAt   DateTime?
-  comment   String?
-
-  createdAt DateTime @default(now())
-
-  @@index([transactionId, step])
-  @@index([status])
-  @@map("transaction_approvals")
 }
 
 model Receipt {
@@ -876,7 +844,7 @@ model AuditLog {
   userAgent String?
   sessionId String?
 
-  /// CREATE | UPDATE | DELETE | LOGIN | LOGOUT | APPROVE | REJECT | POST
+  /// CREATE | UPDATE | DELETE | LOGIN | LOGOUT | POST | REVERSE | CANCEL
   /// | REVERSE | PERMISSION_CHANGE | RATE_CHANGE | WALLET_CHANGE | BACKUP
   /// | RESTORE | SETTING_CHANGE | EXPORT | PRINT | SYNC | SECURITY
   action     String

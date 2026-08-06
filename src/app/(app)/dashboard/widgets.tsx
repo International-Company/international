@@ -27,7 +27,6 @@ import { DateText, Money, Rate, TransactionTypeBadge, StatusBadge } from '@/ui/d
 
 interface DashboardData {
   today: { count: number; volume: { currency: string; volume: string; profit: string; count: number }[]; profit: string };
-  pendingCount: number;
   recentTransactions: {
     id: string;
     reference: string;

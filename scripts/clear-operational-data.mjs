@@ -34,7 +34,6 @@ const OPERATIONAL_TABLES = [
   'journalEntry',
   'dayClosingLine',
   'receipt',
-  'transactionApproval',
   'chainTransaction',
   'walletSnapshot',
   'walletSyncRun',

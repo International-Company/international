@@ -22,15 +22,16 @@ export const TRANSACTION_TYPES = [
 
 export type TransactionType = (typeof TRANSACTION_TYPES)[number];
 
-export const TRANSACTION_STATUSES = [
-  'DRAFT',
-  'PENDING_APPROVAL',
-  'APPROVED',
-  'POSTED',
-  'REJECTED',
-  'CANCELLED',
-  'REVERSED',
-] as const;
+/**
+ * The lifecycle is deliberately short: a transaction is either being worked on,
+ * in the ledger, abandoned, or undone by a mirror entry.
+ *
+ *   DRAFT ──submit──▶ POSTED ──reverse──▶ REVERSED
+ *     └──cancel──▶ CANCELLED
+ *
+ * There is no approval state. Recording a transaction posts it.
+ */
+export const TRANSACTION_STATUSES = ['DRAFT', 'POSTED', 'CANCELLED', 'REVERSED'] as const;
 
 export type TransactionStatus = (typeof TRANSACTION_STATUSES)[number];
 
@@ -83,7 +84,7 @@ export function isTransactionStatus(value: string): value is TransactionStatus {
   return (TRANSACTION_STATUSES as readonly string[]).includes(value);
 }
 
-/** Statuses a teller can still correct. Anything else is history. */
+/** Statuses an operator can still correct. Anything else is history. */
 export const EDITABLE_STATUSES: TransactionStatus[] = ['DRAFT'];
 
 /** Statuses that have reached the ledger. */

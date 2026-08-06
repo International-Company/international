@@ -24,7 +24,6 @@ export type Tone = 'neutral' | 'primary' | 'success' | 'warning' | 'danger';
 export function statusTone(status: string): Tone {
   switch (status) {
     case 'POSTED':
-    case 'APPROVED':
     case 'CONFIRMED':
     case 'COMPLETED':
     case 'VERIFIED':
@@ -32,7 +31,6 @@ export function statusTone(status: string): Tone {
     case 'OK':
     case 'CLOSED':
       return 'success';
-    case 'PENDING_APPROVAL':
     case 'PENDING':
     case 'RUNNING':
     case 'CLOSING':

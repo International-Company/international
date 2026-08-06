@@ -252,17 +252,6 @@ export async function closeDay(
     // Block new postings for the duration of the count.
     await tx.businessDay.update({ where: { id: day.id }, data: { status: 'CLOSING' } });
 
-    const pending = await tx.transaction.count({
-      where: { branchId, status: 'PENDING_APPROVAL', valueDate: { gte: date, lte: dayBounds(date).end } },
-    });
-    if (pending > 0) {
-      // Restore the day — closing with unresolved approvals would strand them.
-      await tx.businessDay.update({ where: { id: day.id }, data: { status: 'OPEN' } });
-      throw errors.precondition(
-        `${pending} transaction(s) are still awaiting approval — resolve them before closing`,
-        'errors.pendingApprovalsBlockClose',
-      );
-    }
 
     const sheet = await closingSheet(branchId, date, tx);
     const sheetByAccount = new Map(sheet.map((row) => [row.accountId, row]));

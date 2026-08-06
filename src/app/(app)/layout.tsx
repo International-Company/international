@@ -11,7 +11,6 @@ import {
 } from '@/ui/theme/provider';
 import { AppShell } from '../_shell/app-shell';
 import { Providers } from '../providers';
-import { getBoolean } from '@/modules/settings/settings.service';
 import { bootstrap } from '@/core/bootstrap';
 
 /**
@@ -38,11 +37,6 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   }
 
   const unread = await unreadCount(session.user.id);
-
-  // Screens for a workflow the branch has switched off are hidden rather than
-  // shown empty — an "Approvals" entry that never has anything in it implies a
-  // step that does not exist.
-  const approvalsEnabled = await getBoolean('approvals.enabled');
 
   // Preferences come from the profile first, then the cookie. This layout is
   // already dynamic, so resolving them here costs nothing and means the first
@@ -72,7 +66,6 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           roles: session.user.roles,
         }}
         unreadCount={unread}
-        features={{ approvals: approvalsEnabled }}
       >
         {children}
       </AppShell>

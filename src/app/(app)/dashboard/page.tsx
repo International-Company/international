@@ -3,7 +3,6 @@ import Link from 'next/link';
 import {
   Activity,
   ArrowLeftRight,
-  BadgeCheck,
   Banknote,
   TrendingUp,
   Wallet,
@@ -69,14 +68,6 @@ export default async function DashboardPage() {
             }
           />
         )}
-
-        <StatTile
-          label={t('dashboard.pendingApprovals')}
-          value={data.pendingCount}
-          icon={<BadgeCheck />}
-          tone={data.pendingCount > 0 ? 'warning' : 'neutral'}
-          href="/exchange/approvals"
-        />
 
         {data.usdtPortfolio && (
           <StatTile

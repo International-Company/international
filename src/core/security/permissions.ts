@@ -81,12 +81,6 @@ export const PERMISSIONS: PermissionDefinition[] = [
     'Edit a transaction that has not been posted', 'تعديل عملية لم تُرحّل بعد'),
   def('exchange.transaction.delete', 'exchange', 'delete', 'Delete draft', 'حذف مسودة',
     'Delete an unposted draft transaction', 'حذف مسودة عملية غير مرحّلة'),
-  def('exchange.transaction.approve', 'exchange', 'approve', 'Approve transaction', 'اعتماد عملية',
-    'Approve transactions awaiting authorisation', 'اعتماد العمليات التي تنتظر الموافقة', true),
-  def('exchange.transaction.reject', 'exchange', 'reject', 'Reject transaction', 'رفض عملية',
-    'Reject transactions awaiting authorisation', 'رفض العمليات التي تنتظر الموافقة', true),
-  def('exchange.transaction.post', 'exchange', 'post', 'Post to ledger', 'ترحيل إلى القيود',
-    'Post an approved transaction to the ledger', 'ترحيل عملية معتمدة إلى دفتر القيود', true),
   def('exchange.transaction.reverse', 'exchange', 'reverse', 'Reverse transaction', 'عكس عملية',
     'Create a reversing entry for a posted transaction', 'إنشاء قيد عكسي لعملية مرحّلة', true),
   def('exchange.transaction.overrideLimit', 'exchange', 'override', 'Override limits', 'تجاوز الحدود',
@@ -236,10 +230,11 @@ export interface RoleDefinition {
  * The system has exactly two roles: a manager who supervises, and a teller who
  * operates. Nothing else.
  *
- * That split is what makes the approval workflow meaningful — the teller records
- * a transaction and the manager approves it, so no single person can both create
- * and authorise a movement of money. Adding intermediate roles would blur that
- * line without adding capability, since the manager already holds everything.
+ * A teller records and posts their own work; the manager sees all of it, holds
+ * the actions that undo it, and controls rates, the daily close and the system
+ * itself. Control is after the fact rather than in the way of it, which is what
+ * a counter needs. Adding intermediate roles would blur that line without adding
+ * capability, since the manager already holds everything.
  *
  * The permission catalogue remains complete, so a bespoke role can still be
  * created through Administration → Roles without touching this file.
@@ -250,9 +245,9 @@ export const SYSTEM_ROLES: RoleDefinition[] = [
     nameEn: 'Manager',
     nameAr: 'المدير',
     descriptionEn:
-      'Supervises the teller and controls the system: approves transactions, publishes rates, closes the day, and manages users, settings and backups',
+      'Supervises the teller and controls the system: reviews and reverses transactions, publishes rates, closes the day, and manages users, settings and backups',
     descriptionAr:
-      'يشرف على عمل التلر ويتحكم بالنظام: يعتمد العمليات وينشر الأسعار وينفذ الإغلاق اليومي ويدير المستخدمين والإعدادات والنسخ الاحتياطي',
+      'يشرف على عمل التلر ويتحكم بالنظام: يراجع العمليات ويعكسها وينشر الأسعار وينفذ الإغلاق اليومي ويدير المستخدمين والإعدادات والنسخ الاحتياطي',
     level: 0,
     permissions: '*',
   },
@@ -261,14 +256,16 @@ export const SYSTEM_ROLES: RoleDefinition[] = [
     nameEn: 'Teller',
     nameAr: 'التلر',
     descriptionEn:
-      'Front-desk operator: records transactions, serves customers and prints receipts. Cannot approve their own work.',
+      'Front-desk operator: records and posts transactions, serves customers and prints receipts. Cannot reverse a posting or change a rate.',
     descriptionAr:
-      'موظف الواجهة: يسجل العمليات ويخدم العملاء ويطبع الإيصالات. لا يستطيع اعتماد عمله بنفسه.',
+      'موظف الواجهة: يسجل العمليات ويرحّلها ويخدم العملاء ويطبع الإيصالات. لا يستطيع عكس عملية مرحّلة ولا تغيير سعر.',
     level: 50,
     permissions: [
       'dashboard.view',
       'exchange.transaction.view', 'exchange.transaction.create', 'exchange.transaction.update',
       'exchange.transaction.delete', 'exchange.receipt.print',
+      // Recording a transaction posts it. The teller's boundary is what they
+      // may record and see — reversal and rates stay with the manager.
       'exchange.rate.view',
       'exchange.account.view',
       'exchange.day.view',

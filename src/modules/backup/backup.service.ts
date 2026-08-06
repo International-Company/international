@@ -54,7 +54,6 @@ const TABLES = [
   'customerBalance',
   'businessDay',
   'transaction',
-  'transactionApproval',
   'receipt',
   'journalEntry',
   'journalLine',

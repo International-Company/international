@@ -30,7 +30,6 @@ export async function loadDashboard(context: DashboardContext) {
   const [
     todayGroups,
     todayCount,
-    pendingCount,
     recentTransactions,
     accounts,
     rates,
@@ -53,12 +52,6 @@ export async function loadDashboard(context: DashboardContext) {
       where: { ...scope, status: 'POSTED', valueDate: { gte: start, lte: end } },
     }),
 
-    prisma.transaction.count({
-      where: {
-        status: 'PENDING_APPROVAL',
-        ...(canSeeAll ? {} : { createdById: context.userId }),
-      },
-    }),
 
     prisma.transaction.findMany({
       where: scope,
@@ -147,7 +140,6 @@ export async function loadDashboard(context: DashboardContext) {
       volume: todayVolume,
       profit: todayVolume.reduce((sum, entry) => sum + entry.profit, 0n),
     },
-    pendingCount,
     recentTransactions,
     accounts,
     rates,

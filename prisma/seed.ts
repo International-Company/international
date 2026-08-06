@@ -333,9 +333,9 @@ async function main() {
   console.log('                               Adjustment, one per currency:');
   console.log('                               From "Opening Balance" → To "Cash Drawer".');
   console.log('    4. Administration → Users  create the real staff accounts.\n');
-  console.log('  Approvals are off: every transaction posts immediately, whatever');
-  console.log('  its value. Turn them on under Settings → Approvals if the branch');
-  console.log('  grows and you want a second signature on large amounts.\n');
+  console.log('  Recording a transaction posts it — there is no approval step.');
+  console.log('  A posting that turns out to be wrong is reversed, which leaves');
+  console.log('  both entries in the ledger rather than erasing the mistake.\n');
 }
 
 main()

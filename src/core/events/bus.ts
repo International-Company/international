@@ -19,8 +19,6 @@ const log = createLogger('events');
 export interface DomainEvents {
   'transaction.created': { transactionId: string; reference: string; type: string; actorId: string };
   'transaction.submitted': { transactionId: string; reference: string; actorId: string };
-  'transaction.approved': { transactionId: string; reference: string; actorId: string };
-  'transaction.rejected': { transactionId: string; reference: string; actorId: string; reason: string };
   'transaction.posted': { transactionId: string; reference: string; type: string; actorId: string };
   'transaction.reversed': { transactionId: string; reversalId: string; actorId: string };
 

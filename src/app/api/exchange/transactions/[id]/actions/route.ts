@@ -7,8 +7,6 @@ const paramsSchema = z.object({ id: z.string().min(1) });
 
 const bodySchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('submit') }),
-  z.object({ action: z.literal('approve'), comment: z.string().max(500).optional() }),
-  z.object({ action: z.literal('reject'), reason: z.string().min(3).max(500) }),
   z.object({ action: z.literal('post') }),
   z.object({ action: z.literal('reverse'), reason: z.string().min(3).max(500) }),
   z.object({ action: z.literal('cancel'), reason: z.string().min(3).max(500) }),
@@ -34,17 +32,8 @@ export const POST = route<z.infer<typeof bodySchema>, unknown, z.infer<typeof pa
         require('exchange.transaction.create');
         return transactions.submit(params.id, actor);
 
-      case 'approve':
-        require('exchange.transaction.approve');
-        return transactions.approve(params.id, actor, { comment: body.comment });
-
-      case 'reject':
-        require('exchange.transaction.reject');
-        await transactions.reject(params.id, body.reason, actor);
-        return { status: 'REJECTED' };
-
       case 'post':
-        require('exchange.transaction.post');
+        require('exchange.transaction.create');
         await transactions.post(params.id, actor);
         return { status: 'POSTED' };
 

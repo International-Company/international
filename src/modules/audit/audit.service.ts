@@ -27,7 +27,7 @@ export const GENESIS_HASH = '0'.repeat(64);
 export type AuditAction =
   | 'CREATE' | 'UPDATE' | 'DELETE'
   | 'LOGIN' | 'LOGOUT' | 'LOGIN_FAILED'
-  | 'APPROVE' | 'REJECT' | 'POST' | 'REVERSE' | 'CANCEL'
+  | 'POST' | 'REVERSE' | 'CANCEL'
   | 'PERMISSION_CHANGE' | 'ROLE_CHANGE' | 'PASSWORD_CHANGE' | 'PASSWORD_RESET'
   | 'RATE_CHANGE' | 'WALLET_CHANGE' | 'SETTING_CHANGE'
   | 'BACKUP' | 'RESTORE' | 'EXPORT' | 'PRINT' | 'SYNC'

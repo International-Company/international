@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { AlertTriangle, Ban, Check, Printer, Undo2, X } from 'lucide-react';
+import { AlertTriangle, Ban, Check, Printer, Undo2 } from 'lucide-react';
 import { useLocale } from '@/i18n/provider';
 import { api, ApiError } from '@/lib/api-client';
 import { Alert, Badge, Button, Card, CardBody, CardHeader, DetailRow } from '@/ui/primitives';
@@ -44,18 +44,15 @@ interface TransactionData {
   feeCurrency: string | null;
   feeAmount: string;
   profitAmount: string;
-  requiresApproval: boolean;
   notes: string | null;
   internalNotes: string | null;
-  rejectionReason: string | null;
+  cancelReason: string | null;
   createdAt: string;
   valueDate: string;
-  approvedAt: string | null;
   postedAt: string | null;
   createdById: string;
   customer: { id: string; code: string; fullNameEn: string; fullNameAr: string } | null;
   createdBy: { fullNameEn: string; fullNameAr: string; username: string };
-  approvedBy: { fullNameEn: string; fullNameAr: string } | null;
   branch: { nameEn: string; nameAr: string };
   counterpartyName: string | null;
   counterpartyPhone: string | null;
@@ -63,14 +60,6 @@ interface TransactionData {
   reversalOf: { id: string; reference: string } | null;
   reversedBy: { id: string; reference: string } | null;
   chainTransaction: { id: string; txHash: string; network: string } | null;
-  approvals: {
-    id: string;
-    step: number;
-    status: string;
-    comment: string | null;
-    actedAt: string | null;
-    actedBy: { fullNameEn: string; fullNameAr: string } | null;
-  }[];
   journalEntries: {
     id: string;
     reference: string;
@@ -91,7 +80,7 @@ interface AuditEntry {
   actorName: string | null;
 }
 
-type PendingAction = 'approve' | 'reject' | 'reverse' | 'cancel' | null;
+type PendingAction = 'submit' | 'reverse' | 'cancel' | null;
 
 export function TransactionDetail({
   transaction,
@@ -115,24 +104,18 @@ export function TransactionDetail({
   const can = (permission: string) => permissions.includes(permission);
   const isOwn = transaction.createdById === currentUserId;
 
-  const canApprove =
-    transaction.status === 'PENDING_APPROVAL' && can('exchange.transaction.approve') && !isOwn;
-  const canReject =
-    transaction.status === 'PENDING_APPROVAL' && can('exchange.transaction.reject') && !isOwn;
+  // A draft is the only unposted state left, so submitting it is the one action
+  // that moves money. Everything else either undoes or abandons the record.
+  const canSubmit = transaction.status === 'DRAFT' && can('exchange.transaction.create');
   const canReverse = transaction.status === 'POSTED' && can('exchange.transaction.reverse');
-  const canCancel =
-    ['DRAFT', 'PENDING_APPROVAL'].includes(transaction.status) &&
-    can('exchange.transaction.delete');
+  const canCancel = transaction.status === 'DRAFT' && can('exchange.transaction.delete');
 
   const act = async (action: Exclude<PendingAction, null>) => {
     setBusy(true);
     try {
       await api.post(`/api/exchange/transactions/${transaction.id}/actions`, {
         action,
-        ...(action === 'approve' ? { comment: reason || undefined } : {}),
-        ...(action === 'reject' || action === 'reverse' || action === 'cancel'
-          ? { reason }
-          : {}),
+        ...(action === 'reverse' || action === 'cancel' ? { reason } : {}),
       });
 
       toast.success(t('common.saved'), transaction.reference);
@@ -170,13 +153,10 @@ export function TransactionDetail({
           {t('transactions.reversalOf', { reference: transaction.reversalOf.reference })}
         </Alert>
       )}
-      {transaction.rejectionReason && (
-        <Alert tone="danger" title={t('transactions.rejectionReason')}>
-          {transaction.rejectionReason}
+      {transaction.cancelReason && (
+        <Alert tone="danger" title={t('transactions.cancelReason')}>
+          {transaction.cancelReason}
         </Alert>
-      )}
-      {transaction.status === 'PENDING_APPROVAL' && isOwn && (
-        <Alert tone="neutral">{t('transactions.selfApprovalBlocked')}</Alert>
       )}
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
@@ -261,11 +241,6 @@ export function TransactionDetail({
                     <DateText value={transaction.postedAt} withTime />
                   </DetailRow>
                 )}
-                {transaction.approvedBy && (
-                  <DetailRow label={t('transactions.approvedBy')}>
-                    {ln(transaction.approvedBy, 'fullName')}
-                  </DetailRow>
-                )}
                 <DetailRow label={t('transactions.channel')}>
                   <Badge tone="neutral">
                     {t(`transactions.channelType.${transaction.channel}` as never)}
@@ -302,19 +277,14 @@ export function TransactionDetail({
           <Card>
             <CardHeader title={t('common.actions')} />
             <CardBody className="space-y-2">
-              {canApprove && (
+              {canSubmit && (
                 <Button
                   variant="primary"
                   fullWidth
                   icon={<Check />}
-                  onClick={() => setPending('approve')}
+                  onClick={() => setPending('submit')}
                 >
-                  {t('common.approve')}
-                </Button>
-              )}
-              {canReject && (
-                <Button variant="secondary" fullWidth icon={<X />} onClick={() => setPending('reject')}>
-                  {t('common.reject')}
+                  {t('transactions.submit')}
                 </Button>
               )}
               {transaction.status === 'POSTED' && can('exchange.receipt.print') && (
@@ -342,38 +312,13 @@ export function TransactionDetail({
                   {t('common.cancel')}
                 </Button>
               )}
-              {!canApprove && !canReject && !canReverse && !canCancel &&
+              {!canSubmit && !canReverse && !canCancel &&
                 transaction.status !== 'POSTED' && (
                   <p className="text-sm text-content-secondary">{t('common.none')}</p>
                 )}
             </CardBody>
           </Card>
 
-          {transaction.approvals.length > 0 && (
-            <Card>
-              <CardHeader title={t('transactions.approvalTrail')} />
-              <ol className="divide-y divide-border-base">
-                {transaction.approvals.map((approval) => (
-                  <li key={approval.id} className="px-4 py-2.5">
-                    <div className="flex items-center justify-between gap-2">
-                      <StatusBadge status={approval.status} />
-                      <span className="text-xs text-content-tertiary">
-                        <DateText value={approval.actedAt} relative />
-                      </span>
-                    </div>
-                    {approval.actedBy && (
-                      <p className="mt-1 text-sm text-content">
-                        {ln(approval.actedBy, 'fullName')}
-                      </p>
-                    )}
-                    {approval.comment && (
-                      <p className="mt-0.5 text-xs text-content-secondary">{approval.comment}</p>
-                    )}
-                  </li>
-                ))}
-              </ol>
-            </Card>
-          )}
         </div>
       </div>
 
@@ -474,41 +419,15 @@ export function TransactionDetail({
 
       {/* --- Confirmation dialogs -------------------------------------------- */}
       <ConfirmDialog
-        open={pending === 'approve'}
+        open={pending === 'submit'}
         onClose={() => setPending(null)}
-        onConfirm={() => void act('approve')}
-        title={t('transactions.approveTitle')}
-        message={t('transactions.approveConfirm', { reference: transaction.reference })}
-        confirmLabel={t('common.approve')}
+        onConfirm={() => void act('submit')}
+        title={t('transactions.submitTitle')}
+        message={t('transactions.submitConfirm', { reference: transaction.reference })}
+        confirmLabel={t('transactions.submit')}
         cancelLabel={t('common.cancel')}
         loading={busy}
-      >
-        <Textarea
-          value={reason}
-          onChange={(event) => setReason(event.target.value)}
-          placeholder={t('common.comment')}
-          rows={2}
-        />
-      </ConfirmDialog>
-
-      <ConfirmDialog
-        open={pending === 'reject'}
-        onClose={() => setPending(null)}
-        onConfirm={() => void act('reject')}
-        title={t('transactions.rejectTitle')}
-        confirmLabel={t('common.reject')}
-        cancelLabel={t('common.cancel')}
-        tone="danger"
-        loading={busy}
-      >
-        <Textarea
-          value={reason}
-          onChange={(event) => setReason(event.target.value)}
-          placeholder={t('transactions.rejectReason')}
-          rows={3}
-          required
-        />
-      </ConfirmDialog>
+      />
 
       <ConfirmDialog
         open={pending === 'reverse'}

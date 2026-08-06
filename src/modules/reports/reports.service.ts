@@ -8,7 +8,7 @@ import { TRANSACTION_TYPE_META, type TransactionType } from '@/modules/exchange/
  * Reporting.
  *
  * Every report is a pure read against POSTED transactions and the ledger.
- * Drafts and rejected work never appear: a report that includes unposted
+ * Drafts and cancelled work never appear: a report that includes unposted
  * amounts is not a financial report, it is a guess.
  *
  * Totals are always grouped per currency. There is no consolidated grand total,

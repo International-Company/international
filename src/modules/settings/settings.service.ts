@@ -206,28 +206,3 @@ export async function setMany(
     await set(key, value, actor, db);
   }
 }
-
-// ---------------------------------------------------------------------------
-// Typed accessors for hot paths
-// ---------------------------------------------------------------------------
-
-export interface ApprovalPolicy {
-  enabled: boolean;
-  threshold: bigint;
-  allowSelfApproval: boolean;
-  reversalRequiresApproval: boolean;
-  baseCurrency: string;
-}
-
-export async function approvalPolicy(db: DbClient = prisma): Promise<ApprovalPolicy> {
-  const [enabled, threshold, allowSelfApproval, reversalRequiresApproval, baseCurrency] =
-    await Promise.all([
-      getBoolean('approvals.enabled', db),
-      getMoney('approvals.threshold', db),
-      getBoolean('approvals.selfApproval', db),
-      getBoolean('approvals.reversalRequiresApproval', db),
-      getString('operations.baseCurrency', db),
-    ]);
-
-  return { enabled, threshold, allowSelfApproval, reversalRequiresApproval, baseCurrency };
-}

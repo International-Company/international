@@ -27,7 +27,6 @@ export interface SettingDefinition {
 export const SETTING_CATEGORIES = [
   'company',
   'operations',
-  'approvals',
   'security',
   'usdt',
   'notifications',
@@ -39,7 +38,6 @@ export type SettingCategory = (typeof SETTING_CATEGORIES)[number];
 export const SETTING_CATEGORY_LABELS: Record<SettingCategory, { en: string; ar: string }> = {
   company: { en: 'Company', ar: 'بيانات الشركة' },
   operations: { en: 'Operations', ar: 'التشغيل' },
-  approvals: { en: 'Approvals', ar: 'الاعتمادات' },
   security: { en: 'Security', ar: 'الأمان' },
   usdt: { en: 'USDT Monitoring', ar: 'مراقبة USDT' },
   notifications: { en: 'Notifications', ar: 'الإشعارات' },
@@ -113,38 +111,6 @@ export const SETTINGS: SettingDefinition[] = [
       'تنبيه عندما ينخفض رصيد الصندوق عن هذا المبلغ. القيمة صفر تعطّل التنبيه — اضبط الرقم الذي يعمل به فرعك فعلاً بدل قيمة موروثة.',
   },
 
-  // --- Approvals -----------------------------------------------------------
-  {
-    key: 'approvals.enabled', category: 'approvals', type: 'boolean', defaultValue: false,
-    labelEn: 'Enable approval workflow', labelAr: 'تفعيل مسار الاعتماد',
-    descriptionEn:
-      'Off: every transaction posts to the ledger immediately, whatever its value. On: transactions at or above the threshold below wait for a second signature.',
-    descriptionAr:
-      'معطّل: تُرحَّل كل عملية إلى الدفاتر فوراً مهما بلغت قيمتها. مفعّل: العمليات التي تبلغ الحد أدناه أو تتجاوزه تنتظر توقيعاً ثانياً.',
-  },
-  {
-    key: 'approvals.threshold', category: 'approvals', type: 'money', defaultValue: '0',
-    labelEn: 'Approval threshold',
-    labelAr: 'حد الاعتماد',
-    descriptionEn:
-      'Transactions at or above this value require approval, in the reporting currency. Zero means every transaction does — so switching approvals on without setting a figure fails safe rather than doing nothing.',
-    descriptionAr:
-      'العمليات التي تبلغ هذه القيمة أو تتجاوزها تتطلب اعتماداً، بعملة التقارير. القيمة صفر تعني أن كل عملية تتطلب اعتماداً — فتفعيل الاعتمادات دون ضبط رقم يفشل إلى الجانب الآمن بدل ألا يفعل شيئاً.',
-  },
-  {
-    key: 'approvals.selfApproval', category: 'approvals', type: 'boolean', defaultValue: false,
-    labelEn: 'Allow self-approval', labelAr: 'السماح بالاعتماد الذاتي',
-    descriptionEn: 'Let a user approve a transaction they created — disabling this enforces segregation of duties',
-    descriptionAr: 'السماح للمستخدم باعتماد عملية أنشأها بنفسه — تعطيله يفرض الفصل بين المهام',
-    isSensitive: true,
-  },
-  {
-    key: 'approvals.reversalRequiresApproval', category: 'approvals', type: 'boolean', defaultValue: true,
-    labelEn: 'Reversals require approval', labelAr: 'العكس يتطلب اعتماداً',
-    descriptionEn: 'Reversing a posted transaction always needs a second signature',
-    descriptionAr: 'عكس عملية مرحّلة يتطلب دائماً توقيعاً ثانياً',
-  },
-
   // --- Security ------------------------------------------------------------
   {
     key: 'security.sessionIdleMinutes', category: 'security', type: 'number', defaultValue: 60, min: 5, max: 480,
@@ -205,8 +171,17 @@ export const SETTINGS: SettingDefinition[] = [
   {
     key: 'notifications.notifyOnLargeTransaction', category: 'notifications', type: 'boolean', defaultValue: true,
     labelEn: 'Alert on large transactions', labelAr: 'تنبيه عند العمليات الكبيرة',
-    descriptionEn: 'Notify managers when a transaction exceeds the approval threshold',
-    descriptionAr: 'تنبيه المدراء عند تجاوز العملية لحد الاعتماد',
+    descriptionEn: 'Notify the manager when a posted transaction reaches the amount below',
+    descriptionAr: 'تنبيه المدير عند بلوغ العملية المرحّلة المبلغ أدناه',
+  },
+  {
+    key: 'notifications.largeTransactionThreshold', category: 'notifications', type: 'money', defaultValue: '0',
+    labelEn: 'Large transaction amount',
+    labelAr: 'مبلغ العملية الكبيرة',
+    descriptionEn:
+      'A posted transaction at or above this amount raises an alert. Zero alerts on every transaction, which quickly becomes noise nobody reads.',
+    descriptionAr:
+      'كل عملية مرحّلة تبلغ هذا المبلغ أو تتجاوزه تُصدر تنبيهاً. القيمة صفر تنبّه على كل عملية، وهو ما يتحول سريعاً إلى ضجيج لا يقرأه أحد.',
   },
 
   // --- Backup --------------------------------------------------------------

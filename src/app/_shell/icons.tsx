@@ -1,6 +1,5 @@
 import {
   ArrowLeftRight,
-  BadgeCheck,
   Banknote,
   Bell,
   CalendarCheck,
@@ -31,7 +30,6 @@ export const NAV_ICONS: Record<IconName, LucideIcon> = {
   dashboard: Gauge,
   transactions: ArrowLeftRight,
   newTransaction: Plus,
-  approvals: BadgeCheck,
   rates: ChartNoAxesColumn,
   cashbox: Vault,
   day: CalendarCheck,

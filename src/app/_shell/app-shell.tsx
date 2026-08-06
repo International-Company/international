@@ -23,7 +23,7 @@ import { useTheme } from '@/ui/theme/provider';
 import { Badge, Button } from '@/ui/primitives';
 import { DropdownMenu, MenuItem, MenuLabel, MenuSeparator } from '@/ui/overlay';
 import { cn, initials } from '@/ui/utils';
-import { isActiveRoute, visibleNavigation, type NavFeatures, type NavItem } from './navigation';
+import { isActiveRoute, visibleNavigation, type NavItem } from './navigation';
 import { NAV_ICONS } from './icons';
 import { CommandPalette } from './command-palette';
 import { ShortcutHelp, useShortcuts } from './shortcuts';
@@ -52,12 +52,10 @@ export interface ShellUser {
 export function AppShell({
   user,
   unreadCount,
-  features,
   children,
 }: {
   user: ShellUser;
   unreadCount: number;
-  features: NavFeatures;
   children: React.ReactNode;
 }) {
   const { t, locale, ln, toggleLocale, isRtl } = useLocale();
@@ -70,7 +68,7 @@ export function AppShell({
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
 
-  const sections = visibleNavigation(user.permissions, features);
+  const sections = visibleNavigation(user.permissions);
 
   // Restore the sidebar width preference — it is a per-device choice, so it
   // lives in localStorage rather than on the user profile.
@@ -386,7 +384,6 @@ export function AppShell({
         open={paletteOpen}
         onClose={() => setPaletteOpen(false)}
         permissions={user.permissions}
-        features={features}
       />
       <ShortcutHelp open={helpOpen} onClose={() => setHelpOpen(false)} />
     </div>

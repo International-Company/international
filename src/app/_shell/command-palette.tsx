@@ -7,7 +7,7 @@ import { CornerDownLeft, Loader2, Search } from 'lucide-react';
 import { useLocale } from '@/i18n/provider';
 import { cn } from '@/ui/utils';
 import { NAV_ICONS } from './icons';
-import { visibleNavigation, type IconName, type NavFeatures } from './navigation';
+import { visibleNavigation, type IconName } from './navigation';
 
 /**
  * Global search — the fastest route to any record in the system.
@@ -39,12 +39,10 @@ export function CommandPalette({
   open,
   onClose,
   permissions,
-  features,
 }: {
   open: boolean;
   onClose: () => void;
   permissions: string[];
-  features: NavFeatures;
 }) {
   const { t, locale } = useLocale();
   const router = useRouter();
@@ -62,7 +60,7 @@ export function CommandPalette({
 
   // Local page matches — no round trip needed for navigation.
   const pageResults = useMemo<SearchResult[]>(() => {
-    const sections = visibleNavigation(permissions, features);
+    const sections = visibleNavigation(permissions);
     const term = query.trim().toLowerCase();
 
     return sections
@@ -76,7 +74,7 @@ export function CommandPalette({
       }))
       .filter((result) => !term || result.title.toLowerCase().includes(term))
       .slice(0, term ? 5 : 8);
-  }, [permissions, features, query, t]);
+  }, [permissions, query, t]);
 
   const results = useMemo(() => {
     const combined = [...pageResults, ...remote];

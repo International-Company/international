@@ -23,14 +23,13 @@ import { containsInsensitive } from '@/core/db/search';
 /**
  * Transaction lifecycle.
  *
- *   DRAFT ──submit──▶ PENDING_APPROVAL ──approve──▶ APPROVED ──post──▶ POSTED
- *     │                      │                                            │
- *     ├──submit (under threshold, posts straight through)─────────────────┤
- *     ├──cancel──▶ CANCELLED  └──reject──▶ REJECTED          reverse──▶ REVERSED
+ *   DRAFT ──submit──▶ POSTED ──reverse──▶ REVERSED
+ *     └──cancel──▶ CANCELLED
  *
- * Only POSTED transactions touch the ledger. Everything before that is a
- * working document a teller can still correct; everything after is permanent
- * and can only be undone by a visible reversing entry.
+ * There is no approval step. Recording a transaction posts it, and only POSTED
+ * transactions touch the ledger. A draft is a working document an operator can
+ * still correct; a posted one is permanent and can be undone only by a visible
+ * reversing entry.
  */
 
 const log = createLogger('exchange:transaction');
@@ -150,11 +149,6 @@ export async function create(
     }
 
     const reference = await nextReference('TXN', tx);
-    const requiresApproval = await needsApproval(
-      { fromCurrency: input.fromCurrency, fromAmount: input.fromAmount },
-      tx,
-    );
-
     const row = await tx.transaction.create({
       data: {
         reference,
@@ -181,7 +175,6 @@ export async function create(
         internalNotes: input.internalNotes ?? null,
         metadata: input.metadata ? JSON.stringify(input.metadata) : null,
         valueDate,
-        requiresApproval,
         createdById: actor.id,
       },
     });
@@ -224,47 +217,6 @@ export async function create(
   }
 
   return created;
-}
-
-/**
- * Decides whether a transaction needs a second signature.
- *
- * The threshold is configured in the reporting currency, so the amount is
- * converted before comparison. If no rate exists to make that comparison, the
- * transaction is routed for approval rather than waved through — failing
- * closed is the only defensible default for a financial control.
- */
-async function needsApproval(
-  input: { fromCurrency: string; fromAmount: bigint },
-  db: DbClient,
-): Promise<boolean> {
-  const policy = await settings.approvalPolicy(db);
-  if (!policy.enabled) return false;
-
-  // A threshold of zero means every transaction needs a second signature.
-  // Treating it as "no transaction does" would turn the whole workflow into a
-  // silent no-op the moment someone enabled it without setting a figure — the
-  // control would appear active while doing nothing at all.
-  if (policy.threshold <= 0n) return true;
-
-  if (input.fromCurrency === policy.baseCurrency) {
-    return input.fromAmount >= policy.threshold;
-  }
-
-  const direct = await getActiveRate(input.fromCurrency, policy.baseCurrency, db);
-  if (direct) return convert(input.fromAmount, direct.midRate) >= policy.threshold;
-
-  const reverse = await getActiveRate(policy.baseCurrency, input.fromCurrency, db);
-  if (reverse && reverse.midRate > 0n) {
-    const inBase = (input.fromAmount * 100_000_000n) / reverse.midRate;
-    return inBase >= policy.threshold;
-  }
-
-  log.warn('No rate available to evaluate approval threshold; requiring approval', {
-    currency: input.fromCurrency,
-    baseCurrency: policy.baseCurrency,
-  });
-  return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -324,13 +276,6 @@ export async function update(
       data.appliedRate = { connect: { id: quote.rateId } };
     }
 
-    if (input.fromAmount !== undefined) {
-      data.requiresApproval = await needsApproval(
-        { fromCurrency: existing.fromCurrency, fromAmount: input.fromAmount },
-        tx,
-      );
-    }
-
     const updated = await tx.transaction.update({ where: { id }, data });
 
     const changes = audit.diff(
@@ -355,7 +300,12 @@ export async function update(
   }, db);
 }
 
-/** Routes for approval, or posts straight through when under the threshold. */
+/**
+ * Submits a draft, which posts it to the ledger.
+ *
+ * There is no intermediate state and no second signature: recording a
+ * transaction is the decision, and posting is its immediate consequence.
+ */
 export async function submit(
   id: string,
   actor: Actor,
@@ -369,39 +319,7 @@ export async function submit(
   }
   assertOwnership(transaction, actor);
 
-  if (!transaction.requiresApproval) {
-    await post(id, actor, { systemAuthorised: true }, db);
-    return { status: 'POSTED' };
-  }
-
-  await withTransaction(async (tx) => {
-    await tx.transaction.update({
-      where: { id },
-      data: { status: 'PENDING_APPROVAL', version: { increment: 1 } },
-    });
-
-    await tx.transactionApproval.create({
-      data: {
-        transactionId: id,
-        step: 1,
-        requiredPermission: 'exchange.transaction.approve',
-        status: 'PENDING',
-      },
-    });
-
-    await audit.record(
-      {
-        action: 'UPDATE',
-        module: 'exchange',
-        entityType: 'Transaction',
-        entityId: id,
-        summaryEn: `Transaction ${transaction.reference} submitted for approval`,
-        summaryAr: `تم إرسال العملية ${transaction.reference} للاعتماد`,
-        actor,
-      },
-      tx,
-    );
-  }, db);
+  await post(id, actor, db);
 
   emitAsync('transaction.submitted', {
     transactionId: id,
@@ -409,123 +327,7 @@ export async function submit(
     actorId: actor.id,
   });
 
-  return { status: 'PENDING_APPROVAL' };
-}
-
-export async function approve(
-  id: string,
-  actor: Actor,
-  options: { comment?: string } = {},
-  db: DbClient = prisma,
-): Promise<{ status: TransactionStatus }> {
-  const transaction = await prisma.transaction.findUnique({ where: { id } });
-  if (!transaction) throw errors.notFound('Transaction', id);
-
-  if (transaction.status !== 'PENDING_APPROVAL') {
-    throw errors.conflict('This transaction is not awaiting approval', 'errors.notPending');
-  }
-
-  const policy = await settings.approvalPolicy(db);
-  if (!policy.allowSelfApproval && transaction.createdById === actor.id) {
-    throw errors.forbidden('Segregation of duties: you cannot approve your own transaction');
-  }
-
-  await withTransaction(async (tx) => {
-    await tx.transaction.update({
-      where: { id },
-      data: {
-        status: 'APPROVED',
-        approvedById: actor.id,
-        approvedAt: new Date(),
-        version: { increment: 1 },
-      },
-    });
-
-    await tx.transactionApproval.updateMany({
-      where: { transactionId: id, status: 'PENDING' },
-      data: {
-        status: 'APPROVED',
-        actedById: actor.id,
-        actedAt: new Date(),
-        comment: options.comment ?? null,
-      },
-    });
-
-    await audit.record(
-      {
-        action: 'APPROVE',
-        module: 'exchange',
-        entityType: 'Transaction',
-        entityId: id,
-        summaryEn: `Approved transaction ${transaction.reference}`,
-        summaryAr: `اعتماد العملية ${transaction.reference}`,
-        actor,
-        metadata: options.comment ? { comment: options.comment } : undefined,
-      },
-      tx,
-    );
-  }, db);
-
-  emitAsync('transaction.approved', {
-    transactionId: id,
-    reference: transaction.reference,
-    actorId: actor.id,
-  });
-
-  // Approval is the authorisation; posting is the mechanical consequence.
-  await post(id, actor, { systemAuthorised: true }, db);
   return { status: 'POSTED' };
-}
-
-export async function reject(
-  id: string,
-  reason: string,
-  actor: Actor,
-  db: DbClient = prisma,
-): Promise<void> {
-  const transaction = await prisma.transaction.findUnique({ where: { id } });
-  if (!transaction) throw errors.notFound('Transaction', id);
-  if (transaction.status !== 'PENDING_APPROVAL') {
-    throw errors.conflict('This transaction is not awaiting approval', 'errors.notPending');
-  }
-
-  await withTransaction(async (tx) => {
-    await tx.transaction.update({
-      where: { id },
-      data: {
-        status: 'REJECTED',
-        rejectedById: actor.id,
-        rejectedAt: new Date(),
-        rejectionReason: reason,
-        version: { increment: 1 },
-      },
-    });
-
-    await tx.transactionApproval.updateMany({
-      where: { transactionId: id, status: 'PENDING' },
-      data: { status: 'REJECTED', actedById: actor.id, actedAt: new Date(), comment: reason },
-    });
-
-    await audit.record(
-      {
-        action: 'REJECT',
-        module: 'exchange',
-        entityType: 'Transaction',
-        entityId: id,
-        summaryEn: `Rejected transaction ${transaction.reference}: ${reason}`,
-        summaryAr: `رفض العملية ${transaction.reference}: ${reason}`,
-        actor,
-      },
-      tx,
-    );
-  }, db);
-
-  emitAsync('transaction.rejected', {
-    transactionId: id,
-    reference: transaction.reference,
-    actorId: actor.id,
-    reason,
-  });
 }
 
 /**
@@ -533,30 +335,18 @@ export async function reject(
  * transaction can only be undone by a reversal, which leaves both entries
  * visible forever.
  */
-export async function post(
-  id: string,
-  actor: Actor,
-  options: { systemAuthorised?: boolean } = {},
-  db: DbClient = prisma,
-): Promise<void> {
-  if (!options.systemAuthorised && !actor.permissions.includes('exchange.transaction.post')) {
-    throw errors.forbidden('exchange.transaction.post');
-  }
-
+export async function post(id: string, actor: Actor, db: DbClient = prisma): Promise<void> {
   const transaction = await withTransaction(async (tx) => {
     const row = await loadForUpdate(tx, id);
 
     if (row.status === 'POSTED') {
       throw errors.conflict('This transaction is already posted', 'errors.alreadyPosted');
     }
-    if (!['DRAFT', 'APPROVED'].includes(row.status)) {
+    if (row.status !== 'DRAFT') {
       throw errors.conflict(
-        `A ${row.status.toLowerCase().replace('_', ' ')} transaction cannot be posted`,
+        `A ${row.status.toLowerCase()} transaction cannot be posted`,
         'errors.notPostable',
       );
-    }
-    if (row.requiresApproval && row.status !== 'APPROVED') {
-      throw errors.precondition('This transaction requires approval first', 'errors.approvalRequired');
     }
 
     // --- Business day ------------------------------------------------------
@@ -675,6 +465,14 @@ export async function reverse(
     throw errors.validation([{ path: 'reason', message: 'A reason is required to reverse' }]);
   }
 
+  // Checked here and not only at the route. A teller posts their own work, so
+  // undoing a posting is the manager's control over it — the one place where the
+  // two roles actually differ on a transaction, and too important to leave to a
+  // single caller remembering to guard it.
+  if (!actor.permissions.includes('exchange.transaction.reverse')) {
+    throw errors.forbidden('exchange.transaction.reverse');
+  }
+
   const result = await withTransaction(async (tx) => {
     const original = await tx.transaction.findUnique({
       where: { id },
@@ -734,8 +532,6 @@ export async function reverse(
         valueDate: new Date(),
         postedAt: new Date(),
         createdById: actor.id,
-        approvedById: actor.id,
-        approvedAt: new Date(),
       },
     });
 
@@ -779,9 +575,9 @@ export async function cancel(
   await withTransaction(async (tx) => {
     const transaction = await loadForUpdate(tx, id);
 
-    if (!['DRAFT', 'PENDING_APPROVAL'].includes(transaction.status)) {
+    if (transaction.status !== 'DRAFT') {
       throw errors.conflict(
-        'Only a draft or pending transaction can be cancelled',
+        'Only a draft can be cancelled — a posted transaction is reversed instead',
         'errors.notCancellable',
       );
     }
@@ -789,7 +585,7 @@ export async function cancel(
 
     await tx.transaction.update({
       where: { id },
-      data: { status: 'CANCELLED', rejectionReason: reason, version: { increment: 1 } },
+      data: { status: 'CANCELLED', cancelReason: reason, version: { increment: 1 } },
     });
 
     await audit.record(
@@ -898,7 +694,6 @@ export async function list(filter: TransactionFilter, actor: Actor, db: DbClient
       include: {
         customer: { select: { id: true, code: true, fullNameEn: true, fullNameAr: true } },
         createdBy: { select: { id: true, fullNameEn: true, fullNameAr: true } },
-        approvedBy: { select: { id: true, fullNameEn: true, fullNameAr: true } },
         branch: { select: { id: true, nameEn: true, nameAr: true } },
       },
     }),
@@ -914,12 +709,7 @@ export async function getById(id: string, actor: Actor, db: DbClient = prisma) {
     include: {
       customer: true,
       createdBy: { select: { id: true, fullNameEn: true, fullNameAr: true, username: true } },
-      approvedBy: { select: { id: true, fullNameEn: true, fullNameAr: true } },
       branch: true,
-      approvals: {
-        include: { actedBy: { select: { fullNameEn: true, fullNameAr: true } } },
-        orderBy: { step: 'asc' },
-      },
       receipts: true,
       sourceAccount: { select: { id: true, code: true, nameEn: true, nameAr: true } },
       destinationAccount: { select: { id: true, code: true, nameEn: true, nameAr: true } },
@@ -947,25 +737,6 @@ export async function getById(id: string, actor: Actor, db: DbClient = prisma) {
   }
 
   return transaction;
-}
-
-/** Work queue for approvers. */
-export async function pendingApprovals(actor: Actor, db: DbClient = prisma) {
-  const policy = await settings.approvalPolicy(db);
-
-  return db.transaction.findMany({
-    where: {
-      status: 'PENDING_APPROVAL',
-      ...(policy.allowSelfApproval ? {} : { createdById: { not: actor.id } }),
-    },
-    orderBy: { createdAt: 'asc' },
-    take: 100,
-    include: {
-      customer: { select: { code: true, fullNameEn: true, fullNameAr: true } },
-      createdBy: { select: { fullNameEn: true, fullNameAr: true } },
-      branch: { select: { nameEn: true, nameAr: true } },
-    },
-  });
 }
 
 // ---------------------------------------------------------------------------

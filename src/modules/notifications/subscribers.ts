@@ -24,92 +24,17 @@ export function registerNotificationSubscribers(): void {
   if (registered) return;
   registered = true;
 
-  // --- Approval queue ------------------------------------------------------
-  on('transaction.submitted', 'notify-approvers', async ({ transactionId, reference, actorId }) => {
-    const transaction = await prisma.transaction.findUnique({
-      where: { id: transactionId },
-      include: {
-        createdBy: { select: { fullNameEn: true, fullNameAr: true } },
-        customer: { select: { fullNameEn: true, fullNameAr: true } },
-      },
-    });
-    if (!transaction) return;
-
-    const amount = `${toDecimalString(transaction.fromAmount, 2)} ${transaction.fromCurrency}`;
-
-    await notify(
-      {
-        severity: 'WARNING',
-        eventKey: 'transaction.awaitingApproval',
-        module: 'exchange',
-        titleEn: 'Transaction awaiting approval',
-        titleAr: 'عملية بانتظار الاعتماد',
-        bodyEn: `${reference} — ${amount} recorded by ${transaction.createdBy.fullNameEn}`,
-        bodyAr: `${reference} — ${amount} سجّلها ${transaction.createdBy.fullNameAr}`,
-        entityType: 'Transaction',
-        entityId: transactionId,
-        link: `/exchange/transactions/${transactionId}`,
-      },
-      // Never notify the person who submitted it — they already know.
-      { permission: 'exchange.transaction.approve', exceptUserId: actorId },
-    );
-  });
-
-  // --- Outcome back to the originator --------------------------------------
-  on('transaction.approved', 'notify-creator-approved', async ({ transactionId, reference }) => {
-    const transaction = await prisma.transaction.findUnique({
-      where: { id: transactionId },
-      select: { createdById: true },
-    });
-    if (!transaction) return;
-
-    await notify(
-      {
-        severity: 'SUCCESS',
-        eventKey: 'transaction.approved',
-        module: 'exchange',
-        titleEn: 'Transaction approved',
-        titleAr: 'تم اعتماد العملية',
-        bodyEn: `${reference} has been approved and posted to the ledger.`,
-        bodyAr: `تم اعتماد العملية ${reference} وترحيلها إلى الدفاتر.`,
-        entityType: 'Transaction',
-        entityId: transactionId,
-        link: `/exchange/transactions/${transactionId}`,
-      },
-      { userIds: [transaction.createdById] },
-    );
-  });
-
-  on('transaction.rejected', 'notify-creator-rejected', async ({ transactionId, reference, reason }) => {
-    const transaction = await prisma.transaction.findUnique({
-      where: { id: transactionId },
-      select: { createdById: true },
-    });
-    if (!transaction) return;
-
-    await notify(
-      {
-        severity: 'CRITICAL',
-        eventKey: 'transaction.rejected',
-        module: 'exchange',
-        titleEn: 'Transaction rejected',
-        titleAr: 'تم رفض العملية',
-        bodyEn: `${reference} was rejected: ${reason}`,
-        bodyAr: `تم رفض العملية ${reference}: ${reason}`,
-        entityType: 'Transaction',
-        entityId: transactionId,
-        link: `/exchange/transactions/${transactionId}`,
-      },
-      { userIds: [transaction.createdById] },
-    );
-  });
-
   // --- Large transactions --------------------------------------------------
   on('transaction.posted', 'notify-large-transaction', async ({ transactionId, reference }) => {
     if (!(await settings.getBoolean('notifications.notifyOnLargeTransaction'))) return;
 
     const transaction = await prisma.transaction.findUnique({ where: { id: transactionId } });
-    if (!transaction || !transaction.requiresApproval) return;
+    if (!transaction) return;
+
+    // Without a threshold every posting would raise an alert, and an inbox that
+    // flags everything flags nothing.
+    const threshold = await settings.getMoney('notifications.largeTransactionThreshold');
+    if (threshold > 0n && transaction.fromAmount < threshold) return;
 
     await notify(
       {
@@ -149,7 +74,7 @@ export function registerNotificationSubscribers(): void {
         entityId: reversalId,
         link: `/exchange/transactions/${reversalId}`,
       },
-      { permission: 'exchange.transaction.approve', exceptUserId: actorId },
+      { permission: 'exchange.transaction.reverse', exceptUserId: actorId },
     );
   });
 
