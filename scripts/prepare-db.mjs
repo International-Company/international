@@ -43,6 +43,20 @@ function providerFor(url) {
 const url = databaseUrl();
 
 if (!url) {
+  // Failing the build here is deliberate. Carrying on would generate a client
+  // for whatever provider happens to be in the file — almost certainly SQLite —
+  // and the mismatch would only surface as a confusing connection error against
+  // the production database, after a deploy that reported success.
+  if (process.env.NODE_ENV === 'production') {
+    console.error(
+      '[prepare-db] DATABASE_URL is not set in a production build.\n' +
+        '             Set it before building, or the generated Prisma client will\n' +
+        '             target the wrong database engine. On Railway, add a\n' +
+        '             PostgreSQL service and set DATABASE_URL=${{Postgres.DATABASE_URL}}.',
+    );
+    process.exit(1);
+  }
+
   console.warn('[prepare-db] DATABASE_URL is not set — leaving the schema provider unchanged.');
   process.exit(0);
 }
