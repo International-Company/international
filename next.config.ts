@@ -4,9 +4,15 @@ const nextConfig: NextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
   serverExternalPackages: ['@prisma/client', 'exceljs'],
-  experimental: {
-    optimizePackageImports: ['lucide-react', 'recharts', '@tanstack/react-table'],
-  },
+
+  // `experimental.optimizePackageImports` was removed deliberately.
+  //
+  // It rewrites barrel imports and reshapes the shared chunk graph, and it
+  // produced a build that succeeded on one platform and failed on another
+  // while prerendering the 404 shell. Next.js already applies this optimisation
+  // to common packages by default, so the flag bought little and cost
+  // reproducibility — which matters far more in a deployment pipeline than a
+  // few kilobytes.
   async headers() {
     return [
       {
