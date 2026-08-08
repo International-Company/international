@@ -3,7 +3,7 @@ import { prisma, withTransaction, type DbClient } from '@/core/db/prisma';
 import { errors } from '@/core/errors/app-error';
 import { toDecimalString } from '@/core/money/money';
 import { createLogger } from '@/core/logger/logger';
-import { nextReference } from '@/modules/ledger/reference';
+import { nextReference } from '@/modules/sequence/reference';
 import { quoteExchange } from '@/modules/exchange/rates.service';
 import * as transactions from '@/modules/exchange/transaction.service';
 import * as settings from '@/modules/settings/settings.service';
@@ -78,7 +78,7 @@ export async function counterAddresses(db: DbClient = prisma) {
       address: true,
       tokenSymbol: true,
       minConfirmations: true,
-      accountId: true,
+      drawerId: true,
     },
   });
 
@@ -465,44 +465,23 @@ export async function completeRequest(id: string, actor: Actor, db: DbClient = p
   if (!request.matchedChainTransaction) {
     throw errors.conflict('The attached transfer is missing', 'errors.depositNotMatched');
   }
-  if (!request.wallet.accountId) {
-    throw errors.precondition(
-      `Wallet ${request.wallet.label} has no ledger account — link one before settling`,
-      'errors.walletNotLinked',
-    );
-  }
-
-  const created = await transactions.create(
+  const created = await transactions.record(
     {
-      type: 'EXCHANGE',
+      type: 'USDT_RECEIVE',
       branchId: request.branchId,
       customerId: request.customerId,
       fromCurrency: request.wallet.tokenSymbol,
       fromAmount: request.expectedAmount,
       toCurrency: request.payoutCurrency,
-      // The USDT lands in the wallet's own account, not a generic drawer, so
-      // the books and the chain stay reconcilable address by address.
-      destinationAccountId: request.wallet.accountId,
+      // The price agreed while the customer stood there, not whatever the board
+      // has moved to in the minutes since the chain took to confirm.
+      toAmount: request.quotedAmount,
+      rate: request.quotedRate,
       counterpartyName: request.counterpartyName,
       counterpartyPhone: request.counterpartyPhone,
-      channel: 'BLOCKCHAIN',
       notes: request.notes,
-      metadata: {
-        source: 'USDT_COUNTER',
-        depositRequest: request.reference,
-        txHash: request.matchedChainTransaction.txHash,
-        network: request.network,
-      },
     },
     actor,
-    {
-      submit: true,
-      agreedQuote: {
-        rate: request.quotedRate,
-        toAmount: request.quotedAmount,
-        sourceReference: request.reference,
-      },
-    },
     db,
   );
 

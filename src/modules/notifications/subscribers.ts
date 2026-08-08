@@ -4,7 +4,7 @@ import { on } from '@/core/events/bus';
 import { toDecimalString } from '@/core/money/money';
 import { createLogger } from '@/core/logger/logger';
 import * as settings from '@/modules/settings/settings.service';
-import { formatDayKey } from '@/modules/exchange/business-day.service';
+
 import { notify } from './notifications.service';
 
 /**
@@ -47,9 +47,9 @@ export function registerNotificationSubscribers(): void {
         bodyAr: `${reference} — ${toDecimalString(transaction.fromAmount, 2)} ${transaction.fromCurrency}`,
         entityType: 'Transaction',
         entityId: transactionId,
-        link: `/exchange/transactions/${transactionId}`,
+        link: `/manage/transactions/${transactionId}`,
       },
-      { permission: 'dashboard.financials.view' },
+      { permission: 'exchange.margin.view' },
     );
   });
 
@@ -72,36 +72,9 @@ export function registerNotificationSubscribers(): void {
         bodyAr: `تم عكس العملية ${original.reference}. تم ترحيل قيد معاكس.`,
         entityType: 'Transaction',
         entityId: reversalId,
-        link: `/exchange/transactions/${reversalId}`,
+        link: `/manage/transactions/${reversalId}`,
       },
       { permission: 'exchange.transaction.reverse', exceptUserId: actorId },
-    );
-  });
-
-  // --- Daily close ---------------------------------------------------------
-  on('day.closed', 'notify-day-closed', async ({ businessDayId, branchId, hasDifference }) => {
-    if (!hasDifference) return;
-
-    const day = await prisma.businessDay.findUnique({
-      where: { id: businessDayId },
-      include: { branch: true, closingLines: { where: { difference: { not: 0 } } } },
-    });
-    if (!day) return;
-
-    await notify(
-      {
-        severity: 'CRITICAL',
-        eventKey: 'day.difference',
-        module: 'exchange',
-        titleEn: 'Cash differences at daily close',
-        titleAr: 'فروقات في الجرد عند الإغلاق اليومي',
-        bodyEn: `${day.branch.nameEn} closed ${formatDayKey(day.date)} with ${day.closingLines.length} unexplained difference(s).`,
-        bodyAr: `أغلق فرع ${day.branch.nameAr} يوم ${formatDayKey(day.date)} مع ${day.closingLines.length} فرق غير مفسّر.`,
-        entityType: 'BusinessDay',
-        entityId: businessDayId,
-        link: `/exchange/business-day`,
-      },
-      { permission: 'exchange.day.close', branchId },
     );
   });
 
@@ -118,28 +91,34 @@ export function registerNotificationSubscribers(): void {
         bodyAr: `تم قفل الحساب "${username}" بعد محاولات دخول فاشلة متكررة.`,
         entityType: 'User',
         entityId: userId,
-        link: `/admin/users/${userId}`,
+        link: '/manage/staff',
       },
       { permission: 'users.update' },
     );
   });
 
-  // --- Low balance ---------------------------------------------------------
-  on('account.balance.low', 'notify-low-balance', async ({ accountId, code, balance }) => {
+  // --- A drawer running low ------------------------------------------------
+  //
+  // Sent before the drawer is empty rather than after: once it is, the machine
+  // refuses payouts and the teller finds out with a customer in front of them.
+  on('drawer.balance.low', 'notify-low-drawer', async ({ currency, balance, threshold }) => {
+    const held = toDecimalString(BigInt(balance), 2);
+    const limit = toDecimalString(BigInt(threshold), 2);
+
     await notify(
       {
         severity: 'WARNING',
-        eventKey: 'account.lowBalance',
+        eventKey: 'drawer.low',
         module: 'exchange',
-        titleEn: 'Cashbox running low',
-        titleAr: 'رصيد الصندوق منخفض',
-        bodyEn: `${code} has fallen to ${toDecimalString(BigInt(balance), 2)}.`,
-        bodyAr: `انخفض رصيد ${code} إلى ${toDecimalString(BigInt(balance), 2)}.`,
-        entityType: 'Account',
-        entityId: accountId,
-        link: '/exchange/cashboxes',
+        titleEn: 'A drawer is running low',
+        titleAr: 'رصيد صندوق منخفض',
+        bodyEn: `The ${currency} drawer holds ${held}, below the ${limit} you set.`,
+        bodyAr: `رصيد صندوق ${currency} هو ${held}، دون الحد ${limit} الذي حددته.`,
+        entityType: 'Drawer',
+        entityId: currency,
+        link: '/manage/drawers',
       },
-      { permission: 'exchange.account.manage' },
+      { permission: 'exchange.drawer.manage' },
     );
   });
 

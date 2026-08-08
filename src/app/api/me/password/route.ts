@@ -30,6 +30,6 @@ export const POST = route<z.infer<typeof bodySchema>>({
       { ip: meta.ip, userAgent: meta.userAgent, sessionId: session.sessionId },
     );
 
-    return { ok: true, redirect: '/dashboard' };
+    return { ok: true, redirect: '/' };
   },
 });

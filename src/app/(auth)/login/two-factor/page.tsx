@@ -1,4 +1,5 @@
 import { redirect } from 'next/navigation';
+import { landingFor } from '@/app/_shell/navigation';
 import type { Metadata } from 'next';
 import { getSession } from '@/modules/auth/context';
 import { getTranslator } from '@/i18n/server';
@@ -11,7 +12,7 @@ export default async function TwoFactorPage() {
 
   if (!session) redirect('/login');
   // Already verified — nothing to do here.
-  if (session.twoFactorSatisfied) redirect('/dashboard');
+  if (session.twoFactorSatisfied) redirect(landingFor(session.user.permissions));
 
   const { t } = await getTranslator();
 

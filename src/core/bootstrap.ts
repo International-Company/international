@@ -7,12 +7,11 @@ import { purgeExpiredSessions } from '@/modules/auth/session.service';
 import { registerNotificationSubscribers } from '@/modules/notifications/subscribers';
 import * as notifications from '@/modules/notifications/notifications.service';
 import * as settings from '@/modules/settings/settings.service';
-import * as ledger from '@/modules/ledger/ledger.service';
+import * as drawers from '@/modules/drawers/drawer.service';
 import * as backup from '@/modules/backup/backup.service';
 import { syncAllWallets } from '@/modules/usdt/sync.service';
 import { verifyChain } from '@/modules/audit/audit.service';
 import { emit } from '@/core/events/bus';
-import { ACCOUNT_CODES } from '@/modules/ledger/accounts';
 
 /**
  * Application bootstrap.
@@ -59,27 +58,27 @@ function registerJobHandlers(): void {
     return syncWallet(walletId);
   });
 
-  // --- Ledger integrity ----------------------------------------------------
-  registerJob('ledger.reconcile', async () => {
-    const issues = await ledger.reconcile();
+  // --- Drawer integrity ----------------------------------------------------
+  registerJob('drawers.verify', async () => {
+    const result = await drawers.verifyBalances();
 
-    if (issues.length > 0) {
+    if (!result.ok) {
       await notifications.notify(
         {
           severity: 'CRITICAL',
-          eventKey: 'ledger.discrepancy',
+          eventKey: 'drawers.discrepancy',
           module: 'system',
-          titleEn: 'Ledger reconciliation failed',
-          titleAr: 'فشل تسوية القيود',
-          bodyEn: `${issues.length} account balance(s) disagree with their journal lines. Investigate immediately.`,
-          bodyAr: `${issues.length} رصيد حساب لا يطابق قيوده. يجب التحقق فوراً.`,
-          link: '/admin/system',
+          titleEn: 'A drawer balance disagrees with its movements',
+          titleAr: 'رصيد صندوق لا يطابق حركاته',
+          bodyEn: 'A drawer holds a different amount from the sum of everything recorded against it. Nothing should be able to cause this.',
+          bodyAr: 'رصيد أحد الصناديق يخالف مجموع حركاته المسجّلة. لا يُفترض أن يحدث هذا إطلاقاً.',
+          link: '/manage/drawers',
         },
-        { permission: 'system.monitor' },
+        { permission: 'exchange.drawer.manage' },
       );
     }
 
-    return { issues: issues.length };
+    return { ok: result.ok };
   });
 
   registerJob('audit.verify', async () => {
@@ -104,33 +103,21 @@ function registerJobHandlers(): void {
     return { valid: result.valid, checked: result.checked };
   });
 
-  // --- Balance monitoring --------------------------------------------------
-  registerJob('accounts.checkBalances', async () => {
-    const threshold = await settings.getMoney('operations.lowBalanceThreshold');
-    if (threshold <= 0n) return { checked: 0, alerts: 0 };
+  // --- Low drawer warning --------------------------------------------------
+  registerJob('drawers.checkBalances', async () => {
+    const low = (await drawers.listDrawers()).filter(
+      (drawer) => drawer.lowBalanceThreshold > 0n && drawer.balance < drawer.lowBalanceThreshold,
+    );
 
-    const accounts = await prisma.account.findMany({
-      where: { isActive: true, kind: { in: ['CASH', 'BANK'] } },
-    });
-
-    let alerts = 0;
-    for (const account of accounts) {
-      // Only cash-like asset accounts are meaningful here; a clearing account
-      // sitting negative is normal trading, not a shortage.
-      if (account.code.startsWith(ACCOUNT_CODES.fxPosition(''))) continue;
-
-      if (account.balance < threshold) {
-        alerts++;
-        await emit('account.balance.low', {
-          accountId: account.id,
-          code: account.code,
-          balance: account.balance.toString(),
-          threshold: threshold.toString(),
-        });
-      }
+    for (const drawer of low) {
+      await emit('drawer.balance.low', {
+        currency: drawer.currencyCode,
+        balance: drawer.balance.toString(),
+        threshold: drawer.lowBalanceThreshold.toString(),
+      });
     }
 
-    return { checked: accounts.length, alerts };
+    return { alerts: low.length };
   });
 
   // --- Backups -------------------------------------------------------------

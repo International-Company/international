@@ -123,7 +123,7 @@ export const errors = {
     new AppError('PRECONDITION_FAILED', message, { messageKey, params }),
 
   insufficientFunds: (account: string, available: string, required: string) =>
-    new AppError('INSUFFICIENT_FUNDS', `Account ${account} has ${available}, needs ${required}`, {
+    new AppError('INSUFFICIENT_FUNDS', `${account} holds ${available}, needs ${required}`, {
       params: { account, available, required },
     }),
 

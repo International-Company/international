@@ -4,8 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import {
-  Bell,
-  ChevronsLeft,
+    ChevronsLeft,
   ChevronsRight,
   Keyboard,
   Languages,
@@ -51,11 +50,9 @@ export interface ShellUser {
 
 export function AppShell({
   user,
-  unreadCount,
   children,
 }: {
   user: ShellUser;
-  unreadCount: number;
   children: React.ReactNode;
 }) {
   const { t, locale, ln, toggleLocale, isRtl } = useLocale();
@@ -297,19 +294,6 @@ export function AppShell({
                 </>
               )}
             </DropdownMenu>
-
-            <Link
-              href="/notifications"
-              className="relative rounded p-2 text-content-secondary transition-colors hover:bg-surface-hover hover:text-content"
-              aria-label={t('nav.notifications')}
-            >
-              <Bell className="size-4" />
-              {unreadCount > 0 && (
-                <span className="absolute end-1 top-1 flex size-4 items-center justify-center rounded-full bg-danger text-[9px] font-bold text-white tabular-nums">
-                  {unreadCount > 9 ? '9+' : unreadCount}
-                </span>
-              )}
-            </Link>
 
             <DropdownMenu
               trigger={(props) => (

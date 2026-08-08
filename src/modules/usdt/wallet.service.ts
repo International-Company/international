@@ -4,7 +4,6 @@ import { errors } from '@/core/errors/app-error';
 import { toDecimalString } from '@/core/money/money';
 import { emitAsync } from '@/core/events/bus';
 import * as audit from '@/modules/audit/audit.service';
-import { ACCOUNT_CODES } from '@/modules/ledger/accounts';
 import { providerFor, strictProviderFor } from './providers';
 
 /**
@@ -64,14 +63,12 @@ export async function createWallet(
       throw errors.conflict('This address is already monitored', 'errors.walletExists');
     }
 
-    // Mirror the wallet into the ledger so crypto holdings appear in the
-    // trial balance alongside cash, rather than living in a parallel universe.
-    let accountId: string | null = null;
+    // A monitored address counts towards the USDT drawer, so what the chain
+    // says we hold and what the counter can pay out are the same number.
+    let drawerId: string | null = null;
     if (input.linkToLedger !== false) {
-      const account = await tx.account.findUnique({
-        where: { code: ACCOUNT_CODES.crypto(tokenSymbol) },
-      });
-      accountId = account?.id ?? null;
+      const drawer = await tx.drawer.findUnique({ where: { currencyCode: tokenSymbol } });
+      drawerId = drawer?.id ?? null;
     }
 
     const wallet = await tx.wallet.create({
@@ -87,7 +84,7 @@ export async function createWallet(
         notifyOnIncoming: input.notifyOnIncoming ?? true,
         notifyOnOutgoing: input.notifyOnOutgoing ?? true,
         autoCreateTransaction: input.autoCreateTransaction ?? true,
-        accountId,
+        drawerId,
         lastSyncStatus: 'NEVER',
         createdById: actor.id,
       },
@@ -201,7 +198,7 @@ export async function listWallets(
     where: options.includeInactive ? {} : { isActive: true },
     orderBy: [{ isActive: 'desc' }, { createdAt: 'asc' }],
     include: {
-      account: { select: { id: true, code: true, nameEn: true, nameAr: true, balance: true } },
+      drawer: { select: { id: true, currencyCode: true, nameEn: true, nameAr: true, balance: true } },
       _count: { select: { transactions: true } },
     },
   });
@@ -217,7 +214,7 @@ export async function getWallet(id: string, db: DbClient = prisma) {
   const wallet = await db.wallet.findUnique({
     where: { id },
     include: {
-      account: { select: { id: true, code: true, nameEn: true, nameAr: true, balance: true } },
+      drawer: { select: { id: true, currencyCode: true, nameEn: true, nameAr: true, balance: true } },
       syncRuns: { orderBy: { startedAt: 'desc' }, take: 10 },
       snapshots: { orderBy: { at: 'desc' }, take: 30 },
     },

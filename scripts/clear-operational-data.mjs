@@ -31,9 +31,7 @@ const prisma = new PrismaClient();
  */
 const OPERATIONAL_TABLES = [
   'usdtDepositRequest',
-  'journalLine',
-  'journalEntry',
-  'dayClosingLine',
+  'drawerMovement',
   'receipt',
   'chainTransaction',
   'walletSnapshot',
@@ -41,7 +39,6 @@ const OPERATIONAL_TABLES = [
   'notificationRecipient',
   'notification',
   'customerDocument',
-  'customerBalance',
   'draft',
   'job',
   'loginAttempt',
@@ -103,8 +100,8 @@ async function main() {
   total += sequences;
 
   // Every balance is derived from journal lines, and there are none left.
-  const { count: accounts } = await prisma.account.updateMany({ data: { balance: 0n } });
-  console.log(`  ${'account balances reset'.padEnd(24)} ${accounts}`);
+  const { count: accounts } = await prisma.drawer.updateMany({ data: { balance: 0n } });
+  console.log(`  ${'drawer balances reset'.padEnd(24)} ${accounts}`);
 
   // Sessions are invalidated so nobody keeps operating against a cleared system.
   const { count: sessions } = await prisma.session.deleteMany();

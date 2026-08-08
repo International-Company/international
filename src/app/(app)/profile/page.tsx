@@ -4,7 +4,7 @@ import { getTranslator } from '@/i18n/server';
 import { listUserSessions } from '@/modules/auth/session.service';
 import { toJsonSafe } from '@/core/http/json';
 import { Badge, Card, CardBody, CardHeader, DetailRow, PageHeader } from '@/ui/primitives';
-import { AppearanceSettings } from '../admin/settings/appearance-settings';
+import { AppearanceSettings } from '../manage/settings/appearance-settings';
 import { ProfileSecurity } from './profile-security';
 
 export const metadata: Metadata = { title: 'My profile' };

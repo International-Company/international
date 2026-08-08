@@ -26,7 +26,6 @@ export interface ShortcutHandlers {
 }
 
 const NAV_SEQUENCES: { keys: string; href: string; permission?: string }[] = [
-  { keys: 'd', href: '/dashboard', permission: 'dashboard.view' },
   { keys: 't', href: '/exchange/transactions', permission: 'exchange.transaction.view' },
   { keys: 'c', href: '/customers', permission: 'customers.view' },
   { keys: 'r', href: '/exchange/rates', permission: 'exchange.rate.view' },

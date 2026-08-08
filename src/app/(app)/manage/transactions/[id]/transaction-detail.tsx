@@ -1,0 +1,325 @@
+'use client';
+
+import { useState } from 'react';
+import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+import { AlertTriangle, ArrowDownLeft, ArrowUpRight, Printer, Undo2 } from 'lucide-react';
+import { useLocale } from '@/i18n/provider';
+import { api, ApiError } from '@/lib/api-client';
+import { Alert, Badge, Button, Card, CardBody, CardHeader, DetailRow } from '@/ui/primitives';
+import { ConfirmDialog, useToast } from '@/ui/overlay';
+import { Textarea } from '@/ui/form';
+import { DateText, Money, Rate, StatusBadge } from '@/ui/display';
+import { cn } from '@/ui/utils';
+
+/**
+ * One transaction, and what it did to the drawers.
+ *
+ * The movements are the whole explanation now. There is no journal to expand
+ * into and no accounts to trace through: money came out of one drawer and went
+ * into another, and the balance each was left at is on the row. When a customer
+ * disputes a receipt, that is the answer, and it is already on the screen.
+ */
+
+interface Movement {
+  id: string;
+  direction: string;
+  amount: string;
+  balanceAfter: string;
+  reason: string;
+  createdAt: string;
+  drawer: { currencyCode: string; nameEn: string; nameAr: string };
+}
+
+interface TransactionData {
+  id: string;
+  reference: string;
+  type: string;
+  status: string;
+  fromCurrency: string;
+  fromAmount: string;
+  toCurrency: string;
+  toAmount: string;
+  rate: string;
+  profitAmount: string;
+  notes: string | null;
+  createdAt: string;
+  createdById: string;
+  counterpartyName: string | null;
+  counterpartyPhone: string | null;
+  reverseReason: string | null;
+  customer: { id: string; code: string; fullNameEn: string; fullNameAr: string } | null;
+  createdBy: { fullNameEn: string; fullNameAr: string; username: string };
+  branch: { nameEn: string; nameAr: string };
+  receipts: { id: string; number: string; printedCount: number }[];
+  reversalOf: { id: string; reference: string } | null;
+  reversedBy: { id: string; reference: string } | null;
+  chainTransaction: { id: string; txHash: string; network: string } | null;
+  depositRequest: { id: string; reference: string } | null;
+  movements: Movement[];
+}
+
+interface AuditEntry {
+  id: number;
+  at: string;
+  action: string;
+  summaryEn: string;
+  summaryAr: string;
+  actorName: string | null;
+}
+
+export function TransactionDetail({
+  transaction,
+  history,
+  permissions,
+}: {
+  transaction: TransactionData;
+  history: AuditEntry[];
+  permissions: string[];
+}) {
+  const { t, ln } = useLocale();
+  const router = useRouter();
+  const toast = useToast();
+
+  const [reversing, setReversing] = useState(false);
+  const [reason, setReason] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const canReverse =
+    transaction.status === 'POSTED' &&
+    !transaction.reversalOf &&
+    permissions.includes('exchange.transaction.reverse');
+
+  const reverse = async () => {
+    setBusy(true);
+    try {
+      await api.post(`/api/manage/transactions/${transaction.id}`, {
+        action: 'reverse',
+        reason,
+      });
+      toast.success(t('common.saved'), transaction.reference);
+      setReversing(false);
+      setReason('');
+      router.refresh();
+    } catch (cause) {
+      toast.error(
+        t('errors.title'),
+        cause instanceof ApiError
+          ? t(cause.messageKey as never, cause.params as Record<string, string>) || cause.message
+          : t('errors.generic'),
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      {transaction.reversedBy && (
+        <Alert tone="warning" icon={<AlertTriangle />} title={t('transactions.reverse')}>
+          {t('transactions.reversedBy', { reference: transaction.reversedBy.reference })}{' '}
+          <Link href={`/manage/transactions/${transaction.reversedBy.id}`} className="underline">
+            {t('common.view')}
+          </Link>
+        </Alert>
+      )}
+      {transaction.reversalOf && (
+        <Alert tone="neutral">
+          {t('transactions.reversalOf', { reference: transaction.reversalOf.reference })}
+          {transaction.reverseReason ? ` — ${transaction.reverseReason}` : ''}
+        </Alert>
+      )}
+
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+        <Card className="lg:col-span-2">
+          <CardHeader
+            title={t('common.details')}
+            actions={
+              <div className="flex flex-wrap items-center gap-2">
+                <StatusBadge status={transaction.status} />
+                <Badge tone="neutral">
+                  {t(`transactions.type.${transaction.type}` as never)}
+                </Badge>
+              </div>
+            }
+          />
+          <CardBody>
+            {/* What the customer gave and took, which is the whole trade. */}
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div className="rounded-[var(--radius-control)] bg-surface-sunken p-3">
+                <p className="text-xs text-content-secondary">{t('machine.customerPays')}</p>
+                <p className="mt-1 font-mono text-xl font-semibold text-content ltr-content">
+                  <Money value={transaction.fromAmount} currency={transaction.fromCurrency} />
+                </p>
+              </div>
+              <div className="rounded-[var(--radius-control)] bg-surface-sunken p-3">
+                <p className="text-xs text-content-secondary">{t('machine.customerReceives')}</p>
+                <p className="mt-1 font-mono text-xl font-semibold text-content ltr-content">
+                  <Money value={transaction.toAmount} currency={transaction.toCurrency} />
+                </p>
+              </div>
+            </div>
+
+            <dl className="mt-4 grid grid-cols-1 gap-x-6 sm:grid-cols-2">
+              <DetailRow label={t('machine.rateApplied')}>
+                <Rate value={transaction.rate} />
+              </DetailRow>
+              {permissions.includes('exchange.margin.view') && (
+                <DetailRow label={t('transactions.profit')}>
+                  <Money value={transaction.profitAmount} currency={transaction.toCurrency} />
+                </DetailRow>
+              )}
+              <DetailRow label={t('common.createdAt')}>
+                <DateText value={transaction.createdAt} withTime />
+              </DetailRow>
+              <DetailRow label={t('transactions.createdBy')}>
+                {ln(transaction.createdBy, 'fullName')}
+              </DetailRow>
+              {transaction.customer && (
+                <DetailRow label={t('transactions.customer')}>
+                  {ln(transaction.customer, 'fullName')}
+                </DetailRow>
+              )}
+              {transaction.counterpartyName && (
+                <DetailRow label={t('transactions.counterpartyName')}>
+                  {transaction.counterpartyName}
+                </DetailRow>
+              )}
+            </dl>
+
+            {transaction.notes && (
+              <div className="mt-4 rounded-[var(--radius-control)] bg-surface-sunken p-3">
+                <p className="text-xs font-medium text-content-secondary">{t('common.notes')}</p>
+                <p className="mt-1 text-sm text-content">{transaction.notes}</p>
+              </div>
+            )}
+
+            {transaction.chainTransaction && (
+              <div className="mt-4 rounded-[var(--radius-control)] border border-border-base p-3">
+                <p className="text-xs text-content-secondary">
+                  {t('counter.matchedTitle')} · {transaction.chainTransaction.network}
+                </p>
+                <p className="mt-1 break-all font-mono text-xs text-content ltr-content">
+                  {transaction.chainTransaction.txHash}
+                </p>
+              </div>
+            )}
+          </CardBody>
+        </Card>
+
+        <div className="space-y-4">
+          <Card>
+            <CardHeader title={t('common.actions')} />
+            <CardBody className="space-y-2">
+              {permissions.includes('exchange.receipt.print') && (
+                <Button
+                  variant="secondary"
+                  fullWidth
+                  icon={<Printer />}
+                  onClick={() => window.open(`/print/receipt/${transaction.id}`, '_blank')}
+                >
+                  {t('transactions.printReceipt')}
+                </Button>
+              )}
+              {canReverse && (
+                <Button
+                  variant="danger"
+                  fullWidth
+                  icon={<Undo2 />}
+                  onClick={() => setReversing(true)}
+                >
+                  {t('transactions.reverse')}
+                </Button>
+              )}
+              {!canReverse && !permissions.includes('exchange.receipt.print') && (
+                <p className="text-sm text-content-secondary">{t('common.none')}</p>
+              )}
+            </CardBody>
+          </Card>
+
+          {/* --- What it did to the drawers ------------------------------ */}
+          <Card>
+            <CardHeader title={t('drawers.movements')} />
+            <ul className="divide-y divide-border-base">
+              {transaction.movements.map((movement) => {
+                const incoming = movement.direction === 'IN';
+                return (
+                  <li key={movement.id} className="px-4 py-2.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="flex items-center gap-2 text-sm text-content">
+                        {incoming ? (
+                          <ArrowDownLeft className="h-4 w-4 text-success-text" />
+                        ) : (
+                          <ArrowUpRight className="h-4 w-4 text-danger-text" />
+                        )}
+                        {ln(movement.drawer, 'name')}
+                      </span>
+                      <span
+                        className={cn(
+                          'font-mono text-sm ltr-content',
+                          incoming ? 'text-success-text' : 'text-danger-text',
+                        )}
+                      >
+                        {incoming ? '+' : '−'}
+                        <Money value={movement.amount} />
+                      </span>
+                    </div>
+                    <p className="mt-0.5 text-xs text-content-tertiary ltr-content">
+                      {t('drawers.balanceAfter')} <Money value={movement.balanceAfter} />{' '}
+                      {movement.drawer.currencyCode}
+                    </p>
+                  </li>
+                );
+              })}
+              {transaction.movements.length === 0 && (
+                <li className="px-4 py-6 text-sm text-content-secondary">{t('common.noResults')}</li>
+              )}
+            </ul>
+          </Card>
+        </div>
+      </div>
+
+      {/* --- Audit trail ---------------------------------------------------- */}
+      {history.length > 0 && (
+        <Card>
+          <CardHeader title={t('audit.title')} />
+          <ol className="divide-y divide-border-base">
+            {history.map((entry) => (
+              <li key={entry.id} className="px-4 py-2.5">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-sm text-content">{ln(entry, 'summary')}</span>
+                  <span className="text-xs text-content-tertiary">
+                    <DateText value={entry.at} withTime />
+                  </span>
+                </div>
+                {entry.actorName && (
+                  <p className="mt-0.5 text-xs text-content-secondary">{entry.actorName}</p>
+                )}
+              </li>
+            ))}
+          </ol>
+        </Card>
+      )}
+
+      <ConfirmDialog
+        open={reversing}
+        onClose={() => setReversing(false)}
+        onConfirm={() => void reverse()}
+        title={t('transactions.reverseTitle')}
+        message={t('transactions.reverseWarning')}
+        confirmLabel={t('transactions.reverse')}
+        cancelLabel={t('common.cancel')}
+        tone="danger"
+        loading={busy}
+      >
+        <Textarea
+          value={reason}
+          onChange={(event) => setReason(event.target.value)}
+          placeholder={t('transactions.reverseReason')}
+          rows={3}
+          required
+        />
+      </ConfirmDialog>
+    </div>
+  );
+}

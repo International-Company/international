@@ -47,17 +47,14 @@ const TABLES = [
   'userRole',
   'rolePermission',
   'userPermission',
-  'account',
+  'drawer',
   'exchangeRate',
   'customer',
   'customerDocument',
-  'customerBalance',
   'businessDay',
   'transaction',
   'receipt',
-  'journalEntry',
-  'journalLine',
-  'dayClosingLine',
+  'drawerMovement',
   'wallet',
   'walletSnapshot',
   'walletSyncRun',
@@ -83,7 +80,6 @@ type TableName = (typeof TABLES)[number];
  */
 const SELF_REFERENCES: Partial<Record<TableName, string>> = {
   transaction: 'reversalOfId',
-  journalEntry: 'reversesEntryId',
 };
 
 const SNAPSHOT_VERSION = 1;

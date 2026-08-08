@@ -48,10 +48,9 @@ export const GET = route<unknown, z.infer<typeof querySchema>>({
       side: priced.quote.side,
       // The spread is stripped for anyone without the financial permission —
       // the teller quotes the customer, the manager watches the margin.
-      profit: actor.permissions.includes('dashboard.financials.view') ? priced.quote.profit : null,
+      profit: actor.permissions.includes('exchange.margin.view') ? priced.quote.profit : null,
       available: priced.available,
       availableAmount: priced.availableAmount,
-      payFromAccount: priced.payFromAccount,
       requiresCustomer: priced.requiresCustomer,
       overLimit: priced.overLimit,
     };

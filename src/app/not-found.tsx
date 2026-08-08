@@ -30,7 +30,7 @@ export default function NotFound() {
       </p>
 
       <Link
-        href="/dashboard"
+        href="/"
         className="mt-5 rounded-[var(--radius-control)] bg-primary px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-primary-hover"
       >
         Dashboard · لوحة المعلومات

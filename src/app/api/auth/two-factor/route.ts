@@ -16,6 +16,6 @@ export const POST = route<z.infer<typeof bodySchema>>({
       userAgent: meta.userAgent,
     });
 
-    return { redirect: '/dashboard' };
+    return { redirect: '/' };
   },
 });

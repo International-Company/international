@@ -1,11 +1,8 @@
 ﻿import 'server-only';
-import { prisma, withTransaction, type DbClient, type Tx } from '@/core/db/prisma';
+import { prisma, withTransaction, type DbClient } from '@/core/db/prisma';
 import { errors } from '@/core/errors/app-error';
-import { toDecimalString } from '@/core/money/money';
 import { emitAsync } from '@/core/events/bus';
 import * as audit from '@/modules/audit/audit.service';
-import { movements, postEntry } from '@/modules/ledger/ledger.service';
-import { ACCOUNT_CODES } from '@/modules/ledger/accounts';
 
 /**
  * The business day — the daily open/close cycle every exchange office runs.
@@ -142,100 +139,21 @@ export async function openDay(
   }, db);
 }
 
-// ---------------------------------------------------------------------------
-// Closing
-// ---------------------------------------------------------------------------
-
-export interface ClosingSheetRow {
-  accountId: string;
-  code: string;
-  nameEn: string;
-  nameAr: string;
-  currencyCode: string;
-  kind: string;
-  openingBalance: bigint;
-  totalIn: bigint;
-  totalOut: bigint;
-  systemBalance: bigint;
-}
-
-/**
- * Builds the count sheet: for every cash and bank account, what the ledger says
- * should be in the drawer right now, and how it got there today.
- */
-export async function closingSheet(
-  branchId: string,
-  date: Date,
-  db: DbClient = prisma,
-): Promise<ClosingSheetRow[]> {
-  const { start, end } = dayBounds(date);
-
-  const accounts = await db.account.findMany({
-    where: {
-      isActive: true,
-      kind: { in: ['CASH', 'BANK', 'CRYPTO'] },
-      OR: [{ branchId }, { branchId: null }],
-    },
-    orderBy: [{ currencyCode: 'asc' }, { sortOrder: 'asc' }],
-  });
-
-  const rows: ClosingSheetRow[] = [];
-
-  for (const account of accounts) {
-    const today = await movements(account.id, start, end, db);
-    // Opening = closing minus today's net movement. Cash and bank are asset
-    // accounts, so debits add and credits subtract.
-    const net = today.debit - today.credit;
-
-    rows.push({
-      accountId: account.id,
-      code: account.code,
-      nameEn: account.nameEn,
-      nameAr: account.nameAr,
-      currencyCode: account.currencyCode,
-      kind: account.kind,
-      openingBalance: account.balance - net,
-      totalIn: today.debit,
-      totalOut: today.credit,
-      systemBalance: account.balance,
-    });
-  }
-
-  return rows;
-}
-
-export interface CountedBalance {
-  accountId: string;
-  countedBalance: bigint;
-  note?: string;
-}
-
-export interface CloseDayResult {
-  businessDayId: string;
-  differences: {
-    accountId: string;
-    code: string;
-    currencyCode: string;
-    difference: bigint;
-  }[];
-  transactionCount: number;
-}
 
 /**
  * Closes the day.
  *
- * Every counted difference is posted to the cash-difference account so the
- * ledger continues to agree with the physical drawer. Absorbing a shortage
- * silently would leave the books internally consistent but wrong, which is the
- * failure mode a daily close exists to prevent.
+ * There is no count sheet and no variance posting any more: those existed to
+ * reconcile a ledger against physical cash, and the ledger is gone. What closing
+ * still does is draw a line — after it, the day's transactions are a fixed set
+ * the manager can review, and nothing further can be recorded against it.
  */
 export async function closeDay(
   branchId: string,
-  counts: CountedBalance[],
   actor: Actor,
   options: { date?: Date; notes?: string } = {},
   db: DbClient = prisma,
-): Promise<CloseDayResult> {
+) {
   const date = dayKey(options.date ?? new Date());
 
   return withTransaction(async (tx) => {
@@ -249,94 +167,7 @@ export async function closeDay(
       throw errors.conflict('This day is already closed', 'errors.dayAlreadyClosed');
     }
 
-    // Block new postings for the duration of the count.
-    await tx.businessDay.update({ where: { id: day.id }, data: { status: 'CLOSING' } });
-
-
-    const sheet = await closingSheet(branchId, date, tx);
-    const sheetByAccount = new Map(sheet.map((row) => [row.accountId, row]));
-    const countByAccount = new Map(counts.map((c) => [c.accountId, c]));
-
-    const differences: CloseDayResult['differences'] = [];
-
-    for (const row of sheet) {
-      const counted = countByAccount.get(row.accountId);
-      // An uncounted drawer is recorded as matching, not as a zero count —
-      // treating "not counted" as "empty" would post a fictitious shortage.
-      const countedBalance = counted ? counted.countedBalance : row.systemBalance;
-      const difference = countedBalance - row.systemBalance;
-
-      await tx.dayClosingLine.upsert({
-        where: { businessDayId_accountId: { businessDayId: day.id, accountId: row.accountId } },
-        create: {
-          businessDayId: day.id,
-          accountId: row.accountId,
-          currencyCode: row.currencyCode,
-          openingBalance: row.openingBalance,
-          totalIn: row.totalIn,
-          totalOut: row.totalOut,
-          systemBalance: row.systemBalance,
-          countedBalance,
-          difference,
-          note: counted?.note ?? null,
-        },
-        update: {
-          openingBalance: row.openingBalance,
-          totalIn: row.totalIn,
-          totalOut: row.totalOut,
-          systemBalance: row.systemBalance,
-          countedBalance,
-          difference,
-          note: counted?.note ?? null,
-        },
-      });
-
-      if (difference !== 0n) {
-        differences.push({
-          accountId: row.accountId,
-          code: row.code,
-          currencyCode: row.currencyCode,
-          difference,
-        });
-
-        // Bring the ledger to the counted reality and book the variance.
-        const shortageAccount = await tx.account.findUnique({
-          where: { code: ACCOUNT_CODES.expenseShortage(row.currencyCode) },
-        });
-        if (!shortageAccount) {
-          throw errors.precondition(
-            `Missing cash-difference account for ${row.currencyCode}`,
-            'errors.missingAccount',
-          );
-        }
-
-        await postEntry(
-          {
-            description: `Cash count difference ${row.code} — ${formatDayKey(date)}`,
-            descriptionAr: `فرق جرد الصندوق ${row.code} — ${formatDayKey(date)}`,
-            valueDate: date,
-            createdById: actor.id,
-            lines:
-              difference > 0n
-                ? [
-                    { accountId: row.accountId, debit: difference, memo: 'Cash count surplus' },
-                    { accountId: shortageAccount.id, credit: difference, memo: 'Cash count surplus' },
-                  ]
-                : [
-                    { accountId: shortageAccount.id, debit: -difference, memo: 'Cash count shortage' },
-                    { accountId: row.accountId, credit: -difference, memo: 'Cash count shortage' },
-                  ],
-          },
-          tx,
-        );
-      }
-    }
-
-    const transactionCount = await tx.transaction.count({
-      where: { businessDayId: day.id, status: 'POSTED' },
-    });
-
-    await tx.businessDay.update({
+    const closed = await tx.businessDay.update({
       where: { id: day.id },
       data: {
         status: 'CLOSED',
@@ -346,27 +177,19 @@ export async function closeDay(
       },
     });
 
+    const posted = await tx.transaction.count({
+      where: { businessDayId: day.id, status: 'POSTED' },
+    });
+
     await audit.record(
       {
         action: 'DAY_CLOSE',
         module: 'exchange',
         entityType: 'BusinessDay',
         entityId: day.id,
-        summaryEn:
-          `Closed business day ${formatDayKey(date)} for ${day.branch.nameEn} — ` +
-          `${transactionCount} transaction(s), ${differences.length} difference(s)`,
-        summaryAr:
-          `إغلاق يوم العمل ${formatDayKey(date)} لفرع ${day.branch.nameAr} — ` +
-          `${transactionCount} عملية، ${differences.length} فرق`,
+        summaryEn: `Closed business day ${formatDayKey(date)} for ${day.branch.nameEn} — ${posted} transaction(s)`,
+        summaryAr: `إغلاق يوم العمل ${formatDayKey(date)} لفرع ${day.branch.nameAr} — ${posted} عملية`,
         actor,
-        metadata: {
-          transactionCount,
-          differences: differences.map((d) => ({
-            code: d.code,
-            difference: toDecimalString(d.difference, 2),
-            currency: d.currencyCode,
-          })),
-        },
       },
       tx,
     );
@@ -375,34 +198,42 @@ export async function closeDay(
       businessDayId: day.id,
       branchId,
       actorId: actor.id,
-      hasDifference: differences.length > 0,
+      hasDifference: false,
     });
 
-    void sheetByAccount; // sheet retained above for clarity of intent
-    return { businessDayId: day.id, differences, transactionCount };
+    return { day: closed, transactions: posted };
   }, db);
 }
 
-/** Reopens a closed day for correction. Always a sensitive, audited action. */
+/**
+ * Reopens a closed day so a correction can be recorded against it.
+ *
+ * Deliberately audited as its own action rather than folded into closing: a day
+ * that was closed and then reopened is the shape of an afterthought, and a
+ * manager reviewing later should be able to see that it happened.
+ */
 export async function reopenDay(
-  businessDayId: string,
-  reason: string,
+  branchId: string,
   actor: Actor,
+  options: { date?: Date; reason?: string } = {},
   db: DbClient = prisma,
-): Promise<void> {
-  await withTransaction(async (tx: Tx) => {
+) {
+  const date = dayKey(options.date ?? new Date());
+
+  return withTransaction(async (tx) => {
     const day = await tx.businessDay.findUnique({
-      where: { id: businessDayId },
+      where: { branchId_date: { branchId, date } },
       include: { branch: true },
     });
-    if (!day) throw errors.notFound('Business day', businessDayId);
+
+    if (!day) throw errors.notFound('Business day', formatDayKey(date));
     if (day.status !== 'CLOSED') {
-      throw errors.conflict('Only a closed day can be reopened', 'errors.dayNotClosed');
+      throw errors.conflict('This day is not closed', 'errors.dayNotClosed');
     }
 
-    await tx.businessDay.update({
-      where: { id: businessDayId },
-      data: { status: 'REOPENED', closedAt: null, closedById: null },
+    const reopened = await tx.businessDay.update({
+      where: { id: day.id },
+      data: { status: 'REOPENED', closedById: null, closedAt: null },
     });
 
     await audit.record(
@@ -410,46 +241,30 @@ export async function reopenDay(
         action: 'DAY_REOPEN',
         module: 'exchange',
         entityType: 'BusinessDay',
-        entityId: businessDayId,
-        summaryEn: `Reopened business day ${formatDayKey(day.date)}: ${reason}`,
-        summaryAr: `إعادة فتح يوم العمل ${formatDayKey(day.date)}: ${reason}`,
+        entityId: day.id,
+        summaryEn: `Reopened business day ${formatDayKey(date)}${options.reason ? `: ${options.reason}` : ''}`,
+        summaryAr: `إعادة فتح يوم العمل ${formatDayKey(date)}${options.reason ? `: ${options.reason}` : ''}`,
         actor,
-        metadata: { reason },
       },
       tx,
     );
+
+    return reopened;
   }, db);
 }
 
-export async function listDays(
-  branchId: string,
-  options: { limit?: number } = {},
-  db: DbClient = prisma,
-) {
-  return db.businessDay.findMany({
+/** Recent days, for the manager's panel. */
+export async function listDays(branchId: string, limit = 14, db: DbClient = prisma) {
+  const days = await db.businessDay.findMany({
     where: { branchId },
     orderBy: { date: 'desc' },
-    take: Math.min(365, options.limit ?? 60),
+    take: Math.min(limit, 60),
     include: {
       openedBy: { select: { fullNameEn: true, fullNameAr: true } },
       closedBy: { select: { fullNameEn: true, fullNameAr: true } },
       _count: { select: { transactions: true } },
     },
   });
-}
 
-export async function dayDetail(businessDayId: string, db: DbClient = prisma) {
-  const day = await db.businessDay.findUnique({
-    where: { id: businessDayId },
-    include: {
-      branch: true,
-      openedBy: { select: { fullNameEn: true, fullNameAr: true } },
-      closedBy: { select: { fullNameEn: true, fullNameAr: true } },
-      closingLines: {
-        include: { account: { select: { code: true, nameEn: true, nameAr: true, kind: true } } },
-      },
-    },
-  });
-  if (!day) throw errors.notFound('Business day', businessDayId);
-  return day;
+  return days;
 }

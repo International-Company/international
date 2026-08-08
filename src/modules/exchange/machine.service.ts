@@ -2,7 +2,7 @@ import 'server-only';
 import { prisma, type DbClient } from '@/core/db/prisma';
 import { errors } from '@/core/errors/app-error';
 import { toDecimalString } from '@/core/money/money';
-import { fundsAccountCode } from '@/modules/ledger/accounts';
+import * as drawers from '@/modules/drawers/drawer.service';
 import * as settings from '@/modules/settings/settings.service';
 import { quoteExchange, quoteReverse, type Quote } from './rates.service';
 import * as transactions from './transaction.service';
@@ -104,7 +104,6 @@ export interface MachineQuote {
   /** Whether the branch can actually pay this out right now. */
   available: boolean;
   availableAmount: bigint;
-  payFromAccount: { id: string; code: string; nameEn: string; nameAr: string } | null;
   requiresCustomer: boolean;
   overLimit: boolean;
 }
@@ -168,26 +167,15 @@ export async function quote(
   const overLimit = maxAmount > 0n && priced.fromAmount > maxAmount;
   const requiresCustomer = requireCustomerAbove > 0n && priced.fromAmount >= requireCustomerAbove;
 
-  // Resolved exactly as the posting rules will resolve it, so a green light
-  // here cannot become a failed posting a second later.
-  const target = await db.currency.findUnique({ where: { code: input.toCurrency } });
-  if (!target) throw errors.notFound('Currency', input.toCurrency);
-
-  const payFrom = await db.account.findUnique({
-    where: { code: fundsAccountCode(input.toCurrency, target.kind) },
-    select: { id: true, code: true, nameEn: true, nameAr: true, balance: true, allowNegative: true, isActive: true },
-  });
-
-  const availableAmount = payFrom?.balance ?? 0n;
-  const available = payFrom?.isActive ? payFrom.allowNegative || availableAmount >= priced.toAmount : false;
+  // The same question the recording path will ask, asked here first so a green
+  // light cannot become a failed posting a second later.
+  const payout = await drawers.canPay(input.toCurrency, priced.toAmount, db);
 
   return {
     quote: priced,
-    available,
-    availableAmount,
-    payFromAccount: payFrom
-      ? { id: payFrom.id, code: payFrom.code, nameEn: payFrom.nameEn, nameAr: payFrom.nameAr }
-      : null,
+    available: payout.ok,
+    availableAmount: payout.balance,
+
     requiresCustomer,
     overLimit,
   };
@@ -249,17 +237,18 @@ export async function record(input: MachineRecordInput, actor: Actor, db: DbClie
     );
   }
 
-  // The ledger enforces this too. Failing here means the message names the
-  // drawer and the shortfall instead of surfacing as a posting error.
+  // The drawer refuses this again on the way through. Failing here means the
+  // teller is told the drawer and the shortfall rather than reading a posting
+  // error, and the customer has not been quoted a figure first.
   if (!priced.available) {
     throw errors.insufficientFunds(
-      priced.payFromAccount?.code ?? `${input.toCurrency} drawer`,
+      `The ${input.toCurrency} drawer`,
       `${toDecimalString(priced.availableAmount, 2)} ${input.toCurrency}`,
       `${toDecimalString(priced.quote.toAmount, 2)} ${input.toCurrency}`,
     );
   }
 
-  return transactions.create(
+  return transactions.record(
     {
       type: 'EXCHANGE',
       branchId: input.branchId,
@@ -267,14 +256,15 @@ export async function record(input: MachineRecordInput, actor: Actor, db: DbClie
       fromCurrency: input.fromCurrency,
       fromAmount: priced.quote.fromAmount,
       toCurrency: input.toCurrency,
+      toAmount: priced.quote.toAmount,
+      rate: priced.quote.rate,
+      rateId: priced.quote.rateId,
+      profitAmount: priced.quote.profit,
       counterpartyName: input.counterpartyName ?? null,
       counterpartyPhone: input.counterpartyPhone ?? null,
       notes: input.notes ?? null,
-      channel: 'COUNTER',
-      metadata: { source: 'EXCHANGE_MACHINE' },
     },
     actor,
-    { submit: true },
     db,
   );
 }

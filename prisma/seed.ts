@@ -1,7 +1,6 @@
 import { PrismaClient } from '@prisma/client';
 import { generatePassword, hashPassword } from '../src/core/security/scrypt';
 import { PERMISSIONS, SYSTEM_ROLES, resolveRolePermissions } from '../src/core/security/permissions';
-import { chartForCurrency } from '../src/modules/ledger/accounts';
 import { SETTINGS } from '../src/modules/settings/settings.catalog';
 import { DEFAULT_SCHEDULE } from '../src/core/jobs/schedule';
 
@@ -84,26 +83,23 @@ async function main() {
   }
   console.log(`  currencies      ${CURRENCIES.length}`);
 
-  // --- Chart of accounts ----------------------------------------------------
-  let accountCount = 0;
+  // --- Drawers --------------------------------------------------------------
+  //
+  // One per currency, and that is the whole chart. What the branch holds is a
+  // number on a row; there is nothing else to reconcile it against.
   for (const currency of CURRENCIES) {
-    for (const blueprint of chartForCurrency(currency.code, {
-      isCrypto: currency.kind === 'CRYPTO',
-    })) {
-      await prisma.account.upsert({
-        where: { code: blueprint.code },
-        create: { ...blueprint, branchId: branch.id },
-        update: {
-          nameEn: blueprint.nameEn,
-          nameAr: blueprint.nameAr,
-          allowNegative: blueprint.allowNegative,
-          sortOrder: blueprint.sortOrder,
-        },
-      });
-      accountCount++;
-    }
+    await prisma.drawer.upsert({
+      where: { currencyCode: currency.code },
+      create: {
+        currencyCode: currency.code,
+        nameEn: `${currency.nameEn} drawer`,
+        nameAr: `صندوق ${currency.nameAr}`,
+        sortOrder: currency.sortOrder,
+      },
+      update: {},
+    });
   }
-  console.log(`  accounts        ${accountCount}`);
+  console.log(`  drawers         ${CURRENCIES.length}`);
 
   // --- Permissions ----------------------------------------------------------
   for (const permission of PERMISSIONS) {
@@ -260,7 +256,14 @@ async function main() {
       update: { nameEn: task.nameEn, nameAr: task.nameAr, jobName: task.jobName },
     });
   }
+  // A task whose job no longer exists keeps firing and failing every cycle,
+  // filling the log with an error nobody can act on.
+  const retiredTasks = await prisma.scheduledTask.deleteMany({
+    where: { key: { notIn: DEFAULT_SCHEDULE.map((task) => task.key) } },
+  });
+
   console.log(`  scheduled tasks ${DEFAULT_SCHEDULE.length}`);
+  if (retiredTasks.count > 0) console.log(`  retired tasks   ${retiredTasks.count}`);
 
   // --- System account --------------------------------------------------------
   // Owns records the system creates on its own — auto-generated USDT

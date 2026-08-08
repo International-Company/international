@@ -111,7 +111,7 @@ export default async function ReceiptPage({ params }: { params: Promise<{ id: st
               <Row label={t('transactions.reference')} value={transaction.reference} mono />
               <Row
                 label={t('receipt.date')}
-                value={formatDateTime(transaction.postedAt ?? transaction.createdAt, locale)}
+                value={formatDateTime(transaction.createdAt ?? transaction.createdAt, locale)}
               />
               <Row label={t('common.branch')} value={ln(transaction.branch, 'name')} />
               <Row label={t('receipt.teller')} value={ln(transaction.createdBy, 'fullName')} />
@@ -154,16 +154,6 @@ export default async function ReceiptPage({ params }: { params: Promise<{ id: st
                         </td>
                       </tr>
                     </>
-                  )}
-
-                  {transaction.feeAmount > 0n && (
-                    <tr>
-                      <td className="py-1">{t('receipt.commission')}</td>
-                      <td className="py-1 text-end" dir="ltr">
-                        {toDecimalString(transaction.feeAmount, 2)}{' '}
-                        {transaction.feeCurrency ?? transaction.fromCurrency}
-                      </td>
-                    </tr>
                   )}
                 </tbody>
               </table>

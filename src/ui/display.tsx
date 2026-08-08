@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import { useLocale } from '@/i18n/provider';
 import {
   formatAmount,
@@ -96,14 +97,29 @@ export function DateText({
   className?: string;
 }) {
   const { locale } = useLocale();
+
+  /**
+   * A relative time is a function of *now*, and the server's now is never the
+   * browser's. "30 seconds ago" rendered on the server becomes "31 seconds ago"
+   * by the time it hydrates, and React tears down the tree over the difference —
+   * intermittently, which is the hardest kind of bug to be handed later.
+   *
+   * So the server renders the absolute date, which is stable, and the relative
+   * form appears once the component is running in the browser and has a `now`
+   * it can trust.
+   */
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+
   if (!value) return <span className={cn('text-content-tertiary', className)}>—</span>;
 
   const title = formatDateTime(value, locale);
-  const text = relative
-    ? formatRelative(value, locale)
-    : withTime
-      ? title
-      : formatDate(value, locale);
+  const text =
+    relative && mounted
+      ? formatRelative(value, locale)
+      : withTime
+        ? title
+        : formatDate(value, locale);
 
   return (
     <time title={title} className={cn('whitespace-nowrap', className)}>

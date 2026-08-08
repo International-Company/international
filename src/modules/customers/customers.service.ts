@@ -3,7 +3,7 @@ import type { Prisma } from '@prisma/client';
 import { prisma, withTransaction, type DbClient } from '@/core/db/prisma';
 import { errors } from '@/core/errors/app-error';
 import * as audit from '@/modules/audit/audit.service';
-import { nextReference } from '@/modules/ledger/reference';
+import { nextReference } from '@/modules/sequence/reference';
 import { containsInsensitive } from '@/core/db/search';
 
 /**
@@ -341,7 +341,6 @@ export async function listCustomers(filter: CustomerFilter, db: DbClient = prism
       skip: (page - 1) * pageSize,
       take: pageSize,
       include: {
-        balances: true,
         _count: { select: { transactions: true } },
       },
     }),
@@ -355,7 +354,6 @@ export async function getCustomer(id: string, db: DbClient = prisma) {
   const customer = await db.customer.findUnique({
     where: { id },
     include: {
-      balances: { include: { currency: true } },
       documents: { orderBy: { createdAt: 'desc' } },
       branch: { select: { nameEn: true, nameAr: true } },
       transactions: {

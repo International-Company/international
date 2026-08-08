@@ -18,7 +18,7 @@ const querySchema = z.object({
 
 interface SearchResult {
   id: string;
-  group: 'transactions' | 'customers' | 'wallets' | 'accounts';
+  group: 'transactions' | 'customers' | 'wallets';
   title: string;
   subtitle?: string;
   href: string;
@@ -62,7 +62,7 @@ export const GET = route<unknown, z.infer<typeof querySchema>>({
           group: 'transactions' as const,
           title: transaction.reference,
           subtitle: `${transaction.type} · ${transaction.status} · ${transaction.customer?.fullNameEn ?? ''}`.trim(),
-          href: `/exchange/transactions/${transaction.id}`,
+          href: `/manage/transactions/${transaction.id}`,
           icon: 'transactions',
         })),
       );
@@ -89,7 +89,7 @@ export const GET = route<unknown, z.infer<typeof querySchema>>({
           group: 'customers' as const,
           title: customer.fullNameEn,
           subtitle: `${customer.code}${customer.phone ? ` · ${customer.phone}` : ''}`,
-          href: `/customers/${customer.id}`,
+          href: `/manage/transactions?search=${customer.code}`,
           icon: 'customers',
         })),
       );
@@ -114,34 +114,8 @@ export const GET = route<unknown, z.infer<typeof querySchema>>({
           group: 'wallets' as const,
           title: wallet.label,
           subtitle: `${wallet.network} · ${wallet.address.slice(0, 12)}…`,
-          href: `/usdt/wallets/${wallet.id}`,
+          href: `/manage/usdt`,
           icon: 'wallet',
-        })),
-      );
-    }
-
-    if (can('exchange.account.view')) {
-      const accounts = await prisma.account.findMany({
-        where: {
-          isActive: true,
-          OR: [
-            { code: containsInsensitive(term) },
-            { nameEn: containsInsensitive(term) },
-            { nameAr: containsInsensitive(term) },
-          ],
-        },
-        take: query.limit,
-        select: { id: true, code: true, nameEn: true, currencyCode: true },
-      });
-
-      results.push(
-        ...accounts.map((account) => ({
-          id: account.id,
-          group: 'accounts' as const,
-          title: account.nameEn,
-          subtitle: `${account.code} · ${account.currencyCode}`,
-          href: `/exchange/cashboxes/${account.id}`,
-          icon: 'cashbox',
         })),
       );
     }

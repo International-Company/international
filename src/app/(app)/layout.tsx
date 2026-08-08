@@ -1,7 +1,6 @@
 import { redirect } from 'next/navigation';
 import { cookies } from 'next/headers';
 import { getSession } from '@/modules/auth/context';
-import { unreadCount } from '@/modules/notifications/notifications.service';
 import { resolveLocale, LOCALE_COOKIE } from '@/i18n/config';
 import {
   DENSITY_COOKIE,
@@ -36,8 +35,6 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     redirect('/change-password');
   }
 
-  const unread = await unreadCount(session.user.id);
-
   // Preferences come from the profile first, then the cookie. This layout is
   // already dynamic, so resolving them here costs nothing and means the first
   // server render is in the right language and theme.
@@ -65,7 +62,6 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           permissions: session.user.permissions,
           roles: session.user.roles,
         }}
-        unreadCount={unread}
       >
         {children}
       </AppShell>

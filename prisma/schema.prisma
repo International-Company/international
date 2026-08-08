@@ -42,7 +42,6 @@ model Branch {
   updatedAt DateTime @updatedAt
 
   users           User[]
-  accounts        Account[]
   transactions    Transaction[]
   customers       Customer[]
   businessDays    BusinessDay[]
@@ -108,11 +107,11 @@ model User {
   notifications   NotificationRecipient[]
 
   createdTransactions Transaction[]        @relation("TransactionCreatedBy")
-  journalEntries      JournalEntry[]
   openedDays          BusinessDay[]        @relation("DayOpenedBy")
   closedDays          BusinessDay[]        @relation("DayClosedBy")
   backups             Backup[]
   wallets             Wallet[]
+  drawerMovements     DrawerMovement[]
   rates               ExchangeRate[]
   depositRequests     UsdtDepositRequest[]
 
@@ -268,10 +267,9 @@ model Currency {
   isBase    Boolean @default(false)
   sortOrder Int     @default(0)
 
-  accounts         Account[]
-  baseRates        ExchangeRate[]    @relation("RateBase")
-  quoteRates       ExchangeRate[]    @relation("RateQuote")
-  customerBalances CustomerBalance[]
+  baseRates  ExchangeRate[] @relation("RateBase")
+  quoteRates ExchangeRate[] @relation("RateQuote")
+  drawer     Drawer?
 
   @@map("currencies")
 }
@@ -312,101 +310,80 @@ model ExchangeRate {
 // LEDGER — double entry
 // ===========================================================================
 
-model Account {
-  id     String @id @default(cuid())
-  code   String @unique
+/// What the branch physically holds, one row per currency.
+///
+/// This replaced a chart of accounts and a double-entry ledger. The system does
+/// two things — take USDT and hand cash back, or swap one cash currency for
+/// another — and both are a movement between two of these rows. A journal
+/// proving every movement balanced was answering a question this product no
+/// longer asks.
+///
+/// The balance here is the record, not a cache of one. Every change goes through
+/// `drawer.service`, inside a database transaction, so it can never be applied
+/// twice or computed from a stale read.
+model Drawer {
+  id String @id @default(cuid())
+
+  currencyCode String   @unique
+  currency     Currency @relation(fields: [currencyCode], references: [code])
+
   nameEn String
   nameAr String
 
-  // ASSET | LIABILITY | EQUITY | INCOME | EXPENSE
-  type String
-  // CASH | BANK | CRYPTO | INTERNAL — how the account is operated.
-  kind String @default("INTERNAL")
-
-  currencyCode String
-  currency     Currency @relation(fields: [currencyCode], references: [code])
-
-  branchId String?
-  branch   Branch? @relation(fields: [branchId], references: [id], onDelete: SetNull)
-
-  /// Cached balance in minor units (1e8). Authoritative value is the sum of
-  /// journal lines; this column is maintained inside the same transaction and
-  /// is verified by the reconciliation job.
+  /// Scaled 1e8, like every amount in this system.
   balance BigInt @default(0)
 
+  /// A drawer allowed to go short. Off for cash: a negative till is a counting
+  /// mistake, not a position.
   allowNegative Boolean @default(false)
-  isActive      Boolean @default(true)
-  isSystem      Boolean @default(false)
-  sortOrder     Int     @default(0)
 
+  /// Warn the manager below this. Zero disables the warning.
+  lowBalanceThreshold BigInt @default(0)
+
+  isActive  Boolean  @default(true)
+  sortOrder Int      @default(0)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  lines           JournalLine[]
-  sourceOf        Transaction[]    @relation("TransactionSourceAccount")
-  destinationOf   Transaction[]    @relation("TransactionDestinationAccount")
-  wallets         Wallet[]
-  dayClosingLines DayClosingLine[]
+  movements DrawerMovement[]
+  wallets   Wallet[]
 
-  @@index([type])
-  @@index([currencyCode])
-  @@index([branchId, isActive])
-  @@map("accounts")
+  @@index([isActive, sortOrder])
+  @@map("drawers")
 }
 
-/// Append-only. A journal entry always balances: sum(debit) == sum(credit)
-/// per currency. Enforced in src/modules/ledger before persisting.
-model JournalEntry {
-  id        String   @id @default(cuid())
-  reference String   @unique
-  postedAt  DateTime @default(now())
-  valueDate DateTime @default(now())
+/// Every change to a drawer, append-only.
+///
+/// Not a journal: there is no opposite line and nothing has to balance. It
+/// exists so a balance can be explained — this drawer holds what it holds
+/// because of these movements — which is the part of a ledger still worth
+/// having at this size.
+model DrawerMovement {
+  id       String @id @default(cuid())
+  drawerId String
+  drawer   Drawer @relation(fields: [drawerId], references: [id])
 
-  description   String
-  descriptionAr String?
+  /// IN | OUT
+  direction    String
+  amount       BigInt
+  /// The drawer balance immediately after this movement was applied.
+  balanceAfter BigInt
+
+  /// TRANSACTION | FUNDING | REVERSAL
+  reason String
 
   transactionId String?
   transaction   Transaction? @relation(fields: [transactionId], references: [id], onDelete: SetNull)
 
-  // Reversal bookkeeping — corrections never edit history.
-  isReversal      Boolean       @default(false)
-  reversesEntryId String?       @unique
-  reversesEntry   JournalEntry? @relation("EntryReversal", fields: [reversesEntryId], references: [id], onDelete: SetNull)
-  reversedBy      JournalEntry? @relation("EntryReversal")
+  note String?
 
-  createdById String?
-  createdBy   User?    @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  createdById String
+  createdBy   User     @relation(fields: [createdById], references: [id])
   createdAt   DateTime @default(now())
 
-  lines JournalLine[]
-
-  @@index([postedAt])
+  @@index([drawerId, createdAt])
   @@index([transactionId])
-  @@map("journal_entries")
-}
-
-model JournalLine {
-  id      String       @id @default(cuid())
-  entryId String
-  entry   JournalEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
-
-  accountId String
-  account   Account @relation(fields: [accountId], references: [id])
-
-  currencyCode String
-  debit        BigInt @default(0)
-  credit       BigInt @default(0)
-  /// Account balance immediately after this line was applied.
-  balanceAfter BigInt @default(0)
-
-  memo     String?
-  sequence Int     @default(0)
-
-  createdAt DateTime @default(now())
-
-  @@index([accountId, createdAt])
-  @@index([entryId])
-  @@map("journal_lines")
+  @@map("drawer_movements")
 }
 
 // ===========================================================================
@@ -455,7 +432,6 @@ model Customer {
 
   transactions    Transaction[]
   documents       CustomerDocument[]
-  balances        CustomerBalance[]
   depositRequests UsdtDepositRequest[]
 
   @@index([fullNameEn])
@@ -483,35 +459,20 @@ model CustomerDocument {
   @@map("customer_documents")
 }
 
-/// What the company owes the customer (positive) or the customer owes (negative).
-model CustomerBalance {
-  customerId   String
-  currencyCode String
-  balance      BigInt   @default(0)
-  updatedAt    DateTime @updatedAt
-
-  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
-  currency Currency @relation(fields: [currencyCode], references: [code])
-
-  @@id([customerId, currencyCode])
-  @@map("customer_balances")
-}
-
 // ===========================================================================
 // EXCHANGE — transactions
 // ===========================================================================
 
 model Transaction {
   id        String @id @default(cuid())
-  reference String @unique // TXN-20260806-00001
+  reference String @unique // TXN-20260808-00001
 
-  /// CASH_IN | CASH_OUT | EXCHANGE | TRANSFER_IN | TRANSFER_OUT
-  /// | DEPOSIT | WITHDRAWAL | USDT_IN | USDT_OUT | ADJUSTMENT
-  type    String
-  /// DRAFT | POSTED | CANCELLED | REVERSED — recording a transaction posts it.
-  status  String @default("DRAFT")
-  /// COUNTER | ONLINE | BLOCKCHAIN | SYSTEM
-  channel String @default("COUNTER")
+  /// EXCHANGE — cash for cash on the machine.
+  /// USDT_RECEIVE — USDT taken at the window, cash handed back.
+  /// Both are the same shape: the customer gives one currency and takes another.
+  type   String
+  /// POSTED | REVERSED. Recording is posting; there is no draft and no approval.
+  status String @default("POSTED")
 
   branchId String
   branch   Branch @relation(fields: [branchId], references: [id])
@@ -521,67 +482,46 @@ model Transaction {
 
   // --- Amounts (all scaled 1e8) -------------------------------------------
   fromCurrency String
-  fromAmount   BigInt        @default(0)
+  fromAmount   BigInt
   toCurrency   String
-  toAmount     BigInt        @default(0)
+  toAmount     BigInt
   /// Applied rate, scaled 1e8. 1 unit of fromCurrency = rate units of toCurrency.
   rate         BigInt        @default(100000000)
   rateId       String?
   appliedRate  ExchangeRate? @relation(fields: [rateId], references: [id], onDelete: SetNull)
 
-  feeCurrency  String?
-  feeAmount    BigInt  @default(0)
-  /// Profit realised versus the mid rate, in `toCurrency`.
-  profitAmount BigInt  @default(0)
+  /// Spread earned against the mid rate, in toCurrency. Shown to the manager.
+  profitAmount BigInt @default(0)
 
-  sourceAccountId      String?
-  sourceAccount        Account? @relation("TransactionSourceAccount", fields: [sourceAccountId], references: [id], onDelete: SetNull)
-  destinationAccountId String?
-  destinationAccount   Account? @relation("TransactionDestinationAccount", fields: [destinationAccountId], references: [id], onDelete: SetNull)
-
-  // --- Counterparty (walk-in, no customer record) -------------------------
+  // --- Who was at the window ----------------------------------------------
   counterpartyName  String?
   counterpartyPhone String?
-  counterpartyDoc   String?
 
-  notes         String?
-  internalNotes String?
-  metadata      String? // JSON
+  notes String?
 
-  // --- Lifecycle -----------------------------------------------------------
   createdById String
   createdBy   User   @relation("TransactionCreatedBy", fields: [createdById], references: [id])
 
-  /// Why a draft was abandoned. Posted work is undone by reversal, not here.
-  cancelReason String?
-
-  postedAt  DateTime?
-  valueDate DateTime  @default(now())
-
-  reversalOfId String?      @unique
-  reversalOf   Transaction? @relation("TransactionReversal", fields: [reversalOfId], references: [id], onDelete: SetNull)
-  reversedBy   Transaction? @relation("TransactionReversal")
+  reversalOfId  String?      @unique
+  reversalOf    Transaction? @relation("TransactionReversal", fields: [reversalOfId], references: [id], onDelete: SetNull)
+  reversedBy    Transaction? @relation("TransactionReversal")
+  reverseReason String?
 
   businessDayId String?
   businessDay   BusinessDay? @relation(fields: [businessDayId], references: [id], onDelete: SetNull)
 
-  /// Optimistic concurrency guard — bumped on every state change.
-  version Int @default(0)
-
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  journalEntries   JournalEntry[]
   receipts         Receipt[]
+  movements        DrawerMovement[]
   chainTransaction ChainTransaction?
   depositRequest   UsdtDepositRequest?
 
   @@index([status, createdAt])
   @@index([type, createdAt])
-  @@index([branchId, createdAt])
+  @@index([createdById, createdAt])
   @@index([customerId])
-  @@index([createdById])
-  @@index([valueDate])
   @@map("transactions")
 }
 
@@ -626,32 +566,10 @@ model BusinessDay {
   notes String?
 
   transactions Transaction[]
-  closingLines DayClosingLine[]
 
   @@unique([branchId, date])
   @@index([status])
   @@map("business_days")
-}
-
-model DayClosingLine {
-  id            String      @id @default(cuid())
-  businessDayId String
-  businessDay   BusinessDay @relation(fields: [businessDayId], references: [id], onDelete: Cascade)
-
-  accountId String
-  account   Account @relation(fields: [accountId], references: [id])
-
-  currencyCode   String
-  openingBalance BigInt  @default(0)
-  totalIn        BigInt  @default(0)
-  totalOut       BigInt  @default(0)
-  systemBalance  BigInt  @default(0)
-  countedBalance BigInt  @default(0)
-  difference     BigInt  @default(0)
-  note           String?
-
-  @@unique([businessDayId, accountId])
-  @@map("day_closing_lines")
 }
 
 // ===========================================================================
@@ -679,9 +597,9 @@ model Wallet {
   isCounterAddress Boolean @default(false)
   counterSortOrder Int     @default(0)
 
-  /// Ledger account mirroring this wallet's balance.
-  accountId String?
-  account   Account? @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  /// The drawer this wallet's holdings count towards.
+  drawerId String?
+  drawer   Drawer? @relation(fields: [drawerId], references: [id], onDelete: SetNull)
 
   balance          BigInt    @default(0)
   balanceUpdatedAt DateTime?

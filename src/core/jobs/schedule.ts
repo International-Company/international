@@ -26,14 +26,14 @@ export const DEFAULT_SCHEDULE: ScheduledTaskDefinition[] = [
     key: 'balance-check',
     nameEn: 'Check cashbox balances',
     nameAr: 'فحص أرصدة الصناديق',
-    jobName: 'accounts.checkBalances',
+    jobName: 'drawers.checkBalances',
     intervalSeconds: 900,
   },
   {
-    key: 'ledger-reconcile',
+    key: 'drawers-verify',
     nameEn: 'Reconcile ledger balances',
     nameAr: 'تسوية أرصدة القيود',
-    jobName: 'ledger.reconcile',
+    jobName: 'drawers.verify',
     intervalSeconds: 3600,
   },
   {

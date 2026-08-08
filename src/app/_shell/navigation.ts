@@ -3,9 +3,17 @@ import type { TranslationKey } from '@/i18n/types';
 /**
  * Navigation model.
  *
- * Declared once and filtered by permission at render time, so a teller never
- * sees an administration link they cannot open. Labels are translation keys —
- * no navigation string is ever hard-coded.
+ * The teller gets two entries, because the teller has two jobs. Everything they
+ * need around those jobs — the receipt, the last few transactions, the customer
+ * — lives inside the tool that needs it, rather than as a third and fourth
+ * entry they would have to learn to navigate between with someone waiting.
+ *
+ * The manager's side is grouped by tool rather than by accounting concept: the
+ * question is "what does the USDT window need from me", not "where is the chart
+ * of accounts".
+ *
+ * Declared once and filtered by permission at render time. Labels are
+ * translation keys — no navigation string is ever hard-coded.
  */
 
 export interface NavItem {
@@ -26,176 +34,113 @@ export interface NavSection {
 }
 
 export type IconName =
-  | 'dashboard'
-  | 'transactions'
-  | 'newTransaction'
   | 'machine'
   | 'counter'
   | 'rates'
-  | 'cashbox'
+  | 'drawers'
   | 'day'
   | 'wallet'
-  | 'chain'
-  | 'customers'
-  | 'reports'
-  | 'notifications'
-  | 'users'
-  | 'roles'
+  | 'transactions'
   | 'audit'
-  | 'settings'
-  | 'backup'
-  | 'system';
+  | 'staff'
+  | 'settings';
 
 export const NAVIGATION: NavSection[] = [
+  // --- The counter ---------------------------------------------------------
   {
-    id: 'operations',
-    labelKey: 'nav.operations',
+    id: 'counter',
+    labelKey: 'nav.counter',
     items: [
       {
-        href: '/dashboard',
-        labelKey: 'nav.dashboard',
-        icon: 'dashboard',
-        permissions: ['dashboard.view'],
-        shortcut: 'g d',
+        href: '/counter/usdt',
+        labelKey: 'nav.usdtCounter',
+        icon: 'counter',
+        permissions: ['usdt.counter.use'],
+        shortcut: 'g u',
       },
       {
-        href: '/exchange/transactions/new',
-        labelKey: 'nav.newTransaction',
-        icon: 'newTransaction',
-        permissions: ['exchange.transaction.create'],
-        shortcut: 'n',
-      },
-      {
-        href: '/exchange/machine',
+        href: '/counter/machine',
         labelKey: 'nav.machine',
         icon: 'machine',
         permissions: ['exchange.machine.use'],
         shortcut: 'g m',
       },
+    ],
+  },
+
+  // --- What the USDT window needs from the manager -------------------------
+  {
+    id: 'manageUsdt',
+    labelKey: 'nav.manageUsdt',
+    items: [
       {
-        href: '/exchange/transactions',
-        labelKey: 'nav.transactions',
-        icon: 'transactions',
-        permissions: ['exchange.transaction.view'],
+        href: '/manage/usdt',
+        labelKey: 'nav.counterAddresses',
+        icon: 'wallet',
+        permissions: ['usdt.wallet.view'],
         matchPrefix: true,
-        shortcut: 'g t',
       },
+    ],
+  },
+
+  // --- What the machine needs from the manager -----------------------------
+  {
+    id: 'manageMachine',
+    labelKey: 'nav.manageMachine',
+    items: [
       {
-        href: '/exchange/rates',
+        href: '/manage/rates',
         labelKey: 'nav.rates',
         icon: 'rates',
         permissions: ['exchange.rate.view'],
         shortcut: 'g r',
       },
       {
-        href: '/exchange/cashboxes',
-        labelKey: 'nav.cashboxes',
-        icon: 'cashbox',
-        permissions: ['exchange.account.view'],
-        matchPrefix: true,
+        href: '/manage/drawers',
+        labelKey: 'nav.drawers',
+        icon: 'drawers',
+        permissions: ['exchange.drawer.view'],
       },
+    ],
+  },
+
+  // --- Watching the counter ------------------------------------------------
+  {
+    id: 'oversight',
+    labelKey: 'nav.oversight',
+    items: [
       {
-        href: '/exchange/business-day',
-        labelKey: 'nav.businessDay',
+        href: '/manage/day',
+        labelKey: 'nav.day',
         icon: 'day',
         permissions: ['exchange.day.view'],
       },
-    ],
-  },
-  {
-    id: 'usdt',
-    labelKey: 'nav.usdt',
-    items: [
       {
-        href: '/usdt/counter',
-        labelKey: 'nav.usdtCounter',
-        icon: 'counter',
-        permissions: ['usdt.counter.use'],
-      },
-      {
-        href: '/usdt/wallets',
-        labelKey: 'nav.wallets',
-        icon: 'wallet',
-        permissions: ['usdt.wallet.view'],
+        href: '/manage/transactions',
+        labelKey: 'nav.transactions',
+        icon: 'transactions',
+        permissions: ['exchange.transaction.viewAll'],
         matchPrefix: true,
+        shortcut: 'g t',
       },
       {
-        href: '/usdt/transactions',
-        labelKey: 'nav.chainTransactions',
-        icon: 'chain',
-        permissions: ['usdt.transaction.view'],
-        matchPrefix: true,
-      },
-    ],
-  },
-  {
-    id: 'management',
-    labelKey: 'nav.management',
-    items: [
-      {
-        href: '/customers',
-        labelKey: 'nav.customers',
-        icon: 'customers',
-        permissions: ['customers.view'],
-        matchPrefix: true,
-        shortcut: 'g c',
-      },
-      {
-        href: '/reports',
-        labelKey: 'nav.reports',
-        icon: 'reports',
-        permissions: ['reports.view'],
-        matchPrefix: true,
-      },
-      {
-        href: '/notifications',
-        labelKey: 'nav.notifications',
-        icon: 'notifications',
-        permissions: ['notifications.view'],
-      },
-    ],
-  },
-  {
-    id: 'administration',
-    labelKey: 'nav.administration',
-    items: [
-      {
-        href: '/admin/users',
-        labelKey: 'nav.users',
-        icon: 'users',
-        permissions: ['users.view'],
-        matchPrefix: true,
-      },
-      {
-        href: '/admin/roles',
-        labelKey: 'nav.roles',
-        icon: 'roles',
-        permissions: ['users.roles.manage'],
-        matchPrefix: true,
-      },
-      {
-        href: '/admin/audit',
+        href: '/manage/audit',
         labelKey: 'nav.audit',
         icon: 'audit',
         permissions: ['audit.view'],
       },
       {
-        href: '/admin/settings',
+        href: '/manage/staff',
+        labelKey: 'nav.staff',
+        icon: 'staff',
+        permissions: ['users.view'],
+        matchPrefix: true,
+      },
+      {
+        href: '/manage/settings',
         labelKey: 'nav.settings',
         icon: 'settings',
         permissions: ['settings.view'],
-      },
-      {
-        href: '/admin/backup',
-        labelKey: 'nav.backup',
-        icon: 'backup',
-        permissions: ['system.backup.view'],
-      },
-      {
-        href: '/admin/system',
-        labelKey: 'nav.system',
-        icon: 'system',
-        permissions: ['system.monitor'],
       },
     ],
   },
@@ -203,6 +148,9 @@ export const NAVIGATION: NavSection[] = [
 
 /**
  * Removes items the user cannot access, then drops any section left empty.
+ *
+ * This is what leaves the teller with two entries and no empty headings: every
+ * manager section disappears whole rather than collapsing into a stub.
  */
 export function visibleNavigation(permissions: string[]): NavSection[] {
   const granted = new Set(permissions);
@@ -215,10 +163,24 @@ export function visibleNavigation(permissions: string[]): NavSection[] {
   })).filter((section) => section.items.length > 0);
 }
 
+/**
+ * Where a person lands after signing in.
+ *
+ * Derived from the navigation rather than a constant, because there is no
+ * longer a dashboard for everyone to share: a teller belongs at the window and
+ * a manager at whatever the first thing they are allowed to see is. Taking the
+ * first visible entry means this can never point somewhere the user would only
+ * be bounced out of.
+ */
+export function landingFor(permissions: string[]): string {
+  const first = visibleNavigation(permissions)[0]?.items[0];
+  // Everyone can reach their own profile, so it is a landing place that exists
+  // even for an account whose role has been emptied.
+  return first?.href ?? '/profile';
+}
+
 export function isActiveRoute(pathname: string, item: NavItem): boolean {
   if (item.matchPrefix) {
-    // `/exchange/transactions` must not light up for `/exchange/transactions/new`
-    // when that has its own entry, so exact matches win elsewhere.
     return pathname === item.href || pathname.startsWith(`${item.href}/`);
   }
   return pathname === item.href;

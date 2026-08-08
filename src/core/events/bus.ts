@@ -38,7 +38,7 @@ export interface DomainEvents {
   'day.opened': { businessDayId: string; branchId: string; actorId: string };
   'day.closed': { businessDayId: string; branchId: string; actorId: string; hasDifference: boolean };
 
-  'account.balance.low': { accountId: string; code: string; balance: string; threshold: string };
+  'drawer.balance.low': { currency: string; balance: string; threshold: string };
 
   'user.login': { userId: string; ip: string | null };
   'user.login.failed': { username: string; ip: string | null; reason: string };

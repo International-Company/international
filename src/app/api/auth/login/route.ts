@@ -37,6 +37,6 @@ export const POST = route<z.infer<typeof bodySchema>>({
       return { status: 'PASSWORD_EXPIRED' as const, redirect: '/change-password' };
     }
 
-    return { status: 'SUCCESS' as const, redirect: '/dashboard', locale: result.locale };
+    return { status: 'SUCCESS' as const, redirect: '/', locale: result.locale };
   },
 });

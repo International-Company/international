@@ -24,20 +24,14 @@ export interface SettingDefinition {
   max?: number;
 }
 
-export const SETTING_CATEGORIES = [
-  'company',
-  'operations',
-  'security',
-  'usdt',
-  'notifications',
-  'backup',
-] as const;
+export const SETTING_CATEGORIES = ['company', 'operations', 'machine', 'usdt', 'security', 'notifications', 'backup'] as const;
 
 export type SettingCategory = (typeof SETTING_CATEGORIES)[number];
 
 export const SETTING_CATEGORY_LABELS: Record<SettingCategory, { en: string; ar: string }> = {
   company: { en: 'Company', ar: 'بيانات الشركة' },
   operations: { en: 'Operations', ar: 'التشغيل' },
+  machine: { en: 'Exchange Machine', ar: 'ماكينة التصريف' },
   security: { en: 'Security', ar: 'الأمان' },
   usdt: { en: 'USDT Monitoring', ar: 'مراقبة USDT' },
   notifications: { en: 'Notifications', ar: 'الإشعارات' },
@@ -74,52 +68,20 @@ export const SETTINGS: SettingDefinition[] = [
 
   // --- Operations ----------------------------------------------------------
   {
-    key: 'operations.baseCurrency', category: 'operations', type: 'select', defaultValue: 'ILS',
-    labelEn: 'Reporting currency', labelAr: 'عملة التقارير',
-    descriptionEn: 'Currency used to consolidate multi-currency reports',
-    descriptionAr: 'العملة المستخدمة لتوحيد التقارير متعددة العملات',
-    options: [
-      { value: 'ILS', labelEn: 'Israeli Shekel', labelAr: 'شيكل' },
-      { value: 'USD', labelEn: 'US Dollar', labelAr: 'دولار أمريكي' },
-      { value: 'JOD', labelEn: 'Jordanian Dinar', labelAr: 'دينار أردني' },
-    ],
-  },
-  {
-    key: 'operations.requireBusinessDay', category: 'operations', type: 'boolean', defaultValue: true,
-    labelEn: 'Require an open business day', labelAr: 'اشتراط يوم عمل مفتوح',
-    descriptionEn: 'Block posting when the branch day is closed',
-    descriptionAr: 'منع الترحيل عندما يكون يوم الفرع مغلقاً',
-  },
-  {
-    key: 'operations.allowBackdating', category: 'operations', type: 'boolean', defaultValue: false,
-    labelEn: 'Allow back-dated value dates', labelAr: 'السماح بتاريخ استحقاق سابق',
-    descriptionEn: 'Permit a value date earlier than today', descriptionAr: 'السماح بتاريخ استحقاق أقدم من اليوم',
-    isSensitive: true,
-  },
-  {
     key: 'operations.receiptCopies', category: 'operations', type: 'number', defaultValue: 2, min: 1, max: 5,
     labelEn: 'Receipt copies', labelAr: 'عدد نسخ الإيصال',
     descriptionEn: 'Copies printed per transaction', descriptionAr: 'عدد النسخ المطبوعة لكل عملية',
   },
-  {
-    key: 'operations.lowBalanceThreshold', category: 'operations', type: 'money', defaultValue: '0',
-    labelEn: 'Low balance alert',
-    labelAr: 'تنبيه الرصيد المنخفض',
-    descriptionEn:
-      'Notify when a cash drawer falls below this amount. Zero disables the alert — set the figure your branch actually works to, rather than inheriting one.',
-    descriptionAr:
-      'تنبيه عندما ينخفض رصيد الصندوق عن هذا المبلغ. القيمة صفر تعطّل التنبيه — اضبط الرقم الذي يعمل به فرعك فعلاً بدل قيمة موروثة.',
-  },
 
   // --- Exchange machine ----------------------------------------------------
   {
-    key: 'machine.enabled', category: 'operations', type: 'boolean', defaultValue: true,
+    key: 'machine.enabled', category: 'machine', type: 'boolean', defaultValue: true,
     labelEn: 'Exchange machine', labelAr: 'ماكينة التصريف',
     descriptionEn: 'Give tellers the fast counter screen for cash exchange',
     descriptionAr: 'إتاحة شاشة التصريف السريع للتلر عند الشباك',
   },
   {
-    key: 'machine.pairs', category: 'operations', type: 'string', defaultValue: 'ILS/USD,USD/ILS,ILS/JOD,JOD/ILS,USD/JOD,JOD/USD',
+    key: 'machine.pairs', category: 'machine', type: 'string', defaultValue: 'ILS/USD,USD/ILS,ILS/JOD,JOD/ILS,USD/JOD,JOD/USD',
     labelEn: 'Pairs offered',
     labelAr: 'الأزواج المتاحة',
     descriptionEn:
@@ -128,13 +90,13 @@ export const SETTINGS: SettingDefinition[] = [
       'مفصولة بفواصل، بالترتيب الذي تعرضه الماكينة. احذف زوجاً لسحبه من الشباك. تركه فارغاً يتيح الستة جميعاً لا العكس.',
   },
   {
-    key: 'machine.quickAmounts', category: 'operations', type: 'string', defaultValue: '100,500,1000',
+    key: 'machine.quickAmounts', category: 'machine', type: 'string', defaultValue: '100,500,1000',
     labelEn: 'Quick amounts', labelAr: 'المبالغ السريعة',
     descriptionEn: 'Comma-separated shortcut buttons on the keypad, up to six',
     descriptionAr: 'أزرار اختصار على لوحة المفاتيح مفصولة بفواصل، حتى ستة',
   },
   {
-    key: 'machine.maxAmount', category: 'operations', type: 'money', defaultValue: '0',
+    key: 'machine.maxAmount', category: 'machine', type: 'money', defaultValue: '0',
     labelEn: 'Counter limit', labelAr: 'حد الشباك',
     descriptionEn:
       'Largest amount a teller may exchange on the machine, measured on what the customer hands over. Above it the manager records the transaction. Zero removes the limit.',
@@ -142,7 +104,7 @@ export const SETTINGS: SettingDefinition[] = [
       'أكبر مبلغ يستطيع التلر تصريفه على الماكينة، محسوباً على ما يدفعه العميل. فوقه يسجل المدير العملية بنفسه. القيمة صفر تلغي الحد.',
   },
   {
-    key: 'machine.requireCustomerAbove', category: 'operations', type: 'money', defaultValue: '0',
+    key: 'machine.requireCustomerAbove', category: 'machine', type: 'money', defaultValue: '0',
     labelEn: 'Require a customer above', labelAr: 'اشتراط عميل فوق',
     descriptionEn:
       'At or above this amount the exchange must be attached to a registered customer. Zero never requires one.',
@@ -182,12 +144,6 @@ export const SETTINGS: SettingDefinition[] = [
     labelEn: 'Minimum confirmations', labelAr: 'الحد الأدنى للتأكيدات',
     descriptionEn: 'Confirmations required before a transfer counts as final',
     descriptionAr: 'عدد التأكيدات المطلوبة قبل اعتبار التحويل نهائياً',
-  },
-  {
-    key: 'usdt.autoCreateTransactions', category: 'usdt', type: 'boolean', defaultValue: true,
-    labelEn: 'Auto-create internal transactions', labelAr: 'إنشاء عمليات داخلية تلقائياً',
-    descriptionEn: 'Draft an internal transaction when a confirmed transfer is detected',
-    descriptionAr: 'إنشاء مسودة عملية داخلية عند اكتشاف تحويل مؤكد',
   },
   {
     key: 'usdt.provider', category: 'usdt', type: 'select', defaultValue: 'MANUAL',

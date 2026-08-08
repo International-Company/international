@@ -6,7 +6,7 @@ import { createLogger } from '@/core/logger/logger';
 import { emitAsync } from '@/core/events/bus';
 import * as audit from '@/modules/audit/audit.service';
 import * as notifications from '@/modules/notifications/notifications.service';
-import { nextReference } from '@/modules/ledger/reference';
+import { nextReference } from '@/modules/sequence/reference';
 import * as settings from '@/modules/settings/settings.service';
 import { providerFor, type ChainTransfer } from './providers';
 import { maskAddress } from './wallet.service';
@@ -252,136 +252,23 @@ async function notifyTransfer(chainTransactionId: string, db: DbClient): Promise
 }
 
 /**
- * Runs once a transfer reaches the wallet's confirmation threshold: creates the
- * matching internal transaction, saved as a draft for the teller to confirm.
+ * Runs once a transfer reaches the wallet's confirmation threshold.
+ *
+ * It deliberately creates nothing. A confirmed transfer proves money arrived at
+ * an address, never whose it is — so the only thing that turns one into a
+ * transaction is a teller matching it to the customer standing in front of them,
+ * through the counter. A transfer nobody claims stays exactly what it is: an
+ * unexplained arrival, visible to the manager and settling nothing.
  */
 async function onConfirmed(chainTransactionId: string, db: DbClient): Promise<void> {
   const record = await db.chainTransaction.findUnique({
     where: { id: chainTransactionId },
-    include: { wallet: true },
+    select: { txHash: true, direction: true },
   });
-  if (!record || record.linkedTransactionId) return;
-  if (!record.wallet.autoCreateTransaction) return;
-  if (!(await settings.getBoolean('usdt.autoCreateTransactions', db))) return;
+  if (!record) return;
 
-  await createInternalTransaction(record.id, db);
+  log.info('Transfer confirmed', { txHash: record.txHash, direction: record.direction });
 }
-
-/**
- * Creates the internal transaction mirroring an on-chain transfer.
- *
- * It is left as a DRAFT rather than posted automatically. The chain proves the
- * money moved; it does not prove which customer it belongs to, and posting a
- * receipt to the wrong account is far more expensive to unwind than asking an
- * operator to spend ten seconds confirming it.
- */
-export async function createInternalTransaction(
-  chainTransactionId: string,
-  db: DbClient = prisma,
-  options: { customerId?: string; actorId?: string } = {},
-): Promise<string> {
-  return withTransaction(async (tx: Tx) => {
-    const record = await tx.chainTransaction.findUnique({
-      where: { id: chainTransactionId },
-      include: { wallet: true },
-    });
-    if (!record) throw errors.notFound('Chain transaction', chainTransactionId);
-    if (record.linkedTransactionId) return record.linkedTransactionId;
-
-    if (record.status !== 'CONFIRMED') {
-      throw errors.precondition(
-        'This transfer is not confirmed yet',
-        'errors.transferNotConfirmed',
-      );
-    }
-
-    const branch = await tx.branch.findFirst({ where: { isActive: true }, orderBy: { code: 'asc' } });
-    if (!branch) throw errors.precondition('No active branch is configured', 'errors.noBranch');
-
-    const systemUser =
-      options.actorId ??
-      (await tx.user.findFirst({ where: { isSystem: true }, select: { id: true } }))?.id;
-    if (!systemUser) throw errors.precondition('No system user is configured', 'errors.noSystemUser');
-
-    const incoming = record.direction === 'IN';
-    const reference = await nextReference('TXN', tx);
-
-
-    const transaction = await tx.transaction.create({
-      data: {
-        reference,
-        type: incoming ? 'USDT_IN' : 'USDT_OUT',
-        status: 'DRAFT',
-        channel: 'BLOCKCHAIN',
-        branchId: branch.id,
-        customerId: options.customerId ?? null,
-        fromCurrency: record.tokenSymbol,
-        fromAmount: record.amount,
-        toCurrency: record.tokenSymbol,
-        toAmount: record.amount,
-        rate: 100_000_000n,
-        counterpartyName: maskAddress(incoming ? record.fromAddress : record.toAddress),
-        notes: `On-chain ${record.network} transfer ${record.txHash}`,
-        valueDate: record.blockTimestamp ?? new Date(),
-        createdById: systemUser,
-        metadata: JSON.stringify({
-          source: 'BLOCKCHAIN',
-          txHash: record.txHash,
-          network: record.network,
-          walletId: record.walletId,
-        }),
-      },
-    });
-
-    await tx.chainTransaction.update({
-      where: { id: record.id },
-      data: { linkedTransactionId: transaction.id, processedAt: new Date() },
-    });
-
-
-    await audit.record(
-      {
-        action: 'CREATE',
-        module: 'usdt',
-        entityType: 'Transaction',
-        entityId: transaction.id,
-        summaryEn: `Auto-created ${reference} from on-chain transfer ${record.txHash.slice(0, 14)}…`,
-        summaryAr: `إنشاء تلقائي للعملية ${reference} من تحويل الشبكة ${record.txHash.slice(0, 14)}…`,
-        actor: { id: systemUser, name: 'System' },
-        metadata: { chainTransactionId: record.id, txHash: record.txHash },
-      },
-      tx,
-    );
-
-    const amount = `${toDecimalString(record.amount, 6)} ${record.tokenSymbol}`;
-    const direction = incoming ? 'received' : 'sent';
-    const directionAr = incoming ? 'واردة' : 'صادرة';
-
-    await notifications.notify(
-      {
-        severity: 'WARNING',
-        eventKey: 'usdt.awaitingReview',
-        module: 'usdt',
-        titleEn: 'On-chain transfer needs review',
-        titleAr: 'تحويل شبكي بانتظار المراجعة',
-        bodyEn: `${reference} — ${amount} ${direction}. Saved as a draft: confirm the customer, then submit it.`,
-        bodyAr: `${reference} — ${amount} ${directionAr}. حُفظت كمسودة: أكد العميل ثم أرسلها.`,
-        entityType: 'Transaction',
-        entityId: transaction.id,
-        link: `/exchange/transactions/${transaction.id}`,
-      },
-      // Routed to whoever can act on the transaction — there is no approver.
-      { permission: 'exchange.transaction.update' },
-      tx,
-    );
-
-    return transaction.id;
-  }, db);
-}
-
-// ---------------------------------------------------------------------------
-// Batch synchronisation
-// ---------------------------------------------------------------------------
 
 export async function syncAllWallets(db: DbClient = prisma): Promise<SyncResult[]> {
   const wallets = await db.wallet.findMany({
