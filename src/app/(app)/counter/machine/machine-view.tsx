@@ -1,6 +1,14 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type RefObject,
+} from 'react';
 import { useRouter } from 'next/navigation';
 import {
   ArrowDownUp,
@@ -15,6 +23,7 @@ import {
   X,
 } from 'lucide-react';
 import { useLocale } from '@/i18n/provider';
+import { normalizeDigits } from '@/core/money/money';
 import { api, ApiError, queryString } from '@/lib/api-client';
 import { Button } from '@/ui/primitives';
 import { DropdownMenu, useToast } from '@/ui/overlay';
@@ -145,6 +154,10 @@ export function MachineView({
   const [customerOpen, setCustomerOpen] = useState(false);
   const [recent, setRecent] = useState<RecentRow[]>([]);
 
+  // Clearing hands the caret back, so the next customer can be served without
+  // reaching for the mouse first.
+  const payRef = useRef<HTMLInputElement>(null);
+
   const [from, to] = pair;
   const fromCurrency = byCode.get(from);
   const toCurrency = byCode.get(to);
@@ -249,6 +262,36 @@ export function MachineView({
     return () => clearTimeout(timer);
   }, [amount, from, to, side, t]);
 
+  /**
+   * Typed entry, as opposed to the keypad.
+   *
+   * Takes whatever reached the field and keeps only what an amount can be:
+   * Arabic-Indic digits become Western ones, a comma or an Arabic decimal mark
+   * becomes a point, anything else is dropped, and the fraction is cut to the
+   * currency's own precision — so a dinar accepts three places and a shekel
+   * two, without the field ever rejecting a keystroke in a way that feels like
+   * the keyboard is broken.
+   */
+  const typeAmount = useCallback(
+    (raw: string, into: Side) => {
+      setDone(null);
+      const limit = (into === 'pay' ? fromCurrency : toCurrency)?.decimals ?? 2;
+
+      const cleaned = normalizeDigits(raw)
+        .replace(/[,٫٬]/g, '.')
+        .replace(/[^\d.]/g, '');
+
+      const [whole = '', ...rest] = cleaned.split('.');
+      const hasPoint = rest.length > 0 && limit > 0;
+      const fraction = rest.join('').slice(0, limit);
+
+      const next = hasPoint ? `${whole}.${fraction}` : whole;
+      // "007" is a typo, "0.5" is not.
+      setAmount(next.replace(/^0+(?=\d)/, ''));
+    },
+    [fromCurrency, toCurrency],
+  );
+
   // --- Keypad ----------------------------------------------------------------
   const press = useCallback(
     (key: string) => {
@@ -296,6 +339,8 @@ export function MachineView({
     setCounterpartyName('');
     setCustomer(null);
     setCustomerOpen(false);
+    setSide('pay');
+    payRef.current?.focus();
   };
 
   // Every reason the record button is unavailable, each of which the operator
@@ -367,6 +412,8 @@ export function MachineView({
                   setAmount(quote ? formatPlain(quote.fromAmount, fromCurrency?.decimals ?? 2) : '');
                 }
               }}
+              onType={(raw) => typeAmount(raw, 'pay')}
+              inputRef={payRef}
               ln={ln}
             />
 
@@ -409,6 +456,7 @@ export function MachineView({
                   setAmount(quote ? formatPlain(quote.toAmount, toCurrency?.decimals ?? 2) : '');
                 }
               }}
+              onType={(raw) => typeAmount(raw, 'receive')}
               ln={ln}
               hero
               busy={quoting}
@@ -666,6 +714,8 @@ function AmountRow({
   value,
   active,
   onFocusSide,
+  onType,
+  inputRef,
   hero,
   busy,
   ln,
@@ -677,16 +727,47 @@ function AmountRow({
   value: string;
   active: boolean;
   onFocusSide: () => void;
+  onType: (raw: string) => void;
+  inputRef?: RefObject<HTMLInputElement | null>;
   hero?: boolean;
   busy?: boolean;
   ln: (record: object, baseKey: string) => string;
 }) {
   const decimals = currency?.decimals ?? 2;
+  const zero = (0).toFixed(decimals);
 
-  // While typing, show exactly what was typed — reformatting mid-entry moves
-  // the digits under the operator's fingers.
-  const display =
-    value === '' ? (0).toFixed(decimals) : active ? value : formatScaled(value, decimals);
+  const field = useRef<HTMLInputElement>(null);
+  const wasActive = useRef(active);
+
+  /*
+   * Select this field's contents the moment it becomes the active side.
+   *
+   * A layout effect rather than a timer, and this distinction is the whole
+   * point: focusing the other side re-seeds this field with the converted
+   * figure, so selecting inside the focus handler would select the text that is
+   * about to be replaced. Deferring with `setTimeout` fixes that and introduces
+   * something worse — a fast typist has already entered two or three digits by
+   * the time the callback runs, and select-all then eats them. A layout effect
+   * runs synchronously after the DOM is updated and before anything else can be
+   * typed, so there is no window to race.
+   */
+  useLayoutEffect(() => {
+    const node = field.current;
+    if (active && !wasActive.current && node && node === document.activeElement) {
+      node.select();
+    }
+    wasActive.current = active;
+  }, [active]);
+
+  /*
+   * While typing, show exactly what was typed — reformatting mid-entry moves
+   * the digits under the operator's fingers.
+   *
+   * An empty active field shows nothing and leans on its placeholder. Putting a
+   * literal "0.00" in the field looks the same but is real text, so the next
+   * keystroke lands after it and 5 becomes 0.005.
+   */
+  const display = active ? value : value === '' ? zero : formatScaled(value, decimals);
 
   return (
     <div
@@ -762,27 +843,41 @@ function AmountRow({
         </DropdownMenu>
 
         {/*
-          The number is a button, not an input: entry comes from the keypad, so
-          a caret here would invite a second, competing way to type that the
-          amount formatting is not written to survive.
+          A real field, not a styled button.
+
+          The obvious way to enter a number is to click it and type, so that is
+          what happens: a caret, select-on-focus, and the keypad writing into the
+          same value. Making this a button meant a click gave no caret and the
+          focus ring landed on whatever button sat next to it.
         */}
-        <button
-          type="button"
-          onClick={onFocusSide}
+        <input
+          ref={(node) => {
+            field.current = node;
+            if (inputRef) inputRef.current = node;
+          }}
+          type="text"
+          dir="ltr"
+          inputMode="decimal"
+          autoComplete="off"
           aria-current={active}
-          className="min-w-0 flex-1 text-end"
-        >
-          <span
-            className={cn(
-              'block truncate tabular-nums tracking-tight ltr-content',
-              hero
-                ? 'text-4xl font-bold text-primary-text sm:text-5xl'
-                : 'text-3xl font-semibold text-content sm:text-4xl',
-            )}
-          >
-            {display}
-          </span>
-        </button>
+          aria-label={label}
+          value={display}
+          placeholder={zero}
+          onFocus={(event) => {
+            // Already the active side: nothing is about to re-render, so the
+            // next digit can safely replace what is here.
+            if (active) event.currentTarget.select();
+            else onFocusSide();
+          }}
+          onChange={(event) => onType(event.target.value)}
+          className={cn(
+            'min-w-0 flex-1 bg-transparent text-end tabular-nums tracking-tight outline-none',
+            'placeholder:text-content-tertiary',
+            hero
+              ? 'text-4xl font-bold text-primary-text sm:text-5xl'
+              : 'text-3xl font-semibold text-content sm:text-4xl',
+          )}
+        />
       </div>
     </div>
   );
