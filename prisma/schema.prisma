@@ -41,11 +41,12 @@ model Branch {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  users        User[]
-  accounts     Account[]
-  transactions Transaction[]
-  customers    Customer[]
-  businessDays BusinessDay[]
+  users           User[]
+  accounts        Account[]
+  transactions    Transaction[]
+  customers       Customer[]
+  businessDays    BusinessDay[]
+  depositRequests UsdtDepositRequest[]
 
   @@map("branches")
 }
@@ -67,9 +68,9 @@ model User {
   jobTitleAr   String?
 
   // Credentials — scrypt (N=2^15). Format: scrypt$N$r$p$salt$hash
-  passwordHash      String
-  passwordUpdatedAt DateTime @default(now())
-  mustChangePassword Boolean @default(false)
+  passwordHash       String
+  passwordUpdatedAt  DateTime @default(now())
+  mustChangePassword Boolean  @default(false)
 
   // Second factor (TOTP). Ready to enable per user.
   twoFactorSecret      String?
@@ -94,9 +95,9 @@ model User {
   branchId String?
   branch   Branch? @relation(fields: [branchId], references: [id], onDelete: SetNull)
 
-  isSystem  Boolean  @default(false)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  isSystem    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
   createdById String?
 
   roles           UserRole[]
@@ -106,13 +107,14 @@ model User {
   drafts          Draft[]
   notifications   NotificationRecipient[]
 
-  createdTransactions  Transaction[] @relation("TransactionCreatedBy")
-  journalEntries       JournalEntry[]
-  openedDays           BusinessDay[] @relation("DayOpenedBy")
-  closedDays           BusinessDay[] @relation("DayClosedBy")
-  backups              Backup[]
-  wallets              Wallet[]
-  rates                ExchangeRate[]
+  createdTransactions Transaction[]        @relation("TransactionCreatedBy")
+  journalEntries      JournalEntry[]
+  openedDays          BusinessDay[]        @relation("DayOpenedBy")
+  closedDays          BusinessDay[]        @relation("DayClosedBy")
+  backups             Backup[]
+  wallets             Wallet[]
+  rates               ExchangeRate[]
+  depositRequests     UsdtDepositRequest[]
 
   @@index([status])
   @@index([branchId])
@@ -266,10 +268,10 @@ model Currency {
   isBase    Boolean @default(false)
   sortOrder Int     @default(0)
 
-  accounts          Account[]
-  baseRates         ExchangeRate[] @relation("RateBase")
-  quoteRates        ExchangeRate[] @relation("RateQuote")
-  customerBalances  CustomerBalance[]
+  accounts         Account[]
+  baseRates        ExchangeRate[]    @relation("RateBase")
+  quoteRates       ExchangeRate[]    @relation("RateQuote")
+  customerBalances CustomerBalance[]
 
   @@map("currencies")
 }
@@ -285,11 +287,11 @@ model ExchangeRate {
   sellRate BigInt // scaled 1e8 — company SELLS base at this rate
   midRate  BigInt
 
-  source     String    @default("MANUAL") // MANUAL | PROVIDER | IMPORT
-  providerRef String?
-  effectiveFrom DateTime @default(now())
+  source        String    @default("MANUAL") // MANUAL | PROVIDER | IMPORT
+  providerRef   String?
+  effectiveFrom DateTime  @default(now())
   effectiveTo   DateTime?
-  isActive      Boolean  @default(true)
+  isActive      Boolean   @default(true)
 
   note        String?
   createdById String?
@@ -340,11 +342,11 @@ model Account {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  lines            JournalLine[]
-  sourceOf         Transaction[]    @relation("TransactionSourceAccount")
-  destinationOf    Transaction[]    @relation("TransactionDestinationAccount")
-  wallets          Wallet[]
-  dayClosingLines  DayClosingLine[]
+  lines           JournalLine[]
+  sourceOf        Transaction[]    @relation("TransactionSourceAccount")
+  destinationOf   Transaction[]    @relation("TransactionDestinationAccount")
+  wallets         Wallet[]
+  dayClosingLines DayClosingLine[]
 
   @@index([type])
   @@index([currencyCode])
@@ -367,10 +369,10 @@ model JournalEntry {
   transaction   Transaction? @relation(fields: [transactionId], references: [id], onDelete: SetNull)
 
   // Reversal bookkeeping — corrections never edit history.
-  isReversal      Boolean @default(false)
-  reversesEntryId String? @unique
-  reversesEntry   JournalEntry?  @relation("EntryReversal", fields: [reversesEntryId], references: [id], onDelete: SetNull)
-  reversedBy      JournalEntry?  @relation("EntryReversal")
+  isReversal      Boolean       @default(false)
+  reversesEntryId String?       @unique
+  reversesEntry   JournalEntry? @relation("EntryReversal", fields: [reversesEntryId], references: [id], onDelete: SetNull)
+  reversedBy      JournalEntry? @relation("EntryReversal")
 
   createdById String?
   createdBy   User?    @relation(fields: [createdById], references: [id], onDelete: SetNull)
@@ -384,7 +386,7 @@ model JournalEntry {
 }
 
 model JournalLine {
-  id      String @id @default(cuid())
+  id      String       @id @default(cuid())
   entryId String
   entry   JournalEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
 
@@ -415,7 +417,7 @@ model Customer {
   id   String @id @default(cuid())
   code String @unique
 
-  type       String @default("INDIVIDUAL") // INDIVIDUAL | COMPANY
+  type       String  @default("INDIVIDUAL") // INDIVIDUAL | COMPANY
   fullNameEn String
   fullNameAr String
   phone      String?
@@ -431,15 +433,15 @@ model Customer {
   country String  @default("PS")
 
   // NONE | PENDING | VERIFIED | REJECTED | EXPIRED
-  kycStatus    String  @default("NONE")
+  kycStatus     String    @default("NONE")
   kycVerifiedAt DateTime?
-  riskLevel    String  @default("LOW") // LOW | MEDIUM | HIGH
-  isBlocked    Boolean @default(false)
-  blockReason  String?
+  riskLevel     String    @default("LOW") // LOW | MEDIUM | HIGH
+  isBlocked     Boolean   @default(false)
+  blockReason   String?
 
   /// Maximum negative balance allowed, scaled 1e8, in `creditCurrency`.
-  creditLimit     BigInt  @default(0)
-  creditCurrency  String?
+  creditLimit    BigInt  @default(0)
+  creditCurrency String?
 
   notes String?
   tags  String? // JSON: string[]
@@ -451,9 +453,10 @@ model Customer {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  transactions Transaction[]
-  documents    CustomerDocument[]
-  balances     CustomerBalance[]
+  transactions    Transaction[]
+  documents       CustomerDocument[]
+  balances        CustomerBalance[]
+  depositRequests UsdtDepositRequest[]
 
   @@index([fullNameEn])
   @@index([fullNameAr])
@@ -504,9 +507,9 @@ model Transaction {
 
   /// CASH_IN | CASH_OUT | EXCHANGE | TRANSFER_IN | TRANSFER_OUT
   /// | DEPOSIT | WITHDRAWAL | USDT_IN | USDT_OUT | ADJUSTMENT
-  type String
+  type    String
   /// DRAFT | POSTED | CANCELLED | REVERSED — recording a transaction posts it.
-  status String @default("DRAFT")
+  status  String @default("DRAFT")
   /// COUNTER | ONLINE | BLOCKCHAIN | SYSTEM
   channel String @default("COUNTER")
 
@@ -518,18 +521,18 @@ model Transaction {
 
   // --- Amounts (all scaled 1e8) -------------------------------------------
   fromCurrency String
-  fromAmount   BigInt @default(0)
+  fromAmount   BigInt        @default(0)
   toCurrency   String
-  toAmount     BigInt @default(0)
+  toAmount     BigInt        @default(0)
   /// Applied rate, scaled 1e8. 1 unit of fromCurrency = rate units of toCurrency.
-  rate         BigInt @default(100000000)
+  rate         BigInt        @default(100000000)
   rateId       String?
   appliedRate  ExchangeRate? @relation(fields: [rateId], references: [id], onDelete: SetNull)
 
-  feeCurrency String?
-  feeAmount   BigInt  @default(0)
+  feeCurrency  String?
+  feeAmount    BigInt  @default(0)
   /// Profit realised versus the mid rate, in `toCurrency`.
-  profitAmount BigInt @default(0)
+  profitAmount BigInt  @default(0)
 
   sourceAccountId      String?
   sourceAccount        Account? @relation("TransactionSourceAccount", fields: [sourceAccountId], references: [id], onDelete: SetNull)
@@ -571,6 +574,7 @@ model Transaction {
   journalEntries   JournalEntry[]
   receipts         Receipt[]
   chainTransaction ChainTransaction?
+  depositRequest   UsdtDepositRequest?
 
   @@index([status, createdAt])
   @@index([type, createdAt])
@@ -582,16 +586,16 @@ model Transaction {
 }
 
 model Receipt {
-  id            String @id @default(cuid())
+  id            String      @id @default(cuid())
   transactionId String
   transaction   Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
 
-  number       String   @unique
-  locale       String   @default("ar")
-  printedCount Int      @default(0)
-  lastPrintedAt DateTime?
+  number          String    @unique
+  locale          String    @default("ar")
+  printedCount    Int       @default(0)
+  lastPrintedAt   DateTime?
   lastPrintedById String?
-  createdAt    DateTime @default(now())
+  createdAt       DateTime  @default(now())
 
   @@index([transactionId])
   @@map("receipts")
@@ -630,7 +634,7 @@ model BusinessDay {
 }
 
 model DayClosingLine {
-  id            String @id @default(cuid())
+  id            String      @id @default(cuid())
   businessDayId String
   businessDay   BusinessDay @relation(fields: [businessDayId], references: [id], onDelete: Cascade)
 
@@ -638,12 +642,12 @@ model DayClosingLine {
   account   Account @relation(fields: [accountId], references: [id])
 
   currencyCode   String
-  openingBalance BigInt @default(0)
-  totalIn        BigInt @default(0)
-  totalOut       BigInt @default(0)
-  systemBalance  BigInt @default(0)
-  countedBalance BigInt @default(0)
-  difference     BigInt @default(0)
+  openingBalance BigInt  @default(0)
+  totalIn        BigInt  @default(0)
+  totalOut       BigInt  @default(0)
+  systemBalance  BigInt  @default(0)
+  countedBalance BigInt  @default(0)
+  difference     BigInt  @default(0)
   note           String?
 
   @@unique([businessDayId, accountId])
@@ -663,11 +667,17 @@ model Wallet {
   network         String
   address         String
   contractAddress String?
-  tokenSymbol     String @default("USDT")
+  tokenSymbol     String  @default("USDT")
 
   /// Watch-only wallets are monitored but never debited by the system.
   isWatchOnly Boolean @default(true)
   isActive    Boolean @default(true)
+
+  /// Shown to customers at the counter. A monitored wallet is not automatically
+  /// an address we hand out — the manager decides which ones the teller may
+  /// display, and the counter screen offers nothing else.
+  isCounterAddress Boolean @default(false)
+  counterSortOrder Int     @default(0)
 
   /// Ledger account mirroring this wallet's balance.
   accountId String?
@@ -676,9 +686,9 @@ model Wallet {
   balance          BigInt    @default(0)
   balanceUpdatedAt DateTime?
 
-  minConfirmations  Int     @default(19)
-  notifyOnIncoming  Boolean @default(true)
-  notifyOnOutgoing  Boolean @default(true)
+  minConfirmations      Int     @default(19)
+  notifyOnIncoming      Boolean @default(true)
+  notifyOnOutgoing      Boolean @default(true)
   autoCreateTransaction Boolean @default(true)
 
   syncCursor     String?
@@ -691,13 +701,80 @@ model Wallet {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  transactions ChainTransaction[]
-  snapshots    WalletSnapshot[]
-  syncRuns     WalletSyncRun[]
+  transactions    ChainTransaction[]
+  snapshots       WalletSnapshot[]
+  syncRuns        WalletSyncRun[]
+  depositRequests UsdtDepositRequest[]
 
   @@unique([network, address, tokenSymbol])
   @@index([isActive])
+  @@index([isCounterAddress, counterSortOrder])
   @@map("wallets")
+}
+
+/// A customer standing at the counter, about to send USDT to one of our
+/// addresses.
+///
+/// The record exists before the money does, which is the point: it fixes the
+/// exact amount expected and the window it is expected in, so an arriving
+/// transfer can be matched to a person rather than guessed at. Without it the
+/// only evidence is a chain entry proving that *someone* sent USDT, and paying
+/// cash against that is paying against a guess.
+model UsdtDepositRequest {
+  id        String @id @default(cuid())
+  reference String @unique
+
+  walletId String
+  wallet   Wallet @relation(fields: [walletId], references: [id])
+  network  String
+  address  String
+
+  /// What the customer said they would send.
+  requestedAmount BigInt
+  /// What they are asked to send — the requested amount nudged to a value no
+  /// other open request shares, so two customers sending "500" are never
+  /// confused for one another.
+  expectedAmount  BigInt
+
+  /// The currency and rate agreed at the counter, so the payout is the figure
+  /// the customer was quoted rather than whatever the rate has moved to by the
+  /// time the chain confirms.
+  payoutCurrency String
+  quotedRate     BigInt
+  quotedAmount   BigInt
+
+  customerId        String?
+  customer          Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  counterpartyName  String?
+  counterpartyPhone String?
+
+  /// OPEN | MATCHED | COMPLETED | EXPIRED | CANCELLED
+  status String @default("OPEN")
+
+  matchedChainTransactionId String?           @unique
+  matchedChainTransaction   ChainTransaction? @relation(fields: [matchedChainTransactionId], references: [id], onDelete: SetNull)
+  matchedAt                 DateTime?
+
+  transactionId String?      @unique
+  transaction   Transaction? @relation(fields: [transactionId], references: [id], onDelete: SetNull)
+  completedAt   DateTime?
+
+  cancelReason String?
+  notes        String?
+
+  branchId String
+  branch   Branch @relation(fields: [branchId], references: [id])
+
+  expiresAt   DateTime
+  createdById String
+  createdBy   User     @relation(fields: [createdById], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([status, expiresAt])
+  @@index([walletId, status])
+  @@index([expectedAmount, status])
+  @@map("usdt_deposit_requests")
 }
 
 model WalletSnapshot {
@@ -742,7 +819,7 @@ model ChainTransaction {
   fromAddress     String
   toAddress       String
   amount          BigInt // scaled 1e8
-  tokenSymbol     String @default("USDT")
+  tokenSymbol     String  @default("USDT")
   contractAddress String?
 
   blockNumber    BigInt?
@@ -756,6 +833,8 @@ model ChainTransaction {
   /// Internal transaction created from this on-chain movement.
   linkedTransactionId String?      @unique
   linkedTransaction   Transaction? @relation(fields: [linkedTransactionId], references: [id], onDelete: SetNull)
+
+  depositRequest UsdtDepositRequest?
 
   isReconciled Boolean   @default(false)
   processedAt  DateTime?
@@ -808,7 +887,7 @@ model Notification {
 }
 
 model NotificationRecipient {
-  id             String @id @default(cuid())
+  id             String       @id @default(cuid())
   notificationId String
   notification   Notification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
 
@@ -891,20 +970,20 @@ model SystemSetting {
 }
 
 model ApiCredential {
-  id       String  @id @default(cuid())
-  name     String
-  provider String // TRON | ETHERSCAN | SMTP | WEBHOOK
+  id               String  @id @default(cuid())
+  name             String
+  provider         String // TRON | ETHERSCAN | SMTP | WEBHOOK
   /// AES-256-GCM ciphertext, keyed from AUTH_SECRET.
   secretCiphertext String?
-  baseUrl  String?
-  config   String? // JSON, non-secret
-  isActive Boolean @default(true)
+  baseUrl          String?
+  config           String? // JSON, non-secret
+  isActive         Boolean @default(true)
 
-  lastUsedAt   DateTime?
-  lastStatus   String?
-  createdById  String?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  lastUsedAt  DateTime?
+  lastStatus  String?
+  createdById String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
   @@unique([provider, name])
   @@map("api_credentials")
@@ -915,14 +994,14 @@ model ApiCredential {
 // ===========================================================================
 
 model Backup {
-  id       String @id @default(cuid())
-  filename String
-  path     String
-  sizeBytes BigInt @default(0)
-  checksum String? // SHA-256 of the archive
+  id        String  @id @default(cuid())
+  filename  String
+  path      String
+  sizeBytes BigInt  @default(0)
+  checksum  String? // SHA-256 of the archive
 
   /// AUTOMATIC | MANUAL
-  type String @default("MANUAL")
+  type   String @default("MANUAL")
   /// PENDING | RUNNING | COMPLETED | FAILED | VERIFIED | CORRUPT
   status String @default("PENDING")
 
@@ -951,11 +1030,11 @@ model RestoreRun {
   backup   Backup @relation(fields: [backupId], references: [id], onDelete: Cascade)
 
   /// RUNNING | COMPLETED | FAILED
-  status      String    @default("RUNNING")
-  startedAt   DateTime  @default(now())
-  finishedAt  DateTime?
-  error       String?
-  rowsRestored Int      @default(0)
+  status        String    @default("RUNNING")
+  startedAt     DateTime  @default(now())
+  finishedAt    DateTime?
+  error         String?
+  rowsRestored  Int       @default(0)
   requestedById String?
 
   @@index([backupId])
@@ -967,9 +1046,9 @@ model RestoreRun {
 // ===========================================================================
 
 model Job {
-  id    String @id @default(cuid())
-  name  String
-  queue String @default("default")
+  id      String  @id @default(cuid())
+  name    String
+  queue   String  @default("default")
   payload String? // JSON
 
   /// PENDING | RUNNING | COMPLETED | FAILED | CANCELLED
@@ -997,14 +1076,14 @@ model Job {
 }
 
 model ScheduledTask {
-  id          String  @id @default(cuid())
-  key         String  @unique
-  nameEn      String
-  nameAr      String
-  jobName     String
-  payload     String?
+  id              String  @id @default(cuid())
+  key             String  @unique
+  nameEn          String
+  nameAr          String
+  jobName         String
+  payload         String?
   intervalSeconds Int
-  isEnabled   Boolean @default(true)
+  isEnabled       Boolean @default(true)
 
   lastRunAt  DateTime?
   nextRunAt  DateTime  @default(now())
@@ -1021,8 +1100,8 @@ model ScheduledTask {
 
 /// Monotonic counters for human-readable document references.
 model Sequence {
-  key    String @id // "TXN:20260806"
-  value  Int    @default(0)
+  key       String   @id // "TXN:20260806"
+  value     Int      @default(0)
   updatedAt DateTime @updatedAt
 
   @@map("sequences")
@@ -1030,9 +1109,9 @@ model Sequence {
 
 /// Autosaved form state so a teller never loses work in progress.
 model Draft {
-  id      String @id @default(cuid())
-  userId  String
-  user    User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   formKey  String
   entityId String @default("new")

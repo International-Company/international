@@ -309,6 +309,52 @@ export async function quoteExchange(
   throw errors.rateUnavailable(`${fromCurrency}/${toCurrency}`);
 }
 
+/**
+ * Prices a conversion from the amount the customer wants to *receive*.
+ *
+ * Customers ask both ways. "Here is 500 dollars" is `quoteExchange`; "I need
+ * exactly 2,000 shekels for the rent" is this. Without it the teller divides on
+ * a phone and types the result back in, which rounds twice and disagrees with
+ * the receipt by a unit or two often enough to be argued about.
+ *
+ * The returned quote is a real forward quote: `fromAmount` is derived, then the
+ * pair is priced normally, so the figure on the receipt is the figure the
+ * ledger posts. `toAmount` can land a minor unit away from the request when the
+ * source currency cannot express the exact division — the caller shows what the
+ * customer will actually receive rather than what they asked for.
+ */
+export async function quoteReverse(
+  fromCurrency: string,
+  toCurrency: string,
+  toAmount: bigint,
+  db: DbClient = prisma,
+): Promise<Quote> {
+  if (fromCurrency === toCurrency) {
+    throw errors.precondition('Source and target currency must differ', 'errors.sameCurrencyPair');
+  }
+  if (toAmount <= 0n) {
+    throw errors.precondition('Amount must be greater than zero', 'errors.amountNotPositive');
+  }
+
+  const source = await db.currency.findUnique({ where: { code: fromCurrency } });
+  if (!source) throw errors.notFound('Currency', fromCurrency);
+
+  // Price a unit to learn the applied rate, then invert it to size the input.
+  // Deriving from the rate rather than from a scaled probe keeps the answer
+  // independent of how large the probe happened to be.
+  const unit = await quoteExchange(fromCurrency, toCurrency, MONEY_FACTOR, db);
+
+  const fromAmount = convert(toAmount, invertRate(unit.rate), source.decimals, 'half-up');
+  if (fromAmount <= 0n) {
+    throw errors.precondition(
+      'That amount is too small to price at the current rate',
+      'errors.amountNotPositive',
+    );
+  }
+
+  return quoteExchange(fromCurrency, toCurrency, fromAmount, db);
+}
+
 /** The full rate board, as the branch display shows it. */
 export async function rateBoard(db: DbClient = prisma) {
   const [rates, currencies] = await Promise.all([

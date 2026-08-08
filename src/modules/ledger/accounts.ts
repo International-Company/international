@@ -54,6 +54,19 @@ export const ACCOUNT_CODES = {
   openingBalance: (currency: string) => `EQ-OPEN-${currency}`,
 } as const;
 
+/**
+ * Where settled funds for a currency live: the drawer for cash, the mirrored
+ * on-chain account for crypto.
+ *
+ * The posting rules pick the payout account this way, so anything that wants to
+ * check a balance *before* posting has to ask the same question the same way —
+ * a second copy of this choice would eventually disagree with the first, and a
+ * teller would be told the drawer is fine right up until the posting failed.
+ */
+export function fundsAccountCode(currency: string, currencyKind: string): string {
+  return currencyKind === 'CRYPTO' ? ACCOUNT_CODES.crypto(currency) : ACCOUNT_CODES.cash(currency);
+}
+
 export interface AccountBlueprint {
   code: string;
   nameEn: string;

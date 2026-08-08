@@ -113,11 +113,14 @@ export const errors = {
       params: { entity, id: id ?? '' },
     }),
 
-  conflict: (message: string, messageKey?: string) =>
-    new AppError('CONFLICT', message, { messageKey }),
+  // `params` fills the placeholders in the translated message. Without it a key
+  // like "{account} needs {required}" reaches the operator with the braces
+  // still in it, which reads as a broken screen rather than an explanation.
+  conflict: (message: string, messageKey?: string, params?: Record<string, string | number>) =>
+    new AppError('CONFLICT', message, { messageKey, params }),
 
-  precondition: (message: string, messageKey?: string) =>
-    new AppError('PRECONDITION_FAILED', message, { messageKey }),
+  precondition: (message: string, messageKey?: string, params?: Record<string, string | number>) =>
+    new AppError('PRECONDITION_FAILED', message, { messageKey, params }),
 
   insufficientFunds: (account: string, available: string, required: string) =>
     new AppError('INSUFFICIENT_FUNDS', `Account ${account} has ${available}, needs ${required}`, {

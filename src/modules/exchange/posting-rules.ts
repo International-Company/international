@@ -2,7 +2,7 @@ import 'server-only';
 import type { Tx } from '@/core/db/prisma';
 import { errors } from '@/core/errors/app-error';
 import type { JournalLineInput } from '@/modules/ledger/ledger.service';
-import { ACCOUNT_CODES } from '@/modules/ledger/accounts';
+import { ACCOUNT_CODES, fundsAccountCode } from '@/modules/ledger/accounts';
 import { TRANSACTION_TYPE_META, type TransactionType } from './transaction-types';
 
 /**
@@ -61,11 +61,7 @@ async function fundsAccount(
   const currencyRow = await tx.currency.findUnique({ where: { code: currency } });
   if (!currencyRow) throw errors.notFound('Currency', currency);
 
-  return accountId(
-    tx,
-    currencyRow.kind === 'CRYPTO' ? ACCOUNT_CODES.crypto(currency) : ACCOUNT_CODES.cash(currency),
-    branchId,
-  );
+  return accountId(tx, fundsAccountCode(currency, currencyRow.kind), branchId);
 }
 
 /**

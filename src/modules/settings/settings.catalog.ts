@@ -111,6 +111,45 @@ export const SETTINGS: SettingDefinition[] = [
       'تنبيه عندما ينخفض رصيد الصندوق عن هذا المبلغ. القيمة صفر تعطّل التنبيه — اضبط الرقم الذي يعمل به فرعك فعلاً بدل قيمة موروثة.',
   },
 
+  // --- Exchange machine ----------------------------------------------------
+  {
+    key: 'machine.enabled', category: 'operations', type: 'boolean', defaultValue: true,
+    labelEn: 'Exchange machine', labelAr: 'ماكينة التصريف',
+    descriptionEn: 'Give tellers the fast counter screen for cash exchange',
+    descriptionAr: 'إتاحة شاشة التصريف السريع للتلر عند الشباك',
+  },
+  {
+    key: 'machine.pairs', category: 'operations', type: 'string', defaultValue: 'ILS/USD,USD/ILS,ILS/JOD,JOD/ILS,USD/JOD,JOD/USD',
+    labelEn: 'Pairs offered',
+    labelAr: 'الأزواج المتاحة',
+    descriptionEn:
+      'Comma-separated, in the order the machine shows them. Remove a pair to take it off the counter. Leaving this empty offers all six rather than none.',
+    descriptionAr:
+      'مفصولة بفواصل، بالترتيب الذي تعرضه الماكينة. احذف زوجاً لسحبه من الشباك. تركه فارغاً يتيح الستة جميعاً لا العكس.',
+  },
+  {
+    key: 'machine.quickAmounts', category: 'operations', type: 'string', defaultValue: '100,500,1000',
+    labelEn: 'Quick amounts', labelAr: 'المبالغ السريعة',
+    descriptionEn: 'Comma-separated shortcut buttons on the keypad, up to six',
+    descriptionAr: 'أزرار اختصار على لوحة المفاتيح مفصولة بفواصل، حتى ستة',
+  },
+  {
+    key: 'machine.maxAmount', category: 'operations', type: 'money', defaultValue: '0',
+    labelEn: 'Counter limit', labelAr: 'حد الشباك',
+    descriptionEn:
+      'Largest amount a teller may exchange on the machine, measured on what the customer hands over. Above it the manager records the transaction. Zero removes the limit.',
+    descriptionAr:
+      'أكبر مبلغ يستطيع التلر تصريفه على الماكينة، محسوباً على ما يدفعه العميل. فوقه يسجل المدير العملية بنفسه. القيمة صفر تلغي الحد.',
+  },
+  {
+    key: 'machine.requireCustomerAbove', category: 'operations', type: 'money', defaultValue: '0',
+    labelEn: 'Require a customer above', labelAr: 'اشتراط عميل فوق',
+    descriptionEn:
+      'At or above this amount the exchange must be attached to a registered customer. Zero never requires one.',
+    descriptionAr:
+      'عند هذا المبلغ أو فوقه يجب ربط العملية بعميل مسجّل. القيمة صفر تلغي الاشتراط.',
+  },
+
   // --- Security ------------------------------------------------------------
   {
     key: 'security.sessionIdleMinutes', category: 'security', type: 'number', defaultValue: 60, min: 5, max: 480,
@@ -160,6 +199,35 @@ export const SETTINGS: SettingDefinition[] = [
       { value: 'TRON', labelEn: 'TRON (TronGrid)', labelAr: 'ترون (TronGrid)' },
       { value: 'ETHEREUM', labelEn: 'Ethereum (Etherscan)', labelAr: 'إيثيريوم (Etherscan)' },
     ],
+  },
+  {
+    key: 'usdt.counterEnabled', category: 'usdt', type: 'boolean', defaultValue: true,
+    labelEn: 'USDT counter', labelAr: 'شاشة استلام USDT',
+    descriptionEn: 'Let tellers open counter requests and show a receiving address',
+    descriptionAr: 'السماح للتلر بفتح طلبات استلام وعرض عنوان الاستقبال',
+  },
+  {
+    key: 'usdt.counterRequestMinutes', category: 'usdt', type: 'number', defaultValue: 30, min: 5, max: 240,
+    labelEn: 'Request validity (minutes)', labelAr: 'صلاحية الطلب (دقائق)',
+    descriptionEn:
+      'How long a quoted request stays open. The rate is held for this long, so a long window is a position the branch is carrying.',
+    descriptionAr:
+      'المدة التي يبقى فيها الطلب مفتوحاً. السعر مثبَّت طوال هذه المدة، فالمدة الطويلة مخاطرة سعرية يتحملها الفرع.',
+  },
+  {
+    key: 'usdt.counterMaxAmount', category: 'usdt', type: 'money', defaultValue: '0',
+    labelEn: 'Maximum per request', labelAr: 'الحد الأعلى للطلب',
+    descriptionEn: 'Largest USDT amount a teller may quote at the counter. Zero removes the limit.',
+    descriptionAr: 'أكبر مبلغ USDT يستطيع التلر تسعيره عند الشباك. القيمة صفر تلغي الحد.',
+  },
+  {
+    key: 'usdt.counterUniqueAmount', category: 'usdt', type: 'boolean', defaultValue: true,
+    labelEn: 'Reserve a distinct amount', labelAr: 'حجز مبلغ مميّز',
+    descriptionEn:
+      'Ask each customer for an amount no other open request is waiting for, so two people sending the same figure are never confused. Switching this off means the teller must identify every transfer by hash.',
+    descriptionAr:
+      'مطالبة كل عميل بمبلغ لا ينتظره طلب آخر مفتوح، حتى لا يختلط شخصان أرسلا نفس الرقم. إيقافه يعني أن على التلر تمييز كل تحويل ببصمته.',
+    isSensitive: true,
   },
 
   // --- Notifications -------------------------------------------------------

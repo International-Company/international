@@ -87,6 +87,9 @@ export const PERMISSIONS: PermissionDefinition[] = [
     'Exceed configured transaction and balance limits', 'تجاوز حدود العمليات والأرصدة المحددة', true),
   def('exchange.receipt.print', 'exchange', 'print', 'Print receipts', 'طباعة الإيصالات',
     'Print and reprint transaction receipts', 'طباعة وإعادة طباعة إيصالات العمليات'),
+  def('exchange.machine.use', 'exchange', 'use', 'Use the exchange machine', 'استخدام ماكينة التصريف',
+    'Quote and record counter exchanges between cash currencies',
+    'تسعير وتسجيل عمليات التصريف النقدي عند الشباك'),
 
   // --- Exchange: rates -----------------------------------------------------
   def('exchange.rate.view', 'exchange', 'view', 'View rates', 'عرض الأسعار',
@@ -123,6 +126,14 @@ export const PERMISSIONS: PermissionDefinition[] = [
     'Link an on-chain transfer to an internal transaction', 'ربط تحويل شبكي بعملية داخلية', true),
   def('usdt.transaction.reconcile', 'usdt', 'reconcile', 'Reconcile transfers', 'تسوية التحويلات',
     'Mark on-chain transfers as reconciled', 'تعليم التحويلات الشبكية كمسواة', true),
+
+  // --- USDT counter --------------------------------------------------------
+  def('usdt.counter.use', 'usdt', 'use', 'Use the USDT counter', 'استخدام شاشة استلام USDT',
+    'Show a receiving address, quote a customer and settle the transfer',
+    'عرض عنوان الاستقبال وتسعير العميل وتسوية التحويل'),
+  def('usdt.counter.manage', 'usdt', 'manage', 'Manage counter addresses', 'إدارة عناوين الشباك',
+    'Choose which monitored addresses tellers may show customers',
+    'تحديد العناوين المراقبة التي يجوز للتلر عرضها على العملاء', true),
 
   // --- Customers -----------------------------------------------------------
   def('customers.view', 'customers', 'view', 'View customers', 'عرض العملاء',
@@ -264,6 +275,9 @@ export const SYSTEM_ROLES: RoleDefinition[] = [
       'dashboard.view',
       'exchange.transaction.view', 'exchange.transaction.create', 'exchange.transaction.update',
       'exchange.transaction.delete', 'exchange.receipt.print',
+      // The two counter tools. The manager controls what they may show and how
+      // much they may quote; within that, the teller works unaided.
+      'exchange.machine.use', 'usdt.counter.use',
       // Recording a transaction posts it. The teller's boundary is what they
       // may record and see — reversal and rates stay with the manager.
       'exchange.rate.view',

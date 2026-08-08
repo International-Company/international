@@ -71,10 +71,28 @@ export interface Actor {
 // Creation
 // ---------------------------------------------------------------------------
 
+/**
+ * A price this system quoted earlier and recorded, being honoured now.
+ *
+ * The counter tools quote a customer, write the quote to a row, and settle it
+ * minutes later once the money actually arrives. Re-pricing at settlement would
+ * pay a different figure from the one the customer was shown, and routing it
+ * through the override permission would mean handing every teller the authority
+ * to reprice anything. This is neither: it is only reachable from server code
+ * holding a persisted quote, and the reference of that record is audited with
+ * the transaction.
+ */
+export interface AgreedQuote {
+  rate: bigint;
+  toAmount: bigint;
+  /** The record that fixed this price, for the audit trail. */
+  sourceReference: string;
+}
+
 export async function create(
   input: CreateTransactionInput,
   actor: Actor,
-  options: { submit?: boolean } = {},
+  options: { submit?: boolean; agreedQuote?: AgreedQuote } = {},
   db: DbClient = prisma,
 ): Promise<{ id: string; reference: string; status: TransactionStatus }> {
   const meta = TRANSACTION_TYPE_META[input.type];
@@ -137,9 +155,18 @@ export async function create(
       profitAmount = quote.profit;
       toAmount = quote.toAmount;
 
-      // An operator may improve the customer's rate within their authority,
-      // but never quietly worsen it beyond what the board supports.
-      if (input.toAmount && input.toAmount !== quote.toAmount) {
+      // A price already quoted to the customer wins over the board, which may
+      // have moved in the minutes since. Profit is still measured against the
+      // *current* mid — what the position is really worth now, not what it was
+      // worth when the quote was given.
+      if (options.agreedQuote) {
+        const atMid = quote.profit + quote.toAmount;
+        rate = options.agreedQuote.rate;
+        toAmount = options.agreedQuote.toAmount;
+        profitAmount = atMid - toAmount;
+      } else if (input.toAmount && input.toAmount !== quote.toAmount) {
+        // An operator may improve the customer's rate within their authority,
+        // but never quietly worsen it beyond what the board supports.
         if (!actor.permissions.includes('exchange.transaction.overrideLimit')) {
           throw errors.forbidden('exchange.transaction.overrideLimit');
         }
@@ -196,6 +223,7 @@ export async function create(
           toAmount: toAmount.toString(),
           toCurrency,
           rate: rate.toString(),
+          ...(options.agreedQuote ? { agreedQuoteFrom: options.agreedQuote.sourceReference } : {}),
         },
       },
       tx,
