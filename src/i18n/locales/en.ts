@@ -118,6 +118,7 @@ const en = {
   },
 
   nav: {
+    machineControl: 'Machine status',
     counter: 'The Counter',
     manageUsdt: 'USDT Intake',
     manageMachine: 'Exchange Machine',
@@ -446,7 +447,33 @@ const en = {
     },
   },
 
+  machineControl: {
+    manageDrawers: 'Open drawers',
+    title: 'Machine Status',
+    subtitle: 'What the counter can trade right now, and why it cannot trade the rest',
+    state: 'Machine',
+    todayCount: 'Exchanged today',
+    pairs: 'The six pairs',
+    pairsHint:
+      'A pair is tradeable only when it is switched on, a rate exists, and the drawer it pays out of has money. Each one says which of the three is missing.',
+    offered: 'Offered',
+    ready: 'Tradeable',
+    notReady: 'Not tradeable',
+    notReadyTitle: 'Some pairs are switched on but cannot be traded',
+    needsRate: 'No rate published for {pairs} —',
+    needsCash: 'Nothing left in the {currencies} drawer to pay out —',
+    limits: 'What the teller may do',
+    limitsHint: 'Above these the machine refuses, and the manager records the exchange instead.',
+    counterLimit: 'Counter limit',
+    requireCustomer: 'Require a customer above',
+    quickAmounts: 'Quick amounts',
+    quickHint: 'Comma-separated shortcut buttons on the keypad.',
+    zeroMeansNone: 'Leave empty for no limit.',
+    drawersHint: 'The machine pays out of these, and refuses what they cannot cover.',
+  },
+
   machine: {
+    recent: 'Your last few',
     title: 'Exchange Machine',
     subtitle: 'Fast counter exchange between shekels, dollars and dinars',
     disabledTitle: 'The machine is switched off',

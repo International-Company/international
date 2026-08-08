@@ -89,6 +89,12 @@ export const NAVIGATION: NavSection[] = [
     labelKey: 'nav.manageMachine',
     items: [
       {
+        href: '/manage/machine',
+        labelKey: 'nav.machineControl',
+        icon: 'machine',
+        permissions: ['exchange.rate.view'],
+      },
+      {
         href: '/manage/rates',
         labelKey: 'nav.rates',
         icon: 'rates',
