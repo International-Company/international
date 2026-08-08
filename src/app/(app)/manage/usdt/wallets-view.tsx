@@ -1,13 +1,12 @@
 'use client';
 
 import { useState } from 'react';
-import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { ExternalLink, Plus, RefreshCw, Wallet as WalletIcon } from 'lucide-react';
+import { Pencil, Plus, RefreshCw, Trash2, Wallet as WalletIcon } from 'lucide-react';
 import { useLocale } from '@/i18n/provider';
 import { api, ApiError } from '@/lib/api-client';
 import { Alert, Badge, Button, Card, CardHeader, EmptyState, StatTile } from '@/ui/primitives';
-import { Dialog, useToast } from '@/ui/overlay';
+import { ConfirmDialog, Dialog, useToast } from '@/ui/overlay';
 import { Checkbox, Field, FormGrid, Input, Select, Switch } from '@/ui/form';
 import { DateText, Money, StatusBadge } from '@/ui/display';
 
@@ -29,6 +28,7 @@ interface WalletRow {
   lastSyncError: string | null;
   autoCreateTransaction: boolean;
   isCounterAddress: boolean;
+  counterSortOrder: number;
   _count: { transactions: number };
 }
 
@@ -54,6 +54,34 @@ export function WalletsView({
   const toast = useToast();
 
   const [adding, setAdding] = useState(false);
+  const [editing, setEditing] = useState<WalletRow | null>(null);
+  const [deleting, setDeleting] = useState<WalletRow | null>(null);
+
+  const [editForm, setEditForm] = useState({
+    label: '',
+    labelAr: '',
+    minConfirmations: 19,
+    notifyOnIncoming: true,
+    notifyOnOutgoing: true,
+    isCounterAddress: false,
+    counterSortOrder: 0,
+    isActive: true,
+  });
+
+  const openEdit = (wallet: WalletRow) => {
+    setError(null);
+    setEditForm({
+      label: wallet.label,
+      labelAr: wallet.labelAr,
+      minConfirmations: wallet.minConfirmations,
+      notifyOnIncoming: true,
+      notifyOnOutgoing: true,
+      isCounterAddress: wallet.isCounterAddress,
+      counterSortOrder: wallet.counterSortOrder ?? 0,
+      isActive: wallet.isActive,
+    });
+    setEditing(wallet);
+  };
   const [syncing, setSyncing] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -113,6 +141,49 @@ export function WalletsView({
       );
     } finally {
       setSyncing(null);
+    }
+  };
+
+  const save = async () => {
+    if (!editing) return;
+    setError(null);
+    setBusy(true);
+    try {
+      await api.patch(`/api/usdt/wallets/${editing.id}`, editForm);
+      toast.success(t('common.saved'), editForm.label);
+      setEditing(null);
+      router.refresh();
+    } catch (caught) {
+      setError(
+        caught instanceof ApiError
+          ? t(caught.messageKey as never, caught.params as Record<string, string>) || caught.message
+          : t('errors.generic'),
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const remove = async () => {
+    if (!deleting) return;
+    setBusy(true);
+    try {
+      await api.delete(`/api/usdt/wallets/${deleting.id}`);
+      toast.success(t('usdt.walletDeleted'), deleting.label);
+      setDeleting(null);
+      router.refresh();
+    } catch (caught) {
+      // Refusing to delete an address with history is the expected answer, not
+      // a failure — so it is said plainly rather than swallowed.
+      toast.error(
+        t('errors.title'),
+        caught instanceof ApiError
+          ? t(caught.messageKey as never, caught.params as Record<string, string>) || caught.message
+          : t('errors.generic'),
+      );
+      setDeleting(null);
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -190,12 +261,7 @@ export function WalletsView({
               <li key={wallet.id} className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center">
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
-                    <Link
-                      href={`/usdt/transactions?walletId=${wallet.id}`}
-                      className="text-sm font-medium text-content hover:text-primary-text"
-                    >
-                      {ln(wallet, 'label')}
-                    </Link>
+                    <span className="text-sm font-medium text-content">{ln(wallet, 'label')}</span>
                     <Badge tone="neutral">{wallet.network}</Badge>
                     {!wallet.isActive && <Badge tone="danger">{t('common.inactive')}</Badge>}
                     {wallet.isCounterAddress && (
@@ -250,6 +316,26 @@ export function WalletsView({
                       {t('usdt.sync')}
                     </Button>
                   )}
+                  {canManage && (
+                    <>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        title={t('common.edit')}
+                        onClick={() => openEdit(wallet)}
+                      >
+                        <Pencil className="size-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        title={t('common.delete')}
+                        onClick={() => setDeleting(wallet)}
+                      >
+                        <Trash2 className="size-4 text-danger-text" />
+                      </Button>
+                    </>
+                  )}
                 </div>
               </li>
             ))}
@@ -274,6 +360,127 @@ export function WalletsView({
           ))}
         </ul>
       </Card>
+
+      {/* --- Edit wallet --------------------------------------------------- */}
+      <Dialog
+        open={editing !== null}
+        onClose={() => setEditing(null)}
+        title={editing ? `${t('common.edit')} — ${editing.label}` : t('common.edit')}
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setEditing(null)} disabled={busy}>
+              {t('common.cancel')}
+            </Button>
+            <Button
+              variant="primary"
+              loading={busy}
+              disabled={!editForm.label || !editForm.labelAr}
+              onClick={() => void save()}
+            >
+              {t('common.save')}
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-3">
+          {error && <Alert tone="danger">{error}</Alert>}
+
+          {/* The address is the wallet's identity: every transfer ever detected
+              is attached to it. Changing it would reattach that history to
+              somebody else's money. */}
+          <Alert tone="neutral">{t('usdt.addressFixed')}</Alert>
+          {editing && (
+            <p className="break-all rounded-[var(--radius-control)] bg-surface-sunken p-2 font-mono text-xs text-content-secondary ltr-content">
+              {editing.address}
+            </p>
+          )}
+
+          <FormGrid columns={2}>
+            <Field label={t('usdt.labelAr')} required>
+              {(props) => (
+                <Input
+                  {...props}
+                  value={editForm.labelAr}
+                  onChange={(event) => setEditForm({ ...editForm, labelAr: event.target.value })}
+                />
+              )}
+            </Field>
+            <Field label={t('usdt.label')} required>
+              {(props) => (
+                <Input
+                  {...props}
+                  value={editForm.label}
+                  onChange={(event) => setEditForm({ ...editForm, label: event.target.value })}
+                  dir="ltr"
+                />
+              )}
+            </Field>
+          </FormGrid>
+
+          <FormGrid columns={2}>
+            <Field label={t('usdt.minConfirmations')} hint={t('usdt.minConfirmationsHint')}>
+              {(props) => (
+                <Input
+                  {...props}
+                  type="number"
+                  min={1}
+                  max={200}
+                  value={editForm.minConfirmations}
+                  onChange={(event) =>
+                    setEditForm({ ...editForm, minConfirmations: Number(event.target.value) })
+                  }
+                  dir="ltr"
+                />
+              )}
+            </Field>
+            <Field label={t('usdt.counterOrder')} hint={t('usdt.counterOrderHint')}>
+              {(props) => (
+                <Input
+                  {...props}
+                  type="number"
+                  min={0}
+                  max={999}
+                  value={editForm.counterSortOrder}
+                  onChange={(event) =>
+                    setEditForm({ ...editForm, counterSortOrder: Number(event.target.value) })
+                  }
+                  dir="ltr"
+                />
+              )}
+            </Field>
+          </FormGrid>
+
+          <div className="space-y-2">
+            <Switch
+              checked={editForm.isCounterAddress}
+              onCheckedChange={(next) => setEditForm({ ...editForm, isCounterAddress: next })}
+              label={t('usdt.counterAddress')}
+              description={t('usdt.counterAddressHint')}
+            />
+            <Switch
+              checked={editForm.isActive}
+              onCheckedChange={(next) => setEditForm({ ...editForm, isActive: next })}
+              label={t('common.active')}
+              description={t('usdt.activeHint')}
+            />
+          </div>
+        </div>
+      </Dialog>
+
+      {/* --- Delete wallet ------------------------------------------------- */}
+      <ConfirmDialog
+        open={deleting !== null}
+        onClose={() => setDeleting(null)}
+        onConfirm={() => void remove()}
+        title={t('usdt.deleteWallet')}
+        message={deleting ? t('usdt.deleteWalletConfirm', { label: deleting.label }) : ''}
+        confirmLabel={t('common.delete')}
+        cancelLabel={t('common.cancel')}
+        tone="danger"
+        loading={busy}
+      >
+        <Alert tone="warning">{t('usdt.deleteWalletHint')}</Alert>
+      </ConfirmDialog>
 
       {/* --- Add wallet -------------------------------------------------- */}
       <Dialog

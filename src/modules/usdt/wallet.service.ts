@@ -1,6 +1,7 @@
 import 'server-only';
 import { prisma, withTransaction, type DbClient } from '@/core/db/prisma';
 import { errors } from '@/core/errors/app-error';
+import { createLogger } from '@/core/logger/logger';
 import { toDecimalString } from '@/core/money/money';
 import { emitAsync } from '@/core/events/bus';
 import * as audit from '@/modules/audit/audit.service';
@@ -14,6 +15,8 @@ import { providerFor, strictProviderFor } from './providers';
  * into the books, which is what lets the USDT module and the exchange module
  * reconcile against one another.
  */
+
+const log = createLogger('usdt:wallets');
 
 export interface Actor {
   id: string;
@@ -188,6 +191,56 @@ export async function updateWallet(
 
     return updated;
   }, db);
+}
+
+/**
+ * Removes a wallet entirely.
+ *
+ * Only one that has never seen anything. Once transfers have been detected
+ * against an address, those rows are the evidence behind money that was paid
+ * out, and deleting the wallet would leave them pointing at nothing. Whoever
+ * later asks "which address did this arrive at" would have no answer.
+ *
+ * Deactivating is the answer for an address that is simply finished with: it
+ * stops being offered and stops being polled, and everything it explains stays
+ * readable. The screen offers both, plainly, because they are different acts.
+ */
+export async function deleteWallet(id: string, actor: Actor, db: DbClient = prisma): Promise<void> {
+  await withTransaction(async (tx) => {
+    const wallet = await tx.wallet.findUnique({ where: { id } });
+    if (!wallet) throw errors.notFound('Wallet', id);
+
+    const [transfers, requests] = await Promise.all([
+      tx.chainTransaction.count({ where: { walletId: id } }),
+      tx.usdtDepositRequest.count({ where: { walletId: id } }),
+    ]);
+
+    if (transfers + requests > 0) {
+      throw errors.conflict(
+        `"${wallet.label}" has ${transfers} transfer(s) and ${requests} counter request(s) on record and cannot be deleted — deactivate it instead`,
+        'errors.walletHasHistory',
+        { label: wallet.label, transfers, requests },
+      );
+    }
+
+    await audit.record(
+      {
+        action: 'WALLET_CHANGE',
+        module: 'usdt',
+        entityType: 'Wallet',
+        entityId: id,
+        summaryEn: `Deleted wallet "${wallet.label}" (${wallet.network} ${maskAddress(wallet.address)})`,
+        summaryAr: `حذف المحفظة "${wallet.labelAr}" (${wallet.network} ${maskAddress(wallet.address)})`,
+        actor,
+        before: { label: wallet.label, network: wallet.network, address: wallet.address },
+      },
+      tx,
+    );
+
+    await tx.wallet.delete({ where: { id } });
+  }, db);
+
+  log.warn('Wallet deleted', { id, by: actor.id });
 }
 
 export async function listWallets(

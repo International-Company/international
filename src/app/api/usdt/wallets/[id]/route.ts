@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { route } from '@/core/http/route';
 import { errors } from '@/core/errors/app-error';
 import { parseMoney } from '@/core/money/money';
-import { getWallet, setBalance, updateWallet } from '@/modules/usdt/wallet.service';
+import { deleteWallet, getWallet, setBalance, updateWallet } from '@/modules/usdt/wallet.service';
 import { syncWallet } from '@/modules/usdt/sync.service';
 
 const paramsSchema = z.object({ id: z.string().min(1) });
@@ -54,6 +54,21 @@ export const POST = route<z.infer<typeof actionSchema>, unknown, z.infer<typeof 
       throw errors.forbidden('usdt.wallet.manage');
     }
     await setBalance(params.id, parseMoney(body.balance), actor);
+    return { ok: true };
+  },
+});
+
+/**
+ * Removing an address outright.
+ *
+ * Refused once anything has been detected against it — those transfers are the
+ * evidence behind money that was paid out. The service checks for itself.
+ */
+export const DELETE = route<unknown, unknown, z.infer<typeof paramsSchema>>({
+  permissions: ['usdt.wallet.manage'],
+  paramsSchema,
+  handler: async ({ params, actor }) => {
+    await deleteWallet(params.id, actor);
     return { ok: true };
   },
 });

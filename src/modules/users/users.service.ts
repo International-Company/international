@@ -1,6 +1,7 @@
 ﻿import 'server-only';
 import { prisma, withTransaction, type DbClient } from '@/core/db/prisma';
 import { errors } from '@/core/errors/app-error';
+import { createLogger } from '@/core/logger/logger';
 import { generatePassword } from '@/core/security/password';
 import { PERMISSIONS_BY_KEY } from '@/core/security/permissions';
 import * as audit from '@/modules/audit/audit.service';
@@ -20,6 +21,8 @@ import { containsInsensitive } from '@/core/db/search';
  *     revoked permission takes effect immediately rather than whenever the
  *     affected user happens to sign out.
  */
+
+const log = createLogger('users');
 
 export interface Actor {
   id: string;
@@ -112,6 +115,7 @@ export async function listUsers(filter: UserFilter, db: DbClient = prisma) {
         mustChangePassword: true,
         lockedUntil: true,
         createdAt: true,
+        isSystem: true,
         branch: { select: { id: true, nameEn: true, nameAr: true } },
         roles: { include: { role: { select: { key: true, nameEn: true, nameAr: true, level: true } } } },
       },
@@ -356,6 +360,91 @@ export async function resetPassword(
   );
 
   return { temporaryPassword };
+}
+
+/**
+ * Removes an account entirely.
+ *
+ * Only an account that never did anything. The moment someone has recorded a
+ * transaction, moved a drawer or opened a day, their name is the answer to "who
+ * did this" — and deleting them would either break those records or, worse,
+ * leave them pointing at nobody. Disabling is offered instead, which stops the
+ * sign-in and keeps the history readable.
+ *
+ * This is why the screen shows both: they are different acts, not a soft and a
+ * hard version of one.
+ */
+export async function deleteUser(id: string, actor: Actor, db: DbClient = prisma): Promise<void> {
+  await withTransaction(async (tx) => {
+    const existing = await tx.user.findUnique({ where: { id } });
+    if (!existing) throw errors.notFound('User', id);
+
+    if (existing.isSystem) {
+      throw errors.precondition('The system account cannot be deleted', 'errors.systemAccount');
+    }
+    if (existing.id === actor.id) {
+      throw errors.precondition('You cannot delete your own account', 'errors.cannotDeleteSelf');
+    }
+
+    await assertOutranks(actor, id, tx);
+
+    const [transactions, movements, daysOpened, daysClosed, requests] = await Promise.all([
+      tx.transaction.count({ where: { createdById: id } }),
+      tx.drawerMovement.count({ where: { createdById: id } }),
+      tx.businessDay.count({ where: { openedById: id } }),
+      tx.businessDay.count({ where: { closedById: id } }),
+      tx.usdtDepositRequest.count({ where: { createdById: id } }),
+    ]);
+
+    const work = transactions + movements + daysOpened + daysClosed + requests;
+    if (work > 0) {
+      throw errors.conflict(
+        `"${existing.username}" has ${work} record(s) against their name and cannot be deleted — disable the account instead`,
+        'errors.userHasWork',
+        { username: existing.username, count: work },
+      );
+    }
+
+    // The last account that can still administer the system must not be the one
+    // being removed, or nobody can let anybody back in.
+    const managers = await tx.user.count({
+      where: {
+        id: { not: id },
+        isSystem: false,
+        status: 'ACTIVE',
+        roles: { some: { role: { key: 'ADMIN' } } },
+      },
+    });
+    const isManager = await tx.userRole.findFirst({
+      where: { userId: id, role: { key: 'ADMIN' } },
+    });
+    if (isManager && managers === 0) {
+      throw errors.precondition(
+        'This is the only manager left — promote someone else first',
+        'errors.lastManager',
+      );
+    }
+
+    await audit.record(
+      {
+        action: 'DELETE',
+        module: 'users',
+        entityType: 'User',
+        entityId: id,
+        summaryEn: `Deleted user "${existing.username}" (${existing.fullNameEn})`,
+        summaryAr: `حذف المستخدم "${existing.username}" (${existing.fullNameAr})`,
+        actor,
+        before: { username: existing.username, email: existing.email, status: existing.status },
+      },
+      tx,
+    );
+
+    // Recorded before the row goes, so the audit line survives the cascade that
+    // takes the sessions, roles and overrides with it.
+    await tx.user.delete({ where: { id } });
+  }, db);
+
+  log.warn('User deleted', { id, by: actor.id });
 }
 
 // ---------------------------------------------------------------------------

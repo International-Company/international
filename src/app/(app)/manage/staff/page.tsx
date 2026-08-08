@@ -36,6 +36,7 @@ export default async function UsersPage() {
         roles={roles}
         branches={branches}
         permissions={session.user.permissions}
+        currentUserId={session.user.id}
       />
     </div>
   );

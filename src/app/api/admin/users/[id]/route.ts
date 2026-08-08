@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { route } from '@/core/http/route';
 import { errors } from '@/core/errors/app-error';
 import {
+  deleteUser,
   getUser,
   resetPassword,
   setUserPermissionOverrides,
@@ -45,6 +46,21 @@ export const PATCH = route<z.infer<typeof updateSchema>, unknown, z.infer<typeof
   bodySchema: updateSchema,
   handler: async ({ params, body, actor }) => {
     await updateUser(params.id, body, actor);
+    return { ok: true };
+  },
+});
+
+/**
+ * Removing an account outright.
+ *
+ * Separate from disabling, and refused the moment the person has done any work
+ * — their name is the answer to who did it. The service checks that for itself.
+ */
+export const DELETE = route<unknown, unknown, z.infer<typeof paramsSchema>>({
+  permissions: ['users.delete'],
+  paramsSchema,
+  handler: async ({ params, actor }) => {
+    await deleteUser(params.id, actor);
     return { ok: true };
   },
 });
