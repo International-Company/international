@@ -80,6 +80,147 @@ const STEPS = [
     name: 'Drop the approval trail table',
     sql: `DROP TABLE IF EXISTS "transaction_approvals";`,
   },
+
+  // -------------------------------------------------------------------------
+  // The reduction to two counter tools (6c64b60).
+  //
+  // The double-entry ledger and the chart of accounts are replaced by four
+  // drawers. What the branch physically holds must survive that, so it is
+  // carried across before anything is dropped — into a table Prisma does not
+  // know about, because the drawers themselves do not exist until `db push`
+  // has run. `post-deploy-data.mjs` reads it on the other side.
+  // -------------------------------------------------------------------------
+  {
+    name: 'Carry the cash and crypto balances across',
+    sql: `
+      DO $$
+      BEGIN
+        IF EXISTS (
+          SELECT 1 FROM information_schema.tables
+          WHERE table_schema = current_schema() AND table_name = 'accounts'
+        ) THEN
+          CREATE TABLE IF NOT EXISTS "_ifms_drawer_carryover" (
+            "currencyCode" TEXT PRIMARY KEY,
+            "balance"      BIGINT NOT NULL
+          );
+
+          -- Only what the branch actually holds. Clearing, income, expense and
+          -- equity accounts were bookkeeping devices for a ledger that is gone;
+          -- carrying them would invent money the branch never had.
+          INSERT INTO "_ifms_drawer_carryover" ("currencyCode", "balance")
+          SELECT "currencyCode", SUM("balance")
+            FROM "accounts"
+           WHERE "kind" IN ('CASH', 'BANK', 'CRYPTO')
+           GROUP BY "currencyCode"
+          ON CONFLICT ("currencyCode") DO NOTHING;
+        END IF;
+      END $$;
+    `,
+  },
+  {
+    name: 'Relink monitored wallets to their drawer',
+    // The column is added empty here so `db push` has nothing to add and the
+    // post-deploy step can fill it once the drawers exist.
+    sql: `
+      DO $$
+      BEGIN
+        IF EXISTS (
+          SELECT 1 FROM information_schema.tables
+          WHERE table_schema = current_schema() AND table_name = 'wallets'
+        ) THEN
+          ALTER TABLE "wallets" ADD COLUMN IF NOT EXISTS "drawerId" TEXT;
+          ALTER TABLE "wallets" DROP COLUMN IF EXISTS "accountId";
+        END IF;
+      END $$;
+    `,
+  },
+  {
+    name: 'Remove transactions the reduced model cannot express',
+    // The ten transaction types became two, and the four statuses became two.
+    // A cash-in or an abandoned draft has no representation now: it would sit
+    // in the table with a type nothing reads and a status nothing can act on.
+    // Deleting is honest where keeping would be a fiction — and the audit chain
+    // still records that each of them happened.
+    sql: `
+      DO $$
+      DECLARE removed INTEGER;
+      BEGIN
+        IF EXISTS (
+          SELECT 1 FROM information_schema.tables
+          WHERE table_schema = current_schema() AND table_name = 'transactions'
+        ) THEN
+          DELETE FROM "receipts"
+           WHERE "transactionId" IN (
+             SELECT "id" FROM "transactions"
+              WHERE "type" NOT IN ('EXCHANGE', 'USDT_RECEIVE')
+                 OR "status" NOT IN ('POSTED', 'REVERSED')
+           );
+
+          UPDATE "usdt_deposit_requests" SET "transactionId" = NULL
+           WHERE "transactionId" IN (
+             SELECT "id" FROM "transactions"
+              WHERE "type" NOT IN ('EXCHANGE', 'USDT_RECEIVE')
+                 OR "status" NOT IN ('POSTED', 'REVERSED')
+           );
+
+          UPDATE "chain_transactions" SET "linkedTransactionId" = NULL
+           WHERE "linkedTransactionId" IN (
+             SELECT "id" FROM "transactions"
+              WHERE "type" NOT IN ('EXCHANGE', 'USDT_RECEIVE')
+                 OR "status" NOT IN ('POSTED', 'REVERSED')
+           );
+
+          -- A reversal points at its original; clear the link before either end
+          -- can be removed, so neither deletion trips over the other.
+          UPDATE "transactions" SET "reversalOfId" = NULL
+           WHERE "reversalOfId" IN (
+             SELECT "id" FROM "transactions"
+              WHERE "type" NOT IN ('EXCHANGE', 'USDT_RECEIVE')
+                 OR "status" NOT IN ('POSTED', 'REVERSED')
+           );
+
+          DELETE FROM "transactions"
+           WHERE "type" NOT IN ('EXCHANGE', 'USDT_RECEIVE')
+              OR "status" NOT IN ('POSTED', 'REVERSED');
+
+          GET DIAGNOSTICS removed = ROW_COUNT;
+          IF removed > 0 THEN
+            RAISE NOTICE 'removed % transaction(s) with no place in the reduced model', removed;
+          END IF;
+        END IF;
+      END $$;
+    `,
+  },
+  {
+    name: 'Drop the transaction columns the reduced model has no use for',
+    sql: `
+      ALTER TABLE "transactions"
+        DROP COLUMN IF EXISTS "channel",
+        DROP COLUMN IF EXISTS "feeCurrency",
+        DROP COLUMN IF EXISTS "feeAmount",
+        DROP COLUMN IF EXISTS "sourceAccountId",
+        DROP COLUMN IF EXISTS "destinationAccountId",
+        DROP COLUMN IF EXISTS "counterpartyDoc",
+        DROP COLUMN IF EXISTS "internalNotes",
+        DROP COLUMN IF EXISTS "metadata",
+        DROP COLUMN IF EXISTS "cancelReason",
+        DROP COLUMN IF EXISTS "postedAt",
+        DROP COLUMN IF EXISTS "valueDate",
+        DROP COLUMN IF EXISTS "version";
+    `,
+  },
+  {
+    name: 'Drop the ledger',
+    // Order matters: lines before entries, and both before the accounts they
+    // point at.
+    sql: `
+      DROP TABLE IF EXISTS "journal_lines";
+    `,
+  },
+  { name: 'Drop the journal', sql: `DROP TABLE IF EXISTS "journal_entries";` },
+  { name: 'Drop the daily count sheet', sql: `DROP TABLE IF EXISTS "day_closing_lines";` },
+  { name: 'Drop customer balances', sql: `DROP TABLE IF EXISTS "customer_balances";` },
+  { name: 'Drop the chart of accounts', sql: `DROP TABLE IF EXISTS "accounts";` },
 ];
 
 /** Host and database only — a connection string in a deploy log is a leak. */
