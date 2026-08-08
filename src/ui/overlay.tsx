@@ -38,6 +38,19 @@ const FOCUSABLE = [
 ].join(',');
 
 /**
+ * Where a dialog should put the caret when it opens.
+ *
+ * Not simply the first focusable element: the close button comes first in the
+ * markup, and opening a form with focus on "dismiss" is a step backwards for
+ * whoever came to fill it in.
+ */
+const FIRST_FIELD = [
+  'input:not([disabled]):not([type="hidden"]):not([readonly])',
+  'select:not([disabled])',
+  'textarea:not([disabled]):not([readonly])',
+].join(',');
+
+/**
  * Confines Tab to the container and restores focus to the trigger on close.
  * Losing your place in a form because a dialog stole focus is a small thing
  * that costs a busy teller real time.
@@ -46,19 +59,36 @@ function useFocusTrap(active: boolean, onClose: () => void) {
   const ref = useRef<HTMLDivElement>(null);
   const previousFocus = useRef<HTMLElement | null>(null);
 
+  /*
+   * `onClose` is an inline arrow at nearly every call site, so it is a brand
+   * new function on every render of the screen behind the dialog. Listing it as
+   * a dependency meant this entire effect tore itself down and set itself up
+   * again on every keystroke — and setting up moves focus to the top of the
+   * dialog. Type one character into a form, and the caret jumped to the close
+   * button.
+   *
+   * Held in a ref instead, so the trap is governed by the only thing that
+   * should govern it: whether the dialog is open.
+   */
+  const close = useRef(onClose);
+  useEffect(() => {
+    close.current = onClose;
+  });
+
   useEffect(() => {
     if (!active) return;
 
     previousFocus.current = document.activeElement as HTMLElement | null;
 
     const container = ref.current;
+    const field = container?.querySelector<HTMLElement>(FIRST_FIELD);
     const focusables = container?.querySelectorAll<HTMLElement>(FOCUSABLE);
-    (focusables?.[0] ?? container)?.focus();
+    (field ?? focusables?.[0] ?? container)?.focus();
 
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         event.stopPropagation();
-        onClose();
+        close.current();
         return;
       }
 
@@ -92,7 +122,7 @@ function useFocusTrap(active: boolean, onClose: () => void) {
       document.body.style.overflow = previousOverflow;
       previousFocus.current?.focus?.();
     };
-  }, [active, onClose]);
+  }, [active]);
 
   return ref;
 }
