@@ -450,6 +450,11 @@ const ar: Dictionary = {
   },
 
   machineControl: {
+    noRateShort: 'لا سعر',
+    noCashShort: 'لا رصيد {currency}',
+    lastPairTitle: 'هذا آخر اتجاه مفعّل',
+    lastPairBody:
+      'ترك الجميع مطفأً يعيد فتح الستة كلها. لإغلاق الشباك أوقف الماكينة نفسها.',
     manageDrawers: 'فتح الصناديق',
     title: 'حالة الماكينة',
     subtitle: 'ما يستطيع الشباك تصريفه الآن، ولماذا لا يستطيع الباقي',
@@ -475,6 +480,14 @@ const ar: Dictionary = {
   },
 
   machine: {
+    board: 'اللوحة',
+    currency: 'العملة',
+    weBuy: 'نشتري',
+    weSell: 'نبيع',
+    live: 'مباشر',
+    ticket: 'التذكرة',
+    handsOver: 'العميل يدفع {currency}',
+    notOffered: 'غير مُتاح',
     recent: 'آخر عملياتك',
     title: 'ماكينة التصريف',
     subtitle: 'تصريف سريع عند الشباك بين الشيكل والدولار والدينار',

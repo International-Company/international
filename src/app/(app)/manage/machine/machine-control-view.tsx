@@ -1,62 +1,71 @@
 'use client';
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { ArrowRight, Check, Power, TrendingUp, TriangleAlert, Vault } from 'lucide-react';
+import { Check, Power, TrendingUp, TriangleAlert, Vault } from 'lucide-react';
 import { useLocale } from '@/i18n/provider';
 import { api, ApiError } from '@/lib/api-client';
-import { Alert, Badge, Button, Card, CardBody, CardHeader, StatTile } from '@/ui/primitives';
+import { Alert, Button, Card, CardBody, CardHeader, StatTile } from '@/ui/primitives';
 import { useToast } from '@/ui/overlay';
 import { Field, Input, MoneyInput, Switch } from '@/ui/form';
 import { Money } from '@/ui/display';
 import { cn } from '@/ui/utils';
+import {
+  Board,
+  BoardPrice,
+  buildBoard,
+  type BoardCell,
+  type BoardRate,
+} from '../../_machine/board';
 
 /**
- * The machine, from the manager's chair.
+ * The machine, from the manager's chair — the same board the teller works off.
  *
- * A pair is tradeable only when three things line up: it is switched on, a rate
- * exists for it, and the drawer it pays out of has money. Those live in three
- * different places in the data and used to live on three different screens, so
- * a manager could switch a pair on and believe the counter could trade it. Here
- * each pair states all three, and says which one is missing.
+ * Deliberately the same object. A manager who has just switched a column on
+ * should be looking at what the counter is now looking at, not at a settings
+ * form whose relationship to the counter has to be imagined. The only
+ * difference is what sits in a cell: the teller gets a price to press, the
+ * manager gets the switch that decides whether the price is there at all.
+ *
+ * A cell is tradeable only when three things line up — it is switched on, a
+ * rate is published, and the drawer it pays out of has money. Those live in
+ * three different places in the data and used to live on three different
+ * screens, so a manager could switch a pair on and believe the counter could
+ * trade it. Each cell now says which of the three it is missing.
  */
-
-interface PairRow {
-  key: string;
-  from: string;
-  to: string;
-  enabled: boolean;
-  hasRate: boolean;
-  servedBy: string | null;
-  payoutBalance: string;
-  payoutDecimals: number;
-}
 
 interface Config {
   enabled: boolean;
   pairs: string[];
+  currencies: { code: string; nameEn: string; nameAr: string; decimals: number }[];
   quickAmounts: number[];
   maxAmount: string;
   requireCustomerAbove: string;
 }
 
+interface DrawerRow {
+  currency: string;
+  balance: string;
+  decimals: number;
+}
+
 export function MachineControlView({
   config,
-  pairs,
+  board,
   drawers,
   today,
   canManage,
   canSeeMargin,
 }: {
   config: Config;
-  pairs: PairRow[];
-  drawers: { currency: string; balance: string; decimals: number }[];
+  board: BoardRate[];
+  drawers: DrawerRow[];
   today: { count: number; profit: string };
   canManage: boolean;
   canSeeMargin: boolean;
 }) {
-  const { t } = useLocale();
+  const { t, ln } = useLocale();
   const router = useRouter();
   const toast = useToast();
 
@@ -64,6 +73,50 @@ export function MachineControlView({
   const [limit, setLimit] = useState(decimal(config.maxAmount));
   const [customerAbove, setCustomerAbove] = useState(decimal(config.requireCustomerAbove));
   const [quick, setQuick] = useState(config.quickAmounts.join(', '));
+
+  const rows = useMemo(
+    () =>
+      buildBoard(
+        config.currencies.map((currency) => currency.code),
+        board,
+        config.pairs,
+      ),
+    [config.currencies, config.pairs, board],
+  );
+
+  const names = useMemo(
+    () =>
+      new Map(
+        config.currencies.map((currency) => [
+          currency.code,
+          ln(currency as unknown as Record<string, unknown>, 'name'),
+        ]),
+      ),
+    [config.currencies, ln],
+  );
+
+  const balances = useMemo(
+    () => new Map(drawers.map((drawer) => [drawer.currency, BigInt(drawer.balance)])),
+    [drawers],
+  );
+
+  const updatedAt = useMemo(() => {
+    const stamps = board
+      .map((rate) => rate.effectiveFrom)
+      .filter(Boolean)
+      .sort();
+    return stamps.at(-1) ?? null;
+  }, [board]);
+
+  const cells = useMemo(() => rows.flatMap((row) => [row.buy, row.sell]), [rows]);
+
+  /** Whether the counter could actually complete this direction right now. */
+  const readiness = (cell: BoardCell) => {
+    if (!cell.offered) return 'off' as const;
+    if (cell.rate === null) return 'noRate' as const;
+    if ((balances.get(cell.to) ?? 0n) === 0n) return 'noCash' as const;
+    return 'ready' as const;
+  };
 
   const save = async (values: Record<string, unknown>, key: string) => {
     setBusy(key);
@@ -84,23 +137,32 @@ export function MachineControlView({
   };
 
   /**
-   * Turning a pair on or off.
+   * Turning a direction on or off.
    *
    * The setting is a comma-separated list, which is the right shape to store a
-   * handful of fixed strings but a poor thing to hand a manager. The toggle
+   * handful of fixed strings and a poor thing to hand a manager. The switch
    * writes the list; nobody has to type it.
+   *
+   * Emptying the list is refused, because an empty setting means "every pair"
+   * to the server — a manager switching the last column off would silently
+   * switch all six back on. Closing the counter is what the machine's own
+   * switch is for, and that is what the message says.
    */
   const togglePair = async (key: string, on: boolean) => {
-    const next = pairs
-      .filter((pair) => (pair.key === key ? on : pair.enabled))
-      .map((pair) => pair.key);
+    const next = cells
+      .map((cell) => cell.pair)
+      .filter((pair) => (pair === key ? on : config.pairs.includes(pair)));
+
+    if (next.length === 0) {
+      toast.error(t('machineControl.lastPairTitle'), t('machineControl.lastPairBody'));
+      return;
+    }
+
     await save({ 'machine.pairs': next.join(',') }, key);
   };
 
-  const blocked = pairs.filter((pair) => pair.enabled && !pair.hasRate);
-  const dry = pairs.filter(
-    (pair) => pair.enabled && pair.hasRate && BigInt(pair.payoutBalance) === 0n,
-  );
+  const blocked = cells.filter((cell) => readiness(cell) === 'noRate');
+  const dry = cells.filter((cell) => readiness(cell) === 'noCash');
 
   return (
     <div className="space-y-4">
@@ -127,7 +189,7 @@ export function MachineControlView({
           {blocked.length > 0 && (
             <p>
               {t('machineControl.needsRate', {
-                pairs: blocked.map((p) => p.key).join('، '),
+                pairs: blocked.map((cell) => cell.pair).join('، '),
               })}{' '}
               <Link href="/manage/rates" className="underline">
                 {t('nav.rates')}
@@ -137,7 +199,7 @@ export function MachineControlView({
           {dry.length > 0 && (
             <p className="mt-1">
               {t('machineControl.needsCash', {
-                currencies: [...new Set(dry.map((p) => p.to))].join('، '),
+                currencies: [...new Set(dry.map((cell) => cell.to))].join('، '),
               })}{' '}
               <Link href="/manage/drawers" className="underline">
                 {t('nav.drawers')}
@@ -147,89 +209,66 @@ export function MachineControlView({
         </Alert>
       )}
 
-      {/* --- The six pairs ----------------------------------------------- */}
-      <Card>
-        <CardHeader
-          title={t('machineControl.pairs')}
-          description={t('machineControl.pairsHint')}
-          actions={
-            canManage && (
+      {/* --- The board, with the switches in it --------------------------- */}
+      <Board
+        rows={rows}
+        title={t('machine.board')}
+        headings={[t('machine.currency'), t('machine.weBuy'), t('machine.weSell')]}
+        names={names}
+        updatedAt={updatedAt}
+        liveLabel={t('machine.live')}
+        footer={
+          canManage && (
+            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border-base px-4 py-2.5">
+              <span className="text-xs text-content-tertiary">{t('machineControl.pairsHint')}</span>
               <Switch
                 checked={config.enabled}
                 onCheckedChange={(next) => void save({ 'machine.enabled': next }, 'enabled')}
                 label={t('machineControl.state')}
+                disabled={busy === 'enabled'}
               />
-            )
-          }
-        />
+            </div>
+          )
+        }
+        cell={(cell) => {
+          const state = readiness(cell);
 
-        <ul className="divide-y divide-border-base">
-          {pairs.map((pair) => {
-            const balance = BigInt(pair.payoutBalance);
-            const ready = pair.enabled && pair.hasRate && balance > 0n;
+          return (
+            <div className="flex size-full flex-col items-center justify-center gap-1.5 px-2 py-3">
+              <BoardPrice rate={cell.rate} muted={state !== 'ready'} />
 
-            return (
-              <li
-                key={pair.key}
+              <span
                 className={cn(
-                  'flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:gap-4',
-                  !pair.enabled && 'opacity-60',
+                  'flex items-center gap-1.5 text-center text-[11px]',
+                  state === 'ready' ? 'text-success-text' : 'text-content-tertiary',
                 )}
               >
-                <div className="flex items-center gap-2 sm:w-36">
-                  <span className="font-mono text-sm font-semibold text-content ltr-content">
-                    {pair.from}
-                  </span>
-                  <ArrowRight className="size-3 shrink-0 text-content-tertiary rtl:rotate-180" />
-                  <span className="font-mono text-sm font-semibold text-content ltr-content">
-                    {pair.to}
-                  </span>
-                </div>
-
-                {/* The three conditions, each answered rather than implied. */}
-                <div className="flex flex-1 flex-wrap items-center gap-2">
-                  <Condition ok={pair.enabled} label={t('machineControl.offered')} />
-                  <Condition
-                    ok={pair.hasRate}
-                    label={
-                      pair.hasRate && pair.servedBy !== pair.key
-                        ? `${t('rates.buyRate')} (${pair.servedBy})`
-                        : t('rates.buyRate')
-                    }
-                  />
-                  <Condition
-                    ok={balance > 0n}
-                    label={
-                      <span className="ltr-content">
-                        <Money value={pair.payoutBalance} decimals={pair.payoutDecimals} />{' '}
-                        {pair.to}
-                      </span>
-                    }
-                  />
-                </div>
-
-                <div className="flex items-center gap-3 sm:justify-end">
-                  {ready ? (
-                    <Badge tone="success">{t('machineControl.ready')}</Badge>
-                  ) : pair.enabled ? (
-                    <Badge tone="warning">{t('machineControl.notReady')}</Badge>
-                  ) : (
-                    <Badge tone="neutral">{t('common.disabled')}</Badge>
+                <span
+                  className={cn(
+                    'size-1.5 shrink-0 rounded-full',
+                    state === 'ready' && 'bg-success',
+                    state === 'off' && 'bg-border-strong',
+                    (state === 'noRate' || state === 'noCash') && 'bg-warning',
                   )}
+                  aria-hidden
+                />
+                {state === 'ready' && t('machineControl.ready')}
+                {state === 'off' && t('common.disabled')}
+                {state === 'noRate' && t('machineControl.noRateShort')}
+                {state === 'noCash' && t('machineControl.noCashShort', { currency: cell.to })}
+              </span>
 
-                  {canManage && (
-                    <Switch
-                      checked={pair.enabled}
-                      onCheckedChange={(next) => void togglePair(pair.key, next)}
-                      disabled={busy === pair.key}
-                    />
-                  )}
-                </div>
-              </li>
-            );
-          })}
-        </ul>
-      </Card>
+              {canManage && (
+                <Switch
+                  checked={cell.offered}
+                  onCheckedChange={(next) => void togglePair(cell.pair, next)}
+                  disabled={busy === cell.pair}
+                />
+              )}
+            </div>
+          );
+        }}
+      />
 
       {/* --- What the teller may do with it ------------------------------- */}
       {canManage && (
@@ -349,23 +388,6 @@ export function MachineControlView({
         </CardBody>
       </Card>
     </div>
-  );
-}
-
-/** One of the three things a pair needs, answered yes or no. */
-function Condition({ ok, label }: { ok: boolean; label: React.ReactNode }) {
-  return (
-    <span
-      className={cn(
-        'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs',
-        ok
-          ? 'border-success bg-success-subtle text-success-text'
-          : 'border-border-base bg-surface-sunken text-content-tertiary',
-      )}
-    >
-      {ok ? <Check className="size-3" /> : <TriangleAlert className="size-3" />}
-      {label}
-    </span>
   );
 }
 

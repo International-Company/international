@@ -448,6 +448,11 @@ const en = {
   },
 
   machineControl: {
+    noRateShort: 'No rate',
+    noCashShort: 'No {currency}',
+    lastPairTitle: 'That is the last direction left on',
+    lastPairBody:
+      'Leaving none switched on reopens all six. To close the counter, switch the machine itself off.',
     manageDrawers: 'Open drawers',
     title: 'Machine Status',
     subtitle: 'What the counter can trade right now, and why it cannot trade the rest',
@@ -473,6 +478,14 @@ const en = {
   },
 
   machine: {
+    board: 'The Board',
+    currency: 'Currency',
+    weBuy: 'We buy',
+    weSell: 'We sell',
+    live: 'Live',
+    ticket: 'Ticket',
+    handsOver: 'Customer hands over {currency}',
+    notOffered: 'Not offered',
     recent: 'Your last few',
     title: 'Exchange Machine',
     subtitle: 'Fast counter exchange between shekels, dollars and dinars',

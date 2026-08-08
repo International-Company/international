@@ -19,23 +19,30 @@ import { Field, Input } from '@/ui/form';
 import { Money } from '@/ui/display';
 import { CustomerPicker, type CustomerHit } from '@/ui/customer-picker';
 import { cn } from '@/ui/utils';
+import {
+  Board,
+  BoardPrice,
+  buildBoard,
+  type BoardCell,
+  type BoardRate,
+} from '../../_machine/board';
 
 /**
- * The counter keypad.
+ * The counter, built around the board.
  *
- * Designed around one posture and one glance. An operator stands at a window
- * with a customer opposite, works on a tablet with one hand, and needs a single
- * number: what to hand over. So that number is the largest thing on the screen
- * and everything else arranges itself around it.
+ * An exchange office is a board on a wall and a ticket under it. So this screen
+ * is a board on a wall and a ticket beside it: the operator reads the price off
+ * the board, presses it, and the ticket fills in. Nothing has to be assembled
+ * from a dropdown, and nothing is priced by a number the customer cannot also
+ * see posted.
  *
- * Both amounts are live. Typing in either prices the other, because customers
- * arrive with both questions — "what do I get for this" and "I need exactly
- * this much" — and a counter that only answers the first makes the operator do
- * arithmetic in front of them.
+ * Both amounts on the ticket are live. Customers arrive with both questions —
+ * "what do I get for this" and "I need exactly this much" — and a counter that
+ * only answers the first makes the operator do arithmetic in front of them.
  *
  * The three things that can stop a trade — no rate, an empty drawer, a limit —
- * are stated in the same place, before the figure is read out rather than after
- * it has been promised.
+ * are stated in one place, before the figure is read out rather than after it
+ * has been promised.
  */
 
 interface Currency {
@@ -53,13 +60,6 @@ interface MachineConfig {
   quickAmounts: number[];
   maxAmount: string;
   requireCustomerAbove: string;
-}
-
-interface BoardRate {
-  baseCode: string;
-  quoteCode: string;
-  buyRate: string;
-  sellRate: string;
 }
 
 interface QuoteResponse {
@@ -102,12 +102,28 @@ export function MachineView({
   const router = useRouter();
   const toast = useToast();
 
-  const pairs = useMemo(
-    () => config.pairs.map((pair) => pair.split('/') as [string, string]),
-    [config.pairs],
+  const rows = useMemo(
+    () =>
+      buildBoard(
+        config.currencies.map((currency) => currency.code),
+        board,
+        config.pairs,
+      ),
+    [config.currencies, config.pairs, board],
   );
 
-  const [pair, setPair] = useState<[string, string]>(pairs[0] ?? ['USD', 'ILS']);
+  // The board opens on the first price it can actually trade, so an operator
+  // who starts typing immediately is typing into a working pair rather than
+  // into whichever direction happened to be first in a settings string.
+  const [pair, setPair] = useState<[string, string]>(() => {
+    for (const row of rows) {
+      for (const cell of [row.buy, row.sell]) {
+        if (cell.rate !== null && cell.offered) return [cell.from, cell.to];
+      }
+    }
+    return (config.pairs[0]?.split('/') as [string, string]) ?? ['USD', 'ILS'];
+  });
+
   const [side, setSide] = useState<Side>('pay');
   const [amount, setAmount] = useState('');
   const [quote, setQuote] = useState<QuoteResponse | null>(null);
@@ -129,6 +145,27 @@ export function MachineView({
   const canSeeSpread = permissions.includes('exchange.margin.view');
 
   const decimals = (side === 'pay' ? fromCurrency : toCurrency)?.decimals ?? 2;
+
+  const names = useMemo(
+    () =>
+      new Map(
+        config.currencies.map((currency) => [
+          currency.code,
+          ln(currency as unknown as Record<string, unknown>, 'name'),
+        ]),
+      ),
+    [config.currencies, ln],
+  );
+
+  // The board carries its own timestamp so an operator can see at a glance
+  // whether they are quoting off this morning's prices or last Tuesday's.
+  const updatedAt = useMemo(() => {
+    const stamps = board
+      .map((rate) => rate.effectiveFrom)
+      .filter(Boolean)
+      .sort();
+    return stamps.at(-1) ?? null;
+  }, [board]);
 
   // --- The teller's own recent work, for a reprint ---------------------------
   //
@@ -237,6 +274,15 @@ export function MachineView({
     return () => window.removeEventListener('keydown', onKey);
   }, [press]);
 
+  /** Taking a price off the board. */
+  const take = (cell: BoardCell) => {
+    setPair([cell.from, cell.to]);
+    setSide('pay');
+    setAmount('');
+    setQuote(null);
+    setDone(null);
+  };
+
   const swap = () => {
     setPair(([a, b]) => {
       const reversed = `${b}/${a}`;
@@ -296,73 +342,171 @@ export function MachineView({
   const payAmount = side === 'pay' ? amount : quote ? quote.fromAmount : '';
   const receiveAmount = side === 'receive' ? amount : quote ? quote.toAmount : '';
 
-  // The board figure for this pair, so the quote can be checked against what is
-  // posted on the wall.
-  const boardRate = board.find(
-    (rate) =>
-      (rate.baseCode === from && rate.quoteCode === to) ||
-      (rate.baseCode === to && rate.quoteCode === from),
-  );
-
   const print = (id: string) => window.open(`/print/receipt/${id}`, '_blank');
 
   return (
-    <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_20rem]">
-      {/* ================= The trade ================= */}
-      <div className="space-y-4">
-        {/* --- Pair ---------------------------------------------------- */}
-        <div className="rounded-[var(--radius-card)] border border-border-base bg-surface p-3">
-          {/*
-            Three across on a phone so six pairs make two even rows; on a wider
-            screen they share one row. Wrapping left a single pair stranded on a
-            full-width row of its own, which read as a different kind of button.
-          */}
-          <div className="grid grid-cols-3 gap-2 sm:flex sm:flex-wrap">
-            {pairs.map(([a, b]) => {
-              const active = a === from && b === to;
-              return (
-                <button
-                  key={`${a}/${b}`}
-                  type="button"
-                  onClick={() => {
-                    setPair([a, b]);
-                    setAmount('');
-                    setQuote(null);
-                    setDone(null);
-                  }}
+    <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_24rem] xl:items-start">
+      {/*
+        The board and its tape share a column on a wide screen, and are loose
+        grid items on a narrow one. `display: contents` is what buys both: on a
+        phone the two collapse into the parent grid so the tape can be ordered
+        below the keypad, and at `xl` this becomes a real column so the board
+        does not stretch to the height of the ticket beside it.
+      */}
+      <div className="contents xl:flex xl:flex-col xl:gap-4">
+        {/* ================= The board ================= */}
+        <Board
+          rows={rows}
+          title={t('machine.board')}
+          headings={[t('machine.currency'), t('machine.weBuy'), t('machine.weSell')]}
+          names={names}
+          updatedAt={updatedAt}
+          liveLabel={t('machine.live')}
+          cell={(cell) => {
+            const active = cell.from === from && cell.to === to;
+            const usable = cell.rate !== null && cell.offered;
+
+            return (
+              <button
+                type="button"
+                disabled={!usable}
+                onClick={() => take(cell)}
+                aria-current={active}
+                className={cn(
+                  'flex size-full flex-col items-center justify-center gap-0.5 px-2 py-3',
+                  'transition-colors duration-100',
+                  usable && !active && 'hover:bg-surface-hover',
+                  active && 'bg-primary-subtle shadow-[inset_0_0_0_1px_var(--primary)]',
+                  !usable && 'cursor-not-allowed',
+                )}
+              >
+                <BoardPrice rate={cell.rate} muted={!usable} />
+                <span
                   className={cn(
-                    'min-h-11 rounded-[var(--radius-control)] border px-3 text-sm font-semibold sm:flex-1',
-                    'ltr-content transition-colors duration-100',
-                    active
-                      ? 'border-primary bg-primary text-white shadow-sm'
-                      : 'border-border-base bg-surface text-content-secondary hover:border-primary hover:text-content',
+                    'ltr-content text-[11px]',
+                    active ? 'text-primary-text' : 'text-content-tertiary',
                   )}
                 >
-                  {a} → {b}
-                </button>
-              );
-            })}
-          </div>
+                  {cell.rate === null
+                    ? t('rates.noRateForPair')
+                    : cell.offered
+                      ? t('machine.handsOver', { currency: cell.from })
+                      : t('machine.notOffered')}
+                </span>
+              </button>
+            );
+          }}
+        />
 
-          {/* The rate, in words rather than as a column heading. */}
-          <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-border-base pt-3">
-            <p className="text-sm text-content-secondary">
+        {/*
+        The tape: what the board has already done today, styled as part of it
+        rather than as another card, because that is what it is. `order-last`
+        drops it below the keypad on a phone — a teller reaching for a digit
+        should not have to scroll past yesterday — and keeps it under the board
+        on a wide screen, where it is the last thing in this column anyway.
+      */}
+        {recent.length > 0 && (
+          <div className="dark order-last overflow-hidden rounded-[var(--radius-card)] border border-border-base bg-canvas">
+            <p className="border-b border-border-base px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-content-secondary">
+              {t('machine.recent')}
+            </p>
+            <ul className="divide-y divide-border-subtle">
+              {recent.map((row) => (
+                <li key={row.id} className="flex items-center justify-between gap-3 px-4 py-2">
+                  <span className="min-w-0 flex-1 truncate font-mono text-xs text-content-tertiary ltr-content">
+                    {row.reference}
+                  </span>
+                  <span className="font-mono text-xs text-content ltr-content">
+                    {formatScaled(row.fromAmount, byCode.get(row.fromCurrency)?.decimals ?? 2)}{' '}
+                    {row.fromCurrency} →{' '}
+                    {formatScaled(row.toAmount, byCode.get(row.toCurrency)?.decimals ?? 2)}{' '}
+                    {row.toCurrency}
+                  </span>
+                  {permissions.includes('exchange.receipt.print') && (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      title={t('transactions.printReceipt')}
+                      onClick={() => print(row.id)}
+                    >
+                      <Printer className="size-4" />
+                    </Button>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
+
+      {/* ================= The ticket ================= */}
+      <div className="space-y-3">
+        <div className="overflow-hidden rounded-[var(--radius-card)] border border-border-base bg-surface">
+          {/* What was taken off the board, restated so the ticket stands alone. */}
+          <div className="flex items-center justify-between gap-2 border-b border-border-base bg-surface-sunken px-4 py-2">
+            <span className="ltr-content font-mono text-sm font-semibold text-content">
+              {from} <span className="text-content-tertiary">→</span> {to}
+            </span>
+            <span className="text-[11px] text-content-tertiary">
               {quote ? (
-                <span className="ltr-content font-mono text-content">
+                <span className="ltr-content font-mono">
                   1 {from} = {formatScaled(quote.rate, 4)} {to}
                 </span>
-              ) : boardRate ? (
-                <span className="ltr-content font-mono text-content-tertiary">
-                  {boardRate.baseCode}/{boardRate.quoteCode} {formatScaled(boardRate.buyRate, 4)} /{' '}
-                  {formatScaled(boardRate.sellRate, 4)}
-                </span>
               ) : (
-                <span className="text-danger-text">{t('rates.noRateForPair')}</span>
+                t('machine.ticket')
               )}
-            </p>
+            </span>
+          </div>
+
+          <div className="p-4">
+            <AmountPanel
+              label={t('machine.customerPays')}
+              currency={fromCurrency}
+              value={payAmount}
+              active={side === 'pay'}
+              onSelect={() => {
+                if (side !== 'pay') {
+                  setSide('pay');
+                  setAmount(
+                    quote ? formatPlain(quote.fromAmount, fromCurrency?.decimals ?? 2) : '',
+                  );
+                }
+              }}
+              ln={ln}
+            />
+
+            {/* Swap sits on the seam between the two panels. */}
+            <div className="relative my-2 flex items-center">
+              <div className="h-px flex-1 bg-border-base" />
+              <button
+                type="button"
+                onClick={swap}
+                aria-label={t('machine.swap')}
+                className="mx-3 flex size-9 items-center justify-center rounded-full border border-border-base bg-surface text-content-secondary transition-colors hover:border-primary hover:text-primary-text"
+              >
+                <ArrowLeftRight className="size-4" />
+              </button>
+              <div className="h-px flex-1 bg-border-base" />
+            </div>
+
+            <AmountPanel
+              label={t('machine.customerReceives')}
+              currency={toCurrency}
+              value={receiveAmount}
+              active={side === 'receive'}
+              onSelect={() => {
+                if (side !== 'receive') {
+                  setSide('receive');
+                  setAmount(quote ? formatPlain(quote.toAmount, toCurrency?.decimals ?? 2) : '');
+                }
+              }}
+              ln={ln}
+              hero
+              busy={quoting}
+            />
 
             {canSeeSpread && quote?.profit && (
-              <p className="text-xs text-content-tertiary">
+              <p className="mt-3 text-end text-[11px] text-content-tertiary">
                 {t('transactions.profit')}{' '}
                 <Money value={quote.profit} currency={to} className="text-content-secondary" />
               </p>
@@ -370,145 +514,53 @@ export function MachineView({
           </div>
         </div>
 
-        {/* --- The two amounts ----------------------------------------- */}
-        <div className="relative rounded-[var(--radius-card)] border border-border-base bg-surface p-4">
-          <AmountPanel
-            label={t('machine.customerPays')}
-            currency={fromCurrency}
-            value={payAmount}
-            active={side === 'pay'}
-            onSelect={() => {
-              if (side !== 'pay') {
-                setSide('pay');
-                setAmount(quote ? formatPlain(quote.fromAmount, fromCurrency?.decimals ?? 2) : '');
-              }
-            }}
-            ln={ln}
-          />
-
-          {/* Swap sits on the seam between the two panels. */}
-          <div className="relative my-2 flex items-center">
-            <div className="h-px flex-1 bg-border-base" />
-            <button
-              type="button"
-              onClick={swap}
-              aria-label={t('machine.swap')}
-              className="mx-3 flex size-10 items-center justify-center rounded-full border border-border-base bg-surface text-content-secondary transition-colors hover:border-primary hover:text-primary-text"
-            >
-              <ArrowLeftRight className="size-4" />
-            </button>
-            <div className="h-px flex-1 bg-border-base" />
-          </div>
-
-          <AmountPanel
-            label={t('machine.customerReceives')}
-            currency={toCurrency}
-            value={receiveAmount}
-            active={side === 'receive'}
-            onSelect={() => {
-              if (side !== 'receive') {
-                setSide('receive');
-                setAmount(quote ? formatPlain(quote.toAmount, toCurrency?.decimals ?? 2) : '');
-              }
-            }}
-            ln={ln}
-            hero
-            busy={quoting}
-          />
-        </div>
-
         {/* --- Anything standing in the way ----------------------------- */}
-        <div className="space-y-2">
-          {error && <Blocker tone="danger">{error}</Blocker>}
+        {error && <Blocker tone="danger">{error}</Blocker>}
 
-          {quote && !quote.available && (
-            <Blocker tone="danger" title={t('machine.cannotPayTitle')}>
-              {t('machine.cannotPayBody', {
-                account: `${t('drawers.title')} ${to}`,
-                available: `${formatScaled(quote.availableAmount, toCurrency?.decimals ?? 2)} ${to}`,
-              })}
-            </Blocker>
-          )}
+        {quote && !quote.available && (
+          <Blocker tone="danger" title={t('machine.cannotPayTitle')}>
+            {t('machine.cannotPayBody', {
+              account: `${t('drawers.title')} ${to}`,
+              available: `${formatScaled(quote.availableAmount, toCurrency?.decimals ?? 2)} ${to}`,
+            })}
+          </Blocker>
+        )}
 
-          {quote?.overLimit && (
-            <Blocker tone="warning" title={t('machine.overLimitTitle')}>
-              {t('machine.overLimitBody', {
-                maximum: `${formatScaled(config.maxAmount, fromCurrency?.decimals ?? 2)} ${from}`,
-              })}
-            </Blocker>
-          )}
+        {quote?.overLimit && (
+          <Blocker tone="warning" title={t('machine.overLimitTitle')}>
+            {t('machine.overLimitBody', {
+              maximum: `${formatScaled(config.maxAmount, fromCurrency?.decimals ?? 2)} ${from}`,
+            })}
+          </Blocker>
+        )}
 
-          {quote?.requiresCustomer && !customer && (
-            <Blocker tone="warning" title={t('machine.customerRequiredTitle')}>
-              {t('machine.customerRequiredBody')}
-            </Blocker>
-          )}
+        {quote?.requiresCustomer && !customer && (
+          <Blocker tone="warning" title={t('machine.customerRequiredTitle')}>
+            {t('machine.customerRequiredBody')}
+          </Blocker>
+        )}
 
-          {done && (
-            <div className="flex flex-wrap items-center justify-between gap-3 rounded-[var(--radius-control)] border border-success bg-success-subtle p-3">
-              <span className="flex items-center gap-2 text-sm text-content">
-                <Check className="size-4 text-success-text" />
-                {t('machine.recorded')}
-                <span className="font-mono ltr-content">{done.reference}</span>
-              </span>
-              {permissions.includes('exchange.receipt.print') && (
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  icon={<Printer />}
-                  onClick={() => print(done.id)}
-                >
-                  {t('transactions.printReceipt')}
-                </Button>
-              )}
-            </div>
-          )}
-        </div>
-      </div>
+        {done && (
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-[var(--radius-control)] border border-success bg-success-subtle p-3">
+            <span className="flex items-center gap-2 text-sm text-content">
+              <Check className="size-4 text-success-text" />
+              {t('machine.recorded')}
+              <span className="font-mono ltr-content">{done.reference}</span>
+            </span>
+            {permissions.includes('exchange.receipt.print') && (
+              <Button
+                size="sm"
+                variant="secondary"
+                icon={<Printer />}
+                onClick={() => print(done.id)}
+              >
+                {t('transactions.printReceipt')}
+              </Button>
+            )}
+          </div>
+        )}
 
-      {/*
-        The last few, for a reprint.
-
-        A grid child rather than part of the trade column, so that on a phone —
-        where the grid collapses to one column — it can fall below the keypad.
-        A teller reaching for a digit should not have to scroll past yesterday.
-        On a wide screen `order` puts it back under the trade column.
-      */}
-      {recent.length > 0 && (
-        <div className="order-last rounded-[var(--radius-card)] border border-border-base bg-surface">
-          <p className="border-b border-border-base px-4 py-2 text-xs font-medium uppercase tracking-wide text-content-secondary">
-            {t('machine.recent')}
-          </p>
-          <ul className="divide-y divide-border-base">
-            {recent.map((row) => (
-              <li key={row.id} className="flex items-center justify-between gap-3 px-4 py-2">
-                <span className="min-w-0 flex-1 truncate font-mono text-xs text-content-tertiary ltr-content">
-                  {row.reference}
-                </span>
-                <span className="font-mono text-xs text-content ltr-content">
-                  {formatScaled(row.fromAmount, byCode.get(row.fromCurrency)?.decimals ?? 2)}{' '}
-                  {row.fromCurrency} →{' '}
-                  {formatScaled(row.toAmount, byCode.get(row.toCurrency)?.decimals ?? 2)}{' '}
-                  {row.toCurrency}
-                </span>
-                {permissions.includes('exchange.receipt.print') && (
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    title={t('transactions.printReceipt')}
-                    onClick={() => print(row.id)}
-                  >
-                    <Printer className="size-4" />
-                  </Button>
-                )}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      {/* ================= Keypad and customer ================= */}
-      <div className="space-y-4">
+        {/* --- The keypad ----------------------------------------------- */}
         <div className="rounded-[var(--radius-card)] border border-border-base bg-surface p-3">
           {/*
             The keypad and the quick amounts stay left-to-right in every
@@ -567,6 +619,7 @@ export function MachineView({
           </div>
         </div>
 
+        {/* --- Who it was for ------------------------------------------- */}
         <div className="rounded-[var(--radius-card)] border border-border-base bg-surface p-3">
           <p className="mb-2 text-xs font-medium uppercase tracking-wide text-content-secondary">
             {quote?.requiresCustomer
@@ -602,8 +655,8 @@ export function MachineView({
  * One side of the trade.
  *
  * The receiving side is the hero: it is the figure the operator reads out and
- * the customer checks, so it is twice the size of everything else on the screen
- * and the only thing carrying colour.
+ * the customer checks, so it is the largest thing on the ticket and the only
+ * thing carrying colour.
  */
 function AmountPanel({
   label,
@@ -638,7 +691,7 @@ function AmountPanel({
       aria-current={active}
       className={cn(
         'w-full rounded-[var(--radius-control)] border-2 px-4 text-start transition-colors',
-        hero ? 'py-5' : 'py-4',
+        hero ? 'py-4' : 'py-3',
         active
           ? 'border-primary bg-primary-subtle'
           : 'border-transparent bg-surface-sunken hover:border-border-base',
@@ -658,14 +711,12 @@ function AmountPanel({
         <span
           className={cn(
             'font-mono tabular-nums tracking-tight',
-            hero ? 'text-5xl font-bold text-primary-text' : 'text-3xl font-semibold text-content',
+            hero ? 'text-4xl font-bold text-primary-text' : 'text-2xl font-semibold text-content',
           )}
         >
           {display}
         </span>
-        <span
-          className={cn('font-semibold text-content-secondary', hero ? 'text-xl' : 'text-base')}
-        >
+        <span className={cn('font-semibold text-content-secondary', hero ? 'text-lg' : 'text-sm')}>
           {currency?.code}
         </span>
       </span>
@@ -721,7 +772,7 @@ function Key({
       onClick={onPress}
       disabled={disabled}
       className={cn(
-        'flex h-16 items-center justify-center rounded-[var(--radius-control)] border border-border-base',
+        'flex h-14 items-center justify-center rounded-[var(--radius-control)] border border-border-base',
         'bg-surface text-2xl font-medium text-content tabular-nums',
         'transition-colors duration-75 hover:border-primary active:bg-surface-sunken',
         'disabled:opacity-40 disabled:hover:border-border-base',
