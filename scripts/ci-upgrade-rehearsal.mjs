@@ -231,6 +231,7 @@ async function verify(db) {
   // Every carried balance is explained by a movement, not merely asserted.
   const movements = await db.drawerMovement.count();
   check('each carried balance arrived with a movement', movements === 3, `${movements} movement(s)`);
+  check('the seeder can still name them properly later', drawers.every((d) => d.nameEn.length > 0));
 
   // What could not be kept, and what had to be.
   const kept = await db.transaction.findMany({ select: { reference: true }, orderBy: { reference: 'asc' } });
@@ -242,8 +243,6 @@ async function verify(db) {
   const receipts = await db.receipt.count();
   check('a receipt for a removed transaction went with it', receipts === 0);
 
-  const carryover = await tableExists(db, '_ifms_drawer_carryover');
-  check('the carry-over table was cleaned up', !carryover);
 }
 
 // ---------------------------------------------------------------------------

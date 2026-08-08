@@ -91,27 +91,49 @@ const STEPS = [
   // has run. `post-deploy-data.mjs` reads it on the other side.
   // -------------------------------------------------------------------------
   {
-    name: 'Carry the cash and crypto balances across',
+    name: 'Carry the cash and crypto balances into drawers',
+    // The drawers are created here rather than waiting for `db push`, because
+    // the balances have to be written before the accounts holding them are
+    // dropped and there is nowhere else to put them. A staging table is not an
+    // option: `db push` deletes tables the schema does not describe, which it
+    // proved by deleting the first version of this.
+    //
+    // `db push` then finds the table already in its final shape and has nothing
+    // destructive to do to it.
     sql: `
       DO $$
       BEGIN
+        CREATE TABLE IF NOT EXISTS "drawers" (
+          "id"                  TEXT PRIMARY KEY,
+          "currencyCode"        TEXT NOT NULL UNIQUE,
+          "nameEn"              TEXT NOT NULL,
+          "nameAr"              TEXT NOT NULL,
+          "balance"             BIGINT NOT NULL DEFAULT 0,
+          "allowNegative"       BOOLEAN NOT NULL DEFAULT false,
+          "lowBalanceThreshold" BIGINT NOT NULL DEFAULT 0,
+          "isActive"            BOOLEAN NOT NULL DEFAULT true,
+          "sortOrder"           INTEGER NOT NULL DEFAULT 0,
+          "createdAt"           TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          "updatedAt"           TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+
         IF EXISTS (
           SELECT 1 FROM information_schema.tables
           WHERE table_schema = current_schema() AND table_name = 'accounts'
         ) THEN
-          CREATE TABLE IF NOT EXISTS "_ifms_drawer_carryover" (
-            "currencyCode" TEXT PRIMARY KEY,
-            "balance"      BIGINT NOT NULL
-          );
-
-          -- Only what the branch actually holds. Clearing, income, expense and
-          -- equity accounts were bookkeeping devices for a ledger that is gone;
-          -- carrying them would invent money the branch never had.
-          INSERT INTO "_ifms_drawer_carryover" ("currencyCode", "balance")
-          SELECT "currencyCode", SUM("balance")
-            FROM "accounts"
-           WHERE "kind" IN ('CASH', 'BANK', 'CRYPTO')
-           GROUP BY "currencyCode"
+          -- Only what the branch physically holds. Clearing, income, expense and
+          -- equity accounts were devices for a ledger that is gone; carrying
+          -- them would invent money the branch never had.
+          INSERT INTO "drawers" ("id", "currencyCode", "nameEn", "nameAr", "balance")
+          SELECT
+            'drw-' || "currencyCode",
+            "currencyCode",
+            "currencyCode" || ' drawer',
+            'صندوق ' || "currencyCode",
+            SUM("balance")
+          FROM "accounts"
+          WHERE "kind" IN ('CASH', 'BANK', 'CRYPTO')
+          GROUP BY "currencyCode"
           ON CONFLICT ("currencyCode") DO NOTHING;
         END IF;
       END $$;

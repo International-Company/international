@@ -2,14 +2,18 @@
 /**
  * The other half of the reduction migration.
  *
- * `pre-deploy-schema.mjs` runs before `prisma db push` and can only speak SQL,
- * because the tables it is preparing for do not exist yet. This runs after, when
- * they do — so the money it carried across can be put where it belongs.
+ * `pre-deploy-schema.mjs` creates the drawers and carries the branch's money
+ * into them before the chart of accounts is dropped. It can only speak SQL, and
+ * `drawer_movements` does not exist until `prisma db push` has run — so the
+ * movement that *explains* each carried balance has to be written here.
  *
- * Idempotent, like its counterpart: it runs on every deploy and must be a no-op
- * once there is nothing left to carry.
+ * That matters more than it looks. A drawer balance is supposed to be the sum of
+ * everything recorded against it, and `verifyBalances()` checks exactly that on
+ * a schedule. A balance carried in silently would fail that check on the first
+ * night and report a discrepancy nobody caused.
  *
- * PostgreSQL only. Local development rebuilds freely.
+ * Idempotent: it runs on every deploy and is a no-op once every drawer's balance
+ * is already accounted for.
  */
 
 import { readFileSync } from 'node:fs';
@@ -29,14 +33,6 @@ function databaseUrl() {
   }
 }
 
-/** Names a drawer the way the seeder would, so the two never disagree. */
-const NAMES = {
-  ILS: { en: 'Israeli Shekel drawer', ar: 'صندوق شيكل إسرائيلي' },
-  USD: { en: 'US Dollar drawer', ar: 'صندوق دولار أمريكي' },
-  JOD: { en: 'Jordanian Dinar drawer', ar: 'صندوق دينار أردني' },
-  USDT: { en: 'Tether USD drawer', ar: 'صندوق تيثر USD' },
-};
-
 async function main() {
   const url = databaseUrl();
 
@@ -48,72 +44,56 @@ async function main() {
   const prisma = new PrismaClient();
 
   try {
-    const [{ exists }] = await prisma.$queryRawUnsafe(
-      `SELECT EXISTS (
-         SELECT 1 FROM information_schema.tables
-         WHERE table_schema = current_schema() AND table_name = '_ifms_drawer_carryover'
-       ) AS exists`,
-    );
-
-    if (!exists) {
-      console.log('[post-deploy] Nothing carried over — nothing to place.');
+    const drawers = await prisma.drawer.findMany();
+    if (drawers.length === 0) {
+      console.log('[post-deploy] No drawers yet — nothing to account for.');
       return;
     }
 
-    const carried = await prisma.$queryRawUnsafe(
-      `SELECT "currencyCode", "balance" FROM "_ifms_drawer_carryover"`,
-    );
-
-    for (const row of carried) {
-      const code = row.currencyCode;
-      const balance = BigInt(row.balance);
-      const name = NAMES[code] ?? { en: `${code} drawer`, ar: `صندوق ${code}` };
-
-      // `create` only. A drawer that already exists has been traded through
-      // since, and its balance is the truth — overwriting it with a figure from
-      // the old chart of accounts would undo real work.
-      const existing = await prisma.drawer.findUnique({ where: { currencyCode: code } });
-      if (existing) {
-        console.log(`[post-deploy] ${code} drawer already exists — left alone.`);
-        continue;
-      }
-
-      await prisma.drawer.create({
-        data: { currencyCode: code, nameEn: name.en, nameAr: name.ar, balance },
-      });
-
-      // The balance has to be explainable, so it arrives with the movement that
-      // explains it rather than appearing from nowhere.
-      if (balance !== 0n) {
-        const system = await prisma.user.findFirst({ where: { isSystem: true }, select: { id: true } });
-        const drawer = await prisma.drawer.findUniqueOrThrow({ where: { currencyCode: code } });
-
-        if (system) {
-          await prisma.drawerMovement.create({
-            data: {
-              drawerId: drawer.id,
-              direction: balance > 0n ? 'IN' : 'OUT',
-              amount: balance > 0n ? balance : -balance,
-              balanceAfter: balance,
-              reason: 'FUNDING',
-              note: 'Carried over from the chart of accounts',
-              createdById: system.id,
-            },
-          });
-        }
-      }
-
-      console.log(`[post-deploy] ${code} drawer created holding ${balance}.`);
+    // Whoever owns records the system creates on its own. Without it there is
+    // nobody to attribute the movement to, so the balance is left as it is and
+    // the next deploy — after the seed has made the account — picks it up.
+    const system = await prisma.user.findFirst({ where: { isSystem: true }, select: { id: true } });
+    if (!system) {
+      console.log('[post-deploy] No system account yet — will account for balances next deploy.');
+      return;
     }
 
-    await prisma.$executeRawUnsafe(`DROP TABLE IF EXISTS "_ifms_drawer_carryover";`);
-    console.log(`[post-deploy] Placed ${carried.length} drawer balance(s).`);
+    let explained = 0;
+
+    for (const drawer of drawers) {
+      if (drawer.balance === 0n) continue;
+
+      const recorded = await prisma.drawerMovement.count({ where: { drawerId: drawer.id } });
+      if (recorded > 0) continue;
+
+      await prisma.drawerMovement.create({
+        data: {
+          drawerId: drawer.id,
+          direction: drawer.balance > 0n ? 'IN' : 'OUT',
+          amount: drawer.balance > 0n ? drawer.balance : -drawer.balance,
+          balanceAfter: drawer.balance,
+          reason: 'FUNDING',
+          note: 'Carried over from the chart of accounts',
+          createdById: system.id,
+        },
+      });
+
+      explained++;
+      console.log(`[post-deploy] ${drawer.currencyCode} drawer holds ${drawer.balance}, now accounted for.`);
+    }
+
+    console.log(
+      explained > 0
+        ? `[post-deploy] Explained ${explained} carried balance(s).`
+        : '[post-deploy] Every drawer balance is already accounted for.',
+    );
   } finally {
     await prisma.$disconnect();
   }
 }
 
 main().catch((error) => {
-  console.error('\n[post-deploy] Failed to place the carried balances:\n', error);
+  console.error('\n[post-deploy] Failed to account for the carried balances:\n', error);
   process.exit(1);
 });
