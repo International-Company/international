@@ -7,7 +7,7 @@
     "dev": "npm run db:prepare && next dev",
     "build": "npm run db:prepare && prisma generate && next build",
     "start": "next start",
-    "deploy:start": "prisma db push --skip-generate && (npm run db:seed || echo '[deploy] seed skipped — see logs above') && next start",
+    "deploy:start": "node scripts/pre-deploy-schema.mjs && prisma db push --skip-generate && (npm run db:seed || echo '[deploy] seed skipped — see logs above') && next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
     "db:prepare": "node scripts/prepare-db.mjs",

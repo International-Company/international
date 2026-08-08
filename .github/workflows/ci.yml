@@ -45,6 +45,49 @@ jobs:
       - name: Production build
         run: npm run build
 
+  upgrade:
+    runs-on: ubuntu-latest
+    name: upgrade rehearsal
+
+    # A real PostgreSQL, because the failure this guards against — a column that
+    # cannot be dropped while it holds data — does not exist on an empty database
+    # and is not enforced the same way by SQLite. It only appears on a database
+    # with history, which until now meant production was where it appeared.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: ifms
+          POSTGRES_PASSWORD: ifms
+          POSTGRES_DB: ifms
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ifms"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://ifms:ifms@127.0.0.1:5432/ifms
+      AUTH_SECRET: continuous-integration-secret-value-not-a-real-one
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci --no-audit --no-fund
+
+      - name: Generate Prisma client
+        run: npm run db:generate
+
+      - name: Rehearse the upgrade
+        run: node scripts/ci-upgrade-rehearsal.mjs
+
   image:
     runs-on: ubuntu-latest
     name: production image
