@@ -133,6 +133,31 @@ const STEPS = [
           GROUP BY "currencyCode"
           ON CONFLICT ("currencyCode") DO NOTHING;
         END IF;
+
+        -- An earlier version of this migration staged the balances in a table
+        -- of its own, then failed at the push — which left that table behind,
+        -- holding the only remaining copy of the figures, because the same run
+        -- had already dropped the accounts they came from.
+        --
+        -- So it is drained rather than dropped. The update only fires on a
+        -- drawer still sitting at zero: one that has been traded through since
+        -- holds the truth, and a figure from a superseded attempt must not
+        -- overwrite it.
+        IF to_regclass('"_ifms_drawer_carryover"') IS NOT NULL THEN
+          INSERT INTO "drawers" ("id", "currencyCode", "nameEn", "nameAr", "balance")
+          SELECT
+            'drw-' || "currencyCode",
+            "currencyCode",
+            "currencyCode" || ' drawer',
+            'صندوق ' || "currencyCode",
+            "balance"
+          FROM "_ifms_drawer_carryover"
+          ON CONFLICT ("currencyCode") DO UPDATE
+            SET "balance" = EXCLUDED."balance"
+            WHERE "drawers"."balance" = 0;
+
+          DROP TABLE "_ifms_drawer_carryover";
+        END IF;
       END $$;
     `,
   },

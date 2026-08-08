@@ -240,6 +240,8 @@ async function verify(db) {
   check('the ones that fit survived',
     kept[0]?.reference === 'TXN-KEEP-1' && kept[1]?.reference === 'TXN-KEEP-2');
 
+  check('the staging table was drained and removed', !(await tableExists(db, '_ifms_drawer_carryover')));
+
   const receipts = await db.receipt.count();
   check('a receipt for a removed transaction went with it', receipts === 0);
 
@@ -247,9 +249,52 @@ async function verify(db) {
 
 // ---------------------------------------------------------------------------
 
+/**
+ * The wreckage an aborted attempt leaves behind.
+ *
+ * A superseded version of this migration staged the balances in a table of its
+ * own and then failed at the push — after its earlier steps had already dropped
+ * the accounts those figures came from. Production sat in exactly this state:
+ * no chart of accounts, no drawers worth anything, and the only surviving copy
+ * of the money in a table Prisma refuses to drop because it is not empty.
+ *
+ * A migration is not finished when it works on a clean database. It is finished
+ * when it works on the mess its own earlier attempt made.
+ */
+async function simulateAbortedAttempt(db) {
+  console.log('\n== Leaving the wreckage of an aborted attempt ==');
+
+  await db.$executeRawUnsafe(`
+    CREATE TABLE IF NOT EXISTS "_ifms_drawer_carryover" (
+      "currencyCode" TEXT PRIMARY KEY,
+      "balance"      BIGINT NOT NULL
+    );
+  `);
+  await db.$executeRawUnsafe(`
+    INSERT INTO "_ifms_drawer_carryover" ("currencyCode", "balance")
+    SELECT "currencyCode", SUM("balance")
+      FROM "accounts"
+     WHERE "kind" IN ('CASH', 'BANK', 'CRYPTO')
+     GROUP BY "currencyCode"
+    ON CONFLICT ("currencyCode") DO NOTHING;
+  `);
+  // The step that ran before the push failed, taking the source of truth with it.
+  await db.$executeRawUnsafe(`DROP TABLE IF EXISTS "journal_lines";`);
+  await db.$executeRawUnsafe(`DROP TABLE IF EXISTS "day_closing_lines";`);
+  await db.$executeRawUnsafe(`ALTER TABLE "wallets" DROP COLUMN IF EXISTS "accountId";`);
+  await db.$executeRawUnsafe(`DROP TABLE IF EXISTS "accounts";`);
+
+  const [{ count }] = await db.$queryRawUnsafe(
+    `SELECT COUNT(*)::int AS count FROM "_ifms_drawer_carryover"`,
+  );
+  check('the money survives only in the staging table', count === 3, `${count} row(s)`);
+  check('the accounts it came from are gone', !(await tableExists(db, 'accounts')));
+}
+
 async function main() {
   const build = new PrismaClient();
   await buildProductionShape(build);
+  await simulateAbortedAttempt(build);
   await build.$disconnect();
 
   console.log('\n== Running the deploy sequence ==');
