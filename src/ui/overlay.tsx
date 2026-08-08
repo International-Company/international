@@ -315,7 +315,7 @@ export function DropdownMenu({
             'absolute z-40 mt-1 min-w-[12rem] animate-in',
             'bg-surface border border-border-base rounded-[var(--radius-control)] shadow-[var(--shadow-lg)]',
             'py-1',
-            align === 'end' ? 'inset-inline-end-0' : 'inset-inline-start-0',
+            align === 'end' ? 'end-0' : 'start-0',
             className,
           )}
         >
@@ -455,7 +455,7 @@ function ToastViewport({ toasts, onDismiss }: { toasts: Toast[]; onDismiss: (id:
 
   return createPortal(
     <div
-      className="pointer-events-none fixed bottom-4 z-[60] flex w-full max-w-sm flex-col gap-2 px-4 inset-inline-end-0 sm:px-0 sm:me-4"
+      className="pointer-events-none fixed bottom-4 z-[60] flex w-full max-w-sm flex-col gap-2 px-4 end-0 sm:px-0 sm:me-4"
       role="region"
       aria-live="polite"
     >

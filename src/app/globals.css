@@ -461,9 +461,16 @@
    Deliberately outside `@layer` and marked important, because it has to beat
    the Tailwind text-size utility on the element itself. Checkboxes and radios
    are excluded — they have no text to zoom.
+
+   `data-zoom-safe` opts a field out. It is not a way around the rule: it marks
+   a field that sets its own size and is already well above the threshold, so
+   the guard would only ever shrink it. The counter's amount fields are the
+   case this exists for — they are the largest thing on the screen by design,
+   and this rule was quietly rendering them at 16px on the one device where
+   being readable across a counter matters most.
 --------------------------------------------------------------------------- */
 @media (max-width: 639px) {
-  input:not([type='checkbox']):not([type='radio']),
+  input:not([type='checkbox']):not([type='radio']):not([data-zoom-safe]),
   select,
   textarea {
     font-size: 16px !important;

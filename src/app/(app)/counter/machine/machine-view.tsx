@@ -656,7 +656,8 @@ export function MachineView({
                           type="button"
                           onClick={() => print(row.id)}
                           title={t('transactions.printReceipt')}
-                          className="rounded-full p-1.5 text-content-tertiary transition-colors hover:bg-surface-sunken hover:text-content"
+                          aria-label={t('transactions.printReceipt')}
+                          className="flex size-10 items-center justify-center rounded-full text-content-tertiary transition-colors hover:bg-surface-sunken hover:text-content sm:size-8"
                         >
                           <Printer className="size-4" />
                         </button>
@@ -756,7 +757,18 @@ function AmountRow({
         {busy && <Loader2 className="size-3.5 animate-spin text-content-tertiary" />}
       </div>
 
-      <div className="mt-3 flex items-center gap-3">
+      {/*
+        Tapping anywhere along the row puts the caret in the field. The input is
+        only as tall as its text — about nineteen pixels — so without this a
+        thumb has to be aimed at the digits themselves, which is not a target
+        anyone should have to hit while a customer waits.
+      */}
+      <div
+        className="mt-3 flex cursor-text items-center gap-3 py-1"
+        onClick={(event) => {
+          if (event.target === event.currentTarget) field.current?.focus();
+        }}
+      >
         <DropdownMenu
           align="start"
           trigger={(props) => (
@@ -833,6 +845,12 @@ function AmountRow({
           dir="ltr"
           inputMode="decimal"
           autoComplete="off"
+          /*
+           * Sets its own size, and never drops below 20px — comfortably past
+           * the point where mobile Safari zooms — so the global 16px guard for
+           * small fields would only shrink it. See `globals.css`.
+           */
+          data-zoom-safe=""
           aria-current={active}
           aria-label={label}
           value={display}

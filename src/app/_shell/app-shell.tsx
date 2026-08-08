@@ -130,7 +130,7 @@ export function AppShell({
           'fixed inset-y-0 z-40 flex-col border-e border-border-base bg-surface',
           'transition-[width] duration-200 ease-out',
           collapsed ? 'w-16' : 'w-60',
-          'inset-inline-start-0',
+          'start-0',
           // Closed on a phone means removed, not parked off-screen. A fixed
           // element translated past the edge still counts towards the page's
           // scrollable width — and `overflow: clip` on an ancestor cannot

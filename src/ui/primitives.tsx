@@ -29,10 +29,17 @@ const BUTTON_VARIANTS: Record<ButtonVariant, string> = {
   link: 'bg-transparent text-primary-text hover:underline border-transparent p-0 h-auto',
 };
 
+/*
+ * Heights are mobile-first: a finger needs roughly 44px of target, a mouse
+ * needs none of it. `md` and `icon` already track `--control-height`, which the
+ * stylesheet raises below 640px; `sm` and `lg` were fixed pixel heights that
+ * ignored it, so a "small" button stayed 32px tall on a phone and had to be
+ * aimed at.
+ */
 const BUTTON_SIZES: Record<ButtonSize, string> = {
-  sm: 'h-8 px-3 text-xs gap-1.5',
+  sm: 'h-10 px-3 text-xs gap-1.5 sm:h-8',
   md: 'h-[var(--control-height)] px-3.5 text-sm gap-2',
-  lg: 'h-11 px-5 text-sm gap-2',
+  lg: 'h-12 px-5 text-sm gap-2 sm:h-11',
   icon: 'h-[var(--control-height)] w-[var(--control-height)] p-0',
 };
 

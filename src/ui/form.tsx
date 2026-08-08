@@ -117,7 +117,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
   return (
     <div className="relative flex items-center">
       {iconStart && (
-        <span className="pointer-events-none absolute inset-inline-start-0 flex items-center ps-3 text-content-tertiary [&>svg]:size-4">
+        <span className="pointer-events-none absolute start-0 flex items-center ps-3 text-content-tertiary [&>svg]:size-4">
           {iconStart}
         </span>
       )}
@@ -127,7 +127,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
         {...props}
       />
       {iconEnd && (
-        <span className="absolute inset-inline-end-0 flex items-center pe-3 text-content-tertiary [&>svg]:size-4">
+        <span className="absolute end-0 flex items-center pe-3 text-content-tertiary [&>svg]:size-4">
           {iconEnd}
         </span>
       )}
@@ -379,7 +379,7 @@ export function Switch({
           className={cn(
             'absolute size-3.5 rounded-full bg-white shadow-sm transition-[inset-inline-start]',
             // Logical offsets so the knob travels the correct way in RTL.
-            checked ? 'inset-inline-start-[1.125rem]' : 'inset-inline-start-[0.1875rem]',
+            checked ? 'start-[1.125rem]' : 'start-[0.1875rem]',
           )}
         />
       </button>
