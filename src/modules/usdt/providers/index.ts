@@ -2,7 +2,7 @@ import 'server-only';
 import { EthereumProvider } from './ethereum';
 import { ManualProvider } from './manual';
 import { TronProvider } from './tron';
-import type { ChainProvider, Network } from './types';
+import type { ChainProvider, Network, ProviderCredentials } from './types';
 
 /**
  * Provider registry. Resolution is per wallet network, so one desk can monitor
@@ -37,11 +37,13 @@ export function availableNetworks(): {
   network: Network;
   name: string;
   configured: boolean;
+  credentials: ProviderCredentials;
 }[] {
   return [...registry.values()].map((provider) => ({
     network: provider.network,
     name: provider.name,
     configured: provider.isConfigured(),
+    credentials: provider.credentials(),
   }));
 }
 

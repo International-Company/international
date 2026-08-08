@@ -40,11 +40,32 @@ export interface FetchOptions {
   sinceBlock?: bigint | null;
 }
 
+/**
+ * Which credentials a provider is currently reaching the network with.
+ *
+ * `isConfigured()` answers "can this poll at all", which is not the same
+ * question as "is it using the key you paid for". TronGrid answers anonymous
+ * requests at a low rate, so a desk whose key never reached the server looks
+ * identical to one whose key is working — until the day the volume matters.
+ * This reports the difference so the screen can state it.
+ */
+export type ProviderCredentials =
+  /** The provider needs no credentials — manual entry. */
+  | 'NOT_REQUIRED'
+  /** Reaching the network with the configured key. */
+  | 'KEYED'
+  /** No key configured; using whatever the public tier allows. */
+  | 'ANONYMOUS'
+  /** A key was configured and the network refused it. */
+  | 'REJECTED';
+
 export interface ChainProvider {
   readonly network: Network;
   readonly name: string;
   /** False when the provider needs configuration it does not have. */
   isConfigured(): boolean;
+  /** Which credentials the provider is currently using. */
+  credentials(): ProviderCredentials;
   /** Token balance of an address, scaled to 1e8. */
   fetchBalance(address: string, contractAddress?: string | null): Promise<bigint>;
   fetchTransfers(

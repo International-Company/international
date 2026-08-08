@@ -1,5 +1,5 @@
 import 'server-only';
-import type { ChainProvider, TransferPage } from './types';
+import type { ChainProvider, ProviderCredentials, TransferPage } from './types';
 
 /**
  * Manual provider — the default.
@@ -20,6 +20,10 @@ export class ManualProvider implements ChainProvider {
 
   isConfigured(): boolean {
     return true;
+  }
+
+  credentials(): ProviderCredentials {
+    return 'NOT_REQUIRED';
   }
 
   /** Any non-empty address is accepted; the operator vouches for it. */

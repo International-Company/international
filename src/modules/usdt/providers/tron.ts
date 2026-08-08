@@ -8,6 +8,7 @@ import {
   type ChainProvider,
   type ChainTransfer,
   type FetchOptions,
+  type ProviderCredentials,
   type TransferPage,
 } from './types';
 
@@ -51,9 +52,23 @@ export class TronProvider implements ChainProvider {
     this.apiKey = options.apiKey ?? env.TRON_API_KEY;
   }
 
+  /**
+   * Set once TronGrid has refused the configured key.
+   *
+   * Process-lifetime rather than persisted: a key is usually fixed by editing
+   * the environment, which restarts the server anyway, and a stored flag would
+   * have to be cleared by hand after the fix.
+   */
+  private keyRejected = false;
+
   /** TronGrid serves unauthenticated requests at a low rate limit. */
   isConfigured(): boolean {
     return this.baseUrl.length > 0;
+  }
+
+  credentials(): ProviderCredentials {
+    if (this.apiKey.length === 0) return 'ANONYMOUS';
+    return this.keyRejected ? 'REJECTED' : 'KEYED';
   }
 
   validateAddress(address: string): boolean {
@@ -64,7 +79,12 @@ export class TronProvider implements ChainProvider {
     return `https://tronscan.org/#/transaction/${txHash}`;
   }
 
-  private async request<T>(path: string, params: Record<string, string> = {}): Promise<T> {
+  /** One HTTP round trip, authenticated or not. Never throws on a status. */
+  private async send(
+    path: string,
+    params: Record<string, string>,
+    authenticated: boolean,
+  ): Promise<Response> {
     const url = new URL(`${this.baseUrl}${path}`);
     for (const [key, value] of Object.entries(params)) {
       if (value !== '') url.searchParams.set(key, value);
@@ -74,19 +94,45 @@ export class TronProvider implements ChainProvider {
     const timeout = setTimeout(() => controller.abort(), 20_000);
 
     try {
-      const response = await fetch(url, {
+      return await fetch(url, {
         headers: {
           accept: 'application/json',
-          ...(this.apiKey ? { 'TRON-PRO-API-KEY': this.apiKey } : {}),
+          ...(authenticated && this.apiKey ? { 'TRON-PRO-API-KEY': this.apiKey } : {}),
         },
         signal: controller.signal,
         cache: 'no-store',
       });
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  /**
+   * A request, with one fallback.
+   *
+   * A key TronGrid does not recognise is worse than no key at all: the public
+   * tier answers an anonymous request, while an unknown key earns a flat 401.
+   * So a key that has been refused is retired for the life of the process and
+   * the request is repeated unauthenticated — monitoring degrades to the free
+   * tier rather than stopping dead the moment a key is revoked or mistyped in
+   * a deployment variable. The refusal is logged at error level and reported
+   * through `credentials()`, so this is a visible degradation, not a silent
+   * one.
+   */
+  private async request<T>(path: string, params: Record<string, string> = {}): Promise<T> {
+    try {
+      let response = await this.send(path, params, !this.keyRejected);
+
+      if (response.status === 401 && this.apiKey.length > 0 && !this.keyRejected) {
+        this.keyRejected = true;
+        log.error('TronGrid refused the configured API key — falling back to the public tier', {
+          status: response.status,
+        });
+        response = await this.send(path, params, false);
+      }
 
       if (!response.ok) {
-        throw errors.external(
-          `TronGrid responded ${response.status} ${response.statusText}`,
-        );
+        throw errors.external(`TronGrid responded ${response.status} ${response.statusText}`);
       }
 
       return (await response.json()) as T;
@@ -95,8 +141,6 @@ export class TronProvider implements ChainProvider {
         throw errors.external('TronGrid request timed out');
       }
       throw errors.external('TronGrid', error);
-    } finally {
-      clearTimeout(timeout);
     }
   }
 

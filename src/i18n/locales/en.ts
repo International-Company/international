@@ -622,6 +622,9 @@ const en = {
     noWalletsHint: 'Add a wallet address to begin monitoring incoming and outgoing transfers.',
     noTransactions: 'No on-chain transfers recorded',
     providerManual: 'Manual entry — no external service is contacted',
+    providerKeyed: 'Using your API key',
+    providerAnonymous: 'Public tier — no API key configured',
+    providerRejected: 'API key refused — running on the public tier',
     providerNotConfigured: 'Provider is not configured; falling back to manual entry',
     status: {
       PENDING: 'Pending',

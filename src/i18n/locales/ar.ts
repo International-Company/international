@@ -624,6 +624,9 @@ const ar: Dictionary = {
     noWalletsHint: 'أضف عنوان محفظة لبدء مراقبة التحويلات الواردة والصادرة.',
     noTransactions: 'لا توجد تحويلات مسجّلة على الشبكة',
     providerManual: 'إدخال يدوي — لا يتم الاتصال بأي خدمة خارجية',
+    providerKeyed: 'يعمل بمفتاحك',
+    providerAnonymous: 'الطبقة المجانية — لا يوجد مفتاح',
+    providerRejected: 'المفتاح مرفوض — يعمل على الطبقة المجانية',
     providerNotConfigured: 'المزوّد غير مهيّأ؛ يتم الرجوع إلى الإدخال اليدوي',
     status: {
       PENDING: 'قيد الانتظار',

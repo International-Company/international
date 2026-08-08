@@ -8,6 +8,7 @@ import {
   type ChainProvider,
   type ChainTransfer,
   type FetchOptions,
+  type ProviderCredentials,
   type TransferPage,
 } from './types';
 
@@ -58,6 +59,11 @@ export class EthereumProvider implements ChainProvider {
 
   isConfigured(): boolean {
     return this.apiKey.length > 0;
+  }
+
+  /** Etherscan has no usable anonymous tier, so no key means it cannot poll. */
+  credentials(): ProviderCredentials {
+    return this.apiKey.length > 0 ? 'KEYED' : 'ANONYMOUS';
   }
 
   validateAddress(address: string): boolean {

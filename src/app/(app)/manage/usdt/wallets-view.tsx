@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Pencil, Plus, RefreshCw, Trash2, Wallet as WalletIcon } from 'lucide-react';
 import { useLocale } from '@/i18n/provider';
+import type { TranslationKey } from '@/i18n/types';
 import { api, ApiError } from '@/lib/api-client';
 import { Alert, Badge, Button, Card, CardHeader, EmptyState, StatTile } from '@/ui/primitives';
 import { ConfirmDialog, Dialog, useToast } from '@/ui/overlay';
@@ -46,7 +47,12 @@ export function WalletsView({
 }: {
   wallets: WalletRow[];
   portfolio: Portfolio;
-  networks: { network: string; name: string; configured: boolean }[];
+  networks: {
+    network: string;
+    name: string;
+    configured: boolean;
+    credentials: 'NOT_REQUIRED' | 'KEYED' | 'ANONYMOUS' | 'REJECTED';
+  }[];
   permissions: string[];
 }) {
   const { t, ln } = useLocale();
@@ -353,8 +359,13 @@ export function WalletsView({
                 <p className="text-sm text-content">{entry.name}</p>
                 <p className="text-xs text-content-tertiary">{entry.network}</p>
               </div>
-              <Badge tone={entry.configured ? 'success' : 'neutral'} dot>
-                {entry.configured ? t('common.enabled') : t('usdt.providerManual')}
+              {/*
+                Not "enabled" — that word could not tell a working key from a
+                key that never reached the server, because TronGrid answers
+                anonymous requests too. This states which of the two it is.
+              */}
+              <Badge tone={providerBadge(entry).tone} dot>
+                {t(providerBadge(entry).labelKey)}
               </Badge>
             </li>
           ))}
@@ -595,4 +606,30 @@ export function WalletsView({
       </Dialog>
     </div>
   );
+}
+
+/**
+ * How a network's provider is actually reaching the chain.
+ *
+ * The distinction that matters to a manager is not "on or off" but "is it using
+ * the key I configured". TronGrid answers anonymous requests at a low rate, so
+ * a key that never reached the server behaves identically to a working one
+ * until volume arrives — which is exactly when nobody wants to discover it.
+ */
+function providerBadge(entry: {
+  configured: boolean;
+  credentials: 'NOT_REQUIRED' | 'KEYED' | 'ANONYMOUS' | 'REJECTED';
+}): { tone: 'success' | 'warning' | 'danger' | 'neutral'; labelKey: TranslationKey } {
+  if (!entry.configured) return { tone: 'neutral', labelKey: 'usdt.providerManual' };
+
+  switch (entry.credentials) {
+    case 'KEYED':
+      return { tone: 'success', labelKey: 'usdt.providerKeyed' };
+    case 'REJECTED':
+      return { tone: 'danger', labelKey: 'usdt.providerRejected' };
+    case 'ANONYMOUS':
+      return { tone: 'warning', labelKey: 'usdt.providerAnonymous' };
+    default:
+      return { tone: 'neutral', labelKey: 'usdt.providerManual' };
+  }
 }
