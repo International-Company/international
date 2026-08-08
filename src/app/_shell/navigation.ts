@@ -29,6 +29,8 @@ export type IconName =
   | 'dashboard'
   | 'transactions'
   | 'newTransaction'
+  | 'machine'
+  | 'counter'
   | 'rates'
   | 'cashbox'
   | 'day'
@@ -64,6 +66,13 @@ export const NAVIGATION: NavSection[] = [
         shortcut: 'n',
       },
       {
+        href: '/exchange/machine',
+        labelKey: 'nav.machine',
+        icon: 'machine',
+        permissions: ['exchange.machine.use'],
+        shortcut: 'g m',
+      },
+      {
         href: '/exchange/transactions',
         labelKey: 'nav.transactions',
         icon: 'transactions',
@@ -97,6 +106,12 @@ export const NAVIGATION: NavSection[] = [
     id: 'usdt',
     labelKey: 'nav.usdt',
     items: [
+      {
+        href: '/usdt/counter',
+        labelKey: 'nav.usdtCounter',
+        icon: 'counter',
+        permissions: ['usdt.counter.use'],
+      },
       {
         href: '/usdt/wallets',
         labelKey: 'nav.wallets',

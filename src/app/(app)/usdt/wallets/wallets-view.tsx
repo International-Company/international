@@ -8,7 +8,7 @@ import { useLocale } from '@/i18n/provider';
 import { api, ApiError } from '@/lib/api-client';
 import { Alert, Badge, Button, Card, CardHeader, EmptyState, StatTile } from '@/ui/primitives';
 import { Dialog, useToast } from '@/ui/overlay';
-import { Checkbox, Field, FormGrid, Input, Select } from '@/ui/form';
+import { Checkbox, Field, FormGrid, Input, Select, Switch } from '@/ui/form';
 import { DateText, Money, StatusBadge } from '@/ui/display';
 
 interface WalletRow {
@@ -28,6 +28,7 @@ interface WalletRow {
   lastSyncStatus: string | null;
   lastSyncError: string | null;
   autoCreateTransaction: boolean;
+  isCounterAddress: boolean;
   _count: { transactions: number };
 }
 
@@ -70,6 +71,26 @@ export function WalletsView({
 
   const canManage = permissions.includes('usdt.wallet.manage');
   const canSync = permissions.includes('usdt.wallet.sync');
+
+  /**
+   * Releasing an address to the counter, or withdrawing it.
+   *
+   * Kept as a direct toggle on the row rather than buried in an edit dialog: it
+   * is the one wallet property that decides what a customer is shown, and a
+   * manager should be able to see and change it in the same glance.
+   */
+  const setCounterAddress = async (walletId: string, isCounterAddress: boolean) => {
+    try {
+      await api.patch(`/api/usdt/wallets/${walletId}`, { isCounterAddress });
+      toast.success(t('common.saved'));
+      router.refresh();
+    } catch (caught) {
+      toast.error(
+        t('errors.title'),
+        caught instanceof ApiError ? caught.message : t('errors.generic'),
+      );
+    }
+  };
 
   const sync = async (walletId: string) => {
     setSyncing(walletId);
@@ -177,6 +198,9 @@ export function WalletsView({
                     </Link>
                     <Badge tone="neutral">{wallet.network}</Badge>
                     {!wallet.isActive && <Badge tone="danger">{t('common.inactive')}</Badge>}
+                    {wallet.isCounterAddress && (
+                      <Badge tone="primary">{t('usdt.counterAddress')}</Badge>
+                    )}
                     {wallet.lastSyncStatus && (
                       <StatusBadge status={wallet.lastSyncStatus} scope="usdt" />
                     )}
@@ -208,6 +232,13 @@ export function WalletsView({
                     currency={wallet.tokenSymbol}
                     className="text-sm font-semibold"
                   />
+                  {canManage && (
+                    <Switch
+                      checked={wallet.isCounterAddress}
+                      onCheckedChange={(next) => void setCounterAddress(wallet.id, next)}
+                      label={t('usdt.counterAddress')}
+                    />
+                  )}
                   {canSync && (
                     <Button
                       variant="secondary"

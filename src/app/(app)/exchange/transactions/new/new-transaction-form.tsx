@@ -10,6 +10,7 @@ import { Field, FormGrid, Input, MoneyInput, Select, Textarea } from '@/ui/form'
 import { Money, Rate } from '@/ui/display';
 import { useToast } from '@/ui/overlay';
 import { cn, debounce } from '@/ui/utils';
+import { CustomerPicker, type CustomerHit } from '@/ui/customer-picker';
 import {
   TRANSACTION_TYPE_META,
   TRANSACTION_TYPES,
@@ -47,16 +48,6 @@ interface Account {
   balance: string;
 }
 
-interface CustomerHit {
-  id: string;
-  code: string;
-  fullNameEn: string;
-  fullNameAr: string;
-  phone: string | null;
-  kycStatus: string;
-  riskLevel: string;
-}
-
 interface Quote {
   toAmount: string;
   rate: string;
@@ -87,8 +78,6 @@ export function NewTransactionForm({
   const [amount, setAmount] = useState('');
   const [feeAmount, setFeeAmount] = useState('');
   const [customer, setCustomer] = useState<CustomerHit | null>(null);
-  const [customerQuery, setCustomerQuery] = useState('');
-  const [customerHits, setCustomerHits] = useState<CustomerHit[]>([]);
   const [counterpartyName, setCounterpartyName] = useState('');
   const [counterpartyPhone, setCounterpartyPhone] = useState('');
   const [notes, setNotes] = useState('');
@@ -191,26 +180,6 @@ export function NewTransactionForm({
   useEffect(() => {
     debouncedQuote(fromCurrency, toCurrency, amount);
   }, [fromCurrency, toCurrency, amount, debouncedQuote]);
-
-  // --- Customer lookup -------------------------------------------------------
-  const searchCustomers = useMemo(
-    () =>
-      debounce(async (term: string) => {
-        if (term.trim().length < 2) {
-          setCustomerHits([]);
-          return;
-        }
-        try {
-          const hits = await api.get<CustomerHit[]>(
-            `/api/customers${queryString({ quick: true, search: term })}`,
-          );
-          setCustomerHits(hits);
-        } catch {
-          setCustomerHits([]);
-        }
-      }, 250),
-    [],
-  );
 
   // --- Submit ----------------------------------------------------------------
   const submit = async () => {
@@ -475,86 +444,13 @@ export function NewTransactionForm({
           <Card>
             <CardHeader title={t('transactions.customer')} />
             <CardBody className="space-y-3">
-              {customer ? (
-                <div className="flex items-start justify-between gap-3 rounded-[var(--radius-control)] border border-primary-border bg-primary-subtle p-3">
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-medium text-content">
-                      {ln(customer, 'fullName')}
-                    </p>
-                    <p className="font-mono text-xs text-content-secondary ltr-content">
-                      {customer.code}
-                      {customer.phone ? ` · ${customer.phone}` : ''}
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setCustomer(null)}
-                    className="shrink-0 rounded p-1 text-content-tertiary hover:bg-surface-hover"
-                    aria-label={t('common.remove')}
-                  >
-                    <X className="size-4" />
-                  </button>
-                </div>
-              ) : (
-                <>
-                  <Field
-                    label={t('common.search')}
-                    hint={meta.requiresCustomer ? undefined : t('customers.searchHint')}
-                    required={meta.requiresCustomer}
-                    error={fieldErrors.customerId}
-                  >
-                    {(props) => (
-                      <Input
-                        {...props}
-                        iconStart={<Search />}
-                        value={customerQuery}
-                        onChange={(event) => {
-                          setCustomerQuery(event.target.value);
-                          void searchCustomers(event.target.value);
-                        }}
-                        placeholder={t('customers.searchHint')}
-                      />
-                    )}
-                  </Field>
-
-                  {customerHits.length > 0 && (
-                    <ul className="divide-y divide-border-base overflow-hidden rounded-[var(--radius-control)] border border-border-base">
-                      {customerHits.map((hit) => (
-                        <li key={hit.id}>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setCustomer(hit);
-                              setCustomerHits([]);
-                              setCustomerQuery('');
-                            }}
-                            className="w-full px-3 py-2 text-start transition-colors hover:bg-surface-hover"
-                          >
-                            <span className="block truncate text-sm text-content">
-                              {ln(hit, 'fullName')}
-                            </span>
-                            <span className="block font-mono text-xs text-content-tertiary ltr-content">
-                              {hit.code}
-                              {hit.phone ? ` · ${hit.phone}` : ''}
-                            </span>
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-
-                  {permissions.includes('customers.create') && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      icon={<UserPlus />}
-                      onClick={() => router.push('/customers?new=1')}
-                    >
-                      {t('customers.new')}
-                    </Button>
-                  )}
-                </>
-              )}
+              <CustomerPicker
+                value={customer}
+                onChange={setCustomer}
+                permissions={permissions}
+                required={meta.requiresCustomer}
+                error={fieldErrors.customerId}
+              />
 
               {!customer && !meta.requiresCustomer && (
                 <>

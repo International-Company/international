@@ -30,6 +30,7 @@ const prisma = new PrismaClient();
  * two passes because a reversal points at the transaction it reverses.
  */
 const OPERATIONAL_TABLES = [
+  'usdtDepositRequest',
   'journalLine',
   'journalEntry',
   'dayClosingLine',

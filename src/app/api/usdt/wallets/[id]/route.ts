@@ -22,6 +22,8 @@ const patchSchema = z.object({
   notifyOnIncoming: z.boolean().optional(),
   notifyOnOutgoing: z.boolean().optional(),
   autoCreateTransaction: z.boolean().optional(),
+  isCounterAddress: z.boolean().optional(),
+  counterSortOrder: z.number().int().min(0).max(999).optional(),
 });
 
 export const PATCH = route<z.infer<typeof patchSchema>, unknown, z.infer<typeof paramsSchema>>({

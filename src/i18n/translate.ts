@@ -61,10 +61,17 @@ export function translate(
   return key;
 }
 
-export type TranslateFn = (
-  key: TranslationKey | (string & {}),
-  params?: TranslationParams,
-) => string;
+/**
+ * Only real keys. The `(string & {})` arm this used to carry kept editor
+ * autocomplete while quietly accepting any string at all, which meant a
+ * mistyped or never-written key compiled cleanly and rendered its own dot-path
+ * to an operator — the precise failure `TranslationKey` exists to prevent.
+ *
+ * A genuinely dynamic key (a status or type name built at runtime) is still
+ * possible with an explicit cast at the call site, which is a visible decision
+ * rather than a blanket exemption.
+ */
+export type TranslateFn = (key: TranslationKey, params?: TranslationParams) => string;
 
 export function createTranslator(locale: Locale): TranslateFn {
   const dictionary = getDictionary(locale);

@@ -120,7 +120,11 @@ export async function createWallet(
 
 export async function updateWallet(
   id: string,
-  input: Partial<CreateWalletInput> & { isActive?: boolean },
+  input: Partial<CreateWalletInput> & {
+    isActive?: boolean;
+    isCounterAddress?: boolean;
+    counterSortOrder?: number;
+  },
   actor: Actor,
   db: DbClient = prisma,
 ) {
@@ -155,6 +159,12 @@ export async function updateWallet(
           : {}),
         ...(input.autoCreateTransaction !== undefined
           ? { autoCreateTransaction: input.autoCreateTransaction }
+          : {}),
+        ...(input.isCounterAddress !== undefined
+          ? { isCounterAddress: input.isCounterAddress }
+          : {}),
+        ...(input.counterSortOrder !== undefined
+          ? { counterSortOrder: input.counterSortOrder }
           : {}),
       },
     });

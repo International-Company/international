@@ -62,6 +62,7 @@ const TABLES = [
   'walletSnapshot',
   'walletSyncRun',
   'chainTransaction',
+  'usdtDepositRequest',
   'notification',
   'notificationRecipient',
   'auditLog',
