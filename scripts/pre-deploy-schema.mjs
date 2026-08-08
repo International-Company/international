@@ -82,6 +82,16 @@ const STEPS = [
   },
 ];
 
+/** Host and database only — a connection string in a deploy log is a leak. */
+function describe(url) {
+  try {
+    const parsed = new URL(url);
+    return `${parsed.hostname}:${parsed.port || 5432}${parsed.pathname}`;
+  } catch {
+    return 'the configured server';
+  }
+}
+
 async function main() {
   const url = databaseUrl();
 
@@ -89,6 +99,10 @@ async function main() {
     console.log('[pre-deploy] Not PostgreSQL — nothing to do.');
     return;
   }
+
+  // Printed before connecting, so the log shows what was decided even when the
+  // connection is what fails.
+  console.log(`[pre-deploy] PostgreSQL at ${describe(url)} — reconciling intended changes.`);
 
   const prisma = new PrismaClient();
 
@@ -119,8 +133,19 @@ async function main() {
 }
 
 main().catch((error) => {
-  // Loud, and fatal. A half-reconciled schema followed by a successful `db push`
-  // would be worse than a failed deploy, because the application would start.
+  // An unreachable database is the ordinary cause and deserves a sentence, not a
+  // stack trace — it is nearly always a missing or wrong DATABASE_URL.
+  if (error?.errorCode === 'P1001' || /Can't reach database server/i.test(String(error?.message))) {
+    console.error(
+      `\n[pre-deploy] Cannot reach the database at ${describe(databaseUrl())}.\n` +
+        '             Check DATABASE_URL and that the database service is running.\n',
+    );
+    process.exit(1);
+  }
+
+  // Anything else is loud, and fatal. A half-reconciled schema followed by a
+  // successful push would be worse than a failed deploy: the application would
+  // start, against a shape nobody intended.
   console.error('\n[pre-deploy] Failed to reconcile the schema:\n', error);
   process.exit(1);
 });

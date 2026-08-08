@@ -114,10 +114,23 @@ jobs:
           # the schema step. What this proves is that the image builds, boots,
           # and resolves the right database provider — the deployment is never
           # the first time this Dockerfile has been run.
-          if docker logs ifms-ci 2>&1 | grep -q 'Datasource "db": PostgreSQL'; then
+          #
+          # Matched against the pre-deploy step rather than the push behind it,
+          # so the assertion does not depend on how far the sequence gets before
+          # the missing database stops it.
+          if docker logs ifms-ci 2>&1 | grep -qE '\[pre-deploy\] PostgreSQL at|Datasource "db": PostgreSQL'; then
             echo "OK: image starts and targets PostgreSQL"
           else
             echo "FAIL: image did not reach the schema step"
+            exit 1
+          fi
+
+          # And it must stop there rather than serving against a database it
+          # never reached.
+          if docker logs ifms-ci 2>&1 | grep -q 'Cannot reach the database at'; then
+            echo "OK: refuses to start without its database, and says why"
+          else
+            echo "FAIL: no clear message about the unreachable database"
             exit 1
           fi
 
