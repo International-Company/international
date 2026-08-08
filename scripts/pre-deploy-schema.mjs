@@ -86,9 +86,9 @@ const STEPS = [
   //
   // The double-entry ledger and the chart of accounts are replaced by four
   // drawers. What the branch physically holds must survive that, so it is
-  // carried across before anything is dropped — into a table Prisma does not
-  // know about, because the drawers themselves do not exist until `db push`
-  // has run. `post-deploy-data.mjs` reads it on the other side.
+  // carried across before anything is dropped. The movement that explains each
+  // carried balance is written afterwards, by post-deploy-data.mjs, once the
+  // table that holds movements exists.
   // -------------------------------------------------------------------------
   {
     name: 'Carry the cash and crypto balances into drawers',
@@ -117,10 +117,7 @@ const STEPS = [
           "updatedAt"           TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
         );
 
-        IF EXISTS (
-          SELECT 1 FROM information_schema.tables
-          WHERE table_schema = current_schema() AND table_name = 'accounts'
-        ) THEN
+        IF to_regclass('"accounts"') IS NOT NULL THEN
           -- Only what the branch physically holds. Clearing, income, expense and
           -- equity accounts were devices for a ledger that is gone; carrying
           -- them would invent money the branch never had.
@@ -146,10 +143,7 @@ const STEPS = [
     sql: `
       DO $$
       BEGIN
-        IF EXISTS (
-          SELECT 1 FROM information_schema.tables
-          WHERE table_schema = current_schema() AND table_name = 'wallets'
-        ) THEN
+        IF to_regclass('"wallets"') IS NOT NULL THEN
           ALTER TABLE "wallets" ADD COLUMN IF NOT EXISTS "drawerId" TEXT;
           ALTER TABLE "wallets" DROP COLUMN IF EXISTS "accountId";
         END IF;
@@ -163,53 +157,48 @@ const STEPS = [
     // in the table with a type nothing reads and a status nothing can act on.
     // Deleting is honest where keeping would be a fiction — and the audit chain
     // still records that each of them happened.
+    // Every table it touches is checked for first. This script has to be safe on
+    // a database in any state — several versions behind, or one where a feature
+    // was never deployed — and a reference to a table that is not there yet
+    // would abort the block and stop the deploy on something unrelated.
     sql: `
       DO $$
-      DECLARE removed INTEGER;
+      DECLARE doomed TEXT[];
       BEGIN
-        IF EXISTS (
-          SELECT 1 FROM information_schema.tables
-          WHERE table_schema = current_schema() AND table_name = 'transactions'
-        ) THEN
-          DELETE FROM "receipts"
-           WHERE "transactionId" IN (
-             SELECT "id" FROM "transactions"
-              WHERE "type" NOT IN ('EXCHANGE', 'USDT_RECEIVE')
-                 OR "status" NOT IN ('POSTED', 'REVERSED')
-           );
+        IF to_regclass('"transactions"') IS NULL THEN RETURN; END IF;
 
-          UPDATE "usdt_deposit_requests" SET "transactionId" = NULL
-           WHERE "transactionId" IN (
-             SELECT "id" FROM "transactions"
-              WHERE "type" NOT IN ('EXCHANGE', 'USDT_RECEIVE')
-                 OR "status" NOT IN ('POSTED', 'REVERSED')
-           );
+        -- Held in an array rather than a temp table: a temp table's lifetime is
+        -- the session's, and a pooled connection could hand the next run one
+        -- that already exists.
+        SELECT array_agg("id") INTO doomed
+          FROM "transactions"
+         WHERE "type" NOT IN ('EXCHANGE', 'USDT_RECEIVE')
+            OR "status" NOT IN ('POSTED', 'REVERSED');
 
-          UPDATE "chain_transactions" SET "linkedTransactionId" = NULL
-           WHERE "linkedTransactionId" IN (
-             SELECT "id" FROM "transactions"
-              WHERE "type" NOT IN ('EXCHANGE', 'USDT_RECEIVE')
-                 OR "status" NOT IN ('POSTED', 'REVERSED')
-           );
+        IF doomed IS NULL THEN RETURN; END IF;
 
-          -- A reversal points at its original; clear the link before either end
-          -- can be removed, so neither deletion trips over the other.
-          UPDATE "transactions" SET "reversalOfId" = NULL
-           WHERE "reversalOfId" IN (
-             SELECT "id" FROM "transactions"
-              WHERE "type" NOT IN ('EXCHANGE', 'USDT_RECEIVE')
-                 OR "status" NOT IN ('POSTED', 'REVERSED')
-           );
-
-          DELETE FROM "transactions"
-           WHERE "type" NOT IN ('EXCHANGE', 'USDT_RECEIVE')
-              OR "status" NOT IN ('POSTED', 'REVERSED');
-
-          GET DIAGNOSTICS removed = ROW_COUNT;
-          IF removed > 0 THEN
-            RAISE NOTICE 'removed % transaction(s) with no place in the reduced model', removed;
-          END IF;
+        IF to_regclass('"receipts"') IS NOT NULL THEN
+          DELETE FROM "receipts" WHERE "transactionId" = ANY(doomed);
         END IF;
+
+        IF to_regclass('"usdt_deposit_requests"') IS NOT NULL THEN
+          UPDATE "usdt_deposit_requests" SET "transactionId" = NULL
+           WHERE "transactionId" = ANY(doomed);
+        END IF;
+
+        IF to_regclass('"chain_transactions"') IS NOT NULL THEN
+          UPDATE "chain_transactions" SET "linkedTransactionId" = NULL
+           WHERE "linkedTransactionId" = ANY(doomed);
+        END IF;
+
+        -- A reversal points at its original; clear the link before either end
+        -- can be removed, so neither deletion trips over the other.
+        UPDATE "transactions" SET "reversalOfId" = NULL WHERE "reversalOfId" = ANY(doomed);
+
+        DELETE FROM "transactions" WHERE "id" = ANY(doomed);
+
+        RAISE NOTICE 'removed % transaction(s) with no place in the reduced model',
+          array_length(doomed, 1);
       END $$;
     `,
   },
