@@ -14,7 +14,6 @@ import {
   ArrowDownUp,
   Check,
   ChevronDown,
-  Delete,
   Loader2,
   Plus,
   Printer,
@@ -162,7 +161,6 @@ export function MachineView({
   const fromCurrency = byCode.get(from);
   const toCurrency = byCode.get(to);
   const canSeeSpread = permissions.includes('exchange.margin.view');
-  const decimals = (side === 'pay' ? fromCurrency : toCurrency)?.decimals ?? 2;
 
   const clearEntry = () => {
     setAmount('');
@@ -292,47 +290,33 @@ export function MachineView({
     [fromCurrency, toCurrency],
   );
 
-  // --- Keypad ----------------------------------------------------------------
-  const press = useCallback(
-    (key: string) => {
-      setDone(null);
-      setAmount((current) => {
-        if (key === 'clear') return '';
-        if (key === 'back') return current.slice(0, -1);
-        if (key === '.') {
-          if (decimals === 0 || current.includes('.')) return current;
-          return current === '' ? '0.' : `${current}.`;
-        }
-
-        const [, fraction] = current.split('.');
-        if (fraction !== undefined && fraction.length >= decimals) return current;
-        if (current === '0') return key;
-        return current + key;
-      });
-    },
-    [decimals],
-  );
-
-  // A physical keyboard is faster than the on-screen pad for anyone who touch
-  // types, and many counters have one. Both drive the same state.
+  /**
+   * Start typing anywhere.
+   *
+   * A teller who arrives at the screen and reaches for a digit should not have
+   * to find and click a field first. The keystroke is redirected into the field
+   * they would have clicked, caret and all, rather than being collected into a
+   * hidden buffer — so what happens next is the ordinary behaviour of an
+   * ordinary text field, which is the whole reason these are real fields now.
+   */
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.metaKey || event.ctrlKey || event.altKey) return;
+      if (!/^[0-9]$/.test(event.key)) return;
+
       const target = event.target as HTMLElement | null;
       if (target && ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)) return;
 
-      if (/^[0-9]$/.test(event.key)) press(event.key);
-      else if (event.key === '.' || event.key === ',' || event.key === '٫') press('.');
-      else if (event.key === 'Backspace') press('back');
-      else if (event.key === 'Escape') press('clear');
-      else return;
-
       event.preventDefault();
+      setDone(null);
+      setSide('pay');
+      setAmount(event.key);
+      payRef.current?.focus();
     };
 
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [press]);
+  }, []);
 
   const reset = () => {
     clearEntry();
@@ -394,8 +378,20 @@ export function MachineView({
   const print = (id: string) => window.open(`/print/receipt/${id}`, '_blank');
 
   return (
-    <div className="mx-auto w-full max-w-5xl">
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_19rem] lg:items-start">
+    /*
+     * A form, so Enter posts from any field — and a single centred column, so
+     * the phone gets the full width and the desk gets the same tool rather than
+     * a differently arranged one. There is nothing left to put in a second
+     * column now that the keypad is gone.
+     */
+    <form
+      onSubmit={(event) => {
+        event.preventDefault();
+        void submit();
+      }}
+      className="mx-auto w-full max-w-xl"
+    >
+      <div className="space-y-4">
         {/* ============ The card ============ */}
         <div className="space-y-4">
           <section className="rounded-3xl bg-surface p-2 shadow-[var(--shadow-lg)] ring-1 ring-border-subtle">
@@ -529,19 +525,24 @@ export function MachineView({
           )}
         </div>
 
-        {/* ============ Entry ============ */}
+        {/* ============ Shortcuts and the action ============ */}
         <div className="space-y-3">
           {config.quickAmounts.length > 0 && (
-            <div dir="ltr" className="grid grid-cols-3 gap-2">
+            <div dir="ltr" className="flex flex-wrap gap-2">
               {config.quickAmounts.map((value) => (
                 <button
                   key={value}
                   type="button"
                   onClick={() => {
                     setDone(null);
+                    setSide('pay');
                     setAmount(String(value));
                   }}
-                  className="h-10 rounded-full bg-surface-sunken text-sm font-medium text-content-secondary transition-colors hover:bg-surface-hover hover:text-content"
+                  className={cn(
+                    'h-11 min-w-[4.5rem] flex-1 rounded-full bg-surface-sunken px-4',
+                    'text-sm font-medium text-content-secondary',
+                    'transition-colors hover:bg-surface-hover hover:text-content active:bg-surface-active',
+                  )}
                 >
                   {value.toLocaleString('en-US')}
                 </button>
@@ -549,31 +550,8 @@ export function MachineView({
             </div>
           )}
 
-          {/*
-            The keypad stays left-to-right in every language. A numeric keypad
-            is muscle memory — 7 is at the top left of every calculator, cash
-            register and phone, including Arabic ones — and letting the RTL
-            layout mirror it would slow down the one person who uses this
-            hundreds of times a day.
-          */}
-          <div dir="ltr" className="grid grid-cols-3 gap-2">
-            {['7', '8', '9', '4', '5', '6', '1', '2', '3'].map((key) => (
-              <Key key={key} onPress={() => press(key)}>
-                {key}
-              </Key>
-            ))}
-            <Key onPress={() => press('.')} disabled={decimals === 0}>
-              .
-            </Key>
-            <Key onPress={() => press('0')}>0</Key>
-            <Key onPress={() => press('back')} aria-label={t('machine.backspace')}>
-              <Delete className="size-5" />
-            </Key>
-          </div>
-
           <button
-            type="button"
-            onClick={() => void submit()}
+            type="submit"
             disabled={!quote || blocked || quoting || posting}
             className={cn(
               'flex h-14 w-full items-center justify-center gap-2 rounded-2xl',
@@ -583,18 +561,14 @@ export function MachineView({
               'disabled:opacity-40 disabled:shadow-none disabled:active:scale-100',
             )}
           >
-            {posting ? (
-              <Loader2 className="size-5 animate-spin" />
-            ) : (
-              <Check className="size-5" />
-            )}
+            {posting ? <Loader2 className="size-5 animate-spin" /> : <Check className="size-5" />}
             {t('machine.record')}
           </button>
 
           <button
             type="button"
             onClick={reset}
-            className="flex h-9 w-full items-center justify-center gap-2 rounded-full text-sm text-content-tertiary transition-colors hover:bg-surface-sunken hover:text-content-secondary"
+            className="flex h-11 w-full items-center justify-center gap-2 rounded-full text-sm text-content-tertiary transition-colors hover:bg-surface-sunken hover:text-content-secondary"
           >
             <RotateCcw className="size-4" />
             {t('machine.clear')}
@@ -602,7 +576,7 @@ export function MachineView({
         </div>
 
         {/* ============ Folded away until needed ============ */}
-        <div className="space-y-3 lg:col-span-2">
+        <div className="space-y-3">
           {customerOpen || customer || quote?.requiresCustomer ? (
             <div className="rounded-2xl bg-surface p-4 ring-1 ring-border-subtle">
               <div className="mb-3 flex items-center justify-between gap-2">
@@ -695,7 +669,7 @@ export function MachineView({
           )}
         </div>
       </div>
-    </div>
+    </form>
   );
 }
 
@@ -872,10 +846,9 @@ function AmountRow({
           onChange={(event) => onType(event.target.value)}
           className={cn(
             'min-w-0 flex-1 bg-transparent text-end tabular-nums tracking-tight outline-none',
-            'placeholder:text-content-tertiary',
-            hero
-              ? 'text-4xl font-bold text-primary-text sm:text-5xl'
-              : 'text-3xl font-semibold text-content sm:text-4xl',
+            'placeholder:text-content-tertiary transition-[font-size] duration-100',
+            hero ? 'font-bold text-primary-text' : 'font-semibold text-content',
+            amountSize(display || zero, Boolean(hero)),
           )}
         />
       </div>
@@ -916,33 +889,21 @@ function Blocker({
   );
 }
 
-function Key({
-  children,
-  onPress,
-  disabled,
-  ...props
-}: {
-  children: React.ReactNode;
-  onPress: () => void;
-  disabled?: boolean;
-  'aria-label'?: string;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onPress}
-      disabled={disabled}
-      className={cn(
-        'flex h-16 items-center justify-center rounded-2xl bg-surface-sunken',
-        'text-2xl font-medium text-content tabular-nums',
-        'transition-all duration-100 hover:bg-surface-hover active:scale-95',
-        'disabled:opacity-30 disabled:active:scale-100',
-      )}
-      {...props}
-    >
-      {children}
-    </button>
-  );
+/**
+ * How large the figure can be drawn without running out of row.
+ *
+ * A phone gives the amount roughly two hundred pixels once the currency pill
+ * has taken its share, which a seven-figure sum at the largest size overruns.
+ * Stepping down by length keeps the number whole — truncating an amount, or
+ * letting it scroll out of sight inside its own field, is the one thing a
+ * counter display must never do.
+ */
+function amountSize(text: string, hero: boolean): string {
+  const digits = text.length;
+
+  if (digits > 12) return hero ? 'text-2xl sm:text-3xl' : 'text-xl sm:text-2xl';
+  if (digits > 9) return hero ? 'text-3xl sm:text-4xl' : 'text-2xl sm:text-3xl';
+  return hero ? 'text-4xl sm:text-5xl' : 'text-3xl sm:text-4xl';
 }
 
 /**
