@@ -10,9 +10,11 @@ import {
   Clock,
   Copy,
   Loader2,
+  Plus,
   Printer,
   RefreshCw,
   Wallet,
+  X,
 } from 'lucide-react';
 import { useLocale } from '@/i18n/provider';
 import { api, ApiError } from '@/lib/api-client';
@@ -96,6 +98,7 @@ export function CounterView({
   const [customer, setCustomer] = useState<CustomerHit | null>(null);
   const [counterpartyName, setCounterpartyName] = useState('');
   const [notes, setNotes] = useState('');
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const [opening, setOpening] = useState(false);
 
   const [active, setActive] = useState<OpenRequest | null>(openRequests[0] ?? null);
@@ -294,30 +297,67 @@ export function CounterView({
             )}
           </Field>
 
-          <CustomerPicker value={customer} onChange={setCustomer} permissions={permissions} />
+          {/*
+            Who it is for, and anything worth noting — folded away.
+            Three fields none of which is required stood permanently between the
+            teller and the button they came to press. Opening a request needs an
+            address, an amount and a payout currency; the rest is for the
+            occasions that call for it, and says so by staying shut.
+          */}
+          {detailsOpen || customer ? (
+            <div className="space-y-3 rounded-[var(--radius-control)] bg-surface-sunken p-3">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-sm font-medium text-content">{t('counter.aboutCustomer')}</p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDetailsOpen(false);
+                    setCustomer(null);
+                    setCounterpartyName('');
+                    setNotes('');
+                  }}
+                  aria-label={t('common.close')}
+                  className="flex size-8 items-center justify-center rounded-full text-content-tertiary transition-colors hover:bg-surface-hover hover:text-content"
+                >
+                  <X className="size-4" />
+                </button>
+              </div>
 
-          {!customer && (
-            <Field label={t('transactions.counterpartyName')}>
-              {(props) => (
-                <Input
-                  {...props}
-                  value={counterpartyName}
-                  onChange={(event) => setCounterpartyName(event.target.value)}
-                />
+              <CustomerPicker value={customer} onChange={setCustomer} permissions={permissions} />
+
+              {!customer && (
+                <Field label={t('transactions.counterpartyName')}>
+                  {(props) => (
+                    <Input
+                      {...props}
+                      value={counterpartyName}
+                      onChange={(event) => setCounterpartyName(event.target.value)}
+                    />
+                  )}
+                </Field>
               )}
-            </Field>
-          )}
 
-          <Field label={t('common.notes')}>
-            {(props) => (
-              <Textarea
-                {...props}
-                rows={2}
-                value={notes}
-                onChange={(event) => setNotes(event.target.value)}
-              />
-            )}
-          </Field>
+              <Field label={t('common.notes')}>
+                {(props) => (
+                  <Textarea
+                    {...props}
+                    rows={2}
+                    value={notes}
+                    onChange={(event) => setNotes(event.target.value)}
+                  />
+                )}
+              </Field>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setDetailsOpen(true)}
+              className="flex h-11 w-full items-center justify-center gap-2 rounded-[var(--radius-control)] border border-dashed border-border-base text-sm text-content-tertiary transition-colors hover:border-primary hover:text-primary-text"
+            >
+              <Plus className="size-4" />
+              {t('counter.aboutCustomer')}
+            </button>
+          )}
 
           <Button
             variant="primary"

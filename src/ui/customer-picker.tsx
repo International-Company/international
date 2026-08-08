@@ -101,12 +101,13 @@ export function CustomerPicker({
 
   return (
     <>
-      <Field
-        label={label ?? t('common.search')}
-        hint={required ? undefined : t('customers.searchHint')}
-        required={required}
-        error={error}
-      >
+      {/*
+        No hint: it used to carry the same sentence as the placeholder, printed
+        again directly under the field. One field, one instruction — and the
+        placeholder is the copy worth keeping, because it sits where the eye
+        already is.
+      */}
+      <Field label={label ?? t('common.search')} required={required} error={error}>
         {(props) => (
           <Input
             {...props}

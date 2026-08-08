@@ -515,6 +515,7 @@ const ar: Dictionary = {
   },
 
   counter: {
+    aboutCustomer: 'العميل وملاحظات',
     title: 'استلام USDT',
     subtitle: 'اعرض عنوان الاستقبال، وتابع وصول التحويل، ثم ادفع للعميل',
     disabledTitle: 'الشباك متوقف',

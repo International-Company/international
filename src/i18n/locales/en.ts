@@ -513,6 +513,7 @@ const en = {
   },
 
   counter: {
+    aboutCustomer: 'Customer and notes',
     title: 'Receive USDT',
     subtitle: 'Show a receiving address, watch the transfer land, pay the customer',
     disabledTitle: 'The counter is switched off',
