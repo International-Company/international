@@ -16,7 +16,7 @@ export default async function LoginPage() {
 
   const companyName = await settings
     .getString(locale === 'ar' ? 'company.name.ar' : 'company.name.en')
-    .catch(() => 'IFMS');
+    .catch(() => t('app.name'));
 
   return (
     <div className="flex min-h-screen">
@@ -26,10 +26,7 @@ export default async function LoginPage() {
           <div className="flex size-9 items-center justify-center rounded bg-white/15 text-lg font-bold">
             I
           </div>
-          <div>
-            <p className="text-sm font-semibold">{t('app.name')}</p>
-            <p className="text-xs text-white/70">{t('app.tagline')}</p>
-          </div>
+          <p className="text-sm font-semibold">{t('app.name')}</p>
         </div>
 
         <div className="max-w-md">
@@ -51,10 +48,7 @@ export default async function LoginPage() {
             <div className="flex size-9 items-center justify-center rounded bg-primary text-lg font-bold text-white">
               I
             </div>
-            <div>
-              <p className="text-sm font-semibold text-content">{t('app.name')}</p>
-              <p className="text-xs text-content-tertiary">{t('app.tagline')}</p>
-            </div>
+            <p className="text-sm font-semibold text-content">{t('app.name')}</p>
           </div>
 
           <h1 className="text-xl font-semibold text-content">{t('auth.signInTitle')}</h1>

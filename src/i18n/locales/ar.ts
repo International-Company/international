@@ -13,9 +13,8 @@ import type { Dictionary } from '../types';
  */
 const ar: Dictionary = {
   app: {
-    name: 'IFMS',
+    name: 'انترنشونال',
     fullName: 'النظام الدولي للإدارة المالية',
-    tagline: 'عمليات الصرافة والخزينة',
   },
 
   common: {
@@ -122,7 +121,7 @@ const ar: Dictionary = {
 
   nav: {
     counter: 'الشباك',
-    manageUsdt: 'شباك USDT',
+    manageUsdt: 'استلام USDT',
     manageMachine: 'ماكينة التصريف',
     oversight: 'المتابعة',
     counterAddresses: 'عناوين الشباك',
@@ -134,7 +133,7 @@ const ar: Dictionary = {
     transactions: 'العمليات',
     newTransaction: 'عملية جديدة',
     machine: 'ماكينة التصريف',
-    usdtCounter: 'شباك USDT',
+    usdtCounter: 'استلام USDT',
     rates: 'أسعار الصرف',
     cashboxes: 'الصناديق',
     businessDay: 'الإغلاق اليومي',
@@ -460,7 +459,7 @@ const ar: Dictionary = {
   },
 
   counter: {
-    title: 'شباك USDT',
+    title: 'استلام USDT',
     subtitle: 'اعرض عنوان الاستقبال، وتابع وصول التحويل، ثم ادفع للعميل',
     disabledTitle: 'الشباك متوقف',
     disabledBody: 'يستطيع المدير تشغيله من الإعدادات ← مراقبة USDT.',

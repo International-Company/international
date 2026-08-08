@@ -36,8 +36,8 @@ const arabic = IBM_Plex_Sans_Arabic({
 
 export const metadata: Metadata = {
   title: {
-    default: 'IFMS — International Financial Management System',
-    template: '%s · IFMS',
+    default: 'International — Financial Management System',
+    template: '%s · International',
   },
   description: 'Enterprise exchange and treasury operations platform',
   robots: { index: false, follow: false },

@@ -35,7 +35,7 @@ const schema = z.object({
   SESSION_IDLE_MINUTES: z.coerce.number().int().positive().default(60),
   SESSION_ABSOLUTE_HOURS: z.coerce.number().int().positive().default(12),
 
-  APP_NAME: z.string().default('IFMS'),
+  APP_NAME: z.string().default('International'),
   APP_URL: z.string().url().default('http://localhost:3000'),
   LOG_LEVEL: z
     .string()

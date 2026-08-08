@@ -9,9 +9,8 @@
  */
 const en = {
   app: {
-    name: 'IFMS',
+    name: 'International',
     fullName: 'International Financial Management System',
-    tagline: 'Exchange & Treasury Operations',
   },
 
   common: {
@@ -120,7 +119,7 @@ const en = {
 
   nav: {
     counter: 'The Counter',
-    manageUsdt: 'USDT Window',
+    manageUsdt: 'USDT Intake',
     manageMachine: 'Exchange Machine',
     oversight: 'Oversight',
     counterAddresses: 'Counter addresses',
@@ -132,7 +131,7 @@ const en = {
     transactions: 'Transactions',
     newTransaction: 'New Transaction',
     machine: 'Exchange Machine',
-    usdtCounter: 'USDT Counter',
+    usdtCounter: 'Receive USDT',
     rates: 'Exchange Rates',
     cashboxes: 'Cashboxes',
     businessDay: 'Daily Closing',
@@ -458,7 +457,7 @@ const en = {
   },
 
   counter: {
-    title: 'USDT Counter',
+    title: 'Receive USDT',
     subtitle: 'Show a receiving address, watch the transfer land, pay the customer',
     disabledTitle: 'The counter is switched off',
     disabledBody: 'A manager can turn it on under Settings → USDT Monitoring.',

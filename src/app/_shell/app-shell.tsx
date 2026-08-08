@@ -147,7 +147,6 @@ export function AppShell({
           {!collapsed && (
             <div className="min-w-0 flex-1">
               <p className="truncate text-sm font-semibold text-content">{t('app.name')}</p>
-              <p className="truncate text-[10px] text-content-tertiary">{t('app.tagline')}</p>
             </div>
           )}
           <button

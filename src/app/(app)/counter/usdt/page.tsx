@@ -8,7 +8,7 @@ import { toJsonSafe } from '@/core/http/json';
 import { Alert, PageHeader } from '@/ui/primitives';
 import { CounterView } from './counter-view';
 
-export const metadata: Metadata = { title: 'USDT counter' };
+export const metadata: Metadata = { title: 'Receive USDT' };
 export const dynamic = 'force-dynamic';
 
 export default async function UsdtCounterPage() {
