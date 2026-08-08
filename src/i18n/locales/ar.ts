@@ -480,6 +480,7 @@ const ar: Dictionary = {
   },
 
   machine: {
+    attachCustomer: 'إرفاق عميل',
     board: 'اللوحة',
     currency: 'العملة',
     weBuy: 'نشتري',

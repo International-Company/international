@@ -478,6 +478,7 @@ const en = {
   },
 
   machine: {
+    attachCustomer: 'Attach a customer',
     board: 'The Board',
     currency: 'Currency',
     weBuy: 'We buy',

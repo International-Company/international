@@ -371,12 +371,12 @@ export function MachineControlView({
                     : 'border-border-base bg-surface-sunken',
                 )}
               >
-                <p className="font-mono text-xs text-content-secondary ltr-content">
+                <p className="text-xs font-medium text-content-secondary ltr-content">
                   {drawer.currency}
                 </p>
                 <p
                   className={cn(
-                    'mt-1 font-mono text-lg font-semibold tabular-nums ltr-content',
+                    'mt-1 text-lg font-semibold tabular-nums ltr-content',
                     empty ? 'text-warning-text' : 'text-content',
                   )}
                 >

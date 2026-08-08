@@ -3,46 +3,43 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
-  ArrowLeftRight,
+  ArrowDownUp,
   Check,
+  ChevronDown,
   Delete,
   Loader2,
+  Plus,
   Printer,
   RotateCcw,
   TriangleAlert,
+  X,
 } from 'lucide-react';
 import { useLocale } from '@/i18n/provider';
 import { api, ApiError, queryString } from '@/lib/api-client';
 import { Button } from '@/ui/primitives';
-import { useToast } from '@/ui/overlay';
+import { DropdownMenu, useToast } from '@/ui/overlay';
 import { Field, Input } from '@/ui/form';
 import { Money } from '@/ui/display';
 import { CustomerPicker, type CustomerHit } from '@/ui/customer-picker';
 import { cn } from '@/ui/utils';
-import {
-  Board,
-  BoardPrice,
-  buildBoard,
-  type BoardCell,
-  type BoardRate,
-} from '../../_machine/board';
 
 /**
- * The counter, built around the board.
+ * The exchange tool.
  *
- * An exchange office is a board on a wall and a ticket under it. So this screen
- * is a board on a wall and a ticket beside it: the operator reads the price off
- * the board, presses it, and the ticket fills in. Nothing has to be assembled
- * from a dropdown, and nothing is priced by a number the customer cannot also
- * see posted.
+ * One card, two amounts, a swap between them. That shape is what a person
+ * already understands before they are taught anything, and it is the shape
+ * every modern money app converged on for the same reason: the question at the
+ * counter has only two sides.
  *
- * Both amounts on the ticket are live. Customers arrive with both questions —
- * "what do I get for this" and "I need exactly this much" — and a counter that
- * only answers the first makes the operator do arithmetic in front of them.
+ * Both sides are live. Customers arrive with both questions — "what do I get
+ * for this" and "I need exactly this much" — and a counter that answers only
+ * the first makes the operator do arithmetic in front of them.
  *
- * The three things that can stop a trade — no rate, an empty drawer, a limit —
- * are stated in one place, before the figure is read out rather than after it
- * has been promised.
+ * Everything that is not those two numbers recedes. The rate sits under the
+ * card as one quiet line. The customer field is folded away until someone
+ * needs it. What can stop a trade — no rate, an empty drawer, a limit — appears
+ * only when it applies, and always before the figure is read out rather than
+ * after it has been promised.
  */
 
 interface Currency {
@@ -60,6 +57,14 @@ interface MachineConfig {
   quickAmounts: number[];
   maxAmount: string;
   requireCustomerAbove: string;
+}
+
+interface BoardRate {
+  baseCode: string;
+  quoteCode: string;
+  buyRate: string;
+  sellRate: string;
+  effectiveFrom: string;
 }
 
 interface QuoteResponse {
@@ -102,26 +107,30 @@ export function MachineView({
   const router = useRouter();
   const toast = useToast();
 
-  const rows = useMemo(
-    () =>
-      buildBoard(
-        config.currencies.map((currency) => currency.code),
-        board,
-        config.pairs,
-      ),
-    [config.currencies, config.pairs, board],
+  const offered = useMemo(() => new Set(config.pairs), [config.pairs]);
+  const byCode = useMemo(
+    () => new Map(config.currencies.map((currency) => [currency.code, currency])),
+    [config.currencies],
   );
 
-  // The board opens on the first price it can actually trade, so an operator
-  // who starts typing immediately is typing into a working pair rather than
-  // into whichever direction happened to be first in a settings string.
+  /** Currencies the customer may hand over — those with somewhere to go. */
+  const payable = useMemo(
+    () =>
+      config.currencies.filter((currency) =>
+        config.currencies.some((other) => offered.has(`${currency.code}/${other.code}`)),
+      ),
+    [config.currencies, offered],
+  );
+
+  /** Currencies reachable from a given one. */
+  const receivable = useCallback(
+    (from: string) => config.currencies.filter((c) => offered.has(`${from}/${c.code}`)),
+    [config.currencies, offered],
+  );
+
   const [pair, setPair] = useState<[string, string]>(() => {
-    for (const row of rows) {
-      for (const cell of [row.buy, row.sell]) {
-        if (cell.rate !== null && cell.offered) return [cell.from, cell.to];
-      }
-    }
-    return (config.pairs[0]?.split('/') as [string, string]) ?? ['USD', 'ILS'];
+    const first = config.pairs[0]?.split('/');
+    return first && first.length === 2 ? [first[0]!, first[1]!] : ['USD', 'ILS'];
   });
 
   const [side, setSide] = useState<Side>('pay');
@@ -133,39 +142,47 @@ export function MachineView({
   const [done, setDone] = useState<{ id: string; reference: string } | null>(null);
   const [counterpartyName, setCounterpartyName] = useState('');
   const [customer, setCustomer] = useState<CustomerHit | null>(null);
+  const [customerOpen, setCustomerOpen] = useState(false);
   const [recent, setRecent] = useState<RecentRow[]>([]);
 
   const [from, to] = pair;
-  const byCode = useMemo(
-    () => new Map(config.currencies.map((currency) => [currency.code, currency])),
-    [config.currencies],
-  );
   const fromCurrency = byCode.get(from);
   const toCurrency = byCode.get(to);
   const canSeeSpread = permissions.includes('exchange.margin.view');
-
   const decimals = (side === 'pay' ? fromCurrency : toCurrency)?.decimals ?? 2;
 
-  const names = useMemo(
-    () =>
-      new Map(
-        config.currencies.map((currency) => [
-          currency.code,
-          ln(currency as unknown as Record<string, unknown>, 'name'),
-        ]),
-      ),
-    [config.currencies, ln],
-  );
+  const clearEntry = () => {
+    setAmount('');
+    setQuote(null);
+    setError(null);
+    setDone(null);
+  };
 
-  // The board carries its own timestamp so an operator can see at a glance
-  // whether they are quoting off this morning's prices or last Tuesday's.
-  const updatedAt = useMemo(() => {
-    const stamps = board
-      .map((rate) => rate.effectiveFrom)
-      .filter(Boolean)
-      .sort();
-    return stamps.at(-1) ?? null;
-  }, [board]);
+  /**
+   * Changing what the customer hands over.
+   *
+   * The other side may become unreachable — not every direction is offered —
+   * so it moves to the first one that is rather than leaving the card in a
+   * state the server would refuse.
+   */
+  const chooseFrom = (code: string) => {
+    const targets = receivable(code);
+    if (targets.length === 0) return;
+    setPair([code, targets.some((c) => c.code === to) ? to : targets[0]!.code]);
+    clearEntry();
+  };
+
+  const chooseTo = (code: string) => {
+    setPair([from, code]);
+    clearEntry();
+  };
+
+  const reversible = offered.has(`${to}/${from}`);
+  const swap = () => {
+    if (!reversible) return;
+    setPair([to, from]);
+    clearEntry();
+  };
 
   // --- The teller's own recent work, for a reprint ---------------------------
   //
@@ -175,7 +192,7 @@ export function MachineView({
     try {
       setRecent(
         await api.get<RecentRow[]>(
-          `/api/manage/transactions${queryString({ recent: true, type: 'EXCHANGE', pageSize: 5 })}`,
+          `/api/manage/transactions${queryString({ recent: true, type: 'EXCHANGE', pageSize: 4 })}`,
         ),
       );
     } catch {
@@ -274,32 +291,11 @@ export function MachineView({
     return () => window.removeEventListener('keydown', onKey);
   }, [press]);
 
-  /** Taking a price off the board. */
-  const take = (cell: BoardCell) => {
-    setPair([cell.from, cell.to]);
-    setSide('pay');
-    setAmount('');
-    setQuote(null);
-    setDone(null);
-  };
-
-  const swap = () => {
-    setPair(([a, b]) => {
-      const reversed = `${b}/${a}`;
-      return config.pairs.includes(reversed) ? [b, a] : [a, b];
-    });
-    setAmount('');
-    setQuote(null);
-    setDone(null);
-  };
-
   const reset = () => {
-    setAmount('');
-    setQuote(null);
-    setError(null);
-    setDone(null);
+    clearEntry();
     setCounterpartyName('');
     setCustomer(null);
+    setCustomerOpen(false);
   };
 
   // Every reason the record button is unavailable, each of which the operator
@@ -325,6 +321,7 @@ export function MachineView({
       setQuote(null);
       setCounterpartyName('');
       setCustomer(null);
+      setCustomerOpen(false);
       void loadRecent();
       router.refresh();
     } catch (cause) {
@@ -342,159 +339,71 @@ export function MachineView({
   const payAmount = side === 'pay' ? amount : quote ? quote.fromAmount : '';
   const receiveAmount = side === 'receive' ? amount : quote ? quote.toAmount : '';
 
+  // The rate for this direction, as one quiet line rather than a table.
+  const boardRate = board.find(
+    (rate) =>
+      (rate.baseCode === from && rate.quoteCode === to) ||
+      (rate.baseCode === to && rate.quoteCode === from),
+  );
+
   const print = (id: string) => window.open(`/print/receipt/${id}`, '_blank');
 
   return (
-    <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_24rem] xl:items-start">
-      {/*
-        The board and its tape share a column on a wide screen, and are loose
-        grid items on a narrow one. `display: contents` is what buys both: on a
-        phone the two collapse into the parent grid so the tape can be ordered
-        below the keypad, and at `xl` this becomes a real column so the board
-        does not stretch to the height of the ticket beside it.
-      */}
-      <div className="contents xl:flex xl:flex-col xl:gap-4">
-        {/* ================= The board ================= */}
-        <Board
-          rows={rows}
-          title={t('machine.board')}
-          headings={[t('machine.currency'), t('machine.weBuy'), t('machine.weSell')]}
-          names={names}
-          updatedAt={updatedAt}
-          liveLabel={t('machine.live')}
-          cell={(cell) => {
-            const active = cell.from === from && cell.to === to;
-            const usable = cell.rate !== null && cell.offered;
-
-            return (
-              <button
-                type="button"
-                disabled={!usable}
-                onClick={() => take(cell)}
-                aria-current={active}
-                className={cn(
-                  'flex size-full flex-col items-center justify-center gap-0.5 px-2 py-3',
-                  'transition-colors duration-100',
-                  usable && !active && 'hover:bg-surface-hover',
-                  active && 'bg-primary-subtle shadow-[inset_0_0_0_1px_var(--primary)]',
-                  !usable && 'cursor-not-allowed',
-                )}
-              >
-                <BoardPrice rate={cell.rate} muted={!usable} />
-                <span
-                  className={cn(
-                    'ltr-content text-[11px]',
-                    active ? 'text-primary-text' : 'text-content-tertiary',
-                  )}
-                >
-                  {cell.rate === null
-                    ? t('rates.noRateForPair')
-                    : cell.offered
-                      ? t('machine.handsOver', { currency: cell.from })
-                      : t('machine.notOffered')}
-                </span>
-              </button>
-            );
-          }}
-        />
-
-        {/*
-        The tape: what the board has already done today, styled as part of it
-        rather than as another card, because that is what it is. `order-last`
-        drops it below the keypad on a phone — a teller reaching for a digit
-        should not have to scroll past yesterday — and keeps it under the board
-        on a wide screen, where it is the last thing in this column anyway.
-      */}
-        {recent.length > 0 && (
-          <div className="dark order-last overflow-hidden rounded-[var(--radius-card)] border border-border-base bg-canvas">
-            <p className="border-b border-border-base px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-content-secondary">
-              {t('machine.recent')}
-            </p>
-            <ul className="divide-y divide-border-subtle">
-              {recent.map((row) => (
-                <li key={row.id} className="flex items-center justify-between gap-3 px-4 py-2">
-                  <span className="min-w-0 flex-1 truncate font-mono text-xs text-content-tertiary ltr-content">
-                    {row.reference}
-                  </span>
-                  <span className="font-mono text-xs text-content ltr-content">
-                    {formatScaled(row.fromAmount, byCode.get(row.fromCurrency)?.decimals ?? 2)}{' '}
-                    {row.fromCurrency} →{' '}
-                    {formatScaled(row.toAmount, byCode.get(row.toCurrency)?.decimals ?? 2)}{' '}
-                    {row.toCurrency}
-                  </span>
-                  {permissions.includes('exchange.receipt.print') && (
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      title={t('transactions.printReceipt')}
-                      onClick={() => print(row.id)}
-                    >
-                      <Printer className="size-4" />
-                    </Button>
-                  )}
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-      </div>
-
-      {/* ================= The ticket ================= */}
-      <div className="space-y-3">
-        <div className="overflow-hidden rounded-[var(--radius-card)] border border-border-base bg-surface">
-          {/* What was taken off the board, restated so the ticket stands alone. */}
-          <div className="flex items-center justify-between gap-2 border-b border-border-base bg-surface-sunken px-4 py-2">
-            <span className="ltr-content font-mono text-sm font-semibold text-content">
-              {from} <span className="text-content-tertiary">→</span> {to}
-            </span>
-            <span className="text-[11px] text-content-tertiary">
-              {quote ? (
-                <span className="ltr-content font-mono">
-                  1 {from} = {formatScaled(quote.rate, 4)} {to}
-                </span>
-              ) : (
-                t('machine.ticket')
-              )}
-            </span>
-          </div>
-
-          <div className="p-4">
-            <AmountPanel
+    <div className="mx-auto w-full max-w-5xl">
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_19rem] lg:items-start">
+        {/* ============ The card ============ */}
+        <div className="space-y-4">
+          <section className="rounded-3xl bg-surface p-2 shadow-[var(--shadow-lg)] ring-1 ring-border-subtle">
+            <AmountRow
               label={t('machine.customerPays')}
               currency={fromCurrency}
+              options={payable}
+              onChoose={chooseFrom}
               value={payAmount}
               active={side === 'pay'}
-              onSelect={() => {
+              onFocusSide={() => {
                 if (side !== 'pay') {
                   setSide('pay');
-                  setAmount(
-                    quote ? formatPlain(quote.fromAmount, fromCurrency?.decimals ?? 2) : '',
-                  );
+                  setAmount(quote ? formatPlain(quote.fromAmount, fromCurrency?.decimals ?? 2) : '');
                 }
               }}
               ln={ln}
             />
 
-            {/* Swap sits on the seam between the two panels. */}
-            <div className="relative my-2 flex items-center">
-              <div className="h-px flex-1 bg-border-base" />
-              <button
-                type="button"
-                onClick={swap}
-                aria-label={t('machine.swap')}
-                className="mx-3 flex size-9 items-center justify-center rounded-full border border-border-base bg-surface text-content-secondary transition-colors hover:border-primary hover:text-primary-text"
-              >
-                <ArrowLeftRight className="size-4" />
-              </button>
-              <div className="h-px flex-1 bg-border-base" />
+            {/*
+              The swap sits on the seam where the two sides meet. Centred by a
+              flex row rather than by `start-1/2` and a translate, because that
+              pair has to be mirrored by hand in RTL and this does not.
+            */}
+            <div className="relative z-10 h-0">
+              <div className="absolute inset-x-0 top-0 flex -translate-y-1/2 justify-center">
+                <button
+                  type="button"
+                  onClick={swap}
+                  disabled={!reversible}
+                  aria-label={t('machine.swap')}
+                  className={cn(
+                    'flex size-11 items-center justify-center rounded-full',
+                    'bg-surface text-content-secondary shadow-[var(--shadow-md)] ring-4 ring-surface',
+                    'transition-all duration-150',
+                    reversible
+                      ? 'hover:text-primary-text hover:shadow-[var(--shadow-lg)] active:scale-90'
+                      : 'opacity-40',
+                  )}
+                >
+                  <ArrowDownUp className="size-5" />
+                </button>
+              </div>
             </div>
 
-            <AmountPanel
+            <AmountRow
               label={t('machine.customerReceives')}
               currency={toCurrency}
+              options={receivable(from)}
+              onChoose={chooseTo}
               value={receiveAmount}
               active={side === 'receive'}
-              onSelect={() => {
+              onFocusSide={() => {
                 if (side !== 'receive') {
                   setSide('receive');
                   setAmount(quote ? formatPlain(quote.toAmount, toCurrency?.decimals ?? 2) : '');
@@ -504,73 +413,78 @@ export function MachineView({
               hero
               busy={quoting}
             />
+          </section>
+
+          {/* The rate, as one line rather than a board. */}
+          <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-sm">
+            {quote || boardRate ? (
+              <span className="flex items-center gap-2 text-content-secondary">
+                <span className="size-1.5 animate-pulse rounded-full bg-success" aria-hidden />
+                <span className="ltr-content font-medium tabular-nums text-content">
+                  1 {from} = {formatScaled(quote ? quote.rate : effectiveRate(boardRate!, from), 4)}{' '}
+                  {to}
+                </span>
+              </span>
+            ) : (
+              <span className="text-danger-text">{t('rates.noRateForPair')}</span>
+            )}
 
             {canSeeSpread && quote?.profit && (
-              <p className="mt-3 text-end text-[11px] text-content-tertiary">
+              <span className="text-content-tertiary">
                 {t('transactions.profit')}{' '}
                 <Money value={quote.profit} currency={to} className="text-content-secondary" />
-              </p>
+              </span>
             )}
           </div>
+
+          {/* --- Anything standing in the way --------------------------- */}
+          {error && <Blocker tone="danger">{error}</Blocker>}
+
+          {quote && !quote.available && (
+            <Blocker tone="danger" title={t('machine.cannotPayTitle')}>
+              {t('machine.cannotPayBody', {
+                account: `${t('drawers.title')} ${to}`,
+                available: `${formatScaled(quote.availableAmount, toCurrency?.decimals ?? 2)} ${to}`,
+              })}
+            </Blocker>
+          )}
+
+          {quote?.overLimit && (
+            <Blocker tone="warning" title={t('machine.overLimitTitle')}>
+              {t('machine.overLimitBody', {
+                maximum: `${formatScaled(config.maxAmount, fromCurrency?.decimals ?? 2)} ${from}`,
+              })}
+            </Blocker>
+          )}
+
+          {quote?.requiresCustomer && !customer && (
+            <Blocker tone="warning" title={t('machine.customerRequiredTitle')}>
+              {t('machine.customerRequiredBody')}
+            </Blocker>
+          )}
+
+          {done && (
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-success-subtle px-4 py-3 ring-1 ring-success-border">
+              <span className="flex items-center gap-2 text-sm text-content">
+                <span className="flex size-6 items-center justify-center rounded-full bg-success">
+                  <Check className="size-4 text-white" />
+                </span>
+                {t('machine.recorded')}
+                <span className="font-mono ltr-content">{done.reference}</span>
+              </span>
+              {permissions.includes('exchange.receipt.print') && (
+                <Button size="sm" variant="ghost" icon={<Printer />} onClick={() => print(done.id)}>
+                  {t('transactions.printReceipt')}
+                </Button>
+              )}
+            </div>
+          )}
         </div>
 
-        {/* --- Anything standing in the way ----------------------------- */}
-        {error && <Blocker tone="danger">{error}</Blocker>}
-
-        {quote && !quote.available && (
-          <Blocker tone="danger" title={t('machine.cannotPayTitle')}>
-            {t('machine.cannotPayBody', {
-              account: `${t('drawers.title')} ${to}`,
-              available: `${formatScaled(quote.availableAmount, toCurrency?.decimals ?? 2)} ${to}`,
-            })}
-          </Blocker>
-        )}
-
-        {quote?.overLimit && (
-          <Blocker tone="warning" title={t('machine.overLimitTitle')}>
-            {t('machine.overLimitBody', {
-              maximum: `${formatScaled(config.maxAmount, fromCurrency?.decimals ?? 2)} ${from}`,
-            })}
-          </Blocker>
-        )}
-
-        {quote?.requiresCustomer && !customer && (
-          <Blocker tone="warning" title={t('machine.customerRequiredTitle')}>
-            {t('machine.customerRequiredBody')}
-          </Blocker>
-        )}
-
-        {done && (
-          <div className="flex flex-wrap items-center justify-between gap-3 rounded-[var(--radius-control)] border border-success bg-success-subtle p-3">
-            <span className="flex items-center gap-2 text-sm text-content">
-              <Check className="size-4 text-success-text" />
-              {t('machine.recorded')}
-              <span className="font-mono ltr-content">{done.reference}</span>
-            </span>
-            {permissions.includes('exchange.receipt.print') && (
-              <Button
-                size="sm"
-                variant="secondary"
-                icon={<Printer />}
-                onClick={() => print(done.id)}
-              >
-                {t('transactions.printReceipt')}
-              </Button>
-            )}
-          </div>
-        )}
-
-        {/* --- The keypad ----------------------------------------------- */}
-        <div className="rounded-[var(--radius-card)] border border-border-base bg-surface p-3">
-          {/*
-            The keypad and the quick amounts stay left-to-right in every
-            language. A numeric keypad is muscle memory — 7 is at the top left
-            of every calculator, cash register and phone, including Arabic ones
-            — and letting the RTL layout mirror it would slow down the one
-            operator who uses this hundreds of times a day.
-          */}
+        {/* ============ Entry ============ */}
+        <div className="space-y-3">
           {config.quickAmounts.length > 0 && (
-            <div dir="ltr" className="mb-3 grid grid-cols-3 gap-2">
+            <div dir="ltr" className="grid grid-cols-3 gap-2">
               {config.quickAmounts.map((value) => (
                 <button
                   key={value}
@@ -579,7 +493,7 @@ export function MachineView({
                     setDone(null);
                     setAmount(String(value));
                   }}
-                  className="min-h-10 rounded-[var(--radius-control)] border border-border-base bg-surface-sunken text-sm font-medium text-content-secondary transition-colors hover:border-primary hover:text-content"
+                  className="h-10 rounded-full bg-surface-sunken text-sm font-medium text-content-secondary transition-colors hover:bg-surface-hover hover:text-content"
                 >
                   {value.toLocaleString('en-US')}
                 </button>
@@ -587,6 +501,13 @@ export function MachineView({
             </div>
           )}
 
+          {/*
+            The keypad stays left-to-right in every language. A numeric keypad
+            is muscle memory — 7 is at the top left of every calculator, cash
+            register and phone, including Arabic ones — and letting the RTL
+            layout mirror it would slow down the one person who uses this
+            hundreds of times a day.
+          */}
           <div dir="ltr" className="grid grid-cols-3 gap-2">
             {['7', '8', '9', '4', '5', '6', '1', '2', '3'].map((key) => (
               <Key key={key} onPress={() => press(key)}>
@@ -602,49 +523,128 @@ export function MachineView({
             </Key>
           </div>
 
-          <div className="mt-3 grid grid-cols-[auto_1fr] gap-2">
-            <Button variant="ghost" icon={<RotateCcw />} onClick={reset}>
-              {t('machine.clear')}
-            </Button>
-            <Button
-              variant="primary"
-              size="lg"
-              icon={<Check />}
-              loading={posting}
-              disabled={!quote || blocked || quoting}
-              onClick={() => void submit()}
-            >
-              {t('machine.record')}
-            </Button>
-          </div>
+          <button
+            type="button"
+            onClick={() => void submit()}
+            disabled={!quote || blocked || quoting || posting}
+            className={cn(
+              'flex h-14 w-full items-center justify-center gap-2 rounded-2xl',
+              'bg-primary text-base font-semibold text-white',
+              'shadow-[var(--shadow-md)] transition-all duration-150',
+              'hover:bg-primary-hover active:scale-[0.98]',
+              'disabled:opacity-40 disabled:shadow-none disabled:active:scale-100',
+            )}
+          >
+            {posting ? (
+              <Loader2 className="size-5 animate-spin" />
+            ) : (
+              <Check className="size-5" />
+            )}
+            {t('machine.record')}
+          </button>
+
+          <button
+            type="button"
+            onClick={reset}
+            className="flex h-9 w-full items-center justify-center gap-2 rounded-full text-sm text-content-tertiary transition-colors hover:bg-surface-sunken hover:text-content-secondary"
+          >
+            <RotateCcw className="size-4" />
+            {t('machine.clear')}
+          </button>
         </div>
 
-        {/* --- Who it was for ------------------------------------------- */}
-        <div className="rounded-[var(--radius-card)] border border-border-base bg-surface p-3">
-          <p className="mb-2 text-xs font-medium uppercase tracking-wide text-content-secondary">
-            {quote?.requiresCustomer
-              ? t('machine.customerRequiredTitle')
-              : t('machine.customerOptional')}
-          </p>
-          <div className="space-y-3">
-            <CustomerPicker
-              value={customer}
-              onChange={setCustomer}
-              permissions={permissions}
-              required={quote?.requiresCustomer}
-            />
-            {!customer && (
-              <Field label={t('transactions.counterpartyName')}>
-                {(props) => (
-                  <Input
-                    {...props}
-                    value={counterpartyName}
-                    onChange={(event) => setCounterpartyName(event.target.value)}
-                  />
+        {/* ============ Folded away until needed ============ */}
+        <div className="space-y-3 lg:col-span-2">
+          {customerOpen || customer || quote?.requiresCustomer ? (
+            <div className="rounded-2xl bg-surface p-4 ring-1 ring-border-subtle">
+              <div className="mb-3 flex items-center justify-between gap-2">
+                <p className="text-sm font-medium text-content">
+                  {quote?.requiresCustomer
+                    ? t('machine.customerRequiredTitle')
+                    : t('machine.customerOptional')}
+                </p>
+                {!quote?.requiresCustomer && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCustomerOpen(false);
+                      setCustomer(null);
+                      setCounterpartyName('');
+                    }}
+                    aria-label={t('common.close')}
+                    className="rounded-full p-1 text-content-tertiary transition-colors hover:bg-surface-sunken hover:text-content"
+                  >
+                    <X className="size-4" />
+                  </button>
                 )}
-              </Field>
-            )}
-          </div>
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                <CustomerPicker
+                  value={customer}
+                  onChange={setCustomer}
+                  permissions={permissions}
+                  required={quote?.requiresCustomer}
+                />
+                {!customer && (
+                  <Field label={t('transactions.counterpartyName')}>
+                    {(props) => (
+                      <Input
+                        {...props}
+                        value={counterpartyName}
+                        onChange={(event) => setCounterpartyName(event.target.value)}
+                      />
+                    )}
+                  </Field>
+                )}
+              </div>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setCustomerOpen(true)}
+              className="flex h-11 w-full items-center justify-center gap-2 rounded-2xl border border-dashed border-border-base text-sm text-content-tertiary transition-colors hover:border-primary hover:text-primary-text"
+            >
+              <Plus className="size-4" />
+              {t('machine.attachCustomer')}
+            </button>
+          )}
+
+          {recent.length > 0 && (
+            <div className="rounded-2xl bg-surface ring-1 ring-border-subtle">
+              <p className="px-4 pt-3 text-xs font-medium text-content-tertiary">
+                {t('machine.recent')}
+              </p>
+              <ul className="divide-y divide-border-subtle">
+                {recent.map((row) => (
+                  <li key={row.id} className="flex items-center justify-between gap-3 px-4 py-2.5">
+                    <span className="ltr-content text-sm tabular-nums text-content">
+                      {formatScaled(row.fromAmount, byCode.get(row.fromCurrency)?.decimals ?? 2)}{' '}
+                      {row.fromCurrency}
+                      <span className="mx-2 text-content-tertiary">→</span>
+                      {formatScaled(row.toAmount, byCode.get(row.toCurrency)?.decimals ?? 2)}{' '}
+                      {row.toCurrency}
+                    </span>
+                    <span className="flex items-center gap-2">
+                      <span className="hidden font-mono text-xs text-content-tertiary ltr-content sm:inline">
+                        {row.reference}
+                      </span>
+                      {permissions.includes('exchange.receipt.print') && (
+                        <button
+                          type="button"
+                          onClick={() => print(row.id)}
+                          title={t('transactions.printReceipt')}
+                          className="rounded-full p-1.5 text-content-tertiary transition-colors hover:bg-surface-sunken hover:text-content"
+                        >
+                          <Printer className="size-4" />
+                        </button>
+                      )}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -652,27 +652,31 @@ export function MachineView({
 }
 
 /**
- * One side of the trade.
+ * One side of the card: what is handed over, or what is handed back.
  *
- * The receiving side is the hero: it is the figure the operator reads out and
- * the customer checks, so it is the largest thing on the ticket and the only
- * thing carrying colour.
+ * The receiving side is the hero — it is the figure read out loud and the one
+ * the customer checks — so it is the largest thing on the screen and the only
+ * one carrying colour.
  */
-function AmountPanel({
+function AmountRow({
   label,
   currency,
+  options,
+  onChoose,
   value,
   active,
-  onSelect,
+  onFocusSide,
   hero,
   busy,
   ln,
 }: {
   label: string;
   currency: Currency | undefined;
+  options: Currency[];
+  onChoose: (code: string) => void;
   value: string;
   active: boolean;
-  onSelect: () => void;
+  onFocusSide: () => void;
   hero?: boolean;
   busy?: boolean;
   ln: (record: object, baseKey: string) => string;
@@ -685,42 +689,102 @@ function AmountPanel({
     value === '' ? (0).toFixed(decimals) : active ? value : formatScaled(value, decimals);
 
   return (
-    <button
-      type="button"
-      onClick={onSelect}
-      aria-current={active}
+    <div
       className={cn(
-        'w-full rounded-[var(--radius-control)] border-2 px-4 text-start transition-colors',
-        hero ? 'py-4' : 'py-3',
-        active
-          ? 'border-primary bg-primary-subtle'
-          : 'border-transparent bg-surface-sunken hover:border-border-base',
+        'rounded-[1.35rem] px-5 transition-colors duration-150',
+        hero ? 'py-6' : 'py-5',
+        active ? 'bg-primary-subtle' : 'bg-surface-sunken',
       )}
     >
-      <span className="flex items-center justify-between gap-2">
-        <span className="text-xs font-medium uppercase tracking-wide text-content-secondary">
-          {label}
-        </span>
-        <span className="flex items-center gap-2 text-xs text-content-tertiary">
-          {busy && <Loader2 className="size-3 animate-spin" />}
-          {currency ? ln(currency as unknown as Record<string, unknown>, 'name') : ''}
-        </span>
-      </span>
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-xs font-medium text-content-secondary">{label}</span>
+        {busy && <Loader2 className="size-3.5 animate-spin text-content-tertiary" />}
+      </div>
 
-      <span className="mt-1 flex items-baseline justify-between gap-3 ltr-content">
-        <span
-          className={cn(
-            'font-mono tabular-nums tracking-tight',
-            hero ? 'text-4xl font-bold text-primary-text' : 'text-2xl font-semibold text-content',
+      <div className="mt-3 flex items-center gap-3">
+        <DropdownMenu
+          align="start"
+          trigger={(props) => (
+            <button
+              {...props}
+              type="button"
+              className={cn(
+                'flex shrink-0 items-center gap-2 rounded-full bg-surface py-1.5 pe-2 ps-1.5',
+                'shadow-[var(--shadow-sm)] ring-1 ring-border-subtle',
+                'transition-all duration-150 hover:ring-primary active:scale-95',
+              )}
+            >
+              <span
+                className={cn(
+                  'flex size-8 items-center justify-center rounded-full text-sm font-semibold',
+                  hero ? 'bg-primary text-white' : 'bg-surface-sunken text-content-secondary',
+                )}
+              >
+                {currency?.symbol}
+              </span>
+              <span className="font-semibold text-content ltr-content">{currency?.code}</span>
+              <ChevronDown className="size-4 text-content-tertiary" />
+            </button>
           )}
         >
-          {display}
-        </span>
-        <span className={cn('font-semibold text-content-secondary', hero ? 'text-lg' : 'text-sm')}>
-          {currency?.code}
-        </span>
-      </span>
-    </button>
+          {(close) => (
+            <div className="py-1">
+              {options.map((option) => (
+                <button
+                  key={option.code}
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    onChoose(option.code);
+                    close();
+                  }}
+                  className={cn(
+                    'flex w-full items-center gap-3 px-3 py-2 text-start transition-colors',
+                    'hover:bg-surface-hover',
+                    option.code === currency?.code && 'bg-primary-subtle',
+                  )}
+                >
+                  <span className="flex size-7 items-center justify-center rounded-full bg-surface-sunken text-xs font-semibold text-content-secondary">
+                    {option.symbol}
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block text-sm font-semibold text-content ltr-content">
+                      {option.code}
+                    </span>
+                    <span className="block truncate text-xs text-content-tertiary">
+                      {ln(option as unknown as Record<string, unknown>, 'name')}
+                    </span>
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+        </DropdownMenu>
+
+        {/*
+          The number is a button, not an input: entry comes from the keypad, so
+          a caret here would invite a second, competing way to type that the
+          amount formatting is not written to survive.
+        */}
+        <button
+          type="button"
+          onClick={onFocusSide}
+          aria-current={active}
+          className="min-w-0 flex-1 text-end"
+        >
+          <span
+            className={cn(
+              'block truncate tabular-nums tracking-tight ltr-content',
+              hero
+                ? 'text-4xl font-bold text-primary-text sm:text-5xl'
+                : 'text-3xl font-semibold text-content sm:text-4xl',
+            )}
+          >
+            {display}
+          </span>
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -737,8 +801,10 @@ function Blocker({
   return (
     <div
       className={cn(
-        'flex gap-3 rounded-[var(--radius-control)] border p-3',
-        tone === 'danger' ? 'border-danger bg-danger-subtle' : 'border-warning bg-warning-subtle',
+        'flex gap-3 rounded-2xl px-4 py-3 ring-1',
+        tone === 'danger'
+          ? 'bg-danger-subtle ring-danger-border'
+          : 'bg-warning-subtle ring-warning-border',
       )}
     >
       <TriangleAlert
@@ -772,16 +838,32 @@ function Key({
       onClick={onPress}
       disabled={disabled}
       className={cn(
-        'flex h-14 items-center justify-center rounded-[var(--radius-control)] border border-border-base',
-        'bg-surface text-2xl font-medium text-content tabular-nums',
-        'transition-colors duration-75 hover:border-primary active:bg-surface-sunken',
-        'disabled:opacity-40 disabled:hover:border-border-base',
+        'flex h-16 items-center justify-center rounded-2xl bg-surface-sunken',
+        'text-2xl font-medium text-content tabular-nums',
+        'transition-all duration-100 hover:bg-surface-hover active:scale-95',
+        'disabled:opacity-30 disabled:active:scale-100',
       )}
       {...props}
     >
       {children}
     </button>
   );
+}
+
+/**
+ * The published figure for a direction, as a rate from one unit of `from`.
+ *
+ * A board stores one row per pair: the office buys the base at `buyRate` and
+ * sells it at `sellRate`. Handing over the base is a purchase, handing over the
+ * quote is a sale priced by the reciprocal — so the direction decides which of
+ * the two the line should show, and whether it needs inverting.
+ */
+function effectiveRate(rate: BoardRate, from: string): string {
+  if (rate.baseCode === from) return rate.buyRate;
+
+  const sell = BigInt(rate.sellRate);
+  if (sell === 0n) return '0';
+  return ((10n ** 16n) / sell).toString();
 }
 
 /** Renders a 1e8-scaled string at a currency's own precision. */

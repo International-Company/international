@@ -140,14 +140,10 @@ export function Board({
   footer?: ReactNode;
 }) {
   return (
-    // `dark` re-declares the theme variables for this subtree, so every token
-    // underneath resolves to its dark value without a single hard-coded colour.
-    <div className="dark overflow-hidden rounded-[var(--radius-card)] border border-border-base bg-canvas shadow-[var(--shadow-md)]">
-      <div className="flex items-center justify-between gap-3 border-b border-border-base px-4 py-2.5">
-        <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-content-secondary">
-          {title}
-        </span>
-        <span className="flex items-center gap-2 text-[11px] text-content-tertiary">
+    <div className="overflow-hidden rounded-2xl bg-surface shadow-[var(--shadow-sm)] ring-1 ring-border-subtle">
+      <div className="flex items-center justify-between gap-3 px-5 pb-2 pt-4">
+        <span className="text-sm font-semibold text-content">{title}</span>
+        <span className="flex items-center gap-2 text-xs text-content-tertiary">
           <span className="size-1.5 animate-pulse rounded-full bg-success" aria-hidden />
           {liveLabel}
           {updatedAt && (
@@ -161,45 +157,45 @@ export function Board({
 
       <div
         role="table"
-        className="[--board-grid:minmax(6.5rem,1fr)_minmax(0,1.15fr)_minmax(0,1.15fr)]"
+        className="px-2 pb-2 [--board-grid:minmax(6rem,1fr)_minmax(0,1.15fr)_minmax(0,1.15fr)]"
       >
         <div
           role="row"
-          className="grid grid-cols-[var(--board-grid)] gap-px bg-border-subtle text-[11px] font-medium uppercase tracking-wider text-content-tertiary"
+          className="grid grid-cols-[var(--board-grid)] text-xs font-medium text-content-tertiary"
         >
-          <span role="columnheader" className="bg-canvas px-4 py-2">
+          <span role="columnheader" className="px-3 py-2">
             {headings[0]}
           </span>
-          <span role="columnheader" className="bg-canvas px-3 py-2 text-center">
+          <span role="columnheader" className="px-3 py-2 text-center">
             {headings[1]}
           </span>
-          <span role="columnheader" className="bg-canvas px-3 py-2 text-center">
+          <span role="columnheader" className="px-3 py-2 text-center">
             {headings[2]}
           </span>
         </div>
 
-        <div className="grid gap-px bg-border-subtle pt-px">
+        <div className="space-y-1.5">
           {rows.map((row) => (
             <div
               key={`${row.base}/${row.quote}`}
               role="row"
-              className="grid grid-cols-[var(--board-grid)] gap-px bg-border-subtle"
+              className="grid grid-cols-[var(--board-grid)] items-stretch overflow-hidden rounded-xl bg-surface-sunken"
             >
-              <span role="rowheader" className="flex flex-col justify-center bg-canvas px-4 py-3">
-                <span className="ltr-content font-mono text-sm font-semibold tracking-tight text-content">
+              <span role="rowheader" className="flex flex-col justify-center px-3 py-3">
+                <span className="ltr-content text-sm font-semibold tracking-tight text-content">
                   {row.base}
-                  <span className="text-content-tertiary">/</span>
+                  <span className="text-content-tertiary"> / </span>
                   {row.quote}
                 </span>
-                <span className="truncate text-[11px] text-content-tertiary">
+                <span className="truncate text-xs text-content-tertiary">
                   {names.get(row.base) ?? row.base}
                 </span>
               </span>
 
-              <span role="cell" className="bg-canvas">
+              <span role="cell" className="flex">
                 {cell(row.buy, 'buy')}
               </span>
-              <span role="cell" className="bg-canvas">
+              <span role="cell" className="flex">
                 {cell(row.sell, 'sell')}
               </span>
             </div>
@@ -220,13 +216,13 @@ export function Board({
  */
 export function BoardPrice({ rate, muted }: { rate: string | null; muted?: boolean }) {
   if (rate === null) {
-    return <span className="font-mono text-2xl text-content-tertiary">—</span>;
+    return <span className="text-2xl text-content-tertiary">—</span>;
   }
 
   return (
     <span
       className={cn(
-        'ltr-content font-mono text-2xl font-semibold tabular-nums tracking-tight sm:text-[1.75rem]',
+        'ltr-content text-xl font-semibold tabular-nums tracking-tight sm:text-2xl',
         muted ? 'text-content-tertiary' : 'text-content',
       )}
     >
