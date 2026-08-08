@@ -75,6 +75,16 @@ const TABLES = [
 
 type TableName = (typeof TABLES)[number];
 
+/**
+ * Columns that point at another row in their own table. A reversal points at
+ * the transaction it reverses, and its journal entry at the entry it mirrors —
+ * so no insertion order can satisfy them both. Restore writes these last.
+ */
+const SELF_REFERENCES: Partial<Record<TableName, string>> = {
+  transaction: 'reversalOfId',
+  journalEntry: 'reversesEntryId',
+};
+
 const SNAPSHOT_VERSION = 1;
 
 interface Snapshot {
@@ -314,29 +324,51 @@ export async function restoreBackup(
 
     await prisma.$transaction(
       async (tx) => {
-        // Self-referencing rows (a reversal points at its original) would fail
-        // ordinary FK checks whatever order we choose; defer to commit time.
-        await tx.$executeRawUnsafe('PRAGMA defer_foreign_keys = ON');
-
         for (const table of [...TABLES].reverse()) {
           const delegate = tx[table] as unknown as { deleteMany: () => Promise<unknown> };
           await delegate.deleteMany();
         }
 
+        // Self-references are filled in after every row exists, rather than by
+        // deferring the constraint. Deferral is per-dialect — SQLite wants a
+        // PRAGMA, PostgreSQL only defers constraints declared DEFERRABLE, which
+        // Prisma's are not — so a restore that worked in development would
+        // half-complete in production. Nulling and patching needs no dialect.
+        const pending: { table: TableName; id: string; column: string; value: string }[] = [];
+
         for (const table of TABLES) {
           const rows = (snapshot.tables[table] ?? []).map(decode) as Record<string, unknown>[];
           if (rows.length === 0) continue;
 
+          const selfColumn = SELF_REFERENCES[table];
+
           const delegate = tx[table] as unknown as {
             create: (args: { data: unknown }) => Promise<unknown>;
+            update: (args: { where: { id: string }; data: unknown }) => Promise<unknown>;
           };
 
           // Row-at-a-time: `createMany` skips nested type coercion and would
           // silently drop the bigint columns this system depends on.
           for (const row of rows) {
+            if (selfColumn && typeof row[selfColumn] === 'string') {
+              pending.push({
+                table,
+                id: row.id as string,
+                column: selfColumn,
+                value: row[selfColumn] as string,
+              });
+              row[selfColumn] = null;
+            }
             await delegate.create({ data: row });
             rowsRestored++;
           }
+        }
+
+        for (const link of pending) {
+          const delegate = tx[link.table] as unknown as {
+            update: (args: { where: { id: string }; data: unknown }) => Promise<unknown>;
+          };
+          await delegate.update({ where: { id: link.id }, data: { [link.column]: link.value } });
         }
       },
       { timeout: 600_000, maxWait: 30_000 },

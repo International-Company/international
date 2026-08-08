@@ -188,8 +188,20 @@ export async function resolveSession(
 /**
  * Slides the idle deadline, never past the absolute ceiling.
  * Throttled to once a minute — every request would otherwise write a row.
+ *
+ * The clamp is applied here in one statement rather than by a follow-up
+ * `UPDATE … SET expiresAt = absoluteExpiresAt`: comparing two columns needs raw
+ * SQL, and raw SQL means writing the identifiers by hand. Unquoted camelCase
+ * survives SQLite and is folded to lowercase by PostgreSQL, so that statement
+ * worked in development and failed on every request in production. The caller
+ * already holds the ceiling — passing it costs nothing and takes the dialect
+ * out of the hot path.
  */
-export async function touchSession(sessionId: string, db: DbClient = prisma): Promise<void> {
+export async function touchSession(
+  sessionId: string,
+  absoluteExpiresAt: Date,
+  db: DbClient = prisma,
+): Promise<void> {
   const now = new Date();
   const next = idleExpiry(now);
 
@@ -202,15 +214,9 @@ export async function touchSession(sessionId: string, db: DbClient = prisma): Pr
       },
       data: {
         lastSeenAt: now,
-        expiresAt: next,
+        expiresAt: next < absoluteExpiresAt ? next : absoluteExpiresAt,
       },
     });
-
-    // Never let the sliding window outlive the hard ceiling.
-    await db.$executeRaw`
-      UPDATE sessions SET expiresAt = absoluteExpiresAt
-      WHERE id = ${sessionId} AND expiresAt > absoluteExpiresAt
-    `;
   } catch (error) {
     log.warn('Failed to touch session', { sessionId, error });
   }

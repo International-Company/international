@@ -44,7 +44,7 @@ export const getSession = cache(async (): Promise<ResolvedSession | null> => {
   if (!session) return null;
 
   // Sliding expiry. Fire-and-forget: a failed touch must not fail the request.
-  void touchSession(session.sessionId);
+  void touchSession(session.sessionId, session.absoluteExpiresAt);
 
   return session;
 });

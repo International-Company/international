@@ -210,6 +210,20 @@ async function main() {
     }
   }
 
+  // --- Retire permissions removed from the catalogue -------------------------
+  //
+  // Role grants are rebuilt from the catalogue above, so a withdrawn permission
+  // is already granted to nobody. The row itself still has to go: left behind it
+  // appears on the Roles screen as something an administrator can tick, and
+  // ticking it would grant a key no code checks any more. Deleting cascades to
+  // any per-user override, which is the same reasoning.
+  const retiredPermissions = await prisma.permission.deleteMany({
+    where: { key: { notIn: PERMISSIONS.map((p) => p.key) } },
+  });
+  if (retiredPermissions.count > 0) {
+    console.log(`  retired perms   ${retiredPermissions.count}`);
+  }
+
   // --- Settings -------------------------------------------------------------
   for (const setting of SETTINGS) {
     await prisma.systemSetting.upsert({
@@ -226,7 +240,17 @@ async function main() {
       update: { category: setting.category, description: setting.descriptionEn },
     });
   }
+  // A setting whose feature no longer exists is worse than clutter: it reads as
+  // a control that does something. Configured values are never overwritten
+  // above, but a key the catalogue has dropped has nothing left to configure.
+  const retiredSettings = await prisma.systemSetting.deleteMany({
+    where: { key: { notIn: SETTINGS.map((s) => s.key) } },
+  });
+
   console.log(`  settings        ${SETTINGS.length}`);
+  if (retiredSettings.count > 0) {
+    console.log(`  retired settings ${retiredSettings.count}`);
+  }
 
   // --- Scheduled tasks -------------------------------------------------------
   for (const task of DEFAULT_SCHEDULE) {
