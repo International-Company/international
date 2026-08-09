@@ -228,6 +228,12 @@ const ar: Dictionary = {
   },
 
   transactions: {
+    editDetails: 'تعديل البيانات',
+    editDetailsHint: 'ما لم يحرّك مالاً فقط. أما المبالغ والسعر والعملات فتُصحَّح لا تُعدَّل.',
+    correct: 'تصحيح المبلغ',
+    correctHint: 'يعكس هذه العملية ويسجّل الصحيحة معاً. وتبقى الثلاث على السجل.',
+    correctKeepsRate: 'يُحتفظ بالسعر ولا يُعاد تسعيره: {rate}',
+    corrected: 'صُحّحت وأُعيد تسجيلها',
     confirmTransfer: 'تأكيد التحويل',
     transferConfirmed: 'تم تأكيد التحويل',
     pendingTransfers: 'تحويلات بانتظار التأكيد',
@@ -1037,6 +1043,8 @@ const ar: Dictionary = {
   },
 
   errors: {
+    cannotEditReversal: 'العملية العكسية تحمل سبب عكسها، ولا تُعدَّل',
+    nothingToCorrect: 'هذا هو المبلغ المسجّل أصلاً',
     drawerExists: 'يوجد صندوق بالفعل لـ {currency}',
     drawerHasHistory: 'خلف هذا الصندوق {count} حركة — أغلقه بدل حذفه',
     drawerHasWallets: 'هذا الصندوق مرتبط بـ {count} محفظة',

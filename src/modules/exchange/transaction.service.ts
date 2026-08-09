@@ -2,7 +2,7 @@ import 'server-only';
 import { Prisma } from '@prisma/client';
 import { prisma, withTransaction, type DbClient } from '@/core/db/prisma';
 import { errors } from '@/core/errors/app-error';
-import { toDecimalString } from '@/core/money/money';
+import { convert, toDecimalString } from '@/core/money/money';
 import { createLogger } from '@/core/logger/logger';
 import { emitAsync } from '@/core/events/bus';
 import { containsInsensitive } from '@/core/db/search';
@@ -291,6 +291,14 @@ export async function reverse(
         fromAmount: original.toAmount,
         toCurrency: original.fromCurrency,
         toAmount: original.fromAmount,
+        /*
+         * A reversal hands back what the customer handed over, and it hands it
+         * back in cash — that is the movement made below. Left at the default
+         * zero these two would disagree with that movement, and any report
+         * adding up payout legs would quietly miss every reversal.
+         */
+        payoutCashAmount: original.fromAmount,
+        payoutBankAmount: 0n,
         rate: original.rate,
         profitAmount: -original.profitAmount,
         counterpartyName: original.counterpartyName,
@@ -436,6 +444,210 @@ function buildWhere(filter: TransactionFilter, actor: Actor): Prisma.Transaction
   }
 
   return where;
+}
+
+/**
+ * Editing the parts of a transaction that never moved money.
+ *
+ * The note, who the other party was, which customer it belongs to. None of
+ * these produced a drawer movement, so changing them cannot make a balance
+ * disagree with its history — and a name typed wrong at the window should be
+ * fixable without reversing a correct trade.
+ *
+ * The amounts, the rate and the currencies are not here on purpose. Editing
+ * those in place would leave the movements saying one thing and the transaction
+ * another: `verifyBalances()` would still pass, because the movements would be
+ * untouched, while the row lied about what it had done. A silent wrong answer
+ * that survives every check is worse than a visible one. `correct` exists for
+ * that, and moves the money to match.
+ *
+ * A reversal row is refused: its note carries the reason it was reversed, and
+ * that is not a field to rewrite.
+ */
+export async function updateDetails(
+  id: string,
+  patch: {
+    notes?: string | null;
+    counterpartyName?: string | null;
+    counterpartyPhone?: string | null;
+    customerId?: string | null;
+  },
+  actor: Actor,
+  db: DbClient = prisma,
+) {
+  if (!actor.permissions.includes('exchange.transaction.edit')) {
+    throw errors.forbidden('exchange.transaction.edit');
+  }
+
+  const original = await db.transaction.findUnique({ where: { id } });
+  if (!original) throw errors.notFound('Transaction', id);
+
+  if (original.reversalOfId) {
+    throw errors.conflict(
+      'A reversal carries the reason it was made; it is not edited',
+      'errors.cannotEditReversal',
+    );
+  }
+
+  if (patch.customerId) {
+    const customer = await db.customer.findUnique({ where: { id: patch.customerId } });
+    if (!customer) throw errors.notFound('Customer', patch.customerId);
+    if (customer.isBlocked) {
+      throw errors.precondition(`Customer ${customer.code} is blocked`, 'errors.customerBlocked');
+    }
+  }
+
+  const updated = await db.transaction.update({
+    where: { id },
+    data: {
+      ...(patch.notes !== undefined ? { notes: patch.notes } : {}),
+      ...(patch.counterpartyName !== undefined
+        ? { counterpartyName: patch.counterpartyName }
+        : {}),
+      ...(patch.counterpartyPhone !== undefined
+        ? { counterpartyPhone: patch.counterpartyPhone }
+        : {}),
+      ...(patch.customerId !== undefined ? { customerId: patch.customerId } : {}),
+    },
+  });
+
+  await audit.record({
+    action: 'UPDATE',
+    module: 'exchange',
+    entityType: 'Transaction',
+    entityId: id,
+    summaryEn: `Edited the details of ${original.reference}`,
+    summaryAr: `تعديل بيانات العملية ${original.reference}`,
+    actor,
+    before: {
+      notes: original.notes,
+      counterpartyName: original.counterpartyName,
+      counterpartyPhone: original.counterpartyPhone,
+      customerId: original.customerId,
+    },
+    after: {
+      notes: updated.notes,
+      counterpartyName: updated.counterpartyName,
+      counterpartyPhone: updated.counterpartyPhone,
+      customerId: updated.customerId,
+    },
+  });
+
+  log.info('Transaction details edited', { reference: original.reference });
+
+  return { id: updated.id, reference: updated.reference };
+}
+
+/**
+ * Correcting an amount: reverse the original and post the right one, together.
+ *
+ * This is what "editing the amount" has to be in a system where the money has
+ * already moved. Both halves run in one database transaction, so the branch is
+ * never left holding a reversal with no replacement, and all three rows stay on
+ * the record — the customer's receipt still matches something.
+ *
+ * The price is kept, not re-quoted. The case this exists for is a teller typing
+ * 100 for 1,000; re-pricing at today's board would silently change what the
+ * customer was charged, which is a different and much worse mistake than the
+ * one being fixed. So the corrected payout is the same rate applied to the
+ * corrected amount, and the split across till and bank keeps its proportion.
+ */
+export async function correct(
+  id: string,
+  input: { fromAmount: bigint; reason: string },
+  actor: Actor,
+  db: DbClient = prisma,
+): Promise<{ id: string; reference: string; status: TransactionStatus }> {
+  if (!actor.permissions.includes('exchange.transaction.edit')) {
+    throw errors.forbidden('exchange.transaction.edit');
+  }
+  if (input.fromAmount <= 0n) {
+    throw errors.precondition('Amount must be greater than zero', 'errors.amountNotPositive');
+  }
+  if (input.reason.trim().length < 3) {
+    throw errors.validation([{ path: 'reason', message: 'Say what was wrong' }]);
+  }
+
+  return withTransaction(async (tx) => {
+    const original = await tx.transaction.findUnique({ where: { id } });
+    if (!original) throw errors.notFound('Transaction', id);
+
+    if (original.fromAmount === input.fromAmount) {
+      throw errors.precondition('That is the amount already recorded', 'errors.nothingToCorrect');
+    }
+
+    const target = await tx.currency.findUnique({ where: { code: original.toCurrency } });
+    const decimals = target?.decimals ?? 2;
+
+    // The same arithmetic that produced the original, at the same rate.
+    const toAmount = convert(input.fromAmount, original.rate, decimals);
+
+    /*
+     * Profit is linear in the amount at a fixed rate, so it scales exactly.
+     * Integer division truncates the last unit; that is a reporting figure, and
+     * a rounded margin is better than one recomputed against a board that has
+     * moved since.
+     */
+    const profitAmount = (original.profitAmount * input.fromAmount) / original.fromAmount;
+
+    /*
+     * The payout keeps its shape. The bank share is taken first and the till
+     * takes the remainder, so the two still sum to exactly the new total no
+     * matter how the division rounds.
+     */
+    const bank =
+      original.toAmount === 0n
+        ? 0n
+        : (toAmount * original.payoutBankAmount) / original.toAmount;
+
+    // Reverse first: the balances must be back before the replacement asks them
+    // to cover it, or a correction upward could be refused for want of money
+    // the original is still holding.
+    await reverse(id, `Correction: ${input.reason.trim()}`, actor, tx);
+
+    const replacement = await record(
+      {
+        type: original.type as TransactionType,
+        branchId: original.branchId,
+        customerId: original.customerId,
+        fromCurrency: original.fromCurrency,
+        fromAmount: input.fromAmount,
+        toCurrency: original.toCurrency,
+        toAmount,
+        payout: { cash: toAmount - bank, bank },
+        rate: original.rate,
+        rateId: original.rateId,
+        profitAmount,
+        counterpartyName: original.counterpartyName,
+        counterpartyPhone: original.counterpartyPhone,
+        notes: `Correction of ${original.reference}: ${input.reason.trim()}`,
+      },
+      actor,
+      tx,
+    );
+
+    await audit.record(
+      {
+        action: 'UPDATE',
+        module: 'exchange',
+        entityType: 'Transaction',
+        entityId: id,
+        summaryEn: `Corrected ${original.reference}: ${toDecimalString(original.fromAmount, 2)} → ${toDecimalString(input.fromAmount, 2)} ${original.fromCurrency}, reposted as ${replacement.reference}`,
+        summaryAr: `تصحيح العملية ${original.reference}: ${toDecimalString(original.fromAmount, 2)} ← ${toDecimalString(input.fromAmount, 2)} ${original.fromCurrency}، أُعيد تسجيلها ${replacement.reference}`,
+        actor,
+        before: { fromAmount: original.fromAmount.toString(), toAmount: original.toAmount.toString() },
+        after: { fromAmount: input.fromAmount.toString(), toAmount: toAmount.toString() },
+      },
+      tx,
+    );
+
+    log.info('Transaction corrected', {
+      original: original.reference,
+      replacement: replacement.reference,
+    });
+
+    return replacement;
+  }, db);
 }
 
 /**

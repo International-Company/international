@@ -226,6 +226,12 @@ const en = {
   },
 
   transactions: {
+    editDetails: 'Edit details',
+    editDetailsHint: 'Only what never moved money. The amounts, the rate and the currencies are corrected, not edited.',
+    correct: 'Correct the amount',
+    correctHint: 'Reverses this posting and records the right one, together. All three stay on the record.',
+    correctKeepsRate: 'The price is kept, not re-quoted: {rate}',
+    corrected: 'Corrected and reposted',
     confirmTransfer: 'Confirm the transfer',
     transferConfirmed: 'Transfer confirmed',
     pendingTransfers: 'Transfers awaiting confirmation',
@@ -1036,6 +1042,8 @@ const en = {
   },
 
   errors: {
+    cannotEditReversal: 'A reversal carries the reason it was made; it is not edited',
+    nothingToCorrect: 'That is the amount already recorded',
     drawerExists: 'A drawer already exists for {currency}',
     drawerHasHistory: 'This drawer has {count} movement(s) behind it — close it instead of removing it',
     drawerHasWallets: 'This drawer is linked to {count} wallet(s)',
