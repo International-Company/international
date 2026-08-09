@@ -51,3 +51,44 @@ export const POST = route<z.infer<typeof bodySchema>>({
     return { currency: body.currency.toUpperCase(), kind: body.kind, balance };
   },
 });
+
+/**
+ * Editing a drawer — its name, its warning threshold, whether it is open.
+ *
+ * Deliberately no balance field. A balance is the sum of the movements under it;
+ * setting it directly would leave the drawer disagreeing with its own history.
+ * Money moves through POST, which records why.
+ */
+const patchSchema = z.object({
+  currency: z.string().min(2).max(8),
+  kind: z.enum(drawers.DRAWER_KINDS).default('CASH'),
+  nameEn: z.string().min(1).max(80).optional(),
+  nameAr: z.string().min(1).max(80).optional(),
+  lowBalanceThreshold: z.string().optional(),
+  allowNegative: z.boolean().optional(),
+  isActive: z.boolean().optional(),
+});
+
+export const PATCH = route<z.infer<typeof patchSchema>>({
+  permissions: ['exchange.drawer.manage'],
+  bodySchema: patchSchema,
+  handler: async ({ body, actor }) => {
+    const updated = await drawers.updateDrawer(
+      body.currency.toUpperCase(),
+      body.kind,
+      {
+        nameEn: body.nameEn,
+        nameAr: body.nameAr,
+        lowBalanceThreshold:
+          body.lowBalanceThreshold !== undefined
+            ? parseMoney(body.lowBalanceThreshold || '0')
+            : undefined,
+        allowNegative: body.allowNegative,
+        isActive: body.isActive,
+      },
+      actor,
+    );
+
+    return { currency: updated.currencyCode, kind: updated.kind };
+  },
+});

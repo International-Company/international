@@ -407,6 +407,13 @@ const ar: Dictionary = {
   },
 
   drawers: {
+    editHint: 'الرصيد غير قابل للتعديل هنا — فهو مجموع الحركات تحته. استعمل إيداع أو سحب، فهما يسجّلان سبب تغيّره.',
+    lowThreshold: 'تنبيه تحت',
+    lowThresholdHint: 'يُظهر تنبيهاً على هذه البطاقة. اتركه فارغاً لإلغاء التنبيه.',
+    allowNegative: 'يجوز أن يكون سالباً',
+    allowNegativeHint: 'مطفأ للنقد: الصندوق السالب خطأ في العدّ لا مركز مالي.',
+    activeHint: 'الصندوق المغلق لا يُصرَّف منه، ويجب أن يكون فارغاً أولاً.',
+    mayGoShort: 'يجوز أن يكون سالباً',
     cash: 'نقد',
     bank: 'بنك',
     title: 'الصناديق',
@@ -1027,6 +1034,7 @@ const ar: Dictionary = {
   },
 
   errors: {
+    drawerNotEmpty: 'أفرغ الصندوق قبل إغلاقه — ما زال يحمل {balance} {currency}',
     notPendingTransfer: 'هذه العملية ليست بانتظار تحويل',
     payoutDoesNotBalance: 'مجموع الشقّ النقدي والبنكي يجب أن يساوي المبلغ المسلّم',
     title: 'حدث خطأ ما',

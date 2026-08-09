@@ -2,12 +2,12 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { AlertTriangle, ArrowDownLeft, ArrowUpRight, Minus, Plus, Vault } from 'lucide-react';
+import { AlertTriangle, ArrowDownLeft, ArrowUpRight, Minus, Pencil, Plus, Vault } from 'lucide-react';
 import { useLocale } from '@/i18n/provider';
 import { api, ApiError } from '@/lib/api-client';
 import { Alert, Badge, Button, Card, CardBody, CardHeader } from '@/ui/primitives';
 import { Dialog, useToast } from '@/ui/overlay';
-import { Field, Input, MoneyInput } from '@/ui/form';
+import { Field, Input, MoneyInput, Switch } from '@/ui/form';
 import { DateText, Money } from '@/ui/display';
 import { cn } from '@/ui/utils';
 
@@ -27,6 +27,8 @@ interface Drawer {
   nameAr: string;
   balance: string;
   lowBalanceThreshold: string;
+  allowNegative: boolean;
+  isActive: boolean;
   kind: string;
   agrees: boolean;
   currency: { symbol: string; decimals: number; kind: string };
@@ -65,6 +67,61 @@ export function DrawersView({
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
   const [selected, setSelected] = useState(drawers[0] ? drawerKey(drawers[0]) : '');
+
+  /*
+   * Editing covers what a drawer *is* — its name, when to warn, whether it is
+   * open — and never what it holds. A balance is the sum of the movements
+   * beneath it; a field that set it directly would leave the drawer disagreeing
+   * with its own history, and the one number that says how much money exists
+   * would become an opinion. Money moves through Add and Take, which record why.
+   */
+  const [editing, setEditing] = useState<Drawer | null>(null);
+  const [form, setForm] = useState({
+    nameEn: '',
+    nameAr: '',
+    lowBalanceThreshold: '',
+    allowNegative: false,
+    isActive: true,
+  });
+
+  const openEditor = (drawer: Drawer) => {
+    setEditing(drawer);
+    setForm({
+      nameEn: drawer.nameEn,
+      nameAr: drawer.nameAr,
+      lowBalanceThreshold: decimalOf(drawer.lowBalanceThreshold),
+      allowNegative: drawer.allowNegative,
+      isActive: drawer.isActive,
+    });
+  };
+
+  const saveEdit = async () => {
+    if (!editing) return;
+    setBusy(true);
+    try {
+      await api.patch('/api/manage/drawers', {
+        currency: editing.currencyCode,
+        kind: editing.kind,
+        nameEn: form.nameEn.trim(),
+        nameAr: form.nameAr.trim(),
+        lowBalanceThreshold: form.lowBalanceThreshold.trim() || '0',
+        allowNegative: form.allowNegative,
+        isActive: form.isActive,
+      });
+      toast.success(t('common.saved'), ln(editing, 'name'));
+      setEditing(null);
+      router.refresh();
+    } catch (cause) {
+      toast.error(
+        t('errors.title'),
+        cause instanceof ApiError
+          ? t(cause.messageKey as never, cause.params as Record<string, string>) || cause.message
+          : t('errors.generic'),
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const canManage = permissions.includes('exchange.drawer.manage');
 
@@ -151,16 +208,24 @@ export function DrawersView({
                 <span className="mt-2 flex flex-wrap gap-1">
                   {low && <Badge tone="warning">{t('drawers.low')}</Badge>}
                   {!drawer.agrees && <Badge tone="danger">{t('drawers.disagrees')}</Badge>}
+                  {!drawer.isActive && <Badge tone="neutral">{t('common.inactive')}</Badge>}
+                  {drawer.allowNegative && <Badge tone="neutral">{t('drawers.mayGoShort')}</Badge>}
                 </span>
               </button>
 
               {canManage && (
-                <div className="mt-3 flex gap-2">
+                <div className="mt-3 flex flex-wrap gap-2">
                   <Button
                     size="sm"
                     variant="secondary"
                     icon={<Plus />}
-                    onClick={() => setFunding({ currency: drawer.currencyCode, kind: drawer.kind, direction: 'IN' })}
+                    onClick={() =>
+                      setFunding({
+                        currency: drawer.currencyCode,
+                        kind: drawer.kind,
+                        direction: 'IN',
+                      })
+                    }
                   >
                     {t('drawers.add')}
                   </Button>
@@ -168,9 +233,23 @@ export function DrawersView({
                     size="sm"
                     variant="ghost"
                     icon={<Minus />}
-                    onClick={() => setFunding({ currency: drawer.currencyCode, kind: drawer.kind, direction: 'OUT' })}
+                    onClick={() =>
+                      setFunding({
+                        currency: drawer.currencyCode,
+                        kind: drawer.kind,
+                        direction: 'OUT',
+                      })
+                    }
                   >
                     {t('drawers.take')}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    icon={<Pencil />}
+                    onClick={() => openEditor(drawer)}
+                  >
+                    {t('common.edit')}
                   </Button>
                 </div>
               )}
@@ -303,8 +382,84 @@ export function DrawersView({
           </Field>
         </div>
       </Dialog>
+
+      {/* --- Editing what a drawer is, never what it holds ---------------- */}
+      <Dialog
+        open={editing !== null}
+        onClose={() => setEditing(null)}
+        title={`${t('common.edit')} — ${editing ? ln(editing, 'name') : ''}`}
+        description={t('drawers.editHint')}
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setEditing(null)} disabled={busy}>
+              {t('common.cancel')}
+            </Button>
+            <Button variant="primary" loading={busy} onClick={() => void saveEdit()}>
+              {t('common.save')}
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-3">
+          <Field label={t('common.name')} required>
+            {(props) => (
+              <Input
+                {...props}
+                value={form.nameAr}
+                onChange={(event) => setForm({ ...form, nameAr: event.target.value })}
+              />
+            )}
+          </Field>
+
+          <Field label={`${t('common.name')} (EN)`} required>
+            {(props) => (
+              <Input
+                {...props}
+                dir="ltr"
+                value={form.nameEn}
+                onChange={(event) => setForm({ ...form, nameEn: event.target.value })}
+              />
+            )}
+          </Field>
+
+          <Field label={t('drawers.lowThreshold')} hint={t('drawers.lowThresholdHint')}>
+            {(props) => (
+              <MoneyInput
+                {...props}
+                value={form.lowBalanceThreshold}
+                onValueChange={(value) => setForm({ ...form, lowBalanceThreshold: value })}
+                decimals={editing?.currency.decimals ?? 2}
+              />
+            )}
+          </Field>
+
+          <Switch
+            checked={form.allowNegative}
+            onCheckedChange={(next) => setForm({ ...form, allowNegative: next })}
+            label={t('drawers.allowNegative')}
+            description={t('drawers.allowNegativeHint')}
+          />
+
+          <Switch
+            checked={form.isActive}
+            onCheckedChange={(next) => setForm({ ...form, isActive: next })}
+            label={t('common.active')}
+            description={t('drawers.activeHint')}
+          />
+        </div>
+      </Dialog>
     </div>
   );
+}
+
+/** A 1e8-scaled string as something an editable field can hold. */
+function decimalOf(scaled: string): string {
+  const value = BigInt(scaled || '0');
+  if (value === 0n) return '';
+  const digits = value.toString().padStart(9, '0');
+  const whole = digits.slice(0, -8);
+  const fraction = digits.slice(-8).replace(/0+$/, '');
+  return fraction ? `${whole}.${fraction}` : whole;
 }
 
 /**

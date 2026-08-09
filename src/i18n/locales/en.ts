@@ -405,6 +405,13 @@ const en = {
   },
 
   drawers: {
+    editHint: 'The balance is not editable here — it is the sum of the movements beneath it. Use Add or Take, which record why it changed.',
+    lowThreshold: 'Warn below',
+    lowThresholdHint: 'Shows a warning on this card. Leave empty for no warning.',
+    allowNegative: 'May go short',
+    allowNegativeHint: 'Off for cash: a negative till is a counting mistake, not a position.',
+    activeHint: 'A closed drawer cannot be traded from. It must be empty first.',
+    mayGoShort: 'May go short',
     cash: 'Cash',
     bank: 'Bank',
     title: 'Drawers',
@@ -1026,6 +1033,7 @@ const en = {
   },
 
   errors: {
+    drawerNotEmpty: 'Empty the drawer before closing it — it still holds {balance} {currency}',
     notPendingTransfer: 'This transaction is not waiting on a transfer',
     payoutDoesNotBalance: 'The cash and transfer shares must add up to the amount handed over',
     title: 'Something went wrong',

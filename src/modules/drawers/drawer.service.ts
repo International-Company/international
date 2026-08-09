@@ -61,9 +61,19 @@ function describe(currency: string, kind: DrawerKind): string {
 // Reading
 // ---------------------------------------------------------------------------
 
-export async function listDrawers(db: DbClient = prisma) {
+/**
+ * Every drawer, in display order.
+ *
+ * Closed ones are hidden by default because nothing may be traded from them —
+ * but the screen that closes a drawer has to keep showing it, or closing one
+ * would make it vanish with no way back. That screen asks for all of them.
+ */
+export async function listDrawers(
+  options: { includeInactive?: boolean } = {},
+  db: DbClient = prisma,
+) {
   return db.drawer.findMany({
-    where: { isActive: true },
+    where: options.includeInactive ? {} : { isActive: true },
     orderBy: { sortOrder: 'asc' },
     include: { currency: { select: { symbol: true, decimals: true, kind: true } } },
   });
@@ -265,6 +275,104 @@ export async function fund(
   });
 
   return balance;
+}
+
+/**
+ * Editing a drawer — what it is called, when to warn, whether it is open.
+ *
+ * Not its balance. The balance is the sum of the movements beneath it, and
+ * typing over it would leave the drawer disagreeing with its own history —
+ * `verifyBalances()` would start reporting a discrepancy that no movement
+ * explains, and the one number in this system that says how much money exists
+ * would become an opinion. Money moves through `fund`, which leaves a record of
+ * why.
+ */
+export async function updateDrawer(
+  currency: string,
+  kind: DrawerKind,
+  patch: {
+    nameEn?: string;
+    nameAr?: string;
+    lowBalanceThreshold?: bigint;
+    allowNegative?: boolean;
+    isActive?: boolean;
+  },
+  actor: Actor,
+  db: DbClient = prisma,
+) {
+  // Guarded here as well as at the route, for the same reason funding is: this
+  // decides whether the counter can trade a currency at all.
+  if (!actor.permissions?.includes('exchange.drawer.manage')) {
+    throw errors.forbidden('exchange.drawer.manage');
+  }
+
+  const drawer = await getDrawer(currency, kind, db);
+
+  if (patch.nameEn !== undefined && patch.nameEn.trim().length === 0) {
+    throw errors.validation([{ path: 'nameEn', message: 'A drawer needs a name' }]);
+  }
+  if (patch.nameAr !== undefined && patch.nameAr.trim().length === 0) {
+    throw errors.validation([{ path: 'nameAr', message: 'A drawer needs a name' }]);
+  }
+  if (patch.lowBalanceThreshold !== undefined && patch.lowBalanceThreshold < 0n) {
+    throw errors.validation([
+      { path: 'lowBalanceThreshold', message: 'A warning threshold cannot be negative' },
+    ]);
+  }
+
+  /*
+   * Closing a drawer that still holds money would hide it: the balance stays on
+   * the row, stops appearing anywhere, and still counts in any total derived
+   * from the table. Empty it first, through a movement that says where it went.
+   */
+  if (patch.isActive === false && drawer.balance !== 0n) {
+    throw errors.precondition(
+      `${describe(currency, kind)} still holds ${toDecimalString(drawer.balance, 2)} ${currency}`,
+      'errors.drawerNotEmpty',
+      { currency, balance: toDecimalString(drawer.balance, 2) },
+    );
+  }
+
+  const updated = await db.drawer.update({
+    where: { id: drawer.id },
+    data: {
+      ...(patch.nameEn !== undefined ? { nameEn: patch.nameEn.trim() } : {}),
+      ...(patch.nameAr !== undefined ? { nameAr: patch.nameAr.trim() } : {}),
+      ...(patch.lowBalanceThreshold !== undefined
+        ? { lowBalanceThreshold: patch.lowBalanceThreshold }
+        : {}),
+      ...(patch.allowNegative !== undefined ? { allowNegative: patch.allowNegative } : {}),
+      ...(patch.isActive !== undefined ? { isActive: patch.isActive } : {}),
+    },
+  });
+
+  await audit.record({
+    action: 'UPDATE',
+    module: 'exchange',
+    entityType: 'Drawer',
+    entityId: `${currency}:${kind}`,
+    summaryEn: `Updated ${describe(currency, kind).toLowerCase()}`,
+    summaryAr: `تعديل ${kind === 'BANK' ? `رصيد بنك ${currency}` : `صندوق ${currency}`}`,
+    actor,
+    before: {
+      nameEn: drawer.nameEn,
+      nameAr: drawer.nameAr,
+      lowBalanceThreshold: drawer.lowBalanceThreshold.toString(),
+      allowNegative: drawer.allowNegative,
+      isActive: drawer.isActive,
+    },
+    after: {
+      nameEn: updated.nameEn,
+      nameAr: updated.nameAr,
+      lowBalanceThreshold: updated.lowBalanceThreshold.toString(),
+      allowNegative: updated.allowNegative,
+      isActive: updated.isActive,
+    },
+  });
+
+  log.info('Drawer updated', { currency, kind });
+
+  return updated;
 }
 
 /** The movements behind a drawer's balance, newest first. */

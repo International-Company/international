@@ -13,7 +13,12 @@ export default async function DrawersPage() {
   const session = await requirePermission('exchange.drawer.view');
   const { t } = await getTranslator();
 
-  const [drawers, check] = await Promise.all([listDrawers(), verifyBalances()]);
+  // Closed drawers included: this is the screen that closes them, and one that
+  // vanished on being closed could never be reopened.
+  const [drawers, check] = await Promise.all([
+    listDrawers({ includeInactive: true }),
+    verifyBalances(),
+  ]);
 
   // The movements behind each balance, so "why does it hold this" is answerable
   // on the same screen rather than one click away. Keyed by currency *and* kind,
