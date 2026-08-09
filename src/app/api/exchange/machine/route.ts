@@ -65,6 +65,8 @@ const bodySchema = z.object({
   receive: z.string().optional(),
   /** How much of the payout goes by transfer. The till takes the rest. */
   payoutBank: z.string().optional(),
+  /** Where that transfer goes. Required whenever there is one. */
+  payoutChannel: z.string().max(80).nullish(),
   customerId: z.string().nullish(),
   counterpartyName: z.string().max(200).nullish(),
   counterpartyPhone: z.string().max(40).nullish(),
@@ -85,6 +87,7 @@ export const POST = route<z.infer<typeof bodySchema>>({
         fromAmount: body.pay !== undefined ? parseMoney(body.pay) : undefined,
         toAmount: body.receive !== undefined ? parseMoney(body.receive) : undefined,
         payoutBank: body.payoutBank !== undefined ? parseMoney(body.payoutBank) : undefined,
+        payoutChannel: body.payoutChannel ?? null,
         branchId: actor.branchId,
         customerId: body.customerId ?? null,
         counterpartyName: body.counterpartyName ?? null,

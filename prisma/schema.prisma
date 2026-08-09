@@ -521,6 +521,13 @@ model Transaction {
   payoutCashAmount BigInt @default(0)
   payoutBankAmount BigInt @default(0)
 
+  /// Where the transfer was sent — a bank, a wallet service, whatever the
+  /// manager has listed. Free text rather than a foreign key on purpose: the
+  /// name is a fact about a transfer that already happened, and renaming or
+  /// removing a destination later must not rewrite what was recorded at the
+  /// time. Null whenever there was no bank leg.
+  payoutBankChannel String?
+
   /// When someone confirmed the bank leg actually left. Null while pending.
   transferConfirmedAt   DateTime?
   transferConfirmedById String?

@@ -96,6 +96,15 @@ export const SETTINGS: SettingDefinition[] = [
     descriptionAr: 'أزرار اختصار على لوحة المفاتيح مفصولة بفواصل، حتى ستة',
   },
   {
+    key: 'machine.transferChannels', category: 'machine', type: 'string',
+    defaultValue: 'بنك فلسطين,بال باي,جوال',
+    labelEn: 'Transfer destinations', labelAr: 'جهات التحويل',
+    descriptionEn:
+      'Comma-separated. Where a bank payout can be sent — the teller picks one, and the choice is on the record. Removing a name stops it being offered without touching transfers already sent through it.',
+    descriptionAr:
+      'مفصولة بفواصل. الجهات التي يجوز إرسال التسليم البنكي إليها — يختار التلر واحدة وتُثبَّت على العملية. حذف اسم يمنع عرضه دون أن يمسّ حوالات أُرسلت عبره.',
+  },
+  {
     key: 'machine.maxAmount', category: 'machine', type: 'money', defaultValue: '0',
     labelEn: 'Counter limit', labelAr: 'حد الشباك',
     descriptionEn:

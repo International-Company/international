@@ -40,6 +40,7 @@ interface Config {
   pairs: string[];
   currencies: { code: string; nameEn: string; nameAr: string; decimals: number }[];
   quickAmounts: number[];
+  transferChannels: string[];
   maxAmount: string;
   requireCustomerAbove: string;
 }
@@ -73,6 +74,7 @@ export function MachineControlView({
   const [limit, setLimit] = useState(decimal(config.maxAmount));
   const [customerAbove, setCustomerAbove] = useState(decimal(config.requireCustomerAbove));
   const [quick, setQuick] = useState(config.quickAmounts.join(', '));
+  const [channels, setChannels] = useState(config.transferChannels.join(', '));
 
   const rows = useMemo(
     () =>
@@ -335,6 +337,37 @@ export function MachineControlView({
                 icon={<Check />}
                 loading={busy === 'quick'}
                 onClick={() => void save({ 'machine.quickAmounts': quick }, 'quick')}
+              >
+                {t('common.save')}
+              </Button>
+            </div>
+
+            {/*
+              Where a transfer may be sent. Removing a name stops it being
+              offered from now on and leaves transfers already sent through it
+              exactly as they were recorded — the destination is a fact about a
+              payment that happened, not a link to a row that can be edited
+              underneath it.
+            */}
+            <div className="space-y-2 sm:col-span-3">
+              <Field
+                label={t('machineControl.transferChannels')}
+                hint={t('machineControl.transferChannelsHint')}
+              >
+                {(props) => (
+                  <Input
+                    {...props}
+                    value={channels}
+                    onChange={(event) => setChannels(event.target.value)}
+                  />
+                )}
+              </Field>
+              <Button
+                size="sm"
+                variant="secondary"
+                icon={<Check />}
+                loading={busy === 'channels'}
+                onClick={() => void save({ 'machine.transferChannels': channels }, 'channels')}
               >
                 {t('common.save')}
               </Button>

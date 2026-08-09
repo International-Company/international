@@ -30,7 +30,10 @@ export function isMachineCurrency(value: string): value is MachineCurrency {
 
 /** Every ordered pair the three currencies allow. */
 export const MACHINE_PAIRS: [MachineCurrency, MachineCurrency][] = MACHINE_CURRENCIES.flatMap(
-  (from) => MACHINE_CURRENCIES.filter((to) => to !== from).map((to) => [from, to] as [MachineCurrency, MachineCurrency]),
+  (from) =>
+    MACHINE_CURRENCIES.filter((to) => to !== from).map(
+      (to) => [from, to] as [MachineCurrency, MachineCurrency],
+    ),
 );
 
 export const pairKey = (from: string, to: string): string => `${from}/${to}`;
@@ -56,9 +59,29 @@ export async function enabledPairs(db: DbClient = prisma): Promise<string[]> {
   return configured.length > 0 ? configured : [...allowed];
 }
 
+/**
+ * Where a bank payout may be sent.
+ *
+ * A plain list the manager keeps, not a table: these are names on a receipt,
+ * they have no properties of their own, and a settings row already expresses a
+ * handful of fixed strings without adding a screen and a migration to say so.
+ */
+export async function transferChannels(db: DbClient = prisma): Promise<string[]> {
+  const raw = await settings.getString('machine.transferChannels', db);
+  return [
+    ...new Set(
+      raw
+        .split(',')
+        .map((entry) => entry.trim())
+        .filter(Boolean),
+    ),
+  ];
+}
+
 export interface MachineConfig {
   enabled: boolean;
   pairs: string[];
+  transferChannels: string[];
   currencies: { code: string; nameEn: string; nameAr: string; symbol: string; decimals: number }[];
   quickAmounts: number[];
   maxAmount: string;
@@ -66,18 +89,20 @@ export interface MachineConfig {
 }
 
 export async function machineConfig(db: DbClient = prisma): Promise<MachineConfig> {
-  const [enabled, pairs, quickRaw, maxAmount, requireCustomerAbove, currencies] = await Promise.all([
-    settings.getBoolean('machine.enabled', db),
-    enabledPairs(db),
-    settings.getString('machine.quickAmounts', db),
-    settings.getMoney('machine.maxAmount', db),
-    settings.getMoney('machine.requireCustomerAbove', db),
-    db.currency.findMany({
-      where: { code: { in: [...MACHINE_CURRENCIES] }, isActive: true },
-      orderBy: { sortOrder: 'asc' },
-      select: { code: true, nameEn: true, nameAr: true, symbol: true, decimals: true },
-    }),
-  ]);
+  const [enabled, pairs, channels, quickRaw, maxAmount, requireCustomerAbove, currencies] =
+    await Promise.all([
+      settings.getBoolean('machine.enabled', db),
+      enabledPairs(db),
+      transferChannels(db),
+      settings.getString('machine.quickAmounts', db),
+      settings.getMoney('machine.maxAmount', db),
+      settings.getMoney('machine.requireCustomerAbove', db),
+      db.currency.findMany({
+        where: { code: { in: [...MACHINE_CURRENCIES] }, isActive: true },
+        orderBy: { sortOrder: 'asc' },
+        select: { code: true, nameEn: true, nameAr: true, symbol: true, decimals: true },
+      }),
+    ]);
 
   const quickAmounts = quickRaw
     .split(',')
@@ -88,6 +113,7 @@ export async function machineConfig(db: DbClient = prisma): Promise<MachineConfi
   return {
     enabled,
     pairs,
+    transferChannels: channels,
     currencies,
     quickAmounts,
     maxAmount: maxAmount.toString(),
@@ -209,6 +235,8 @@ export interface MachineRecordInput {
    * other or with a total the browser computed from a stale price.
    */
   payoutBank?: bigint;
+  /** Where that transfer is going. Required whenever there is one. */
+  payoutChannel?: string | null;
   branchId: string;
   customerId?: string | null;
   counterpartyName?: string | null;
@@ -277,6 +305,35 @@ export async function record(input: MachineRecordInput, actor: Actor, db: DbClie
   const payout = { cash: total - bankLeg, bank: bankLeg };
 
   /*
+   * Where the transfer went, checked against the list the manager keeps.
+   *
+   * Required whenever there is a bank leg: a transfer with no destination on it
+   * is a payment nobody can trace back, and the manager confirming it later
+   * would have nothing to check against. Validated server-side rather than
+   * trusted from the dropdown, because the dropdown is only the convenient way
+   * to send a string.
+   */
+  let channel: string | null = null;
+  if (payout.bank > 0n) {
+    const allowed = await transferChannels(db);
+    channel = input.payoutChannel?.trim() ?? '';
+
+    if (!channel) {
+      throw errors.precondition(
+        'Say where the transfer is going',
+        'errors.transferChannelRequired',
+      );
+    }
+    if (!allowed.includes(channel)) {
+      throw errors.precondition(
+        `${channel} is not a destination the counter offers`,
+        'errors.transferChannelUnknown',
+        { channel },
+      );
+    }
+  }
+
+  /*
    * Each leg is checked against its own balance, before anything is promised.
    * Failing here means the teller is told which balance is short and by how
    * much, rather than reading a posting error after quoting a figure aloud.
@@ -287,9 +344,7 @@ export async function record(input: MachineRecordInput, actor: Actor, db: DbClie
   ] as const) {
     if (amount > 0n && amount > held) {
       throw errors.insufficientFunds(
-        kind === 'BANK'
-          ? `The ${input.toCurrency} bank balance`
-          : `The ${input.toCurrency} drawer`,
+        kind === 'BANK' ? `The ${input.toCurrency} bank balance` : `The ${input.toCurrency} drawer`,
         `${toDecimalString(held, 2)} ${input.toCurrency}`,
         `${toDecimalString(amount, 2)} ${input.toCurrency}`,
       );
@@ -306,6 +361,7 @@ export async function record(input: MachineRecordInput, actor: Actor, db: DbClie
       toCurrency: input.toCurrency,
       toAmount: priced.quote.toAmount,
       payout,
+      payoutChannel: channel,
       rate: priced.quote.rate,
       rateId: priced.quote.rateId,
       profitAmount: priced.quote.profit,

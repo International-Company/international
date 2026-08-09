@@ -373,6 +373,10 @@ const STEPS = [
         UPDATE "transactions"
         SET "payoutCashAmount" = "toAmount"
         WHERE "payoutCashAmount" = 0 AND "payoutBankAmount" = 0 AND "toAmount" <> 0;
+
+        -- Where a transfer was sent. Nothing to backfill: no transfer has ever
+        -- been recorded without one, because the column arrives with the field.
+        ALTER TABLE "transactions" ADD COLUMN IF NOT EXISTS "payoutBankChannel" TEXT;
       END $$;
     `,
   },

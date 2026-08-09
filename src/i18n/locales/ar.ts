@@ -228,6 +228,7 @@ const ar: Dictionary = {
   },
 
   transactions: {
+    transferredTo: 'حُوِّل إلى',
     editDetails: 'تعديل البيانات',
     editDetailsHint: 'ما لم يحرّك مالاً فقط. أما المبالغ والسعر والعملات فتُصحَّح لا تُعدَّل.',
     correct: 'تصحيح المبلغ',
@@ -473,6 +474,8 @@ const ar: Dictionary = {
   },
 
   machineControl: {
+    transferChannels: 'جهات التحويل',
+    transferChannelsHint: 'مفصولة بفواصل. الجهات التي يجوز إرسال التسليم البنكي إليها، ويختار التلر واحدة. حذف اسم يمنع عرضه ويترك الحوالات السابقة كما سُجّلت.',
     noRateShort: 'لا سعر',
     noCashShort: 'لا رصيد {currency}',
     lastPairTitle: 'هذا آخر اتجاه مفعّل',
@@ -503,6 +506,8 @@ const ar: Dictionary = {
   },
 
   machine: {
+    transferTo: 'التحويل إلى',
+    transferToPick: 'اختر الجهة',
     payoutTitle: 'يُسلَّم',
     payoutCash: 'نقداً',
     payoutBank: 'بنك',
@@ -1043,6 +1048,8 @@ const ar: Dictionary = {
   },
 
   errors: {
+    transferChannelRequired: 'حدّد جهة التحويل',
+    transferChannelUnknown: '{channel} ليست جهة يعرضها الشباك',
     cannotEditReversal: 'العملية العكسية تحمل سبب عكسها، ولا تُعدَّل',
     nothingToCorrect: 'هذا هو المبلغ المسجّل أصلاً',
     drawerExists: 'يوجد صندوق بالفعل لـ {currency}',

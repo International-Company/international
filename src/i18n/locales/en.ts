@@ -226,6 +226,7 @@ const en = {
   },
 
   transactions: {
+    transferredTo: 'Transferred to',
     editDetails: 'Edit details',
     editDetailsHint: 'Only what never moved money. The amounts, the rate and the currencies are corrected, not edited.',
     correct: 'Correct the amount',
@@ -471,6 +472,8 @@ const en = {
   },
 
   machineControl: {
+    transferChannels: 'Transfer destinations',
+    transferChannelsHint: 'Comma-separated. Where a bank payout can be sent; the teller picks one. Removing a name stops it being offered and leaves past transfers as they were recorded.',
     noRateShort: 'No rate',
     noCashShort: 'No {currency}',
     lastPairTitle: 'That is the last direction left on',
@@ -501,6 +504,8 @@ const en = {
   },
 
   machine: {
+    transferTo: 'Transfer to',
+    transferToPick: 'Choose a destination',
     payoutTitle: 'Handed over as',
     payoutCash: 'Cash',
     payoutBank: 'Transfer',
@@ -1042,6 +1047,8 @@ const en = {
   },
 
   errors: {
+    transferChannelRequired: 'Say where the transfer is going',
+    transferChannelUnknown: '{channel} is not a destination the counter offers',
     cannotEditReversal: 'A reversal carries the reason it was made; it is not edited',
     nothingToCorrect: 'That is the amount already recorded',
     drawerExists: 'A drawer already exists for {currency}',

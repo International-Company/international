@@ -53,6 +53,8 @@ export interface RecordInput {
    * its own total leaks a fraction on every trade.
    */
   payout?: { cash: bigint; bank: bigint };
+  /** Where the transfer went. Recorded as given; see the schema for why. */
+  payoutChannel?: string | null;
   rate: bigint;
   rateId?: string | null;
   profitAmount?: bigint;
@@ -137,6 +139,7 @@ export async function record(
         toAmount: input.toAmount,
         payoutCashAmount: payout.cash,
         payoutBankAmount: payout.bank,
+        payoutBankChannel: payout.bank > 0n ? (input.payoutChannel ?? null) : null,
         rate: input.rate,
         rateId: input.rateId ?? null,
         profitAmount: input.profitAmount ?? 0n,
@@ -615,6 +618,7 @@ export async function correct(
         toCurrency: original.toCurrency,
         toAmount,
         payout: { cash: toAmount - bank, bank },
+        payoutChannel: original.payoutBankChannel,
         rate: original.rate,
         rateId: original.rateId,
         profitAmount,

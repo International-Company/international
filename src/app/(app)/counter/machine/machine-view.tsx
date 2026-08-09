@@ -61,6 +61,7 @@ interface Currency {
 interface MachineConfig {
   enabled: boolean;
   pairs: string[];
+  transferChannels: string[];
   currencies: Currency[];
   quickAmounts: number[];
   maxAmount: string;
@@ -164,6 +165,13 @@ export function MachineView({
    */
   const [channel, setChannel] = useState<Channel>('CASH');
   const [bankShare, setBankShare] = useState('');
+
+  /*
+   * Where a transfer goes. Defaults to the first destination the manager lists,
+   * because for most offices there is only one and making the teller pick it
+   * every time is a step that never changes its answer.
+   */
+  const [destination, setDestination] = useState(config.transferChannels[0] ?? '');
 
   // Clearing hands the caret back, so the next customer can be served without
   // reaching for the mouse first.
@@ -325,6 +333,7 @@ export function MachineView({
     setCustomerOpen(false);
     setChannel('CASH');
     setBankShare('');
+    setDestination(config.transferChannels[0] ?? '');
     setSide('pay');
     payRef.current?.focus();
   };
@@ -377,6 +386,7 @@ export function MachineView({
           // Only the transferred share travels; the till takes the rest, worked
           // out by the server from its own price.
           payoutBank: legs.bank > 0n ? unscale(legs.bank) : undefined,
+          payoutChannel: legs.bank > 0n ? destination : null,
           customerId: customer?.id ?? null,
           counterpartyName: counterpartyName.trim() || null,
         },
@@ -560,6 +570,31 @@ export function MachineView({
                 ))}
               </div>
             </div>
+
+            {/*
+              Where it is going. Only asked when something is actually being
+              transferred — and the server refuses a transfer without it, so
+              this is the convenient way to answer, not the only one trusted.
+            */}
+            {channel !== 'CASH' && config.transferChannels.length > 0 && (
+              <label className="mt-3 block">
+                <span className="text-xs text-content-tertiary">{t('machine.transferTo')}</span>
+                <select
+                  value={destination}
+                  onChange={(event) => {
+                    setDone(null);
+                    setDestination(event.target.value);
+                  }}
+                  className="mt-1 h-12 w-full rounded-xl bg-surface-sunken px-3 text-base font-medium text-content outline-none ring-1 ring-transparent focus:ring-primary"
+                >
+                  {config.transferChannels.map((entry) => (
+                    <option key={entry} value={entry}>
+                      {entry}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
 
             {channel === 'SPLIT' && (
               <div className="mt-3 grid grid-cols-2 gap-3">

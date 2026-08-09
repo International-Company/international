@@ -57,6 +57,7 @@ interface TransactionData {
   createdById: string;
   counterpartyName: string | null;
   counterpartyPhone: string | null;
+  payoutBankChannel: string | null;
   reverseReason: string | null;
   customer: { id: string; code: string; fullNameEn: string; fullNameAr: string } | null;
   createdBy: { fullNameEn: string; fullNameAr: string; username: string };
@@ -285,6 +286,13 @@ export function TransactionDetail({
               <DetailRow label={t('machine.rateApplied')}>
                 <Rate value={transaction.rate} />
               </DetailRow>
+              {/* Only when there was a transfer — otherwise it is a blank row
+                  answering a question nobody asked. */}
+              {transaction.payoutBankChannel && (
+                <DetailRow label={t('transactions.transferredTo')}>
+                  {transaction.payoutBankChannel}
+                </DetailRow>
+              )}
               {permissions.includes('exchange.margin.view') && (
                 <DetailRow label={t('transactions.profit')}>
                   <Money value={transaction.profitAmount} currency={transaction.toCurrency} />
