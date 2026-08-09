@@ -70,7 +70,11 @@ export async function createWallet(
     // says we hold and what the counter can pay out are the same number.
     let drawerId: string | null = null;
     if (input.linkToLedger !== false) {
-      const drawer = await tx.drawer.findUnique({ where: { currencyCode: tokenSymbol } });
+      // The token is held on a chain, so it belongs to the cash side: there is
+      // no bank account holding USDT for the branch.
+      const drawer = await tx.drawer.findUnique({
+        where: { currencyCode_kind: { currencyCode: tokenSymbol, kind: 'CASH' } },
+      });
       drawerId = drawer?.id ?? null;
     }
 

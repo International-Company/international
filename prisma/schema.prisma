@@ -269,7 +269,8 @@ model Currency {
 
   baseRates  ExchangeRate[] @relation("RateBase")
   quoteRates ExchangeRate[] @relation("RateQuote")
-  drawer     Drawer?
+  /// One per kind: the till, and the branch's account at a bank.
+  drawers    Drawer[]
 
   @@map("currencies")
 }
@@ -324,8 +325,16 @@ model ExchangeRate {
 model Drawer {
   id String @id @default(cuid())
 
-  currencyCode String   @unique
+  currencyCode String
   currency     Currency @relation(fields: [currencyCode], references: [code])
+
+  /// CASH | BANK — the till, or the branch's account at a bank.
+  ///
+  /// A bank balance is the same object as a till: money you pay out of and must
+  /// not overdraw. Modelling it as a second drawer rather than a new concept
+  /// means the movements, the atomic increments and `verifyBalances()` all keep
+  /// working with no second engine to keep honest.
+  kind String @default("CASH")
 
   nameEn String
   nameAr String
@@ -348,6 +357,7 @@ model Drawer {
   movements DrawerMovement[]
   wallets   Wallet[]
 
+  @@unique([currencyCode, kind])
   @@index([isActive, sortOrder])
   @@map("drawers")
 }

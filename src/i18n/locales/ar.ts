@@ -402,6 +402,8 @@ const ar: Dictionary = {
   },
 
   drawers: {
+    cash: 'نقد',
+    bank: 'بنك',
     title: 'الصناديق',
     subtitle: 'ما يحتفظ به الفرع، وكيف صار إليه',
     movements: 'الحركات',

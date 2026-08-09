@@ -27,12 +27,13 @@ interface Drawer {
   nameAr: string;
   balance: string;
   lowBalanceThreshold: string;
+  kind: string;
   agrees: boolean;
   currency: { symbol: string; decimals: number; kind: string };
 }
 
 interface MovementGroup {
-  currency: string;
+  key: string;
   rows: {
     id: string;
     direction: string;
@@ -59,11 +60,11 @@ export function DrawersView({
   const router = useRouter();
   const toast = useToast();
 
-  const [funding, setFunding] = useState<{ currency: string; direction: 'IN' | 'OUT' } | null>(null);
+  const [funding, setFunding] = useState<{ currency: string; kind: string; direction: 'IN' | 'OUT' } | null>(null);
   const [amount, setAmount] = useState('');
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
-  const [selected, setSelected] = useState(drawers[0]?.currencyCode ?? '');
+  const [selected, setSelected] = useState(drawers[0] ? drawerKey(drawers[0]) : '');
 
   const canManage = permissions.includes('exchange.drawer.manage');
 
@@ -73,11 +74,12 @@ export function DrawersView({
     try {
       await api.post('/api/manage/drawers', {
         currency: funding.currency,
+        kind: funding.kind,
         direction: funding.direction,
         amount: amount.trim(),
         note: note.trim() || undefined,
       });
-      toast.success(t('common.saved'), funding.currency);
+      toast.success(t('common.saved'), `${funding.currency} — ${funding.kind}`);
       setFunding(null);
       setAmount('');
       setNote('');
@@ -94,7 +96,7 @@ export function DrawersView({
     }
   };
 
-  const shown = movements.find((group) => group.currency === selected);
+  const shown = movements.find((group) => group.key === selected);
 
   return (
     <div className="space-y-4">
@@ -118,20 +120,28 @@ export function DrawersView({
               key={drawer.id}
               className={cn(
                 'rounded-[var(--radius-card)] border bg-surface p-4 transition-colors',
-                selected === drawer.currencyCode
+                selected === drawerKey(drawer)
                   ? 'border-primary'
                   : 'border-border-base hover:border-primary',
               )}
             >
               <button
                 type="button"
-                onClick={() => setSelected(drawer.currencyCode)}
-                aria-pressed={selected === drawer.currencyCode}
+                onClick={() => setSelected(drawerKey(drawer))}
+                aria-pressed={selected === drawerKey(drawer)}
                 className="w-full text-start"
               >
                 <span className="flex items-center justify-between gap-2">
                   <span className="text-sm text-content-secondary">{ln(drawer, 'name')}</span>
-                  <Badge tone="neutral">{drawer.currencyCode}</Badge>
+                  {/*
+                    The kind is the distinction that matters here — two cards now
+                    carry the same currency code, and only this says which of
+                    them the money is actually in.
+                  */}
+                  <Badge tone={drawer.kind === 'BANK' ? 'primary' : 'neutral'}>
+                    {drawer.currencyCode} ·{' '}
+                    {drawer.kind === 'BANK' ? t('drawers.bank') : t('drawers.cash')}
+                  </Badge>
                 </span>
 
                 <span className="mt-2 block font-mono text-2xl font-semibold text-content ltr-content tabular-nums">
@@ -150,7 +160,7 @@ export function DrawersView({
                     size="sm"
                     variant="secondary"
                     icon={<Plus />}
-                    onClick={() => setFunding({ currency: drawer.currencyCode, direction: 'IN' })}
+                    onClick={() => setFunding({ currency: drawer.currencyCode, kind: drawer.kind, direction: 'IN' })}
                   >
                     {t('drawers.add')}
                   </Button>
@@ -158,7 +168,7 @@ export function DrawersView({
                     size="sm"
                     variant="ghost"
                     icon={<Minus />}
-                    onClick={() => setFunding({ currency: drawer.currencyCode, direction: 'OUT' })}
+                    onClick={() => setFunding({ currency: drawer.currencyCode, kind: drawer.kind, direction: 'OUT' })}
                   >
                     {t('drawers.take')}
                   </Button>
@@ -177,7 +187,16 @@ export function DrawersView({
 
       {/* --- How the selected balance came about ------------------------- */}
       <Card>
-        <CardHeader title={`${t('drawers.movements')} — ${selected}`} />
+        {/* Named, not keyed: `ILS:BANK` is how the code finds it, not how a
+            manager knows it. */}
+        <CardHeader
+          title={`${t('drawers.movements')} — ${
+            (() => {
+              const drawer = drawers.find((entry) => drawerKey(entry) === selected);
+              return drawer ? ln(drawer, 'name') : selected;
+            })()
+          }`}
+        />
         {shown && shown.rows.length > 0 ? (
           <ul className="divide-y divide-border-base">
             {shown.rows.map((movement) => {
@@ -286,4 +305,16 @@ export function DrawersView({
       </Dialog>
     </div>
   );
+}
+
+/**
+ * A drawer's identity on this screen.
+ *
+ * The currency code stopped being unique the moment a currency could be held in
+ * two places, so selecting a card and finding its movements both key on the
+ * pair. Getting this wrong would show one drawer's history under another's
+ * balance, which is the kind of mistake that gets believed.
+ */
+function drawerKey(drawer: { currencyCode: string; kind: string }): string {
+  return `${drawer.currencyCode}:${drawer.kind}`;
 }

@@ -7,19 +7,20 @@ export const GET = route({
   permissions: ['exchange.drawer.view'],
   handler: async () => {
     const [rows, check] = await Promise.all([drawers.listDrawers(), drawers.verifyBalances()]);
-    const derived = new Map(check.drawers.map((entry) => [entry.currency, entry]));
+    const derived = new Map(check.drawers.map((entry) => [`${entry.currency}:${entry.kind}`, entry]));
 
     return rows.map((drawer) => ({
       ...drawer,
       // Surfaced rather than logged quietly: a drawer that disagrees with its
       // own movements is the one thing here nobody should have to go looking for.
-      agrees: derived.get(drawer.currencyCode)?.agrees ?? true,
+      agrees: derived.get(`${drawer.currencyCode}:${drawer.kind}`)?.agrees ?? true,
     }));
   },
 });
 
 const bodySchema = z.object({
   currency: z.string().min(2).max(8),
+  kind: z.enum(drawers.DRAWER_KINDS).default('CASH'),
   direction: z.enum(['IN', 'OUT']),
   amount: z.string(),
   note: z.string().max(500).optional(),
@@ -39,6 +40,7 @@ export const POST = route<z.infer<typeof bodySchema>>({
     const balance = await drawers.fund(
       {
         currency: body.currency.toUpperCase(),
+        kind: body.kind,
         direction: body.direction,
         amount: parseMoney(body.amount),
         note: body.note ?? null,
@@ -46,6 +48,6 @@ export const POST = route<z.infer<typeof bodySchema>>({
       actor,
     );
 
-    return { currency: body.currency.toUpperCase(), balance };
+    return { currency: body.currency.toUpperCase(), kind: body.kind, balance };
   },
 });

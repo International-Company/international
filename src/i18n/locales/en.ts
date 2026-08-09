@@ -400,6 +400,8 @@ const en = {
   },
 
   drawers: {
+    cash: 'Cash',
+    bank: 'Bank',
     title: 'Drawers',
     subtitle: 'What the branch holds, and how it came to hold it',
     movements: 'Movements',

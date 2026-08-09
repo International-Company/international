@@ -8,19 +8,27 @@ import * as audit from '@/modules/audit/audit.service';
 /**
  * The drawers.
  *
- * What the branch holds, one row per currency, and the only thing in this system
- * that says how much money there is. This replaced a double-entry ledger: the
- * counter does two things, and both are a movement between two drawers, so the
- * machinery that proved every entry balanced was answering a question nobody
- * here asks any more.
+ * What the branch holds, and the only thing in this system that says how much
+ * money there is. This replaced a double-entry ledger: the counter does two
+ * things, and both are a movement between two drawers, so the machinery that
+ * proved every entry balanced was answering a question nobody here asks any
+ * more.
  *
- * What survived from it is the part that still earns its keep. Balances are
- * never computed from a read and written back — that loses money under two
+ * One row per currency *and kind*. A bank balance is the same object as a till —
+ * money you pay out of and must not overdraw — so it is a second drawer rather
+ * than a second concept, and everything below works on it unchanged.
+ *
+ * What survived from the ledger is the part that still earns its keep. Balances
+ * are never computed from a read and written back — that loses money under two
  * tellers working at once — and every change leaves a movement row, so a balance
  * can always be explained rather than merely asserted.
  */
 
 const log = createLogger('drawers');
+
+/** Where the money physically is. */
+export const DRAWER_KINDS = ['CASH', 'BANK'] as const;
+export type DrawerKind = (typeof DRAWER_KINDS)[number];
 
 export interface Actor {
   id: string;
@@ -35,11 +43,18 @@ export type MovementReason = 'TRANSACTION' | 'FUNDING' | 'REVERSAL';
 
 export interface Movement {
   currency: string;
+  /** Defaults to the till, which is what the overwhelming majority of movements are. */
+  kind?: DrawerKind;
   direction: 'IN' | 'OUT';
   amount: bigint;
   reason: MovementReason;
   transactionId?: string | null;
   note?: string | null;
+}
+
+/** How a drawer is named in an error the operator will actually read. */
+function describe(currency: string, kind: DrawerKind): string {
+  return kind === 'BANK' ? `The ${currency} bank balance` : `The ${currency} drawer`;
 }
 
 // ---------------------------------------------------------------------------
@@ -54,12 +69,16 @@ export async function listDrawers(db: DbClient = prisma) {
   });
 }
 
-export async function getDrawer(currency: string, db: DbClient = prisma) {
+export async function getDrawer(
+  currency: string,
+  kind: DrawerKind = 'CASH',
+  db: DbClient = prisma,
+) {
   const drawer = await db.drawer.findUnique({
-    where: { currencyCode: currency },
+    where: { currencyCode_kind: { currencyCode: currency, kind } },
     include: { currency: { select: { symbol: true, decimals: true, kind: true } } },
   });
-  if (!drawer) throw errors.notFound('Drawer', currency);
+  if (!drawer) throw errors.notFound('Drawer', `${currency} ${kind}`);
   return drawer;
 }
 
@@ -67,9 +86,12 @@ export async function getDrawer(currency: string, db: DbClient = prisma) {
 export async function canPay(
   currency: string,
   amount: bigint,
+  kind: DrawerKind = 'CASH',
   db: DbClient = prisma,
 ): Promise<{ ok: boolean; balance: bigint }> {
-  const drawer = await db.drawer.findUnique({ where: { currencyCode: currency } });
+  const drawer = await db.drawer.findUnique({
+    where: { currencyCode_kind: { currencyCode: currency, kind } },
+  });
   if (!drawer || !drawer.isActive) return { ok: false, balance: 0n };
   return { ok: drawer.allowNegative || drawer.balance >= amount, balance: drawer.balance };
 }
@@ -89,11 +111,14 @@ export async function canPay(
  * ever true.
  */
 async function applyMovement(tx: Tx, movement: Movement, actor: Actor): Promise<bigint> {
-  const drawer = await tx.drawer.findUnique({ where: { currencyCode: movement.currency } });
-  if (!drawer) throw errors.notFound('Drawer', movement.currency);
+  const kind = movement.kind ?? 'CASH';
+  const drawer = await tx.drawer.findUnique({
+    where: { currencyCode_kind: { currencyCode: movement.currency, kind } },
+  });
+  if (!drawer) throw errors.notFound('Drawer', `${movement.currency} ${kind}`);
   if (!drawer.isActive) {
     throw errors.precondition(
-      `The ${movement.currency} drawer is closed`,
+      `${describe(movement.currency, kind)} is closed`,
       'errors.drawerInactive',
       { currency: movement.currency },
     );
@@ -113,7 +138,7 @@ async function applyMovement(tx: Tx, movement: Movement, actor: Actor): Promise<
   if (updated.balance < 0n && !drawer.allowNegative) {
     // Rolls the whole enclosing transaction back, so nothing is half-applied.
     throw errors.insufficientFunds(
-      `The ${movement.currency} drawer`,
+      describe(movement.currency, kind),
       `${toDecimalString(drawer.balance, 2)} ${movement.currency}`,
       `${toDecimalString(movement.amount, 2)} ${movement.currency}`,
     );
@@ -152,17 +177,23 @@ export async function move(
   return withTransaction(async (tx) => {
     const balances: Record<string, bigint> = {};
 
-    // Ordered by currency so two concurrent settlements touching the same pair
-    // always take the rows in the same sequence, and cannot deadlock waiting on
-    // each other's locks.
-    const ordered = [...movements].sort((a, b) => a.currency.localeCompare(b.currency));
+    // Ordered by the drawer's full identity so two concurrent settlements
+    // touching the same drawers always take the rows in the same sequence, and
+    // cannot deadlock waiting on each other's locks. Currency alone stopped
+    // being that identity the moment a currency could have two drawers.
+    const ordered = [...movements].sort((a, b) => balanceKey(a).localeCompare(balanceKey(b)));
 
     for (const movement of ordered) {
-      balances[movement.currency] = await applyMovement(tx, movement, actor);
+      balances[balanceKey(movement)] = await applyMovement(tx, movement, actor);
     }
 
     return balances;
   }, db);
+}
+
+/** How a drawer is keyed in the balances a `move` returns. */
+export function balanceKey(drawer: { currency: string; kind?: DrawerKind }): string {
+  return `${drawer.currency}:${drawer.kind ?? 'CASH'}`;
 }
 
 /**
@@ -174,7 +205,13 @@ export async function move(
  * exactly what a manager reviewing the day needs to be able to pick out.
  */
 export async function fund(
-  input: { currency: string; direction: 'IN' | 'OUT'; amount: bigint; note?: string | null },
+  input: {
+    currency: string;
+    kind?: DrawerKind;
+    direction: 'IN' | 'OUT';
+    amount: bigint;
+    note?: string | null;
+  },
   actor: Actor,
   db: DbClient = prisma,
 ): Promise<bigint> {
@@ -186,37 +223,43 @@ export async function fund(
     throw errors.forbidden('exchange.drawer.manage');
   }
 
-  const balances = await move(
-    [
-      {
-        currency: input.currency,
-        direction: input.direction,
-        amount: input.amount,
-        reason: 'FUNDING',
-        note: input.note ?? null,
-      },
-    ],
-    actor,
-    db,
-  );
+  const kind = input.kind ?? 'CASH';
+  const movement: Movement = {
+    currency: input.currency,
+    kind,
+    direction: input.direction,
+    amount: input.amount,
+    reason: 'FUNDING',
+    note: input.note ?? null,
+  };
 
-  const balance = balances[input.currency]!;
+  const balances = await move([movement], actor, db);
+
+  const balance = balances[balanceKey(movement)]!;
   const verb = input.direction === 'IN' ? 'Added to' : 'Taken from';
   const verbAr = input.direction === 'IN' ? 'إيداع في' : 'سحب من';
+  const place = kind === 'BANK' ? `${input.currency} bank balance` : `${input.currency} drawer`;
+  const placeAr = kind === 'BANK' ? `رصيد بنك ${input.currency}` : `صندوق ${input.currency}`;
 
   await audit.record({
     action: 'UPDATE',
     module: 'exchange',
     entityType: 'Drawer',
-    entityId: input.currency,
-    summaryEn: `${verb} the ${input.currency} drawer: ${toDecimalString(input.amount, 2)} — balance ${toDecimalString(balance, 2)}${input.note ? ` (${input.note})` : ''}`,
-    summaryAr: `${verbAr} صندوق ${input.currency}: ${toDecimalString(input.amount, 2)} — الرصيد ${toDecimalString(balance, 2)}${input.note ? ` (${input.note})` : ''}`,
+    entityId: `${input.currency}:${kind}`,
+    summaryEn: `${verb} the ${place}: ${toDecimalString(input.amount, 2)} — balance ${toDecimalString(balance, 2)}${input.note ? ` (${input.note})` : ''}`,
+    summaryAr: `${verbAr} ${placeAr}: ${toDecimalString(input.amount, 2)} — الرصيد ${toDecimalString(balance, 2)}${input.note ? ` (${input.note})` : ''}`,
     actor,
-    after: { currency: input.currency, amount: input.amount.toString(), balance: balance.toString() },
+    after: {
+      currency: input.currency,
+      kind,
+      amount: input.amount.toString(),
+      balance: balance.toString(),
+    },
   });
 
   log.info('Drawer funded', {
     currency: input.currency,
+    kind,
     direction: input.direction,
     balance: balance.toString(),
   });
@@ -227,11 +270,14 @@ export async function fund(
 /** The movements behind a drawer's balance, newest first. */
 export async function history(
   currency: string,
-  options: { limit?: number } = {},
+  options: { limit?: number; kind?: DrawerKind } = {},
   db: DbClient = prisma,
 ) {
-  const drawer = await db.drawer.findUnique({ where: { currencyCode: currency } });
-  if (!drawer) throw errors.notFound('Drawer', currency);
+  const kind = options.kind ?? 'CASH';
+  const drawer = await db.drawer.findUnique({
+    where: { currencyCode_kind: { currencyCode: currency, kind } },
+  });
+  if (!drawer) throw errors.notFound('Drawer', `${currency} ${kind}`);
 
   return db.drawerMovement.findMany({
     where: { drawerId: drawer.id },
@@ -269,6 +315,7 @@ export async function verifyBalances(db: DbClient = prisma) {
 
     results.push({
       currency: drawer.currencyCode,
+      kind: drawer.kind as DrawerKind,
       balance: drawer.balance,
       derived,
       agrees: derived === drawer.balance,

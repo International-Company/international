@@ -85,21 +85,33 @@ async function main() {
 
   // --- Drawers --------------------------------------------------------------
   //
-  // One per currency, and that is the whole chart. What the branch holds is a
-  // number on a row; there is nothing else to reconcile it against.
+  // One per currency and kind, and that is the whole chart. What the branch
+  // holds is a number on a row; there is nothing else to reconcile it against.
+  //
+  // The bank side exists only for the cash currencies the counter trades. USDT
+  // is held on a chain, not at a bank, and a bank row for it would be a balance
+  // nobody could ever fund.
+  let drawerCount = 0;
   for (const currency of CURRENCIES) {
-    await prisma.drawer.upsert({
-      where: { currencyCode: currency.code },
-      create: {
-        currencyCode: currency.code,
-        nameEn: `${currency.nameEn} drawer`,
-        nameAr: `صندوق ${currency.nameAr}`,
-        sortOrder: currency.sortOrder,
-      },
-      update: {},
-    });
+    const kinds = currency.kind === 'CRYPTO' ? ['CASH'] : ['CASH', 'BANK'];
+
+    for (const kind of kinds) {
+      await prisma.drawer.upsert({
+        where: { currencyCode_kind: { currencyCode: currency.code, kind } },
+        create: {
+          currencyCode: currency.code,
+          kind,
+          nameEn: kind === 'BANK' ? `${currency.nameEn} bank` : `${currency.nameEn} drawer`,
+          nameAr: kind === 'BANK' ? `بنك ${currency.nameAr}` : `صندوق ${currency.nameAr}`,
+          // Bank rows sort immediately after their own cash row.
+          sortOrder: currency.sortOrder * 10 + (kind === 'BANK' ? 1 : 0),
+        },
+        update: {},
+      });
+      drawerCount++;
+    }
   }
-  console.log(`  drawers         ${CURRENCIES.length}`);
+  console.log(`  drawers         ${drawerCount}`);
 
   // --- Permissions ----------------------------------------------------------
   for (const permission of PERMISSIONS) {

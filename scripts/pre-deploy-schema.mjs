@@ -257,6 +257,93 @@ const STEPS = [
   { name: 'Drop the daily count sheet', sql: `DROP TABLE IF EXISTS "day_closing_lines";` },
   { name: 'Drop customer balances', sql: `DROP TABLE IF EXISTS "customer_balances";` },
   { name: 'Drop the chart of accounts', sql: `DROP TABLE IF EXISTS "accounts";` },
+
+  /*
+   * A currency can now be held in two places: the till and the bank.
+   *
+   * `db push` cannot make this change on its own. Adding `kind` is fine, but the
+   * old single-column unique index on `currencyCode` would reject the second row
+   * for a currency, and push would either fail or offer to drop data. So the
+   * column is added, the old index retired and the composite one created here,
+   * before push ever looks at the table.
+   *
+   * Every existing row is cash — that is what a drawer meant until now — and the
+   * default says so, so nothing has to be guessed per row.
+   */
+  {
+    name: 'Give drawers a kind, and let a currency have two',
+    sql: `
+      DO $$
+      BEGIN
+        IF to_regclass('public.drawers') IS NULL THEN
+          RETURN;
+        END IF;
+
+        ALTER TABLE "drawers" ADD COLUMN IF NOT EXISTS "kind" TEXT NOT NULL DEFAULT 'CASH';
+
+        -- Prisma names this from the model, but a hand-made database may differ;
+        -- drop whatever single-column unique index is actually on currencyCode.
+        PERFORM 1;
+        EXECUTE (
+          SELECT COALESCE(
+            string_agg(format('ALTER TABLE "drawers" DROP CONSTRAINT %I;', conname), ' '),
+            'SELECT 1;'
+          )
+          FROM pg_constraint
+          WHERE conrelid = 'public.drawers'::regclass
+            AND contype = 'u'
+            AND array_length(conkey, 1) = 1
+            AND conkey[1] = (
+              SELECT attnum FROM pg_attribute
+              WHERE attrelid = 'public.drawers'::regclass AND attname = 'currencyCode'
+            )
+        );
+
+        DROP INDEX IF EXISTS "drawers_currencyCode_key";
+
+        CREATE UNIQUE INDEX IF NOT EXISTS "drawers_currencyCode_kind_key"
+          ON "drawers" ("currencyCode", "kind");
+      END $$;
+    `,
+  },
+
+  /*
+   * The bank rows themselves, one per cash currency, at zero.
+   *
+   * Created here rather than left to the seed because the seed only runs after
+   * push, and a manager opening the drawers screen on the first request after a
+   * deploy should find the bank balances already there rather than a screen that
+   * fills in later.
+   *
+   * USDT is excluded on purpose: it is held on a chain, not at a bank, and a row
+   * for it would be a balance nobody could ever fund.
+   */
+  {
+    name: 'Open a bank balance beside each cash drawer',
+    sql: `
+      DO $$
+      BEGIN
+        IF to_regclass('public.drawers') IS NULL OR to_regclass('public.currencies') IS NULL THEN
+          RETURN;
+        END IF;
+
+        INSERT INTO "drawers" ("id", "currencyCode", "kind", "nameEn", "nameAr", "balance", "sortOrder", "createdAt", "updatedAt")
+        SELECT
+          'drw_bank_' || lower(c."code"),
+          c."code",
+          'BANK',
+          c."nameEn" || ' bank',
+          'بنك ' || c."nameAr",
+          0,
+          c."sortOrder" * 10 + 1,
+          NOW(),
+          NOW()
+        FROM "currencies" c
+        WHERE c."kind" <> 'CRYPTO'
+        ON CONFLICT ("currencyCode", "kind") DO NOTHING;
+      END $$;
+    `,
+  },
 ];
 
 /** Host and database only — a connection string in a deploy log is a leak. */

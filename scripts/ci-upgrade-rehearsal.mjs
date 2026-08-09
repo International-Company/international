@@ -216,14 +216,15 @@ async function verify(db) {
 
   // The money.
   const drawers = await db.drawer.findMany({ orderBy: { currencyCode: 'asc' } });
-  const held = Object.fromEntries(drawers.map((d) => [d.currencyCode, d.balance]));
+  const cash = drawers.filter((d) => d.kind === 'CASH');
+  const held = Object.fromEntries(cash.map((d) => [d.currencyCode, d.balance]));
   for (const [code, expected] of [
     // Cash and bank in the same currency are one drawer now.
     ['ILS', 250000_00000000n],
     ['USD', 20000_00000000n],
     ['USDT', 500_00000000n],
   ]) {
-    check(`the ${code} drawer holds what the branch held`, held[code] === expected,
+    check(`the ${code} cash drawer holds what the branch held`, held[code] === expected,
       `${held[code] ?? 'missing'} vs ${expected}`);
   }
   check('clearing and income were not turned into money', (held.ILS ?? 0n) === 250000_00000000n);
@@ -232,6 +233,15 @@ async function verify(db) {
   const movements = await db.drawerMovement.count();
   check('each carried balance arrived with a movement', movements === 3, `${movements} movement(s)`);
   check('the seeder can still name them properly later', drawers.every((d) => d.nameEn.length > 0));
+
+  // The bank side is new, and must arrive empty. A carried balance landing in a
+  // bank row would be money invented by the migration.
+  const bank = drawers.filter((d) => d.kind === 'BANK');
+  check('a bank balance was opened for each cash currency', bank.length === 3, `${bank.length}`);
+  check('the bank balances start at zero', bank.every((d) => d.balance === 0n));
+  check('USDT got no bank balance', !bank.some((d) => d.currencyCode === 'USDT'));
+  check('nothing moved into a bank balance',
+    (await db.drawerMovement.count({ where: { drawerId: { in: bank.map((d) => d.id) } } })) === 0);
 
   // What could not be kept, and what had to be.
   const kept = await db.transaction.findMany({ select: { reference: true }, orderBy: { reference: 'asc' } });
@@ -313,10 +323,10 @@ async function main() {
   run('node', ['scripts/post-deploy-data.mjs']);
 
   const drawers = await after.drawer.findMany();
-  const ils = drawers.find((d) => d.currencyCode === 'ILS');
+  const ils = drawers.find((d) => d.currencyCode === 'ILS' && d.kind === 'CASH');
   check('idempotent — the balance did not move', ils?.balance === 250000_00000000n,
     String(ils?.balance));
-  check('idempotent — no duplicate drawers', drawers.length === 3, `${drawers.length}`);
+  check('idempotent — no duplicate drawers', drawers.length === 6, `${drawers.length}`);
 
   await after.$disconnect();
 

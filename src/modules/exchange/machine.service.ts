@@ -169,7 +169,7 @@ export async function quote(
 
   // The same question the recording path will ask, asked here first so a green
   // light cannot become a failed posting a second later.
-  const payout = await drawers.canPay(input.toCurrency, priced.toAmount, db);
+  const payout = await drawers.canPay(input.toCurrency, priced.toAmount, 'CASH', db);
 
   return {
     quote: priced,

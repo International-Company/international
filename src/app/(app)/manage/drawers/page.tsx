@@ -16,15 +16,19 @@ export default async function DrawersPage() {
   const [drawers, check] = await Promise.all([listDrawers(), verifyBalances()]);
 
   // The movements behind each balance, so "why does it hold this" is answerable
-  // on the same screen rather than one click away.
+  // on the same screen rather than one click away. Keyed by currency *and* kind,
+  // because a currency now has a till and a bank balance and they are two
+  // different stories.
   const movements = await Promise.all(
     drawers.map(async (drawer) => ({
-      currency: drawer.currencyCode,
-      rows: await history(drawer.currencyCode, { limit: 12 }),
+      key: `${drawer.currencyCode}:${drawer.kind}`,
+      rows: await history(drawer.currencyCode, { limit: 12, kind: drawer.kind as 'CASH' | 'BANK' }),
     })),
   );
 
-  const agrees = new Map(check.drawers.map((entry) => [entry.currency, entry.agrees]));
+  const agrees = new Map(
+    check.drawers.map((entry) => [`${entry.currency}:${entry.kind}`, entry.agrees]),
+  );
 
   return (
     <div className="space-y-4">
@@ -32,7 +36,10 @@ export default async function DrawersPage() {
 
       <DrawersView
         drawers={toJsonSafe(
-          drawers.map((drawer) => ({ ...drawer, agrees: agrees.get(drawer.currencyCode) ?? true })),
+          drawers.map((drawer) => ({
+            ...drawer,
+            agrees: agrees.get(`${drawer.currencyCode}:${drawer.kind}`) ?? true,
+          })),
         )}
         movements={toJsonSafe(movements)}
         permissions={session.user.permissions}
