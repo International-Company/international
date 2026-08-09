@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { AlertTriangle, ArrowDownLeft, ArrowUpRight, Printer, Undo2 } from 'lucide-react';
+import { AlertTriangle, ArrowDownLeft, ArrowUpRight, Check, Printer, Undo2 } from 'lucide-react';
 import { useLocale } from '@/i18n/provider';
 import { api, ApiError } from '@/lib/api-client';
 import { Alert, Badge, Button, Card, CardBody, CardHeader, DetailRow } from '@/ui/primitives';
@@ -86,9 +86,31 @@ export function TransactionDetail({
   const [busy, setBusy] = useState(false);
 
   const canReverse =
-    transaction.status === 'POSTED' &&
+    (transaction.status === 'POSTED' || transaction.status === 'PENDING_TRANSFER') &&
     !transaction.reversalOf &&
     permissions.includes('exchange.transaction.reverse');
+
+  const canConfirmTransfer =
+    transaction.status === 'PENDING_TRANSFER' &&
+    permissions.includes('exchange.transfer.confirm');
+
+  const confirmTransfer = async () => {
+    setBusy(true);
+    try {
+      await api.post(`/api/manage/transactions/${transaction.id}`, { action: 'confirmTransfer' });
+      toast.success(t('transactions.transferConfirmed'), transaction.reference);
+      router.refresh();
+    } catch (cause) {
+      toast.error(
+        t('errors.title'),
+        cause instanceof ApiError
+          ? t(cause.messageKey as never, cause.params as Record<string, string>) || cause.message
+          : t('errors.generic'),
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const reverse = async () => {
     setBusy(true);
@@ -115,6 +137,24 @@ export function TransactionDetail({
 
   return (
     <div className="space-y-4">
+      {transaction.status === 'PENDING_TRANSFER' && (
+        <Alert tone="warning" icon={<AlertTriangle />} title={t('machine.pendingTransfer')}>
+          <p>{t('transactions.pendingTransfersHint')}</p>
+          {canConfirmTransfer && (
+            <Button
+              className="mt-2"
+              size="sm"
+              variant="primary"
+              icon={<Check />}
+              loading={busy}
+              onClick={() => void confirmTransfer()}
+            >
+              {t('transactions.confirmTransfer')}
+            </Button>
+          )}
+        </Alert>
+      )}
+
       {transaction.reversedBy && (
         <Alert tone="warning" icon={<AlertTriangle />} title={t('transactions.reverse')}>
           {t('transactions.reversedBy', { reference: transaction.reversedBy.reference })}{' '}

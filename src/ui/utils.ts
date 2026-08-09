@@ -32,6 +32,7 @@ export function statusTone(status: string): Tone {
     case 'CLOSED':
       return 'success';
     case 'PENDING':
+    case 'PENDING_TRANSFER':
     case 'RUNNING':
     case 'CLOSING':
     case 'REOPENED':

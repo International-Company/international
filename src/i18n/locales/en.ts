@@ -226,6 +226,10 @@ const en = {
   },
 
   transactions: {
+    confirmTransfer: 'Confirm the transfer',
+    transferConfirmed: 'Transfer confirmed',
+    pendingTransfers: 'Transfers awaiting confirmation',
+    pendingTransfersHint: 'The money has already left the bank balance. This records that the transfer was actually sent.',
     title: 'Transactions',
     subtitle: 'All financial operations recorded by the branch',
     new: 'New transaction',
@@ -284,6 +288,7 @@ const en = {
     status: {
       DRAFT: 'Draft',
       POSTED: 'Posted',
+      PENDING_TRANSFER: 'Awaiting transfer',
       CANCELLED: 'Cancelled',
       REVERSED: 'Reversed',
     },
@@ -480,6 +485,14 @@ const en = {
   },
 
   machine: {
+    payoutTitle: 'Handed over as',
+    payoutCash: 'Cash',
+    payoutBank: 'Transfer',
+    payoutSplit: 'Split',
+    payoutCashLeg: 'In cash',
+    payoutBankLeg: 'By transfer',
+    payoutBankShort: 'The {currency} bank balance holds {available}.',
+    pendingTransfer: 'Awaiting transfer',
     attachCustomer: 'Attach a customer',
     board: 'The Board',
     currency: 'Currency',
@@ -1013,6 +1026,8 @@ const en = {
   },
 
   errors: {
+    notPendingTransfer: 'This transaction is not waiting on a transfer',
+    payoutDoesNotBalance: 'The cash and transfer shares must add up to the amount handed over',
     title: 'Something went wrong',
     generic: 'An unexpected error occurred. Please try again.',
     validationError: 'Please correct the highlighted fields',

@@ -101,9 +101,12 @@ export async function machineConfig(db: DbClient = prisma): Promise<MachineConfi
 
 export interface MachineQuote {
   quote: Quote;
-  /** Whether the branch can actually pay this out right now. */
+  /** Whether the branch can pay this out at all — from either balance, or both. */
   available: boolean;
+  /** What the till holds. Named for the field it has always filled. */
   availableAmount: bigint;
+  /** What the bank account holds. */
+  availableBank: bigint;
   requiresCustomer: boolean;
   overLimit: boolean;
 }
@@ -167,14 +170,24 @@ export async function quote(
   const overLimit = maxAmount > 0n && priced.fromAmount > maxAmount;
   const requiresCustomer = requireCustomerAbove > 0n && priced.fromAmount >= requireCustomerAbove;
 
-  // The same question the recording path will ask, asked here first so a green
-  // light cannot become a failed posting a second later.
-  const payout = await drawers.canPay(input.toCurrency, priced.toAmount, 'CASH', db);
+  /*
+   * The same question the recording path will ask, asked here first so a green
+   * light cannot become a failed posting a second later — now of both balances.
+   *
+   * "Available" is the two together, because a payout may be split across them.
+   * Reporting only the till would refuse a trade the branch can honour perfectly
+   * well by sending part of it.
+   */
+  const [cash, bank] = await Promise.all([
+    drawers.canPay(input.toCurrency, priced.toAmount, 'CASH', db),
+    drawers.canPay(input.toCurrency, priced.toAmount, 'BANK', db),
+  ]);
 
   return {
     quote: priced,
-    available: payout.ok,
-    availableAmount: payout.balance,
+    available: cash.ok || bank.ok || cash.balance + bank.balance >= priced.toAmount,
+    availableAmount: cash.balance,
+    availableBank: bank.balance,
 
     requiresCustomer,
     overLimit,
@@ -190,6 +203,12 @@ export interface MachineRecordInput {
   toCurrency: string;
   fromAmount?: bigint;
   toAmount?: bigint;
+  /**
+   * How the payout is handed over. Only the bank share is given: the till takes
+   * whatever is left, so the two can never be sent in disagreeing with each
+   * other or with a total the browser computed from a stale price.
+   */
+  payoutBank?: bigint;
   branchId: string;
   customerId?: string | null;
   counterpartyName?: string | null;
@@ -237,15 +256,44 @@ export async function record(input: MachineRecordInput, actor: Actor, db: DbClie
     );
   }
 
-  // The drawer refuses this again on the way through. Failing here means the
-  // teller is told the drawer and the shortfall rather than reading a posting
-  // error, and the customer has not been quoted a figure first.
-  if (!priced.available) {
-    throw errors.insufficientFunds(
-      `The ${input.toCurrency} drawer`,
-      `${toDecimalString(priced.availableAmount, 2)} ${input.toCurrency}`,
-      `${toDecimalString(priced.quote.toAmount, 2)} ${input.toCurrency}`,
+  /*
+   * The split, resolved here from the server's own price.
+   *
+   * The browser sends only how much goes by transfer; the till takes the rest.
+   * Sending both would let a screen holding a stale price post two legs that
+   * sum to the wrong total, and sending the total as well would give three
+   * numbers where two suffice — every extra number is one more that can
+   * disagree.
+   */
+  const total = priced.quote.toAmount;
+  const bankLeg = input.payoutBank ?? 0n;
+
+  if (bankLeg < 0n || bankLeg > total) {
+    throw errors.precondition(
+      'The transferred share cannot exceed the amount handed over',
+      'errors.payoutDoesNotBalance',
     );
+  }
+  const payout = { cash: total - bankLeg, bank: bankLeg };
+
+  /*
+   * Each leg is checked against its own balance, before anything is promised.
+   * Failing here means the teller is told which balance is short and by how
+   * much, rather than reading a posting error after quoting a figure aloud.
+   */
+  for (const [kind, amount, held] of [
+    ['CASH', payout.cash, priced.availableAmount],
+    ['BANK', payout.bank, priced.availableBank],
+  ] as const) {
+    if (amount > 0n && amount > held) {
+      throw errors.insufficientFunds(
+        kind === 'BANK'
+          ? `The ${input.toCurrency} bank balance`
+          : `The ${input.toCurrency} drawer`,
+        `${toDecimalString(held, 2)} ${input.toCurrency}`,
+        `${toDecimalString(amount, 2)} ${input.toCurrency}`,
+      );
+    }
   }
 
   return transactions.record(
@@ -257,6 +305,7 @@ export async function record(input: MachineRecordInput, actor: Actor, db: DbClie
       fromAmount: priced.quote.fromAmount,
       toCurrency: input.toCurrency,
       toAmount: priced.quote.toAmount,
+      payout,
       rate: priced.quote.rate,
       rateId: priced.quote.rateId,
       profitAmount: priced.quote.profit,

@@ -46,6 +46,13 @@ export interface RecordInput {
   /** What the customer takes away. */
   toCurrency: string;
   toAmount: bigint;
+  /**
+   * How that is handed over. Omit for all cash, which is most of them.
+   *
+   * The two must sum to exactly `toAmount`; a split allowed to disagree with
+   * its own total leaks a fraction on every trade.
+   */
+  payout?: { cash: bigint; bank: bigint };
   rate: bigint;
   rateId?: string | null;
   profitAmount?: bigint;
@@ -84,6 +91,22 @@ export async function record(
   const meta = TRANSACTION_TYPE_META[input.type];
   if (!meta) throw errors.precondition(`Unknown transaction type: ${input.type}`);
 
+  // How the payout is split, defaulting to all cash.
+  const payout = input.payout ?? { cash: input.toAmount, bank: 0n };
+
+  if (payout.cash < 0n || payout.bank < 0n) {
+    throw errors.precondition('A payout leg cannot be negative', 'errors.amountNotPositive');
+  }
+  // Exactly, not approximately. Checked here rather than at the caller because
+  // this is the last place before the money moves, and every caller would
+  // otherwise have to be trusted to have got it right.
+  if (payout.cash + payout.bank !== input.toAmount) {
+    throw errors.precondition(
+      'The cash and bank legs must add up to the amount handed over',
+      'errors.payoutDoesNotBalance',
+    );
+  }
+
   const recorded = await withTransaction(async (tx) => {
     if (input.customerId) {
       const customer = await tx.customer.findUnique({ where: { id: input.customerId } });
@@ -103,13 +126,17 @@ export async function record(
       data: {
         reference,
         type: input.type,
-        status: 'POSTED',
+        // A bank leg is a promise until someone says it left; a purely cash
+        // payout is finished the moment the notes cross the counter.
+        status: payout.bank > 0n ? 'PENDING_TRANSFER' : 'POSTED',
         branchId: input.branchId,
         customerId: input.customerId ?? null,
         fromCurrency: input.fromCurrency,
         fromAmount: input.fromAmount,
         toCurrency: input.toCurrency,
         toAmount: input.toAmount,
+        payoutCashAmount: payout.cash,
+        payoutBankAmount: payout.bank,
         rate: input.rate,
         rateId: input.rateId ?? null,
         profitAmount: input.profitAmount ?? 0n,
@@ -121,8 +148,16 @@ export async function record(
       },
     });
 
-    // In and out in the same database transaction as the row itself. If the
-    // drawer cannot cover the payout this throws and nothing above survives.
+    /*
+     * In and out in the same database transaction as the row itself. If either
+     * balance cannot cover its leg this throws and nothing above survives.
+     *
+     * The bank leg is taken now, not when the transfer is confirmed. Deferring
+     * it would let two pending transfers each promise money the account does
+     * not hold — which is the entire guarantee the bank balance exists to give.
+     * Confirmation therefore moves nothing; it only records that the promise
+     * was kept.
+     */
     await drawers.move(
       [
         {
@@ -132,13 +167,30 @@ export async function record(
           reason: 'TRANSACTION',
           transactionId: row.id,
         },
-        {
-          currency: input.toCurrency,
-          direction: 'OUT',
-          amount: input.toAmount,
-          reason: 'TRANSACTION',
-          transactionId: row.id,
-        },
+        ...(payout.cash > 0n
+          ? [
+              {
+                currency: input.toCurrency,
+                kind: 'CASH' as const,
+                direction: 'OUT' as const,
+                amount: payout.cash,
+                reason: 'TRANSACTION' as const,
+                transactionId: row.id,
+              },
+            ]
+          : []),
+        ...(payout.bank > 0n
+          ? [
+              {
+                currency: input.toCurrency,
+                kind: 'BANK' as const,
+                direction: 'OUT' as const,
+                amount: payout.bank,
+                reason: 'TRANSACTION' as const,
+                transactionId: row.id,
+              },
+            ]
+          : []),
       ],
       actor,
       tx,
@@ -166,7 +218,10 @@ export async function record(
       tx,
     );
 
-    return { id: row.id, reference, status: 'POSTED' as TransactionStatus };
+    // The row's own status, not a repeated literal. A payout with a bank leg
+    // is pending, and a caller told otherwise would show the teller a finished
+    // transaction that the manager still has to confirm.
+    return { id: row.id, reference, status: row.status as TransactionStatus };
   }, db);
 
   emitAsync('transaction.posted', {
@@ -206,7 +261,10 @@ export async function reverse(
     const original = await tx.transaction.findUnique({ where: { id } });
     if (!original) throw errors.notFound('Transaction', id);
 
-    if (original.status !== 'POSTED') {
+    // A transfer still awaiting confirmation is exactly the case where undoing
+    // is most useful — the mistake is caught before the money leaves the bank —
+    // so it is reversible too. Only an already-reversed one is not.
+    if (original.status !== 'POSTED' && original.status !== 'PENDING_TRANSFER') {
       throw errors.conflict('Only a posted transaction can be reversed', 'errors.notPosted');
     }
     if (original.reversalOfId) {
@@ -245,15 +303,51 @@ export async function reverse(
       },
     });
 
+    /*
+     * What went out comes back to the balance it went out of.
+     *
+     * Returning a split payout wholly to cash would quietly move money from the
+     * bank account into the till — the totals would still balance, and the two
+     * balances would both be wrong.
+     */
+    /*
+     * A row recorded before payouts could be split carries zeroes in both legs.
+     * Those were all cash — that was the only thing a payout could be — so they
+     * are read that way rather than restoring nothing at all. The migration
+     * backfills them too; this is the belt to that pair of braces, and it also
+     * covers anything written by a path that forgot to set the legs.
+     */
+    const legs =
+      original.payoutCashAmount + original.payoutBankAmount === original.toAmount
+        ? { cash: original.payoutCashAmount, bank: original.payoutBankAmount }
+        : { cash: original.toAmount, bank: 0n };
+
     await drawers.move(
       [
-        {
-          currency: original.toCurrency,
-          direction: 'IN',
-          amount: original.toAmount,
-          reason: 'REVERSAL',
-          transactionId: reversal.id,
-        },
+        ...(legs.cash > 0n
+          ? [
+              {
+                currency: original.toCurrency,
+                kind: 'CASH' as const,
+                direction: 'IN' as const,
+                amount: legs.cash,
+                reason: 'REVERSAL' as const,
+                transactionId: reversal.id,
+              },
+            ]
+          : []),
+        ...(legs.bank > 0n
+          ? [
+              {
+                currency: original.toCurrency,
+                kind: 'BANK' as const,
+                direction: 'IN' as const,
+                amount: legs.bank,
+                reason: 'REVERSAL' as const,
+                transactionId: reversal.id,
+              },
+            ]
+          : []),
         {
           currency: original.fromCurrency,
           direction: 'OUT',
@@ -342,6 +436,65 @@ function buildWhere(filter: TransactionFilter, actor: Actor): Prisma.Transaction
   }
 
   return where;
+}
+
+/**
+ * Records that a promised bank transfer actually left.
+ *
+ * Deliberately moves no money. The bank leg was taken out of the balance the
+ * moment it was promised, because a promise that has not yet reduced the
+ * balance is one two tellers can both make against the same funds. All that is
+ * outstanding by the time anyone reaches this function is proof, so this
+ * supplies proof and nothing else.
+ *
+ * Not the teller's to press. Confirming your own promise is the same person
+ * saying both halves, which is the one thing the separation is for.
+ */
+export async function confirmTransfer(
+  id: string,
+  actor: Actor,
+  db: DbClient = prisma,
+): Promise<{ id: string; reference: string; status: TransactionStatus }> {
+  if (!actor.permissions.includes('exchange.transfer.confirm')) {
+    throw errors.forbidden('exchange.transfer.confirm');
+  }
+
+  const result = await withTransaction(async (tx) => {
+    const row = await tx.transaction.findUnique({ where: { id } });
+    if (!row) throw errors.notFound('Transaction', id);
+
+    if (row.status !== 'PENDING_TRANSFER') {
+      throw errors.conflict(
+        'This transaction is not waiting on a transfer',
+        'errors.notPendingTransfer',
+      );
+    }
+
+    return tx.transaction.update({
+      where: { id },
+      data: {
+        status: 'POSTED',
+        transferConfirmedAt: new Date(),
+        transferConfirmedById: actor.id,
+      },
+      select: { id: true, reference: true, status: true, toCurrency: true, payoutBankAmount: true },
+    });
+  }, db);
+
+  await audit.record({
+    action: 'UPDATE',
+    module: 'exchange',
+    entityType: 'Transaction',
+    entityId: result.id,
+    summaryEn: `Confirmed the bank transfer for ${result.reference}: ${toDecimalString(result.payoutBankAmount, 2)} ${result.toCurrency} left the account`,
+    summaryAr: `تأكيد الحوالة البنكية للعملية ${result.reference}: ${toDecimalString(result.payoutBankAmount, 2)} ${result.toCurrency} خرجت من الحساب`,
+    actor,
+    after: { status: 'POSTED' },
+  });
+
+  log.info('Bank transfer confirmed', { reference: result.reference });
+
+  return { id: result.id, reference: result.reference, status: result.status as TransactionStatus };
 }
 
 export async function list(filter: TransactionFilter, actor: Actor, db: DbClient = prisma) {

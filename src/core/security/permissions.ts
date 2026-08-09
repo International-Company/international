@@ -71,6 +71,8 @@ export const PERMISSIONS: PermissionDefinition[] = [
     'Record a new financial transaction', 'تسجيل عملية مالية جديدة'),
   def('exchange.transaction.reverse', 'exchange', 'reverse', 'Reverse transaction', 'عكس عملية',
     'Create a reversing entry for a posted transaction', 'إنشاء قيد عكسي لعملية مرحّلة', true),
+  def('exchange.transfer.confirm', 'exchange', 'confirm', 'Confirm bank transfers', 'تأكيد التحويلات البنكية',
+    'Mark a promised bank transfer as actually sent', 'تأكيد أن الحوالة البنكية الموعودة قد أُرسلت فعلاً', true),
   def('exchange.receipt.print', 'exchange', 'print', 'Print receipts', 'طباعة الإيصالات',
     'Print and reprint transaction receipts', 'طباعة وإعادة طباعة إيصالات العمليات'),
   def('exchange.machine.use', 'exchange', 'use', 'Use the exchange machine', 'استخدام ماكينة التصريف',

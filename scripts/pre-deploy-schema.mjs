@@ -344,6 +344,38 @@ const STEPS = [
       END $$;
     `,
   },
+
+  /*
+   * Every payout recorded so far was cash — that was the only thing a payout
+   * could be — so say so on the row.
+   *
+   * Not cosmetic. A reversal returns the money to the balances the payout came
+   * out of, and reads those two columns to know which. Left at zero, reversing
+   * an old transaction would restore nothing to the till: the customer's money
+   * would come back and the branch's would not. The service defends against
+   * this too, but a correct column is better than a correct guess about a wrong
+   * one.
+   */
+  {
+    name: 'Record that every existing payout was cash',
+    sql: `
+      DO $$
+      BEGIN
+        IF to_regclass('public.transactions') IS NULL THEN
+          RETURN;
+        END IF;
+
+        ALTER TABLE "transactions" ADD COLUMN IF NOT EXISTS "payoutCashAmount" BIGINT NOT NULL DEFAULT 0;
+        ALTER TABLE "transactions" ADD COLUMN IF NOT EXISTS "payoutBankAmount" BIGINT NOT NULL DEFAULT 0;
+        ALTER TABLE "transactions" ADD COLUMN IF NOT EXISTS "transferConfirmedAt" TIMESTAMP(3);
+        ALTER TABLE "transactions" ADD COLUMN IF NOT EXISTS "transferConfirmedById" TEXT;
+
+        UPDATE "transactions"
+        SET "payoutCashAmount" = "toAmount"
+        WHERE "payoutCashAmount" = 0 AND "payoutBankAmount" = 0 AND "toAmount" <> 0;
+      END $$;
+    `,
+  },
 ];
 
 /** Host and database only — a connection string in a deploy log is a leak. */

@@ -85,9 +85,13 @@ interface QuoteResponse {
   profit: string | null;
   available: boolean;
   availableAmount: string;
+  availableBank: string;
   requiresCustomer: boolean;
   overLimit: boolean;
 }
+
+/** How the payout leaves the branch. */
+type Channel = 'CASH' | 'BANK' | 'SPLIT';
 
 interface RecentRow {
   id: string;
@@ -152,6 +156,14 @@ export function MachineView({
   const [customer, setCustomer] = useState<CustomerHit | null>(null);
   const [customerOpen, setCustomerOpen] = useState(false);
   const [recent, setRecent] = useState<RecentRow[]>([]);
+
+  /*
+   * How the payout is handed over, and — when it is split — how much of it goes
+   * by transfer. Only that one figure is held: the cash share is always the
+   * remainder, so the two can never drift apart or disagree with the total.
+   */
+  const [channel, setChannel] = useState<Channel>('CASH');
+  const [bankShare, setBankShare] = useState('');
 
   // Clearing hands the caret back, so the next customer can be served without
   // reaching for the mouse first.
@@ -273,19 +285,7 @@ export function MachineView({
   const typeAmount = useCallback(
     (raw: string, into: Side) => {
       setDone(null);
-      const limit = (into === 'pay' ? fromCurrency : toCurrency)?.decimals ?? 2;
-
-      const cleaned = normalizeDigits(raw)
-        .replace(/[,٫٬]/g, '.')
-        .replace(/[^\d.]/g, '');
-
-      const [whole = '', ...rest] = cleaned.split('.');
-      const hasPoint = rest.length > 0 && limit > 0;
-      const fraction = rest.join('').slice(0, limit);
-
-      const next = hasPoint ? `${whole}.${fraction}` : whole;
-      // "007" is a typo, "0.5" is not.
-      setAmount(next.replace(/^0+(?=\d)/, ''));
+      setAmount(sanitiseAmount(raw, (into === 'pay' ? fromCurrency : toCurrency)?.decimals ?? 2));
     },
     [fromCurrency, toCurrency],
   );
@@ -323,26 +323,64 @@ export function MachineView({
     setCounterpartyName('');
     setCustomer(null);
     setCustomerOpen(false);
+    setChannel('CASH');
+    setBankShare('');
     setSide('pay');
     payRef.current?.focus();
   };
 
+  /*
+   * The two legs, in the scaled units the server speaks.
+   *
+   * Derived from the quote rather than from anything the operator typed into
+   * the receive field, so the split always adds to the figure that will
+   * actually be posted.
+   */
+  const legs = (() => {
+    if (!quote) return { cash: 0n, bank: 0n };
+    const total = BigInt(quote.toAmount);
+    if (channel === 'CASH') return { cash: total, bank: 0n };
+    if (channel === 'BANK') return { cash: 0n, bank: total };
+
+    const typed = scaleAmount(bankShare);
+    const bank = typed > total ? total : typed;
+    return { cash: total - bank, bank };
+  })();
+
+  const shortLeg = quote
+    ? legs.cash > BigInt(quote.availableAmount)
+      ? ('CASH' as const)
+      : legs.bank > BigInt(quote.availableBank)
+        ? ('BANK' as const)
+        : null
+    : null;
+
   // Every reason the record button is unavailable, each of which the operator
   // has already been told about in words.
   const blocked =
-    !quote || !quote.available || quote.overLimit || (quote.requiresCustomer && !customer);
+    !quote ||
+    !quote.available ||
+    quote.overLimit ||
+    shortLeg !== null ||
+    (quote.requiresCustomer && !customer);
 
   const submit = async () => {
     if (!quote || blocked) return;
     setPosting(true);
     try {
-      const result = await api.post<{ id: string; reference: string }>('/api/exchange/machine', {
-        from,
-        to,
-        [side]: amount.trim(),
-        customerId: customer?.id ?? null,
-        counterpartyName: counterpartyName.trim() || null,
-      });
+      const result = await api.post<{ id: string; reference: string; status: string }>(
+        '/api/exchange/machine',
+        {
+          from,
+          to,
+          [side]: amount.trim(),
+          // Only the transferred share travels; the till takes the rest, worked
+          // out by the server from its own price.
+          payoutBank: legs.bank > 0n ? unscale(legs.bank) : undefined,
+          customerId: customer?.id ?? null,
+          counterpartyName: counterpartyName.trim() || null,
+        },
+      );
 
       toast.success(t('machine.recorded'), result.reference);
       setDone(result);
@@ -481,10 +519,107 @@ export function MachineView({
             )}
           </div>
 
+          {/*
+            How it is handed over.
+            Three segments, defaulting to cash, so the ordinary trade costs
+            nothing to record. Splitting reveals one field — the transferred
+            share — and the cash side is shown beside it as a consequence rather
+            than as a second thing to fill in, because two editable halves of a
+            fixed total is a sum the operator has to keep in their head.
+          */}
+          <div className="rounded-2xl bg-surface p-3 ring-1 ring-border-subtle">
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-xs font-medium text-content-secondary">
+                {t('machine.payoutTitle')}
+              </span>
+
+              <div dir="ltr" className="flex gap-1 rounded-full bg-surface-sunken p-1">
+                {(['CASH', 'BANK', 'SPLIT'] as const).map((option) => (
+                  <button
+                    key={option}
+                    type="button"
+                    onClick={() => {
+                      setChannel(option);
+                      setDone(null);
+                      if (option !== 'SPLIT') setBankShare('');
+                    }}
+                    aria-pressed={channel === option}
+                    className={cn(
+                      'h-9 rounded-full px-4 text-sm font-medium transition-colors',
+                      channel === option
+                        ? 'bg-surface text-content shadow-[var(--shadow-sm)]'
+                        : 'text-content-tertiary hover:text-content-secondary',
+                    )}
+                  >
+                    {option === 'CASH'
+                      ? t('machine.payoutCash')
+                      : option === 'BANK'
+                        ? t('machine.payoutBank')
+                        : t('machine.payoutSplit')}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {channel === 'SPLIT' && (
+              <div className="mt-3 grid grid-cols-2 gap-3">
+                <label className="block">
+                  <span className="text-xs text-content-tertiary">{t('machine.payoutBankLeg')}</span>
+                  <input
+                    type="text"
+                    dir="ltr"
+                    inputMode="decimal"
+                    autoComplete="off"
+                    data-zoom-safe=""
+                    value={bankShare}
+                    placeholder={(0).toFixed(toCurrency?.decimals ?? 2)}
+                    onChange={(event) => {
+                      setDone(null);
+                      const decimals = toCurrency?.decimals ?? 2;
+                      const typed = sanitiseAmount(event.target.value, decimals);
+
+                      /*
+                       * Held at the total. More than the payout cannot be
+                       * transferred, and letting the field show a figure larger
+                       * than the one that will actually move would be a display
+                       * disagreeing with what it is about to do.
+                       */
+                      const total = quote ? BigInt(quote.toAmount) : 0n;
+                      setBankShare(
+                        quote && scaleAmount(typed) > total
+                          ? formatPlain(total.toString(), decimals)
+                          : typed,
+                      );
+                    }}
+                    className="mt-1 h-12 w-full rounded-xl bg-surface-sunken px-3 text-end text-xl font-semibold tabular-nums text-content outline-none ring-1 ring-transparent focus:ring-primary"
+                  />
+                </label>
+
+                <div className="block">
+                  <span className="text-xs text-content-tertiary">
+                    {t('machine.payoutCashLeg')}
+                  </span>
+                  <p className="mt-1 flex h-12 items-center justify-end rounded-xl bg-surface-sunken px-3 text-xl font-semibold tabular-nums text-content-secondary ltr-content">
+                    {formatScaled(legs.cash.toString(), toCurrency?.decimals ?? 2)}
+                  </p>
+                </div>
+              </div>
+            )}
+          </div>
+
           {/* --- Anything standing in the way --------------------------- */}
           {error && <Blocker tone="danger">{error}</Blocker>}
 
-          {quote && !quote.available && (
+          {quote && shortLeg === 'BANK' && (
+            <Blocker tone="danger" title={t('machine.cannotPayTitle')}>
+              {t('machine.payoutBankShort', {
+                currency: to,
+                available: `${formatScaled(quote.availableBank, toCurrency?.decimals ?? 2)} ${to}`,
+              })}
+            </Blocker>
+          )}
+
+          {quote && shortLeg === 'CASH' && (
             <Blocker tone="danger" title={t('machine.cannotPayTitle')}>
               {t('machine.cannotPayBody', {
                 account: `${t('drawers.title')} ${to}`,
@@ -938,6 +1073,52 @@ function effectiveRate(rate: BoardRate, from: string): string {
   const sell = BigInt(rate.sellRate);
   if (sell === 0n) return '0';
   return ((10n ** 16n) / sell).toString();
+}
+
+/**
+ * Keeps only what an amount can be.
+ *
+ * Arabic-Indic digits become Western ones, a comma or an Arabic decimal mark
+ * becomes a point, anything else is dropped, and the fraction is cut to the
+ * currency's own precision — so a dinar accepts three places and a shekel two,
+ * without the field ever rejecting a keystroke in a way that feels like the
+ * keyboard is broken.
+ */
+function sanitiseAmount(raw: string, limit: number): string {
+  const cleaned = normalizeDigits(raw)
+    .replace(/[,٫٬]/g, '.')
+    .replace(/[^\d.]/g, '');
+
+  const [whole = '', ...rest] = cleaned.split('.');
+  const hasPoint = rest.length > 0 && limit > 0;
+  const fraction = rest.join('').slice(0, limit);
+
+  const next = hasPoint ? `${whole}.${fraction}` : whole;
+  // "007" is a typo, "0.5" is not.
+  return next.replace(/^0+(?=\d)/, '');
+}
+
+/**
+ * A typed decimal, as the scaled integer the rest of the system uses.
+ *
+ * Parsed digit by digit rather than through `Number`: a float cannot hold
+ * 1234567.89 exactly, and the error lands in the fraction — which is the part
+ * this is being used to decide.
+ */
+function scaleAmount(text: string): bigint {
+  const [whole = '', fraction = ''] = text.trim().split('.');
+  const digits = (whole.replace(/\D/g, '') || '0') + fraction.replace(/\D/g, '').padEnd(8, '0').slice(0, 8);
+  try {
+    return BigInt(digits);
+  } catch {
+    return 0n;
+  }
+}
+
+/** The inverse, for putting an amount back on the wire. */
+function unscale(value: bigint): string {
+  const digits = value.toString().padStart(9, '0');
+  return `${digits.slice(0, -8)}.${digits.slice(-8)}`;
 }
 
 /** Renders a 1e8-scaled string at a currency's own precision. */

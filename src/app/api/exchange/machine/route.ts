@@ -51,6 +51,7 @@ export const GET = route<unknown, z.infer<typeof querySchema>>({
       profit: actor.permissions.includes('exchange.margin.view') ? priced.quote.profit : null,
       available: priced.available,
       availableAmount: priced.availableAmount,
+      availableBank: priced.availableBank,
       requiresCustomer: priced.requiresCustomer,
       overLimit: priced.overLimit,
     };
@@ -62,6 +63,8 @@ const bodySchema = z.object({
   to: z.string().min(2).max(8),
   pay: z.string().optional(),
   receive: z.string().optional(),
+  /** How much of the payout goes by transfer. The till takes the rest. */
+  payoutBank: z.string().optional(),
   customerId: z.string().nullish(),
   counterpartyName: z.string().max(200).nullish(),
   counterpartyPhone: z.string().max(40).nullish(),
@@ -81,6 +84,7 @@ export const POST = route<z.infer<typeof bodySchema>>({
         toCurrency: body.to.toUpperCase(),
         fromAmount: body.pay !== undefined ? parseMoney(body.pay) : undefined,
         toAmount: body.receive !== undefined ? parseMoney(body.receive) : undefined,
+        payoutBank: body.payoutBank !== undefined ? parseMoney(body.payoutBank) : undefined,
         branchId: actor.branchId,
         customerId: body.customerId ?? null,
         counterpartyName: body.counterpartyName ?? null,

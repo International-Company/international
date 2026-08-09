@@ -228,6 +228,10 @@ const ar: Dictionary = {
   },
 
   transactions: {
+    confirmTransfer: 'تأكيد التحويل',
+    transferConfirmed: 'تم تأكيد التحويل',
+    pendingTransfers: 'تحويلات بانتظار التأكيد',
+    pendingTransfersHint: 'المبلغ خرج من رصيد البنك فعلاً. هذا يسجّل أن الحوالة أُرسلت.',
     title: 'العمليات',
     subtitle: 'جميع العمليات المالية المسجّلة في الفرع',
     new: 'عملية جديدة',
@@ -286,6 +290,7 @@ const ar: Dictionary = {
     status: {
       DRAFT: 'مسودة',
       POSTED: 'مرحّلة',
+      PENDING_TRANSFER: 'بانتظار التحويل',
       CANCELLED: 'ملغاة',
       REVERSED: 'معكوسة',
     },
@@ -482,6 +487,14 @@ const ar: Dictionary = {
   },
 
   machine: {
+    payoutTitle: 'يُسلَّم',
+    payoutCash: 'نقداً',
+    payoutBank: 'بنك',
+    payoutSplit: 'مقسوم',
+    payoutCashLeg: 'نقداً',
+    payoutBankLeg: 'بنكياً',
+    payoutBankShort: 'رصيد بنك {currency} يحمل {available}.',
+    pendingTransfer: 'بانتظار التحويل',
     attachCustomer: 'إرفاق عميل',
     board: 'اللوحة',
     currency: 'العملة',
@@ -1014,6 +1027,8 @@ const ar: Dictionary = {
   },
 
   errors: {
+    notPendingTransfer: 'هذه العملية ليست بانتظار تحويل',
+    payoutDoesNotBalance: 'مجموع الشقّ النقدي والبنكي يجب أن يساوي المبلغ المسلّم',
     title: 'حدث خطأ ما',
     generic: 'حدث خطأ غير متوقع. يرجى المحاولة مرة أخرى.',
     validationError: 'يرجى تصحيح الحقول المميزة',

@@ -107,6 +107,7 @@ model User {
   notifications   NotificationRecipient[]
 
   createdTransactions Transaction[]        @relation("TransactionCreatedBy")
+  confirmedTransfers  Transaction[]        @relation("TransactionTransferConfirmedBy")
   openedDays          BusinessDay[]        @relation("DayOpenedBy")
   closedDays          BusinessDay[]        @relation("DayClosedBy")
   backups             Backup[]
@@ -481,7 +482,13 @@ model Transaction {
   /// USDT_RECEIVE — USDT taken at the window, cash handed back.
   /// Both are the same shape: the customer gives one currency and takes another.
   type   String
-  /// POSTED | REVERSED. Recording is posting; there is no draft and no approval.
+  /// POSTED | PENDING_TRANSFER | REVERSED. Recording is posting; there is no
+  /// draft and no approval.
+  ///
+  /// PENDING_TRANSFER means the money has already left the branch's balances —
+  /// the bank leg is reserved the instant it is promised — but nobody has yet
+  /// confirmed the transfer actually went out. It is a promise awaiting proof,
+  /// not money awaiting a decision.
   status String @default("POSTED")
 
   branchId String
@@ -502,6 +509,22 @@ model Transaction {
 
   /// Spread earned against the mid rate, in toCurrency. Shown to the manager.
   profitAmount BigInt @default(0)
+
+  // --- How the customer was paid ------------------------------------------
+  //
+  // These two always sum to exactly `toAmount`. Not approximately: a split that
+  // is allowed to disagree with its own total leaks a fraction on every trade,
+  // and the server refuses one that does.
+  //
+  // An all-cash payout — which is most of them — leaves the bank leg at zero,
+  // so nothing about the ordinary case changes shape.
+  payoutCashAmount BigInt @default(0)
+  payoutBankAmount BigInt @default(0)
+
+  /// When someone confirmed the bank leg actually left. Null while pending.
+  transferConfirmedAt   DateTime?
+  transferConfirmedById String?
+  transferConfirmedBy   User?     @relation("TransactionTransferConfirmedBy", fields: [transferConfirmedById], references: [id], onDelete: SetNull)
 
   // --- Who was at the window ----------------------------------------------
   counterpartyName  String?
