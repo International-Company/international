@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { requirePermission } from '@/modules/auth/context';
 import { getTranslator } from '@/i18n/server';
 import { listDrawers, verifyBalances, history } from '@/modules/drawers/drawer.service';
+import { prisma } from '@/core/db/prisma';
 import { toJsonSafe } from '@/core/http/json';
 import { PageHeader } from '@/ui/primitives';
 import { DrawersView } from './drawers-view';
@@ -35,6 +36,32 @@ export default async function DrawersPage() {
     check.drawers.map((entry) => [`${entry.currency}:${entry.kind}`, entry.agrees]),
   );
 
+  /*
+   * Which currency-and-kind pairs still have no drawer.
+   *
+   * Worked out here rather than in the browser so the add dialog can offer only
+   * what can actually be created — one drawer per pair is the whole model, and
+   * a form that lets someone pick a pair that already exists is a form whose
+   * only outcome is an error message.
+   */
+  const currencies = await prisma.currency.findMany({
+    where: { isActive: true },
+    orderBy: { sortOrder: 'asc' },
+    select: { code: true, nameEn: true, nameAr: true, kind: true },
+  });
+
+  const taken = new Set(drawers.map((drawer) => `${drawer.currencyCode}:${drawer.kind}`));
+  const openable = currencies.flatMap((currency) =>
+    (['CASH', 'BANK'] as const)
+      .filter((kind) => !taken.has(`${currency.code}:${kind}`))
+      .map((kind) => ({
+        currency: currency.code,
+        kind,
+        nameEn: currency.nameEn,
+        nameAr: currency.nameAr,
+      })),
+  );
+
   return (
     <div className="space-y-4">
       <PageHeader title={t('drawers.title')} description={t('drawers.subtitle')} />
@@ -46,6 +73,7 @@ export default async function DrawersPage() {
             agrees: agrees.get(`${drawer.currencyCode}:${drawer.kind}`) ?? true,
           })),
         )}
+        openable={toJsonSafe(openable)}
         movements={toJsonSafe(movements)}
         permissions={session.user.permissions}
       />

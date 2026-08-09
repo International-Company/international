@@ -2,12 +2,21 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { AlertTriangle, ArrowDownLeft, ArrowUpRight, Minus, Pencil, Plus, Vault } from 'lucide-react';
+import {
+  AlertTriangle,
+  ArrowDownLeft,
+  ArrowUpRight,
+  Minus,
+  Pencil,
+  Plus,
+  Trash2,
+  Vault,
+} from 'lucide-react';
 import { useLocale } from '@/i18n/provider';
-import { api, ApiError } from '@/lib/api-client';
+import { api, ApiError, queryString } from '@/lib/api-client';
 import { Alert, Badge, Button, Card, CardBody, CardHeader } from '@/ui/primitives';
-import { Dialog, useToast } from '@/ui/overlay';
-import { Field, Input, MoneyInput, Switch } from '@/ui/form';
+import { ConfirmDialog, Dialog, useToast } from '@/ui/overlay';
+import { Field, Input, MoneyInput, Select, Switch } from '@/ui/form';
 import { DateText, Money } from '@/ui/display';
 import { cn } from '@/ui/utils';
 
@@ -49,12 +58,22 @@ interface MovementGroup {
   }[];
 }
 
+/** A currency and kind that has no drawer yet, and so can be opened. */
+interface Openable {
+  currency: string;
+  kind: string;
+  nameEn: string;
+  nameAr: string;
+}
+
 export function DrawersView({
   drawers,
+  openable,
   movements,
   permissions,
 }: {
   drawers: Drawer[];
+  openable: Openable[];
   movements: MovementGroup[];
   permissions: string[];
 }) {
@@ -123,6 +142,74 @@ export function DrawersView({
     }
   };
 
+  // --- Opening a new one ----------------------------------------------------
+  const [adding, setAdding] = useState(false);
+  const [pick, setPick] = useState(0);
+  const [newNames, setNewNames] = useState({ nameEn: '', nameAr: '' });
+
+  const chosen = openable[pick];
+
+  const openAdd = () => {
+    setPick(0);
+    const first = openable[0];
+    setNewNames(
+      first
+        ? nameFor(first)
+        : { nameEn: '', nameAr: '' },
+    );
+    setAdding(true);
+  };
+
+  const createDrawer = async () => {
+    if (!chosen) return;
+    setBusy(true);
+    try {
+      await api.put('/api/manage/drawers', {
+        currency: chosen.currency,
+        kind: chosen.kind,
+        nameEn: newNames.nameEn.trim(),
+        nameAr: newNames.nameAr.trim(),
+      });
+      toast.success(t('common.saved'), `${chosen.currency} — ${chosen.kind}`);
+      setAdding(false);
+      router.refresh();
+    } catch (cause) {
+      toast.error(
+        t('errors.title'),
+        cause instanceof ApiError
+          ? t(cause.messageKey as never, cause.params as Record<string, string>) || cause.message
+          : t('errors.generic'),
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // --- Removing one that was never used -------------------------------------
+  const [removing, setRemoving] = useState<Drawer | null>(null);
+
+  const removeDrawer = async () => {
+    if (!removing) return;
+    setBusy(true);
+    try {
+      await api.delete(
+        `/api/manage/drawers${queryString({ currency: removing.currencyCode, kind: removing.kind })}`,
+      );
+      toast.success(t('common.saved'), ln(removing, 'name'));
+      setRemoving(null);
+      router.refresh();
+    } catch (cause) {
+      toast.error(
+        t('errors.title'),
+        cause instanceof ApiError
+          ? t(cause.messageKey as never, cause.params as Record<string, string>) || cause.message
+          : t('errors.generic'),
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const canManage = permissions.includes('exchange.drawer.manage');
 
   const submit = async () => {
@@ -157,7 +244,15 @@ export function DrawersView({
 
   return (
     <div className="space-y-4">
-      {/* --- The four balances ------------------------------------------- */}
+      {canManage && openable.length > 0 && (
+        <div className="flex justify-end">
+          <Button variant="secondary" icon={<Plus />} onClick={openAdd}>
+            {t('drawers.open')}
+          </Button>
+        </div>
+      )}
+
+      {/* --- The balances ------------------------------------------------- */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {drawers.map((drawer) => {
           const balance = BigInt(drawer.balance);
@@ -250,6 +345,14 @@ export function DrawersView({
                     onClick={() => openEditor(drawer)}
                   >
                     {t('common.edit')}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    icon={<Trash2 />}
+                    onClick={() => setRemoving(drawer)}
+                  >
+                    {t('common.delete')}
                   </Button>
                 </div>
               )}
@@ -448,8 +551,95 @@ export function DrawersView({
           />
         </div>
       </Dialog>
+
+      {/* --- Opening a drawer for a pair that has none -------------------- */}
+      <Dialog
+        open={adding}
+        onClose={() => setAdding(false)}
+        title={t('drawers.open')}
+        description={t('drawers.openHint')}
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setAdding(false)} disabled={busy}>
+              {t('common.cancel')}
+            </Button>
+            <Button
+              variant="primary"
+              loading={busy}
+              disabled={!chosen}
+              onClick={() => void createDrawer()}
+            >
+              {t('common.create')}
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-3">
+          <Field label={t('common.currency')} required>
+            {(props) => (
+              <Select
+                {...props}
+                value={String(pick)}
+                onChange={(event) => {
+                  const index = Number(event.target.value);
+                  setPick(index);
+                  const target = openable[index];
+                  if (target) setNewNames(nameFor(target));
+                }}
+                options={openable.map((target, index) => ({
+                  value: String(index),
+                  label: `${target.currency} — ${
+                    target.kind === 'BANK' ? t('drawers.bank') : t('drawers.cash')
+                  }`,
+                }))}
+              />
+            )}
+          </Field>
+
+          <Field label={t('common.name')} required>
+            {(props) => (
+              <Input
+                {...props}
+                value={newNames.nameAr}
+                onChange={(event) => setNewNames({ ...newNames, nameAr: event.target.value })}
+              />
+            )}
+          </Field>
+
+          <Field label={`${t('common.name')} (EN)`} required>
+            {(props) => (
+              <Input
+                {...props}
+                dir="ltr"
+                value={newNames.nameEn}
+                onChange={(event) => setNewNames({ ...newNames, nameEn: event.target.value })}
+              />
+            )}
+          </Field>
+        </div>
+      </Dialog>
+
+      {/* --- Removing one that was never used ----------------------------- */}
+      <ConfirmDialog
+        open={removing !== null}
+        onClose={() => setRemoving(null)}
+        onConfirm={() => void removeDrawer()}
+        title={`${t('common.delete')} — ${removing ? ln(removing, 'name') : ''}`}
+        message={t('drawers.deleteHint')}
+        confirmLabel={t('common.delete')}
+        cancelLabel={t('common.cancel')}
+        tone="danger"
+        loading={busy}
+      />
     </div>
   );
+}
+
+/** A sensible starting name, so the manager usually just presses Save. */
+function nameFor(target: Openable): { nameEn: string; nameAr: string } {
+  return target.kind === 'BANK'
+    ? { nameEn: `${target.nameEn} bank`, nameAr: `بنك ${target.nameAr}` }
+    : { nameEn: `${target.nameEn} drawer`, nameAr: `صندوق ${target.nameAr}` };
 }
 
 /** A 1e8-scaled string as something an editable field can hold. */

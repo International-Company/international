@@ -278,6 +278,141 @@ export async function fund(
 }
 
 /**
+ * Opens a drawer for a currency and kind that has none.
+ *
+ * One per pair is the whole model, so this fills a gap rather than adding a
+ * second account: the pair is the drawer's identity everywhere else in the
+ * system, and two rows sharing it would make every lookup ambiguous.
+ */
+export async function createDrawer(
+  input: {
+    currency: string;
+    kind: DrawerKind;
+    nameEn: string;
+    nameAr: string;
+    lowBalanceThreshold?: bigint;
+    allowNegative?: boolean;
+  },
+  actor: Actor,
+  db: DbClient = prisma,
+) {
+  if (!actor.permissions?.includes('exchange.drawer.manage')) {
+    throw errors.forbidden('exchange.drawer.manage');
+  }
+
+  const currency = await db.currency.findUnique({ where: { code: input.currency } });
+  if (!currency) throw errors.notFound('Currency', input.currency);
+
+  const existing = await db.drawer.findUnique({
+    where: { currencyCode_kind: { currencyCode: input.currency, kind: input.kind } },
+  });
+  if (existing) {
+    throw errors.conflict(
+      `${describe(input.currency, input.kind)} already exists`,
+      'errors.drawerExists',
+      { currency: input.currency },
+    );
+  }
+  if (input.nameEn.trim().length === 0 || input.nameAr.trim().length === 0) {
+    throw errors.validation([{ path: 'nameEn', message: 'A drawer needs a name' }]);
+  }
+
+  const drawer = await db.drawer.create({
+    data: {
+      currencyCode: input.currency,
+      kind: input.kind,
+      nameEn: input.nameEn.trim(),
+      nameAr: input.nameAr.trim(),
+      lowBalanceThreshold: input.lowBalanceThreshold ?? 0n,
+      allowNegative: input.allowNegative ?? false,
+      // Beside its own currency's other drawer, so the screen stays ordered by
+      // currency rather than by creation date.
+      sortOrder: currency.sortOrder * 10 + (input.kind === 'BANK' ? 1 : 0),
+    },
+  });
+
+  await audit.record({
+    action: 'CREATE',
+    module: 'exchange',
+    entityType: 'Drawer',
+    entityId: `${input.currency}:${input.kind}`,
+    summaryEn: `Opened ${describe(input.currency, input.kind).toLowerCase()}`,
+    summaryAr: `فتح ${input.kind === 'BANK' ? `رصيد بنك ${input.currency}` : `صندوق ${input.currency}`}`,
+    actor,
+    after: { currency: input.currency, kind: input.kind, nameEn: drawer.nameEn },
+  });
+
+  log.info('Drawer opened', { currency: input.currency, kind: input.kind });
+
+  return drawer;
+}
+
+/**
+ * Removes a drawer that never held anything.
+ *
+ * Only one that has recorded no movement and holds no money can go. A drawer
+ * with movements is the explanation for balances that have already been
+ * reported and receipts already printed — deleting it would either orphan that
+ * history or take it down with the row, and the second is worse. Anything with
+ * a past is closed instead, which stops it trading and keeps the record.
+ */
+export async function deleteDrawer(
+  currency: string,
+  kind: DrawerKind,
+  actor: Actor,
+  db: DbClient = prisma,
+): Promise<void> {
+  if (!actor.permissions?.includes('exchange.drawer.manage')) {
+    throw errors.forbidden('exchange.drawer.manage');
+  }
+
+  const drawer = await getDrawer(currency, kind, db);
+
+  if (drawer.balance !== 0n) {
+    throw errors.precondition(
+      `${describe(currency, kind)} still holds ${toDecimalString(drawer.balance, 2)} ${currency}`,
+      'errors.drawerNotEmpty',
+      { currency, balance: toDecimalString(drawer.balance, 2) },
+    );
+  }
+
+  const movements = await db.drawerMovement.count({ where: { drawerId: drawer.id } });
+  if (movements > 0) {
+    throw errors.precondition(
+      `${describe(currency, kind)} has ${movements} movement(s) behind it — close it instead`,
+      'errors.drawerHasHistory',
+      { currency, count: String(movements) },
+    );
+  }
+
+  // A monitored wallet counts its holdings towards a drawer. Removing the
+  // drawer under it would leave the wallet pointing at nothing.
+  const wallets = await db.wallet.count({ where: { drawerId: drawer.id } });
+  if (wallets > 0) {
+    throw errors.precondition(
+      `${describe(currency, kind)} is linked to ${wallets} wallet(s)`,
+      'errors.drawerHasWallets',
+      { currency, count: String(wallets) },
+    );
+  }
+
+  await db.drawer.delete({ where: { id: drawer.id } });
+
+  await audit.record({
+    action: 'DELETE',
+    module: 'exchange',
+    entityType: 'Drawer',
+    entityId: `${currency}:${kind}`,
+    summaryEn: `Removed ${describe(currency, kind).toLowerCase()}, which had never been used`,
+    summaryAr: `حذف ${kind === 'BANK' ? `رصيد بنك ${currency}` : `صندوق ${currency}`} ولم يكن قد استُعمل قط`,
+    actor,
+    before: { currency, kind, nameEn: drawer.nameEn },
+  });
+
+  log.info('Drawer removed', { currency, kind });
+}
+
+/**
  * Editing a drawer — what it is called, when to warn, whether it is open.
  *
  * Not its balance. The balance is the sum of the movements beneath it, and

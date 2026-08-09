@@ -405,6 +405,9 @@ const en = {
   },
 
   drawers: {
+    open: 'Open a drawer',
+    openHint: 'One drawer per currency and kind. Only pairs that have none are offered.',
+    deleteHint: 'Only a drawer that has never recorded a movement and holds nothing can be removed. Anything with a history is closed instead — its movements explain balances that have already been reported.',
     editHint: 'The balance is not editable here — it is the sum of the movements beneath it. Use Add or Take, which record why it changed.',
     lowThreshold: 'Warn below',
     lowThresholdHint: 'Shows a warning on this card. Leave empty for no warning.',
@@ -1033,6 +1036,9 @@ const en = {
   },
 
   errors: {
+    drawerExists: 'A drawer already exists for {currency}',
+    drawerHasHistory: 'This drawer has {count} movement(s) behind it — close it instead of removing it',
+    drawerHasWallets: 'This drawer is linked to {count} wallet(s)',
     drawerNotEmpty: 'Empty the drawer before closing it — it still holds {balance} {currency}',
     notPendingTransfer: 'This transaction is not waiting on a transfer',
     payoutDoesNotBalance: 'The cash and transfer shares must add up to the amount handed over',

@@ -59,6 +59,59 @@ export const POST = route<z.infer<typeof bodySchema>>({
  * setting it directly would leave the drawer disagreeing with its own history.
  * Money moves through POST, which records why.
  */
+const createSchema = z.object({
+  currency: z.string().min(2).max(8),
+  kind: z.enum(drawers.DRAWER_KINDS),
+  nameEn: z.string().min(1).max(80),
+  nameAr: z.string().min(1).max(80),
+  lowBalanceThreshold: z.string().optional(),
+  allowNegative: z.boolean().optional(),
+});
+
+/** Opens a drawer for a currency and kind that has none. */
+export const PUT = route<z.infer<typeof createSchema>>({
+  permissions: ['exchange.drawer.manage'],
+  bodySchema: createSchema,
+  handler: async ({ body, actor }) => {
+    const drawer = await drawers.createDrawer(
+      {
+        currency: body.currency.toUpperCase(),
+        kind: body.kind,
+        nameEn: body.nameEn,
+        nameAr: body.nameAr,
+        lowBalanceThreshold: body.lowBalanceThreshold
+          ? parseMoney(body.lowBalanceThreshold)
+          : undefined,
+        allowNegative: body.allowNegative,
+      },
+      actor,
+    );
+
+    return { currency: drawer.currencyCode, kind: drawer.kind };
+  },
+});
+
+const removeSchema = z.object({
+  currency: z.string().min(2).max(8),
+  kind: z.enum(drawers.DRAWER_KINDS),
+});
+
+/**
+ * Removes a drawer that was never used.
+ *
+ * The service decides what "never used" means and refuses everything else — a
+ * drawer with movements is closed, not deleted, because its movements explain
+ * balances that have already been reported.
+ */
+export const DELETE = route<unknown, z.infer<typeof removeSchema>>({
+  permissions: ['exchange.drawer.manage'],
+  querySchema: removeSchema,
+  handler: async ({ query, actor }) => {
+    await drawers.deleteDrawer(query.currency.toUpperCase(), query.kind, actor);
+    return { ok: true };
+  },
+});
+
 const patchSchema = z.object({
   currency: z.string().min(2).max(8),
   kind: z.enum(drawers.DRAWER_KINDS).default('CASH'),
