@@ -405,7 +405,7 @@ const en = {
   },
 
   drawers: {
-    open: 'Open a drawer',
+    open: 'Add a drawer',
     openHint: 'One drawer per currency and kind. Only pairs that have none are offered.',
     deleteHint: 'Only a drawer that has never recorded a movement and holds nothing can be removed. Anything with a history is closed instead — its movements explain balances that have already been reported.',
     editHint: 'The balance is not editable here — it is the sum of the movements beneath it. Use Add or Take, which record why it changed.',
