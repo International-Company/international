@@ -190,6 +190,9 @@ export async function record(
                 direction: 'OUT' as const,
                 amount: payout.bank,
                 reason: 'TRANSACTION' as const,
+                // The account the instruction named, kept on the movement so
+                // the broker's statement can be checked line by line.
+                account: input.payoutChannel ?? null,
                 transactionId: row.id,
               },
             ]
@@ -355,6 +358,9 @@ export async function reverse(
                 direction: 'IN' as const,
                 amount: legs.bank,
                 reason: 'REVERSAL' as const,
+                // Back through the same account it went out of, or the two
+                // sides would never cancel on his statement.
+                account: original.payoutBankChannel,
                 transactionId: reversal.id,
               },
             ]

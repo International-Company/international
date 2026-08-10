@@ -391,6 +391,14 @@ model DrawerMovement {
   /// TRANSACTION | FUNDING | REVERSAL
   reason String
 
+  /// Which of the broker's accounts this went through.
+  ///
+  /// The office keeps no books per account — its claim is on the broker, not on
+  /// an account — but the instruction that leaves for him has to say which one,
+  /// and this is the only place that survives long enough to be checked against
+  /// his statement afterwards. Null on anything that did not go through him.
+  account String?
+
   transactionId String?
   transaction   Transaction? @relation(fields: [transactionId], references: [id], onDelete: SetNull)
 
@@ -402,6 +410,7 @@ model DrawerMovement {
 
   @@index([drawerId, createdAt])
   @@index([transactionId])
+  @@index([account])
   @@map("drawer_movements")
 }
 

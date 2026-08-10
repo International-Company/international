@@ -397,6 +397,14 @@ const STEPS = [
         -- Where a transfer was sent. Nothing to backfill: no transfer has ever
         -- been recorded without one, because the column arrives with the field.
         ALTER TABLE "transactions" ADD COLUMN IF NOT EXISTS "payoutBankChannel" TEXT;
+
+        -- Which of the broker's accounts a movement went through. Nothing to
+        -- backfill: movements made before the column existed were instructed
+        -- without one being recorded, and inventing a name here would be
+        -- inventing evidence for a reconciliation.
+        IF to_regclass('public.drawer_movements') IS NOT NULL THEN
+          ALTER TABLE "drawer_movements" ADD COLUMN IF NOT EXISTS "account" TEXT;
+        END IF;
       END $$;
     `,
   },

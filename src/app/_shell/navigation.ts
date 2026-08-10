@@ -107,6 +107,12 @@ export const NAVIGATION: NavSection[] = [
         icon: 'drawers',
         permissions: ['exchange.drawer.view'],
       },
+      {
+        href: '/manage/broker',
+        labelKey: 'nav.broker',
+        icon: 'drawers',
+        permissions: ['exchange.drawer.view'],
+      },
     ],
   },
 

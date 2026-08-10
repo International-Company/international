@@ -118,6 +118,7 @@ const en = {
   },
 
   nav: {
+    broker: 'The Broker',
     machineControl: 'Machine status',
     counter: 'The Counter',
     manageUsdt: 'USDT Intake',
@@ -409,6 +410,28 @@ const en = {
       CLOSED: 'Closed',
       REOPENED: 'Reopened',
     },
+  },
+
+  broker: {
+    title: 'The Broker',
+    subtitle: 'What the branch instructed through him, for checking against his statement',
+    explain:
+      'The branch holds one claim, on the broker. These are the instructions sent through each of his accounts, so his statement can be checked line by line. Since',
+    through: 'Instructed through him',
+    compare: 'Compare each account against what his statement says it moved.',
+    claim: 'Owed by the broker',
+    account: 'Account',
+    sent: 'Sent',
+    returned: 'Returned',
+    net: 'Net',
+    count: '{count} movement(s)',
+    unnamed: 'No account recorded',
+    nothing: 'Nothing went through him in this period.',
+    none: 'No broker balance yet',
+    noneHint: 'A broker balance is opened per currency from the drawers screen.',
+    retiredTitle: 'Accounts no longer offered',
+    retiredBody:
+      'These no longer appear at the counter, but transfers already sent through them are still shown: {accounts}',
   },
 
   drawers: {

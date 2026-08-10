@@ -48,6 +48,14 @@ export interface Movement {
   direction: 'IN' | 'OUT';
   amount: bigint;
   reason: MovementReason;
+  /**
+   * Which of the broker's accounts this went through.
+   *
+   * Not a balance of its own — the office's claim is on the broker, not on an
+   * account — but the instruction that left for him named one, and this is
+   * where that survives long enough to be checked against his statement.
+   */
+  account?: string | null;
   transactionId?: string | null;
   note?: string | null;
 }
@@ -161,6 +169,7 @@ async function applyMovement(tx: Tx, movement: Movement, actor: Actor): Promise<
       amount: movement.amount,
       balanceAfter: updated.balance,
       reason: movement.reason,
+      account: movement.account ?? null,
       transactionId: movement.transactionId ?? null,
       note: movement.note ?? null,
       createdById: actor.id,
@@ -220,6 +229,8 @@ export async function fund(
     kind?: DrawerKind;
     direction: 'IN' | 'OUT';
     amount: bigint;
+    /** Which broker account, when the money is moving through him. */
+    account?: string | null;
     note?: string | null;
   },
   actor: Actor,
@@ -240,6 +251,7 @@ export async function fund(
     direction: input.direction,
     amount: input.amount,
     reason: 'FUNDING',
+    account: input.account ?? null,
     note: input.note ?? null,
   };
 
@@ -531,6 +543,75 @@ export async function history(
       createdBy: { select: { fullNameEn: true, fullNameAr: true } },
     },
   });
+}
+
+/**
+ * What went through the broker, account by account, for checking his statement.
+ *
+ * Not a set of balances. The office's claim is on the broker as a whole — it
+ * keeps no books per account, and inventing them here would create a second
+ * place that claims to know how much money exists. What this answers is the
+ * question his statement actually raises: "you say this account moved this
+ * much; do my instructions agree?"
+ *
+ * So each account reports what left through it, what came back, and the net —
+ * a figure to compare, not a balance to trust.
+ */
+export async function brokerActivity(
+  options: { currency?: string; from?: Date; to?: Date } = {},
+  db: DbClient = prisma,
+) {
+  const brokerDrawers = await db.drawer.findMany({
+    where: { kind: 'BROKER', ...(options.currency ? { currencyCode: options.currency } : {}) },
+    include: { currency: { select: { decimals: true } } },
+    orderBy: { sortOrder: 'asc' },
+  });
+
+  const results = [];
+
+  for (const drawer of brokerDrawers) {
+    const movements = await db.drawerMovement.findMany({
+      where: {
+        drawerId: drawer.id,
+        ...(options.from || options.to
+          ? { createdAt: { ...(options.from ? { gte: options.from } : {}), ...(options.to ? { lte: options.to } : {}) } }
+          : {}),
+      },
+      orderBy: { createdAt: 'desc' },
+      include: {
+        transaction: { select: { id: true, reference: true, status: true } },
+        createdBy: { select: { fullNameEn: true, fullNameAr: true } },
+      },
+    });
+
+    // Grouped in memory rather than by the database: the set is one branch's
+    // movements over a period, and doing it here keeps the ordering and the
+    // rounding identical to the list shown beneath the totals.
+    const byAccount = new Map<string, { out: bigint; in: bigint; count: number }>();
+
+    for (const movement of movements) {
+      // Everything that went through him, including anything instructed before
+      // the account was recorded — filed under a name the manager can see.
+      const key = movement.account ?? '—';
+      const entry = byAccount.get(key) ?? { out: 0n, in: 0n, count: 0 };
+      if (movement.direction === 'OUT') entry.out += movement.amount;
+      else entry.in += movement.amount;
+      entry.count += 1;
+      byAccount.set(key, entry);
+    }
+
+    results.push({
+      currency: drawer.currencyCode,
+      decimals: drawer.currency.decimals,
+      balance: drawer.balance,
+      accounts: [...byAccount.entries()]
+        .map(([account, totals]) => ({ account, ...totals, net: totals.out - totals.in }))
+        .sort((a, b) => (b.out - b.in > a.out - a.in ? 1 : -1)),
+      movements,
+    });
+  }
+
+  return results;
 }
 
 /**

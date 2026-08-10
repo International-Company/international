@@ -23,6 +23,8 @@ const bodySchema = z.object({
   kind: z.enum(drawers.DRAWER_KINDS).default('CASH'),
   direction: z.enum(['IN', 'OUT']),
   amount: z.string(),
+  /** Which of the broker's accounts, when the money moves through him. */
+  account: z.string().max(80).optional(),
   note: z.string().max(500).optional(),
 });
 
@@ -43,6 +45,7 @@ export const POST = route<z.infer<typeof bodySchema>>({
         kind: body.kind,
         direction: body.direction,
         amount: parseMoney(body.amount),
+        account: body.account ?? null,
         note: body.note ?? null,
       },
       actor,
