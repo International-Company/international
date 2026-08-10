@@ -290,9 +290,8 @@ export function DrawersView({
                     carry the same currency code, and only this says which of
                     them the money is actually in.
                   */}
-                  <Badge tone={drawer.kind === 'BROKER' ? 'primary' : 'neutral'}>
-                    {drawer.currencyCode} ·{' '}
-                    {drawer.kind === 'BROKER' ? t('drawers.broker') : t('drawers.cash')}
+                  <Badge tone={drawer.kind === 'CASH' ? 'neutral' : 'primary'}>
+                    {drawer.currencyCode} · {t(kindLabel(drawer.kind))}
                   </Badge>
                 </span>
 
@@ -588,9 +587,7 @@ export function DrawersView({
                 }}
                 options={openable.map((target, index) => ({
                   value: String(index),
-                  label: `${target.currency} — ${
-                    target.kind === 'BROKER' ? t('drawers.broker') : t('drawers.cash')
-                  }`,
+                  label: `${target.currency} — ${t(kindLabel(target.kind))}`,
                 }))}
               />
             )}
@@ -637,9 +634,27 @@ export function DrawersView({
 
 /** A sensible starting name, so the manager usually just presses Save. */
 function nameFor(target: Openable): { nameEn: string; nameAr: string } {
-  return target.kind === 'BROKER'
-    ? { nameEn: `${target.nameEn} bank`, nameAr: `بنك ${target.nameAr}` }
-    : { nameEn: `${target.nameEn} drawer`, nameAr: `صندوق ${target.nameAr}` };
+  if (target.kind === 'BROKER') {
+    return { nameEn: `${target.nameEn} — broker`, nameAr: `الوسيط — ${target.nameAr}` };
+  }
+  if (target.kind === 'CORRESPONDENT') {
+    return { nameEn: `${target.nameEn} — correspondent`, nameAr: `المراسل — ${target.nameAr}` };
+  }
+  return { nameEn: `${target.nameEn} drawer`, nameAr: `صندوق ${target.nameAr}` };
+}
+
+/**
+ * What to call a kind.
+ *
+ * Three now, not two. The earlier version asked whether the kind was the broker
+ * and called everything else cash, which quietly relabelled the correspondent's
+ * balance as a till the moment that kind existed — and a liability displayed as
+ * money on hand is exactly the error this screen exists to prevent.
+ */
+function kindLabel(kind: string): 'drawers.broker' | 'drawers.correspondent' | 'drawers.cash' {
+  if (kind === 'BROKER') return 'drawers.broker';
+  if (kind === 'CORRESPONDENT') return 'drawers.correspondent';
+  return 'drawers.cash';
 }
 
 /** A 1e8-scaled string as something an editable field can hold. */

@@ -105,6 +105,14 @@ export const SETTINGS: SettingDefinition[] = [
       'مفصولة بفواصل. الجهات التي يجوز إرسال التسليم البنكي إليها — يختار التلر واحدة وتُثبَّت على العملية. حذف اسم يمنع عرضه دون أن يمسّ حوالات أُرسلت عبره.',
   },
   {
+    key: 'remittance.destinations', category: 'machine', type: 'string', defaultValue: '',
+    labelEn: 'Remittance destinations', labelAr: 'وجهات الحوالات',
+    descriptionEn:
+      "Comma-separated, from the correspondent's price list. The teller picks one and it is recorded on the transfer. Removing a name stops it being offered and leaves transfers already sent to it as they were recorded.",
+    descriptionAr:
+      'مفصولة بفواصل، من تسعيرة المراسل. يختار التلر واحدة وتُثبَّت على الحوالة. حذف اسم يمنع عرضه ويترك الحوالات المرسلة إليه كما سُجّلت.',
+  },
+  {
     key: 'machine.maxAmount', category: 'machine', type: 'money', defaultValue: '0',
     labelEn: 'Counter limit', labelAr: 'حد الشباك',
     descriptionEn:

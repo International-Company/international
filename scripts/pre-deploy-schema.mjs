@@ -408,6 +408,46 @@ const STEPS = [
       END $$;
     `,
   },
+
+  /*
+   * The correspondent's balance, one per cash currency.
+   *
+   * Opened negative-capable from the start. Sending a remittance means the
+   * branch owes the correspondent until it settles, so this balance lives below
+   * zero as a matter of course — it is a liability, not a till. Guarding it at
+   * zero like a drawer would refuse the first transfer of every settlement
+   * cycle, which is the ordinary case rather than the exception.
+   *
+   * USDT is excluded for the same reason as the broker rows: the correspondent
+   * deals in notes.
+   */
+  {
+    name: 'Open a correspondent balance beside each cash drawer',
+    sql: `
+      DO $$
+      BEGIN
+        IF to_regclass('public.drawers') IS NULL OR to_regclass('public.currencies') IS NULL THEN
+          RETURN;
+        END IF;
+
+        INSERT INTO "drawers" ("id", "currencyCode", "kind", "nameEn", "nameAr", "balance", "allowNegative", "sortOrder", "createdAt", "updatedAt")
+        SELECT
+          'drw_corr_' || lower(c."code"),
+          c."code",
+          'CORRESPONDENT',
+          c."nameEn" || ' — correspondent',
+          'المراسل — ' || c."nameAr",
+          0,
+          true,
+          c."sortOrder" * 10 + 2,
+          NOW(),
+          NOW()
+        FROM "currencies" c
+        WHERE c."kind" <> 'CRYPTO'
+        ON CONFLICT ("currencyCode", "kind") DO NOTHING;
+      END $$;
+    `,
+  },
 ];
 
 /** Host and database only — a connection string in a deploy log is a leak. */

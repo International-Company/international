@@ -93,7 +93,7 @@ async function main() {
   // a balance nobody could ever fund.
   let drawerCount = 0;
   for (const currency of CURRENCIES) {
-    const kinds = currency.kind === 'CRYPTO' ? ['CASH'] : ['CASH', 'BROKER'];
+    const kinds = currency.kind === 'CRYPTO' ? ['CASH'] : ['CASH', 'BROKER', 'CORRESPONDENT'];
 
     for (const kind of kinds) {
       await prisma.drawer.upsert({
@@ -101,10 +101,23 @@ async function main() {
         create: {
           currencyCode: currency.code,
           kind,
-          nameEn: kind === 'BROKER' ? `${currency.nameEn} — broker` : `${currency.nameEn} drawer`,
-          nameAr: kind === 'BROKER' ? `الوسيط — ${currency.nameAr}` : `صندوق ${currency.nameAr}`,
-          // The broker row sorts immediately after its own cash row.
-          sortOrder: currency.sortOrder * 10 + (kind === 'BROKER' ? 1 : 0),
+          nameEn:
+            kind === 'BROKER'
+              ? `${currency.nameEn} — broker`
+              : kind === 'CORRESPONDENT'
+                ? `${currency.nameEn} — correspondent`
+                : `${currency.nameEn} drawer`,
+          nameAr:
+            kind === 'BROKER'
+              ? `الوسيط — ${currency.nameAr}`
+              : kind === 'CORRESPONDENT'
+                ? `المراسل — ${currency.nameAr}`
+                : `صندوق ${currency.nameAr}`,
+          // Sending a remittance means owing the correspondent until it settles,
+          // so that balance lives below zero as a matter of course.
+          allowNegative: kind === 'CORRESPONDENT',
+          // Each sorts immediately after its own cash row.
+          sortOrder: currency.sortOrder * 10 + (kind === 'BROKER' ? 1 : kind === 'CORRESPONDENT' ? 2 : 0),
         },
         update: {},
       });

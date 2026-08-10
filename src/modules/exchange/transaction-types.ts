@@ -1,23 +1,31 @@
 /**
  * Transaction vocabulary.
  *
- * Two tools, so two kinds of transaction — and underneath they are the same
- * shape: the customer hands over one currency and takes another. What separates
- * them is where the incoming side came from, which is worth keeping apart
- * because one of them is evidenced by a blockchain and the other by a drawer.
+ * Underneath, every one of these is the same shape: one balance rises and
+ * another falls. What separates them is which balances, and what the evidence
+ * is — a blockchain, a drawer, or a correspondent's statement.
+ *
+ * A remittance is the odd one only in that both sides are usually the same
+ * currency: the customer hands over shekels and the correspondent is owed
+ * shekels, and the difference between the two is the margin.
  *
  * Free of server-only imports: the screens need this in the browser and the
  * services need it on the server. One definition, both sides.
  */
 
-export const TRANSACTION_TYPES = ['EXCHANGE', 'USDT_RECEIVE'] as const;
+export const TRANSACTION_TYPES = [
+  'EXCHANGE',
+  'USDT_RECEIVE',
+  'REMITTANCE_OUT',
+  'REMITTANCE_IN',
+] as const;
 export type TransactionType = (typeof TRANSACTION_TYPES)[number];
 
 /**
  * Recording is posting. A mistake is undone by reversal, which leaves both
  * entries standing rather than erasing the first.
  */
-export const TRANSACTION_STATUSES = ['POSTED', 'REVERSED'] as const;
+export const TRANSACTION_STATUSES = ['POSTED', 'PENDING_TRANSFER', 'REVERSED'] as const;
 export type TransactionStatus = (typeof TRANSACTION_STATUSES)[number];
 
 export interface TransactionTypeMeta {
@@ -28,8 +36,34 @@ export interface TransactionTypeMeta {
 
 export const TRANSACTION_TYPE_META: Record<TransactionType, TransactionTypeMeta> = {
   EXCHANGE: { type: 'EXCHANGE', nameEn: 'Currency Exchange', nameAr: 'تصريف عملة' },
+  REMITTANCE_OUT: { type: 'REMITTANCE_OUT', nameEn: 'Remittance Sent', nameAr: 'حوالة صادرة' },
+  REMITTANCE_IN: { type: 'REMITTANCE_IN', nameEn: 'Remittance Received', nameAr: 'حوالة واردة' },
   USDT_RECEIVE: { type: 'USDT_RECEIVE', nameEn: 'USDT Received', nameAr: 'استلام USDT' },
 };
+
+/**
+ * Which balances a type moves between.
+ *
+ * Derived from the type rather than passed in with each posting, and that is
+ * the point: a reversal has to know it too, and there is nowhere on the row it
+ * could have been recorded. Sending a remittance always takes cash in and puts
+ * the branch in debt to the correspondent; receiving one always draws on that
+ * debt and pays cash out. Deciding it in one place means the mirror can never
+ * disagree with the original — which, when it did, left a debt standing that
+ * had already been undone.
+ *
+ * `payout: null` means the payout has no single balance: an exchange can pay
+ * from the till, through the broker, or from both at once, and the two legs on
+ * the row are what say how.
+ */
+export function balancesFor(type: TransactionType): {
+  intake: 'CASH' | 'CORRESPONDENT';
+  payout: 'CASH' | 'CORRESPONDENT' | null;
+} {
+  if (type === 'REMITTANCE_OUT') return { intake: 'CASH', payout: 'CORRESPONDENT' };
+  if (type === 'REMITTANCE_IN') return { intake: 'CORRESPONDENT', payout: 'CASH' };
+  return { intake: 'CASH', payout: null };
+}
 
 export function isTransactionType(value: string): value is TransactionType {
   return (TRANSACTION_TYPES as readonly string[]).includes(value);

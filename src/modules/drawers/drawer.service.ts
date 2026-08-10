@@ -26,8 +26,15 @@ import * as audit from '@/modules/audit/audit.service';
 
 const log = createLogger('drawers');
 
-/** Where the money physically is. */
-export const DRAWER_KINDS = ['CASH', 'BROKER'] as const;
+/**
+ * Where the money is.
+ *
+ * `CASH` is the till. `BROKER` is what the bank broker owes the branch. And
+ * `CORRESPONDENT` is the running account with the remittance company, which is
+ * the one that spends much of its life negative: sending a remittance means
+ * owing them until it is settled.
+ */
+export const DRAWER_KINDS = ['CASH', 'BROKER', 'CORRESPONDENT'] as const;
 export type DrawerKind = (typeof DRAWER_KINDS)[number];
 
 export interface Actor {
@@ -62,7 +69,9 @@ export interface Movement {
 
 /** How a drawer is named in an error the operator will actually read. */
 function describe(currency: string, kind: DrawerKind): string {
-  return kind === 'BROKER' ? `The ${currency} bank balance` : `The ${currency} drawer`;
+  if (kind === 'BROKER') return `The ${currency} broker balance`;
+  if (kind === 'CORRESPONDENT') return `The ${currency} correspondent balance`;
+  return `The ${currency} drawer`;
 }
 
 // ---------------------------------------------------------------------------

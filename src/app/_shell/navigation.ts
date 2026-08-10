@@ -3,10 +3,11 @@ import type { TranslationKey } from '@/i18n/types';
 /**
  * Navigation model.
  *
- * The teller gets two entries, because the teller has two jobs. Everything they
- * need around those jobs — the receipt, the last few transactions, the customer
- * — lives inside the tool that needs it, rather than as a third and fourth
- * entry they would have to learn to navigate between with someone waiting.
+ * The teller gets one entry per job — taking USDT, exchanging cash, sending and
+ * receiving remittances — and nothing else. Everything around those jobs — the
+ * receipt, the last few transactions, the customer — lives inside the tool that
+ * needs it, rather than as further entries they would have to learn to navigate
+ * between with someone waiting.
  *
  * The manager's side is grouped by tool rather than by accounting concept: the
  * question is "what does the USDT window need from me", not "where is the chart
@@ -36,6 +37,7 @@ export interface NavSection {
 export type IconName =
   | 'machine'
   | 'counter'
+  | 'transfer'
   | 'rates'
   | 'drawers'
   | 'day'
@@ -64,6 +66,13 @@ export const NAVIGATION: NavSection[] = [
         icon: 'machine',
         permissions: ['exchange.machine.use'],
         shortcut: 'g m',
+      },
+      {
+        href: '/counter/remittance',
+        labelKey: 'nav.remittance',
+        icon: 'transfer',
+        permissions: ['exchange.remittance.use'],
+        shortcut: 'g h',
       },
     ],
   },
@@ -161,8 +170,8 @@ export const NAVIGATION: NavSection[] = [
 /**
  * Removes items the user cannot access, then drops any section left empty.
  *
- * This is what leaves the teller with two entries and no empty headings: every
- * manager section disappears whole rather than collapsing into a stub.
+ * This is what leaves the teller with their own tools and no empty headings:
+ * every manager section disappears whole rather than collapsing into a stub.
  */
 export function visibleNavigation(permissions: string[]): NavSection[] {
   const granted = new Set(permissions);

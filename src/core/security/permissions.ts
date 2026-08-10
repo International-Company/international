@@ -74,6 +74,9 @@ export const PERMISSIONS: PermissionDefinition[] = [
   def('exchange.transaction.edit', 'exchange', 'update', 'Edit and correct transactions', 'تعديل وتصحيح العمليات',
     'Edit the details of a posting, and correct an amount by reversing and reposting it',
     'تعديل بيانات العملية، وتصحيح مبلغها بعكسها وإعادة تسجيلها', true),
+  def('exchange.remittance.use', 'exchange', 'use', 'Send and receive remittances', 'إرسال واستلام الحوالات',
+    'Record remittances sent and received through the correspondent',
+    'تسجيل الحوالات الصادرة والواردة عبر المراسل'),
   def('exchange.transfer.confirm', 'exchange', 'confirm', 'Confirm bank transfers', 'تأكيد التحويلات البنكية',
     'Mark a promised bank transfer as actually sent', 'تأكيد أن الحوالة البنكية الموعودة قد أُرسلت فعلاً', true),
   def('exchange.receipt.print', 'exchange', 'print', 'Print receipts', 'طباعة الإيصالات',
@@ -238,6 +241,7 @@ export const SYSTEM_ROLES: RoleDefinition[] = [
       // permissions. Three manager entries would appear in a sidebar that is
       // supposed to hold two things.
       'exchange.machine.use',
+      'exchange.remittance.use',
       'usdt.counter.use',
       'exchange.transaction.view',
       'exchange.transaction.create',

@@ -1,7 +1,13 @@
 import type { Metadata } from 'next';
 import { requirePermission } from '@/modules/auth/context';
 import { getTranslator } from '@/i18n/server';
-import { listDrawers, verifyBalances, history } from '@/modules/drawers/drawer.service';
+import {
+  DRAWER_KINDS,
+  listDrawers,
+  verifyBalances,
+  history,
+  type DrawerKind,
+} from '@/modules/drawers/drawer.service';
 import { prisma } from '@/core/db/prisma';
 import { toJsonSafe } from '@/core/http/json';
 import { PageHeader } from '@/ui/primitives';
@@ -28,7 +34,7 @@ export default async function DrawersPage() {
   const movements = await Promise.all(
     drawers.map(async (drawer) => ({
       key: `${drawer.currencyCode}:${drawer.kind}`,
-      rows: await history(drawer.currencyCode, { limit: 12, kind: drawer.kind as 'CASH' | 'BROKER' }),
+      rows: await history(drawer.currencyCode, { limit: 12, kind: drawer.kind as DrawerKind }),
     })),
   );
 
@@ -52,8 +58,9 @@ export default async function DrawersPage() {
 
   const taken = new Set(drawers.map((drawer) => `${drawer.currencyCode}:${drawer.kind}`));
   const openable = currencies.flatMap((currency) =>
-    (['CASH', 'BROKER'] as const)
-      .filter((kind) => !taken.has(`${currency.code}:${kind}`))
+    // Every kind the system knows, so a kind added later is offered here without
+    // this list having to be remembered and edited a second time.
+    DRAWER_KINDS.filter((kind) => !taken.has(`${currency.code}:${kind}`))
       .map((kind) => ({
         currency: currency.code,
         kind,

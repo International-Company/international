@@ -10,7 +10,12 @@ import { nextReference } from '@/modules/sequence/reference';
 import * as audit from '@/modules/audit/audit.service';
 import * as drawers from '@/modules/drawers/drawer.service';
 import { requireOpenDay } from './business-day.service';
-import { TRANSACTION_TYPE_META, type TransactionStatus, type TransactionType } from './transaction-types';
+import {
+  TRANSACTION_TYPE_META,
+  balancesFor,
+  type TransactionStatus,
+  type TransactionType,
+} from './transaction-types';
 
 /**
  * Recording what happened at the window.
@@ -86,15 +91,40 @@ export async function record(
   if (input.fromAmount <= 0n || input.toAmount <= 0n) {
     throw errors.precondition('Amount must be greater than zero', 'errors.amountNotPositive');
   }
-  if (input.fromCurrency === input.toCurrency) {
+  /*
+   * An exchange with the same currency on both sides is a mistake. A remittance
+   * with different currencies would be one: the customer hands over shekels and
+   * the correspondent is owed shekels, and the gap between the two figures is
+   * the margin rather than a conversion.
+   */
+  const isRemittance = input.type === 'REMITTANCE_OUT' || input.type === 'REMITTANCE_IN';
+  if (!isRemittance && input.fromCurrency === input.toCurrency) {
     throw errors.precondition('Both sides are the same currency', 'errors.sameCurrencyPair');
+  }
+  if (isRemittance && input.fromCurrency !== input.toCurrency) {
+    throw errors.precondition(
+      'A remittance settles in one currency on both sides',
+      'errors.remittanceCurrencyMismatch',
+    );
   }
 
   const meta = TRANSACTION_TYPE_META[input.type];
   if (!meta) throw errors.precondition(`Unknown transaction type: ${input.type}`);
 
-  // How the payout is split, defaulting to all cash.
-  const payout = input.payout ?? { cash: input.toAmount, bank: 0n };
+  /*
+   * Which balances this type moves between, and how the payout is divided when
+   * it leaves through more than one.
+   *
+   * A remittance's payout leaves neither the till nor the broker, so its two
+   * legs are zero rather than the total: a report adding payout legs is adding
+   * up cash and broker movements, and counting a correspondent debit among them
+   * would overstate both.
+   */
+  const balances = balancesFor(input.type);
+  const payout =
+    balances.payout === 'CORRESPONDENT'
+      ? { cash: 0n, bank: 0n }
+      : (input.payout ?? { cash: input.toAmount, bank: 0n });
 
   if (payout.cash < 0n || payout.bank < 0n) {
     throw errors.precondition('A payout leg cannot be negative', 'errors.amountNotPositive');
@@ -102,7 +132,7 @@ export async function record(
   // Exactly, not approximately. Checked here rather than at the caller because
   // this is the last place before the money moves, and every caller would
   // otherwise have to be trusted to have got it right.
-  if (payout.cash + payout.bank !== input.toAmount) {
+  if (balances.payout === null && payout.cash + payout.bank !== input.toAmount) {
     throw errors.precondition(
       'The cash and bank legs must add up to the amount handed over',
       'errors.payoutDoesNotBalance',
@@ -161,46 +191,65 @@ export async function record(
      * Confirmation therefore moves nothing; it only records that the promise
      * was kept.
      */
-    await drawers.move(
-      [
-        {
-          currency: input.fromCurrency,
-          direction: 'IN',
-          amount: input.fromAmount,
+    /*
+     * The two sides, named rather than assumed.
+     *
+     * An exchange takes cash in and pays out of the till, the broker, or both.
+     * A remittance takes cash in and puts the branch in debt to the
+     * correspondent — or draws on that debt to pay cash out. Building the list
+     * as one array of decided legs keeps the two cases readable side by side;
+     * the earlier nested version was correct and unreadable, which for money is
+     * only half a virtue.
+     */
+    const legs: drawers.Movement[] = [
+      {
+        currency: input.fromCurrency,
+        kind: balances.intake,
+        direction: 'IN',
+        amount: input.fromAmount,
+        reason: 'TRANSACTION',
+        transactionId: row.id,
+      },
+    ];
+
+    if (balances.payout) {
+      // One balance takes the whole payout — the correspondent for a remittance
+      // sent, the till for one received.
+      legs.push({
+        currency: input.toCurrency,
+        kind: balances.payout,
+        direction: 'OUT',
+        amount: input.toAmount,
+        reason: 'TRANSACTION',
+        transactionId: row.id,
+      });
+    } else {
+      if (payout.cash > 0n) {
+        legs.push({
+          currency: input.toCurrency,
+          kind: 'CASH',
+          direction: 'OUT',
+          amount: payout.cash,
           reason: 'TRANSACTION',
           transactionId: row.id,
-        },
-        ...(payout.cash > 0n
-          ? [
-              {
-                currency: input.toCurrency,
-                kind: 'CASH' as const,
-                direction: 'OUT' as const,
-                amount: payout.cash,
-                reason: 'TRANSACTION' as const,
-                transactionId: row.id,
-              },
-            ]
-          : []),
-        ...(payout.bank > 0n
-          ? [
-              {
-                currency: input.toCurrency,
-                kind: 'BROKER' as const,
-                direction: 'OUT' as const,
-                amount: payout.bank,
-                reason: 'TRANSACTION' as const,
-                // The account the instruction named, kept on the movement so
-                // the broker's statement can be checked line by line.
-                account: input.payoutChannel ?? null,
-                transactionId: row.id,
-              },
-            ]
-          : []),
-      ],
-      actor,
-      tx,
-    );
+        });
+      }
+      if (payout.bank > 0n) {
+        legs.push({
+          currency: input.toCurrency,
+          kind: 'BROKER',
+          direction: 'OUT',
+          amount: payout.bank,
+          reason: 'TRANSACTION',
+          // The account the instruction named, kept on the movement so the
+          // broker's statement can be checked line by line.
+          account: input.payoutChannel ?? null,
+          transactionId: row.id,
+        });
+      }
+    }
+
+    await drawers.move(legs, actor, tx);
 
     await audit.record(
       {
@@ -285,6 +334,16 @@ export async function reverse(
     const day = await requireOpenDay(original.branchId, new Date(), tx);
     const reference = await nextReference('TXN', tx);
 
+    /*
+     * The balances the original moved between, read from its type.
+     *
+     * The reversal has to return the money to where it actually came from. For
+     * an exchange that is the payout legs on the row; for a remittance it is
+     * the correspondent, which no column records — so it is derived from the
+     * same function that decided it when the original was posted.
+     */
+    const mirrored = balancesFor(original.type as TransactionType);
+
     // The mirror: what went out comes back, what came in goes away.
     const reversal = await tx.transaction.create({
       data: {
@@ -298,12 +357,14 @@ export async function reverse(
         toCurrency: original.fromCurrency,
         toAmount: original.fromAmount,
         /*
-         * A reversal hands back what the customer handed over, and it hands it
-         * back in cash — that is the movement made below. Left at the default
-         * zero these two would disagree with that movement, and any report
-         * adding up payout legs would quietly miss every reversal.
+         * A reversal hands back what the customer handed over, out of whichever
+         * balance took it in. Left at the default zero these would disagree
+         * with the movement made below, and any report adding up payout legs
+         * would quietly miss every reversal — while a remittance's return to
+         * the correspondent is not a cash payout at all, so it stays at zero
+         * for the same reason the original's did.
          */
-        payoutCashAmount: original.fromAmount,
+        payoutCashAmount: mirrored.intake === 'CASH' ? original.fromAmount : 0n,
         payoutBankAmount: 0n,
         rate: original.rate,
         profitAmount: -original.profitAmount,
@@ -321,61 +382,70 @@ export async function reverse(
      * What went out comes back to the balance it went out of.
      *
      * Returning a split payout wholly to cash would quietly move money from the
-     * bank account into the till — the totals would still balance, and the two
-     * balances would both be wrong.
+     * broker's account into the till — the totals would still balance, and the
+     * two balances would both be wrong.
      */
-    /*
-     * A row recorded before payouts could be split carries zeroes in both legs.
-     * Those were all cash — that was the only thing a payout could be — so they
-     * are read that way rather than restoring nothing at all. The migration
-     * backfills them too; this is the belt to that pair of braces, and it also
-     * covers anything written by a path that forgot to set the legs.
-     */
-    const legs =
-      original.payoutCashAmount + original.payoutBankAmount === original.toAmount
-        ? { cash: original.payoutCashAmount, bank: original.payoutBankAmount }
-        : { cash: original.toAmount, bank: 0n };
+    const legs: drawers.Movement[] = [];
 
-    await drawers.move(
-      [
-        ...(legs.cash > 0n
-          ? [
-              {
-                currency: original.toCurrency,
-                kind: 'CASH' as const,
-                direction: 'IN' as const,
-                amount: legs.cash,
-                reason: 'REVERSAL' as const,
-                transactionId: reversal.id,
-              },
-            ]
-          : []),
-        ...(legs.bank > 0n
-          ? [
-              {
-                currency: original.toCurrency,
-                kind: 'BROKER' as const,
-                direction: 'IN' as const,
-                amount: legs.bank,
-                reason: 'REVERSAL' as const,
-                // Back through the same account it went out of, or the two
-                // sides would never cancel on his statement.
-                account: original.payoutBankChannel,
-                transactionId: reversal.id,
-              },
-            ]
-          : []),
-        {
-          currency: original.fromCurrency,
-          direction: 'OUT',
-          amount: original.fromAmount,
+    if (mirrored.payout) {
+      legs.push({
+        currency: original.toCurrency,
+        kind: mirrored.payout,
+        direction: 'IN',
+        amount: original.toAmount,
+        reason: 'REVERSAL',
+        transactionId: reversal.id,
+      });
+    } else {
+      /*
+       * A row recorded before payouts could be split carries zeroes in both
+       * legs. Those were all cash — that was the only thing a payout could be —
+       * so they are read that way rather than restoring nothing at all. The
+       * migration backfills them too; this is the belt to that pair of braces,
+       * and it also covers anything written by a path that forgot to set the
+       * legs. It cannot mistake a remittance for one of those: a remittance
+       * never reaches here, having taken the branch above.
+       */
+      const split =
+        original.payoutCashAmount + original.payoutBankAmount === original.toAmount
+          ? { cash: original.payoutCashAmount, bank: original.payoutBankAmount }
+          : { cash: original.toAmount, bank: 0n };
+
+      if (split.cash > 0n) {
+        legs.push({
+          currency: original.toCurrency,
+          kind: 'CASH',
+          direction: 'IN',
+          amount: split.cash,
           reason: 'REVERSAL',
           transactionId: reversal.id,
-        },
-      ],
-      actor,
-      tx,
-    );
+        });
+      }
+      if (split.bank > 0n) {
+        legs.push({
+          currency: original.toCurrency,
+          kind: 'BROKER',
+          direction: 'IN',
+          amount: split.bank,
+          reason: 'REVERSAL',
+          // Back through the same account it went out of, or the two sides
+          // would never cancel on his statement.
+          account: original.payoutBankChannel,
+          transactionId: reversal.id,
+        });
+      }
+    }
+
+    legs.push({
+      currency: original.fromCurrency,
+      kind: mirrored.intake,
+      direction: 'OUT',
+      amount: original.fromAmount,
+      reason: 'REVERSAL',
+      transactionId: reversal.id,
+    });
+
+    await drawers.move(legs, actor, tx);
 
     await tx.transaction.update({ where: { id }, data: { status: 'REVERSED' } });
 
@@ -583,6 +653,24 @@ export async function correct(
 
     if (original.fromAmount === input.fromAmount) {
       throw errors.precondition('That is the amount already recorded', 'errors.nothingToCorrect');
+    }
+
+    /*
+     * A remittance cannot be corrected this way, and saying so is better than
+     * appearing to.
+     *
+     * Correction works by re-running the original conversion at the original
+     * rate: one figure is given and the other follows from it. A remittance has
+     * no conversion — the customer's total and the correspondent's price are
+     * two independent numbers, and the gap between them is the margin. Scaling
+     * one from the other would invent a price the correspondent never quoted.
+     * Reverse it and record it again with both figures.
+     */
+    if (original.type === 'REMITTANCE_OUT' || original.type === 'REMITTANCE_IN') {
+      throw errors.precondition(
+        'A remittance is corrected by reversing it and recording it again',
+        'errors.remittanceNotCorrectable',
+      );
     }
 
     const target = await tx.currency.findUnique({ where: { code: original.toCurrency } });

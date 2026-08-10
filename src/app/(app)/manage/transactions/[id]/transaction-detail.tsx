@@ -110,6 +110,21 @@ export function TransactionDetail({
   const canEdit =
     !transaction.reversalOf && permissions.includes('exchange.transaction.edit');
 
+  /*
+   * A remittance is not corrected this way, so the button is not offered.
+   *
+   * Correction re-runs the original conversion at the original rate: give one
+   * figure and the other follows. A remittance has no conversion — what the
+   * customer settled and what the correspondent charged are two independent
+   * numbers — so it is reversed and recorded again instead. The service refuses
+   * it either way; this is so nobody is invited to try.
+   */
+  const canCorrect =
+    canEdit &&
+    canReverse &&
+    transaction.type !== 'REMITTANCE_OUT' &&
+    transaction.type !== 'REMITTANCE_IN';
+
   const [editing, setEditing] = useState(false);
   const [details, setDetails] = useState({ counterpartyName: '', counterpartyPhone: '', notes: '' });
 
@@ -355,7 +370,7 @@ export function TransactionDetail({
                   {t('transactions.editDetails')}
                 </Button>
               )}
-              {canEdit && canReverse && (
+              {canCorrect && (
                 <Button
                   variant="secondary"
                   fullWidth
