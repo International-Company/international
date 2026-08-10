@@ -339,12 +339,17 @@ model Drawer {
   currencyCode String
   currency     Currency @relation(fields: [currencyCode], references: [code])
 
-  /// CASH | BANK — the till, or the branch's account at a bank.
+  /// CASH | BROKER | CORRESPONDENT — the till, the claim on the broker who
+  /// moves everything through his own bank accounts, or the running account
+  /// with the remittance company.
   ///
-  /// A bank balance is the same object as a till: money you pay out of and must
-  /// not overdraw. Modelling it as a second drawer rather than a new concept
-  /// means the movements, the atomic increments and `verifyBalances()` all keep
+  /// All three are the same object as a till: money you pay out of and must not
+  /// overdraw. Modelling them as further drawers rather than new concepts means
+  /// the movements, the atomic increments and `verifyBalances()` all keep
   /// working with no second engine to keep honest.
+  ///
+  /// The correspondent is the one that may go short: sending a remittance owes
+  /// them money before any of it settles.
   kind String @default("CASH")
 
   nameEn String

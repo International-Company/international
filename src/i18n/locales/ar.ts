@@ -654,7 +654,7 @@ const ar: Dictionary = {
     payoutTitle: 'يُسلَّم',
     payoutCash: 'نقداً',
     payoutBank: 'بنك',
-    payoutSplit: 'مقسوم',
+    payoutSplit: 'مزدوج',
     payoutCashLeg: 'نقداً',
     payoutBankLeg: 'بنكياً',
     payoutBankShort: 'رصيد بنك {currency} يحمل {available}.',
