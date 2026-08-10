@@ -127,6 +127,12 @@ async function buildProductionShape(db) {
   await db.$executeRawUnsafe(`ALTER TABLE "wallets" DROP COLUMN IF EXISTS "drawerId";`);
 
   // --- What the reduction adds must be absent ------------------------------
+  //
+  // Children first. The ledger's frozen positions point at drawers, so dropping
+  // the drawers while they stand takes the foreign key with it — and the
+  // fixture is meant to be a database that never had either.
+  await db.$executeRawUnsafe(`DROP TABLE IF EXISTS "day_positions";`);
+  await db.$executeRawUnsafe(`DROP TABLE IF EXISTS "cutoff_rates";`);
   await db.$executeRawUnsafe(`DROP TABLE IF EXISTS "drawer_movements";`);
   await db.$executeRawUnsafe(`DROP TABLE IF EXISTS "drawers";`);
 
