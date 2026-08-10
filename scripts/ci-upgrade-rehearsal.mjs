@@ -243,6 +243,17 @@ async function verify(db) {
   check('nothing moved into a bank balance',
     (await db.drawerMovement.count({ where: { drawerId: { in: bank.map((d) => d.id) } } })) === 0);
 
+  // The correspondent side arrives the same way, and must arrive able to go
+  // short: sending a remittance owes them money before any settles, so a
+  // balance guarded at zero would refuse the first transfer of every cycle.
+  const correspondent = drawers.filter((d) => d.kind === 'CORRESPONDENT');
+  check('a correspondent balance was opened for each cash currency',
+    correspondent.length === 3, `${correspondent.length}`);
+  check('the correspondent balances start at zero', correspondent.every((d) => d.balance === 0n));
+  check('the correspondent balances may go short', correspondent.every((d) => d.allowNegative));
+  check('USDT got no correspondent balance',
+    !correspondent.some((d) => d.currencyCode === 'USDT'));
+
   // What could not be kept, and what had to be.
   const kept = await db.transaction.findMany({ select: { reference: true }, orderBy: { reference: 'asc' } });
   check('transactions with no place were removed', kept.length === 2,
@@ -317,6 +328,15 @@ async function main() {
   const after = new PrismaClient();
   await verify(after);
 
+  /*
+   * How many drawers the first pass left, so the second can be compared against
+   * it rather than against a number written here by hand. A literal has to be
+   * edited every time a kind is added, and it is remembered only because this
+   * check fails — which makes it a check on somebody's memory rather than on
+   * the deploy.
+   */
+  const drawersAfterFirstPass = await after.drawer.count();
+
   console.log('\n== Running it again (deploys repeat) ==');
   run('node', ['scripts/pre-deploy-schema.mjs']);
   run('npx', ['prisma', 'db', 'push', '--skip-generate']);
@@ -326,7 +346,11 @@ async function main() {
   const ils = drawers.find((d) => d.currencyCode === 'ILS' && d.kind === 'CASH');
   check('idempotent — the balance did not move', ils?.balance === 250000_00000000n,
     String(ils?.balance));
-  check('idempotent — no duplicate drawers', drawers.length === 6, `${drawers.length}`);
+  check(
+    'idempotent — no duplicate drawers',
+    drawers.length === drawersAfterFirstPass,
+    `${drawers.length} after, ${drawersAfterFirstPass} before`,
+  );
 
   await after.$disconnect();
 
