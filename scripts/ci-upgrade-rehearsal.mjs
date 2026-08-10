@@ -149,7 +149,7 @@ async function buildProductionShape(db) {
   // Money the branch holds, spread over the account kinds the old chart used.
   const accounts = [
     ['CASH-ILS', 'CASH', 'ILS', 200000_00000000n],
-    ['BANK-ILS', 'BANK', 'ILS', 50000_00000000n],
+    ['BANK-ILS', 'BROKER', 'ILS', 50000_00000000n],
     ['CASH-USD', 'CASH', 'USD', 20000_00000000n],
     ['CRYPTO-USDT', 'CRYPTO', 'USDT', 500_00000000n],
     // Bookkeeping devices, which must NOT be carried into a drawer.
@@ -236,7 +236,7 @@ async function verify(db) {
 
   // The bank side is new, and must arrive empty. A carried balance landing in a
   // bank row would be money invented by the migration.
-  const bank = drawers.filter((d) => d.kind === 'BANK');
+  const bank = drawers.filter((d) => d.kind === 'BROKER');
   check('a bank balance was opened for each cash currency', bank.length === 3, `${bank.length}`);
   check('the bank balances start at zero', bank.every((d) => d.balance === 0n));
   check('USDT got no bank balance', !bank.some((d) => d.currencyCode === 'USDT'));
@@ -284,7 +284,7 @@ async function simulateAbortedAttempt(db) {
     INSERT INTO "_ifms_drawer_carryover" ("currencyCode", "balance")
     SELECT "currencyCode", SUM("balance")
       FROM "accounts"
-     WHERE "kind" IN ('CASH', 'BANK', 'CRYPTO')
+     WHERE "kind" IN ('CASH', 'BROKER', 'CRYPTO')
      GROUP BY "currencyCode"
     ON CONFLICT ("currencyCode") DO NOTHING;
   `);

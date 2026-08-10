@@ -10,6 +10,8 @@ const querySchema = z.object({
   /** Exactly one of these — whichever side of the counter named a figure. */
   pay: z.string().optional(),
   receive: z.string().optional(),
+  /** Which channel a reverse-priced amount is sized against. */
+  through: z.enum(['CASH', 'BROKER']).optional(),
 });
 
 /**
@@ -36,22 +38,28 @@ export const GET = route<unknown, z.infer<typeof querySchema>>({
       toCurrency: query.to.toUpperCase(),
       fromAmount: query.pay !== undefined ? parseMoney(query.pay) : undefined,
       toAmount: query.receive !== undefined ? parseMoney(query.receive) : undefined,
+      reverseThrough: query.through,
       branchId: actor.branchId,
     });
 
+    // The spread is stripped for anyone without the financial permission — the
+    // teller quotes the customer, the manager watches the margin.
+    const seesMargin = actor.permissions.includes('exchange.margin.view');
+    const side = (leg: (typeof priced)['cash']) =>
+      leg && {
+        fromAmount: leg.fromAmount,
+        toAmount: leg.toAmount,
+        rate: leg.rate,
+        profit: seesMargin ? leg.profit : null,
+      };
+
     return {
-      fromCurrency: priced.quote.fromCurrency,
-      toCurrency: priced.quote.toCurrency,
-      fromAmount: priced.quote.fromAmount,
-      toAmount: priced.quote.toAmount,
-      rate: priced.quote.rate,
-      side: priced.quote.side,
-      // The spread is stripped for anyone without the financial permission —
-      // the teller quotes the customer, the manager watches the margin.
-      profit: actor.permissions.includes('exchange.margin.view') ? priced.quote.profit : null,
-      available: priced.available,
-      availableAmount: priced.availableAmount,
-      availableBank: priced.availableBank,
+      fromCurrency: priced.fromCurrency,
+      toCurrency: priced.toCurrency,
+      cash: side(priced.cash),
+      broker: side(priced.broker),
+      availableCash: priced.availableCash,
+      availableBroker: priced.availableBroker,
       requiresCustomer: priced.requiresCustomer,
       overLimit: priced.overLimit,
     };
@@ -61,11 +69,16 @@ export const GET = route<unknown, z.infer<typeof querySchema>>({
 const bodySchema = z.object({
   from: z.string().min(2).max(8),
   to: z.string().min(2).max(8),
+  /** How the payout leaves the branch, and therefore which price applies. */
+  mode: z.enum(['CASH', 'BROKER', 'SPLIT']).default('CASH'),
   pay: z.string().optional(),
   receive: z.string().optional(),
-  /** How much of the payout goes by transfer. The till takes the rest. */
-  payoutBank: z.string().optional(),
-  /** Where that transfer goes. Required whenever there is one. */
+  /**
+   * For a split: how much of what the customer hands over settles through the
+   * broker. The till takes the rest, and each part is priced at its own rate.
+   */
+  brokerShare: z.string().optional(),
+  /** Which of the broker's accounts the transfer is instructed to. */
   payoutChannel: z.string().max(80).nullish(),
   customerId: z.string().nullish(),
   counterpartyName: z.string().max(200).nullish(),
@@ -84,9 +97,10 @@ export const POST = route<z.infer<typeof bodySchema>>({
       {
         fromCurrency: body.from.toUpperCase(),
         toCurrency: body.to.toUpperCase(),
+        mode: body.mode,
         fromAmount: body.pay !== undefined ? parseMoney(body.pay) : undefined,
         toAmount: body.receive !== undefined ? parseMoney(body.receive) : undefined,
-        payoutBank: body.payoutBank !== undefined ? parseMoney(body.payoutBank) : undefined,
+        brokerShare: body.brokerShare !== undefined ? parseMoney(body.brokerShare) : undefined,
         payoutChannel: body.payoutChannel ?? null,
         branchId: actor.branchId,
         customerId: body.customerId ?? null,

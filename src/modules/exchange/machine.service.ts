@@ -1,10 +1,15 @@
 import 'server-only';
 import { prisma, type DbClient } from '@/core/db/prisma';
 import { errors } from '@/core/errors/app-error';
-import { toDecimalString } from '@/core/money/money';
+import { divideRounded, MONEY_FACTOR, toDecimalString } from '@/core/money/money';
 import * as drawers from '@/modules/drawers/drawer.service';
 import * as settings from '@/modules/settings/settings.service';
-import { quoteExchange, quoteReverse, type Quote } from './rates.service';
+import {
+  quoteExchange,
+  quoteReverse,
+  type Quote,
+  type RateChannel,
+} from './rates.service';
 import * as transactions from './transaction.service';
 import type { Actor } from './transaction.service';
 
@@ -125,14 +130,26 @@ export async function machineConfig(db: DbClient = prisma): Promise<MachineConfi
 // Quoting
 // ---------------------------------------------------------------------------
 
+/**
+ * How the customer is paid, and therefore which price applies.
+ *
+ * `SPLIT` is not a third price. It is the two others applied to two parts of
+ * what the customer hands over, which is why it can only be priced forwards:
+ * the total handed back is not known until the split is decided.
+ */
+export const PAYOUT_MODES = ['CASH', 'BROKER', 'SPLIT'] as const;
+export type PayoutMode = (typeof PAYOUT_MODES)[number];
+
 export interface MachineQuote {
-  quote: Quote;
-  /** Whether the branch can pay this out at all — from either balance, or both. */
-  available: boolean;
-  /** What the till holds. Named for the field it has always filled. */
-  availableAmount: bigint;
-  /** What the bank account holds. */
-  availableBank: bigint;
+  fromCurrency: string;
+  toCurrency: string;
+  /** The whole amount priced through the till. Null when no cash rate exists. */
+  cash: Quote | null;
+  /** The whole amount priced through the broker. Null when no broker rate exists. */
+  broker: Quote | null;
+  /** What each balance holds right now. */
+  availableCash: bigint;
+  availableBroker: bigint;
   requiresCustomer: boolean;
   overLimit: boolean;
 }
@@ -149,20 +166,26 @@ async function assertPairEnabled(from: string, to: string, db: DbClient): Promis
 }
 
 /**
- * Prices a counter exchange and checks it can be honoured.
+ * Prices a counter exchange through both channels at once.
  *
- * The drawer check is the reason this exists rather than a bare call to the
- * rates service. Quoting a customer and discovering at the moment of payment
- * that the branch is short is the failure this design is meant to prevent — the
- * teller learns before the number leaves their mouth.
+ * Both, because the branch charges differently depending on where the money
+ * comes from and the teller decides that after seeing the two figures — asking
+ * the server twice would let the board move between the two answers and quote a
+ * split at prices that were never simultaneously true.
+ *
+ * The balances come back with the prices for the same reason they always did:
+ * quoting a customer and discovering at the moment of payment that the branch
+ * is short is the failure this design exists to prevent.
  */
 export async function quote(
   input: {
     fromCurrency: string;
     toCurrency: string;
-    /** Exactly one of these. */
+    /** Exactly one of these. Reverse pricing is per channel, so it needs one. */
     fromAmount?: bigint;
     toAmount?: bigint;
+    /** Which channel a reverse-priced amount is quoted through. */
+    reverseThrough?: RateChannel;
     branchId: string;
   },
   db: DbClient = prisma,
@@ -181,43 +204,65 @@ export async function quote(
     ]);
   }
 
-  const priced =
-    input.fromAmount !== undefined
-      ? await quoteExchange(input.fromCurrency, input.toCurrency, input.fromAmount, db)
-      : await quoteReverse(input.fromCurrency, input.toCurrency, input.toAmount!, db);
+  /*
+   * A reverse-priced amount is sized against one channel's rate, then both
+   * channels are priced on the result. So the teller who types "the customer
+   * needs 500" still sees what that costs each way.
+   */
+  const fromAmount =
+    input.fromAmount ??
+    (
+      await quoteReverse(
+        input.fromCurrency,
+        input.toCurrency,
+        input.toAmount!,
+        input.reverseThrough ?? 'CASH',
+        db,
+      )
+    ).fromAmount;
 
-  const [maxAmount, requireCustomerAbove] = await Promise.all([
+  const [cash, broker, cashHeld, brokerHeld, maxAmount, requireCustomerAbove] = await Promise.all([
+    priceOrNull(input.fromCurrency, input.toCurrency, fromAmount, 'CASH', db),
+    priceOrNull(input.fromCurrency, input.toCurrency, fromAmount, 'BROKER', db),
+    drawers.canPay(input.toCurrency, 0n, 'CASH', db),
+    drawers.canPay(input.toCurrency, 0n, 'BROKER', db),
     settings.getMoney('machine.maxAmount', db),
     settings.getMoney('machine.requireCustomerAbove', db),
   ]);
 
   // Limits are read against what the customer hands over, which is the figure
   // the branch is exposed to regardless of which way the teller typed it.
-  const overLimit = maxAmount > 0n && priced.fromAmount > maxAmount;
-  const requiresCustomer = requireCustomerAbove > 0n && priced.fromAmount >= requireCustomerAbove;
-
-  /*
-   * The same question the recording path will ask, asked here first so a green
-   * light cannot become a failed posting a second later — now of both balances.
-   *
-   * "Available" is the two together, because a payout may be split across them.
-   * Reporting only the till would refuse a trade the branch can honour perfectly
-   * well by sending part of it.
-   */
-  const [cash, bank] = await Promise.all([
-    drawers.canPay(input.toCurrency, priced.toAmount, 'CASH', db),
-    drawers.canPay(input.toCurrency, priced.toAmount, 'BANK', db),
-  ]);
-
   return {
-    quote: priced,
-    available: cash.ok || bank.ok || cash.balance + bank.balance >= priced.toAmount,
-    availableAmount: cash.balance,
-    availableBank: bank.balance,
-
-    requiresCustomer,
-    overLimit,
+    fromCurrency: input.fromCurrency,
+    toCurrency: input.toCurrency,
+    cash,
+    broker,
+    availableCash: cashHeld.balance,
+    availableBroker: brokerHeld.balance,
+    overLimit: maxAmount > 0n && fromAmount > maxAmount,
+    requiresCustomer: requireCustomerAbove > 0n && fromAmount >= requireCustomerAbove,
   };
+}
+
+/**
+ * A price, or nothing.
+ *
+ * A missing rate for one channel is an ordinary state — a branch may publish a
+ * till price and no broker price — so it is not an error, and the teller is
+ * simply not offered that way of paying.
+ */
+async function priceOrNull(
+  from: string,
+  to: string,
+  amount: bigint,
+  channel: RateChannel,
+  db: DbClient,
+): Promise<Quote | null> {
+  try {
+    return await quoteExchange(from, to, amount, channel, db);
+  } catch {
+    return null;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -227,15 +272,19 @@ export async function quote(
 export interface MachineRecordInput {
   fromCurrency: string;
   toCurrency: string;
+  /** How the payout leaves the branch. */
+  mode: PayoutMode;
+  /** What the customer hands over. Required for a split. */
   fromAmount?: bigint;
+  /** What the customer takes away — single channel only. */
   toAmount?: bigint;
   /**
-   * How the payout is handed over. Only the bank share is given: the till takes
-   * whatever is left, so the two can never be sent in disagreeing with each
-   * other or with a total the browser computed from a stale price.
+   * For a split: how much of what the customer hands over settles through the
+   * broker. The till takes the rest, so the two can never be sent in
+   * disagreeing with each other or with a total priced from a stale board.
    */
-  payoutBank?: bigint;
-  /** Where that transfer is going. Required whenever there is one. */
+  brokerShare?: bigint;
+  /** Which of the broker's accounts the transfer is instructed to. */
   payoutChannel?: string | null;
   branchId: string;
   customerId?: string | null;
@@ -249,35 +298,35 @@ export interface MachineRecordInput {
  *
  * The price is taken here rather than trusted from the browser, so the receipt
  * cannot disagree with the ledger even if the screen was left open while the
- * board moved. The teller sees the posted figures and can reverse if the
- * customer no longer agrees — which is the same recourse every other posting
- * has.
+ * board moved. Each leg is priced through its own channel: a split is two
+ * trades at two prices settled as one transaction, not one trade divided.
  */
 export async function record(input: MachineRecordInput, actor: Actor, db: DbClient = prisma) {
   if (!(await settings.getBoolean('machine.enabled', db))) {
     throw errors.precondition('The exchange machine is switched off', 'errors.machineDisabled');
   }
 
-  const priced = await quote(
-    {
-      fromCurrency: input.fromCurrency,
-      toCurrency: input.toCurrency,
-      fromAmount: input.fromAmount,
-      toAmount: input.toAmount,
-      branchId: input.branchId,
-    },
-    db,
-  );
+  const legs = await priceLegs(input, db);
+  const total = legs.cash.to + legs.broker.to;
+  const fromTotal = legs.cash.from + legs.broker.from;
 
-  if (priced.overLimit) {
-    const maximum = await settings.getMoney('machine.maxAmount', db);
+  if (total <= 0n) {
+    throw errors.precondition('Amount must be greater than zero', 'errors.amountNotPositive');
+  }
+
+  const [maxAmount, requireCustomerAbove] = await Promise.all([
+    settings.getMoney('machine.maxAmount', db),
+    settings.getMoney('machine.requireCustomerAbove', db),
+  ]);
+
+  if (maxAmount > 0n && fromTotal > maxAmount) {
     throw errors.precondition(
-      `The counter limit is ${toDecimalString(maximum, 2)} ${input.fromCurrency}`,
+      `The counter limit is ${toDecimalString(maxAmount, 2)} ${input.fromCurrency}`,
       'errors.machineOverLimit',
-      { maximum: toDecimalString(maximum, 2), currency: input.fromCurrency },
+      { maximum: toDecimalString(maxAmount, 2), currency: input.fromCurrency },
     );
   }
-  if (priced.requiresCustomer && !input.customerId) {
+  if (requireCustomerAbove > 0n && fromTotal >= requireCustomerAbove && !input.customerId) {
     throw errors.precondition(
       'This amount requires a registered customer',
       'errors.customerRequired',
@@ -285,71 +334,58 @@ export async function record(input: MachineRecordInput, actor: Actor, db: DbClie
   }
 
   /*
-   * The split, resolved here from the server's own price.
-   *
-   * The browser sends only how much goes by transfer; the till takes the rest.
-   * Sending both would let a screen holding a stale price post two legs that
-   * sum to the wrong total, and sending the total as well would give three
-   * numbers where two suffice — every extra number is one more that can
-   * disagree.
+   * Where the transfer is instructed to, checked against the list the manager
+   * keeps. Required whenever the broker is paying any of it: the office keeps
+   * no ledger per account, but the instruction that leaves for the broker has
+   * to say which one, and this is where that is captured.
    */
-  const total = priced.quote.toAmount;
-  const bankLeg = input.payoutBank ?? 0n;
-
-  if (bankLeg < 0n || bankLeg > total) {
-    throw errors.precondition(
-      'The transferred share cannot exceed the amount handed over',
-      'errors.payoutDoesNotBalance',
-    );
-  }
-  const payout = { cash: total - bankLeg, bank: bankLeg };
-
-  /*
-   * Where the transfer went, checked against the list the manager keeps.
-   *
-   * Required whenever there is a bank leg: a transfer with no destination on it
-   * is a payment nobody can trace back, and the manager confirming it later
-   * would have nothing to check against. Validated server-side rather than
-   * trusted from the dropdown, because the dropdown is only the convenient way
-   * to send a string.
-   */
-  let channel: string | null = null;
-  if (payout.bank > 0n) {
+  let account: string | null = null;
+  if (legs.broker.to > 0n) {
     const allowed = await transferChannels(db);
-    channel = input.payoutChannel?.trim() ?? '';
+    account = input.payoutChannel?.trim() ?? '';
 
-    if (!channel) {
-      throw errors.precondition(
-        'Say where the transfer is going',
-        'errors.transferChannelRequired',
-      );
+    if (!account) {
+      throw errors.precondition('Say where the transfer is going', 'errors.transferChannelRequired');
     }
-    if (!allowed.includes(channel)) {
+    if (!allowed.includes(account)) {
       throw errors.precondition(
-        `${channel} is not a destination the counter offers`,
+        `${account} is not a destination the counter offers`,
         'errors.transferChannelUnknown',
-        { channel },
+        { channel: account },
       );
     }
   }
 
   /*
-   * Each leg is checked against its own balance, before anything is promised.
-   * Failing here means the teller is told which balance is short and by how
-   * much, rather than reading a posting error after quoting a figure aloud.
+   * Each leg against its own balance, before anything is promised. Failing here
+   * means the teller is told which balance is short and by how much, rather
+   * than reading a posting error after quoting a figure aloud.
    */
-  for (const [kind, amount, held] of [
-    ['CASH', payout.cash, priced.availableAmount],
-    ['BANK', payout.bank, priced.availableBank],
+  for (const [kind, amount] of [
+    ['CASH', legs.cash.to],
+    ['BROKER', legs.broker.to],
   ] as const) {
-    if (amount > 0n && amount > held) {
+    if (amount <= 0n) continue;
+    const held = await drawers.canPay(input.toCurrency, amount, kind, db);
+    if (!held.ok) {
       throw errors.insufficientFunds(
-        kind === 'BANK' ? `The ${input.toCurrency} bank balance` : `The ${input.toCurrency} drawer`,
-        `${toDecimalString(held, 2)} ${input.toCurrency}`,
+        kind === 'BROKER'
+          ? `The ${input.toCurrency} broker balance`
+          : `The ${input.toCurrency} drawer`,
+        `${toDecimalString(held.balance, 2)} ${input.toCurrency}`,
         `${toDecimalString(amount, 2)} ${input.toCurrency}`,
       );
     }
   }
+
+  /*
+   * A split has no single rate. The blended one — what the customer actually
+   * got per unit — is what belongs on the receipt, because it is the only rate
+   * that describes the trade they made. `rateId` points at a published row only
+   * when exactly one was used.
+   */
+  const rate = blendedRate(fromTotal, total);
+  const single = legs.cash.to === 0n ? legs.broker.quote : legs.broker.to === 0n ? legs.cash.quote : null;
 
   return transactions.record(
     {
@@ -357,14 +393,14 @@ export async function record(input: MachineRecordInput, actor: Actor, db: DbClie
       branchId: input.branchId,
       customerId: input.customerId ?? null,
       fromCurrency: input.fromCurrency,
-      fromAmount: priced.quote.fromAmount,
+      fromAmount: fromTotal,
       toCurrency: input.toCurrency,
-      toAmount: priced.quote.toAmount,
-      payout,
-      payoutChannel: channel,
-      rate: priced.quote.rate,
-      rateId: priced.quote.rateId,
-      profitAmount: priced.quote.profit,
+      toAmount: total,
+      payout: { cash: legs.cash.to, bank: legs.broker.to },
+      payoutChannel: account,
+      rate,
+      rateId: single?.rateId ?? null,
+      profitAmount: legs.cash.profit + legs.broker.profit,
       counterpartyName: input.counterpartyName ?? null,
       counterpartyPhone: input.counterpartyPhone ?? null,
       notes: input.notes ?? null,
@@ -372,4 +408,83 @@ export async function record(input: MachineRecordInput, actor: Actor, db: DbClie
     actor,
     db,
   );
+}
+
+interface Leg {
+  from: bigint;
+  to: bigint;
+  profit: bigint;
+  quote: Quote | null;
+}
+
+/** An empty leg — this channel pays none of it. */
+const NO_LEG: Leg = { from: 0n, to: 0n, profit: 0n, quote: null };
+
+/**
+ * Splits what the customer hands over and prices each part at its own channel.
+ *
+ * The split is expressed on the side the customer pays, which is the only side
+ * that can carry it: the amount handed back is not known until both parts have
+ * been priced, so it cannot be the thing divided.
+ */
+async function priceLegs(
+  input: MachineRecordInput,
+  db: DbClient,
+): Promise<{ cash: Leg; broker: Leg }> {
+  const price = async (amount: bigint, channel: RateChannel): Promise<Leg> => {
+    const quoted = await quoteExchange(input.fromCurrency, input.toCurrency, amount, channel, db);
+    return { from: quoted.fromAmount, to: quoted.toAmount, profit: quoted.profit, quote: quoted };
+  };
+
+  if (input.mode !== 'SPLIT') {
+    const channel: RateChannel = input.mode === 'BROKER' ? 'BROKER' : 'CASH';
+
+    const quoted =
+      input.fromAmount !== undefined
+        ? await quoteExchange(input.fromCurrency, input.toCurrency, input.fromAmount, channel, db)
+        : await quoteReverse(input.fromCurrency, input.toCurrency, input.toAmount!, channel, db);
+
+    const leg: Leg = {
+      from: quoted.fromAmount,
+      to: quoted.toAmount,
+      profit: quoted.profit,
+      quote: quoted,
+    };
+    return channel === 'BROKER' ? { cash: NO_LEG, broker: leg } : { cash: leg, broker: NO_LEG };
+  }
+
+  // --- A split ---------------------------------------------------------------
+  if (input.fromAmount === undefined) {
+    throw errors.precondition(
+      'A split is priced from what the customer hands over',
+      'errors.splitNeedsPayAmount',
+    );
+  }
+
+  const brokerShare = input.brokerShare ?? 0n;
+  if (brokerShare <= 0n || brokerShare >= input.fromAmount) {
+    throw errors.precondition(
+      'The transferred share must be part of the amount, not all or none of it',
+      'errors.splitShareOutOfRange',
+    );
+  }
+
+  const [cash, broker] = await Promise.all([
+    price(input.fromAmount - brokerShare, 'CASH'),
+    price(brokerShare, 'BROKER'),
+  ]);
+
+  return { cash, broker };
+}
+
+/**
+ * What the customer got per unit, across both legs.
+ *
+ * Scaled the same way every rate in this system is, and rounded once at the
+ * end — deriving it from the two published rates weighted by their shares would
+ * round twice and drift from the figures actually posted.
+ */
+function blendedRate(fromTotal: bigint, toTotal: bigint): bigint {
+  if (fromTotal === 0n) return 0n;
+  return divideRounded(toTotal * MONEY_FACTOR, fromTotal);
 }

@@ -423,7 +423,7 @@ const en = {
     activeHint: 'A closed drawer cannot be traded from. It must be empty first.',
     mayGoShort: 'May go short',
     cash: 'Cash',
-    bank: 'Bank',
+    broker: 'Broker',
     title: 'Drawers',
     subtitle: 'What the branch holds, and how it came to hold it',
     movements: 'Movements',

@@ -186,7 +186,7 @@ export async function record(
           ? [
               {
                 currency: input.toCurrency,
-                kind: 'BANK' as const,
+                kind: 'BROKER' as const,
                 direction: 'OUT' as const,
                 amount: payout.bank,
                 reason: 'TRANSACTION' as const,
@@ -351,7 +351,7 @@ export async function reverse(
           ? [
               {
                 currency: original.toCurrency,
-                kind: 'BANK' as const,
+                kind: 'BROKER' as const,
                 direction: 'IN' as const,
                 amount: legs.bank,
                 reason: 'REVERSAL' as const,

@@ -28,7 +28,7 @@ export default async function DrawersPage() {
   const movements = await Promise.all(
     drawers.map(async (drawer) => ({
       key: `${drawer.currencyCode}:${drawer.kind}`,
-      rows: await history(drawer.currencyCode, { limit: 12, kind: drawer.kind as 'CASH' | 'BANK' }),
+      rows: await history(drawer.currencyCode, { limit: 12, kind: drawer.kind as 'CASH' | 'BROKER' }),
     })),
   );
 
@@ -52,7 +52,7 @@ export default async function DrawersPage() {
 
   const taken = new Set(drawers.map((drawer) => `${drawer.currencyCode}:${drawer.kind}`));
   const openable = currencies.flatMap((currency) =>
-    (['CASH', 'BANK'] as const)
+    (['CASH', 'BROKER'] as const)
       .filter((kind) => !taken.has(`${currency.code}:${kind}`))
       .map((kind) => ({
         currency: currency.code,

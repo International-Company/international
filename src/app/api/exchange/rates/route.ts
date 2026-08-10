@@ -40,6 +40,11 @@ export const GET = route<unknown, z.infer<typeof querySchema>>({
 const publishSchema = z.object({
   baseCode: z.string().min(2).max(8),
   quoteCode: z.string().min(2).max(8),
+  /**
+   * Which balance the money comes out of, and therefore which price this is.
+   * Defaults to the till, so an existing caller publishes what it always did.
+   */
+  channel: z.enum(['CASH', 'BROKER']).default('CASH'),
   buyRate: rate,
   sellRate: rate,
   note: z.string().max(500).optional(),

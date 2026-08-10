@@ -180,10 +180,13 @@ export async function openRequest(input: OpenRequestInput, actor: Actor, db: DbC
 
     // Quote on the reserved amount, not the requested one: the customer is
     // asked to send the reserved figure, so that is what they are paid for.
+    // The USDT window pays from the till today. When it learns to settle
+    // through the broker it will pass that channel instead.
     const quote = await quoteExchange(
       wallet.tokenSymbol,
       input.payoutCurrency,
       expectedAmount,
+      'CASH',
       tx,
     );
 

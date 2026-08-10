@@ -76,23 +76,35 @@ interface BoardRate {
   effectiveFrom: string;
 }
 
-interface QuoteResponse {
-  fromCurrency: string;
-  toCurrency: string;
+/** One channel's price for the whole amount. */
+interface ChannelPrice {
   fromAmount: string;
   toAmount: string;
   rate: string;
-  side: 'BUY' | 'SELL';
   profit: string | null;
-  available: boolean;
-  availableAmount: string;
-  availableBank: string;
+}
+
+/**
+ * Two prices, not one.
+ *
+ * The branch charges differently depending on where the money comes from, so
+ * the server prices both channels in the same breath — quoting them separately
+ * would let the board move between the two answers and price a split at rates
+ * that were never simultaneously true.
+ */
+interface QuoteResponse {
+  fromCurrency: string;
+  toCurrency: string;
+  cash: ChannelPrice | null;
+  broker: ChannelPrice | null;
+  availableCash: string;
+  availableBroker: string;
   requiresCustomer: boolean;
   overLimit: boolean;
 }
 
 /** How the payout leaves the branch. */
-type Channel = 'CASH' | 'BANK' | 'SPLIT';
+type Channel = 'CASH' | 'BROKER' | 'SPLIT';
 
 interface RecentRow {
   id: string;
@@ -164,7 +176,7 @@ export function MachineView({
    * remainder, so the two can never drift apart or disagree with the total.
    */
   const [channel, setChannel] = useState<Channel>('CASH');
-  const [bankShare, setBankShare] = useState('');
+  const [brokerShare, setBrokerShare] = useState('');
 
   /*
    * Where a transfer goes. Defaults to the first destination the manager lists,
@@ -256,7 +268,16 @@ export function MachineView({
 
     const timer = setTimeout(() => {
       void api
-        .get<QuoteResponse>(`/api/exchange/machine${queryString({ from, to, [side]: value })}`)
+        .get<QuoteResponse>(
+          `/api/exchange/machine${queryString({
+            from,
+            to,
+            [side]: value,
+            // A reverse-priced amount is sized against one channel; a split is
+            // priced forwards, so the till is the sensible one to size against.
+            through: channel === 'BROKER' ? 'BROKER' : 'CASH',
+          })}`,
+        )
         .then((result) => {
           if (id !== requestId.current) return;
           setQuote(result);
@@ -278,7 +299,7 @@ export function MachineView({
     }, 220);
 
     return () => clearTimeout(timer);
-  }, [amount, from, to, side, t]);
+  }, [amount, from, to, side, channel, t]);
 
   /**
    * Typed entry, as opposed to the keypad.
@@ -332,7 +353,7 @@ export function MachineView({
     setCustomer(null);
     setCustomerOpen(false);
     setChannel('CASH');
-    setBankShare('');
+    setBrokerShare('');
     setDestination(config.transferChannels[0] ?? '');
     setSide('pay');
     payRef.current?.focus();
@@ -345,30 +366,94 @@ export function MachineView({
    * the receive field, so the split always adds to the figure that will
    * actually be posted.
    */
+  /*
+   * What each channel pays out, priced at its own rate.
+   *
+   * The split is a share of what the customer *hands over*, not of what they
+   * take away — the amount handed back is not known until both parts have been
+   * priced, so it cannot be the thing divided. Each part is converted at its
+   * channel's own per-unit rate, which is exactly what the server will do again
+   * before it posts.
+   */
   const legs = (() => {
-    if (!quote) return { cash: 0n, bank: 0n };
-    const total = BigInt(quote.toAmount);
-    if (channel === 'CASH') return { cash: total, bank: 0n };
-    if (channel === 'BANK') return { cash: 0n, bank: total };
+    const none = { cash: 0n, broker: 0n, from: 0n };
+    if (!quote) return none;
 
-    const typed = scaleAmount(bankShare);
-    const bank = typed > total ? total : typed;
-    return { cash: total - bank, bank };
+    if (channel === 'CASH') {
+      return quote.cash
+        ? { cash: BigInt(quote.cash.toAmount), broker: 0n, from: BigInt(quote.cash.fromAmount) }
+        : none;
+    }
+    if (channel === 'BROKER') {
+      return quote.broker
+        ? { cash: 0n, broker: BigInt(quote.broker.toAmount), from: BigInt(quote.broker.fromAmount) }
+        : none;
+    }
+
+    if (!quote.cash || !quote.broker) return none;
+
+    const paid = BigInt(quote.cash.fromAmount);
+    const typed = scaleAmount(brokerShare);
+    const viaBroker = typed > paid ? paid : typed;
+
+    return {
+      cash: applyRate(paid - viaBroker, quote.cash.rate, toCurrency?.decimals ?? 2),
+      broker: applyRate(viaBroker, quote.broker.rate, toCurrency?.decimals ?? 2),
+      from: paid,
+    };
   })();
 
+  /** What the customer walks away with, across both channels. */
+  const received = legs.cash + legs.broker;
+
   const shortLeg = quote
-    ? legs.cash > BigInt(quote.availableAmount)
+    ? legs.cash > BigInt(quote.availableCash)
       ? ('CASH' as const)
-      : legs.bank > BigInt(quote.availableBank)
-        ? ('BANK' as const)
+      : legs.broker > BigInt(quote.availableBroker)
+        ? ('BROKER' as const)
         : null
     : null;
+
+  /** The rate to show, and the margin, for the chosen way of paying. */
+  const shownRate =
+    channel === 'BROKER'
+      ? (quote?.broker?.rate ?? null)
+      : channel === 'CASH'
+        ? (quote?.cash?.rate ?? null)
+        : // A split has no single rate; what the customer actually got per unit
+          // is the only one that describes their trade.
+          legs.from > 0n && received > 0n
+          ? ((received * 100000000n) / legs.from).toString()
+          : null;
+
+  const margin = (() => {
+    if (!canSeeSpread || !quote) return null;
+    if (channel === 'CASH') return quote.cash ? BigInt(quote.cash.profit ?? '0') : null;
+    if (channel === 'BROKER') return quote.broker ? BigInt(quote.broker.profit ?? '0') : null;
+
+    // A split earns each channel's margin in proportion to the share it paid.
+    if (!quote.cash?.profit || !quote.broker?.profit || legs.from === 0n) return null;
+    const typed = scaleAmount(brokerShare);
+    const viaBroker = typed > legs.from ? legs.from : typed;
+    return (
+      (BigInt(quote.cash.profit) * (legs.from - viaBroker)) / legs.from +
+      (BigInt(quote.broker.profit) * viaBroker) / legs.from
+    );
+  })();
+
+  /** No price published for the way the teller has chosen to pay. */
+  const noPrice =
+    quote !== null &&
+    ((channel === 'CASH' && !quote.cash) ||
+      (channel === 'BROKER' && !quote.broker) ||
+      (channel === 'SPLIT' && (!quote.cash || !quote.broker)));
 
   // Every reason the record button is unavailable, each of which the operator
   // has already been told about in words.
   const blocked =
     !quote ||
-    !quote.available ||
+    noPrice ||
+    received <= 0n ||
     quote.overLimit ||
     shortLeg !== null ||
     (quote.requiresCustomer && !customer);
@@ -382,11 +467,16 @@ export function MachineView({
         {
           from,
           to,
+          mode: channel,
           [side]: amount.trim(),
-          // Only the transferred share travels; the till takes the rest, worked
-          // out by the server from its own price.
-          payoutBank: legs.bank > 0n ? unscale(legs.bank) : undefined,
-          payoutChannel: legs.bank > 0n ? destination : null,
+          /*
+           * Only the broker's share of what the customer hands over travels.
+           * The till takes the rest and the server prices both legs from its
+           * own board — sending the totals would let a screen holding a stale
+           * price post figures that were never quoted.
+           */
+          brokerShare: channel === 'SPLIT' ? unscale(scaleAmount(brokerShare)) : undefined,
+          payoutChannel: legs.broker > 0n ? destination : null,
           customerId: customer?.id ?? null,
           counterpartyName: counterpartyName.trim() || null,
         },
@@ -413,8 +503,8 @@ export function MachineView({
     }
   };
 
-  const payAmount = side === 'pay' ? amount : quote ? quote.fromAmount : '';
-  const receiveAmount = side === 'receive' ? amount : quote ? quote.toAmount : '';
+  const payAmount = side === 'pay' ? amount : legs.from > 0n ? legs.from.toString() : '';
+  const receiveAmount = side === 'receive' ? amount : received > 0n ? received.toString() : '';
 
   // The rate for this direction, as one quiet line rather than a table.
   const boardRate = board.find(
@@ -453,7 +543,7 @@ export function MachineView({
               onFocusSide={() => {
                 if (side !== 'pay') {
                   setSide('pay');
-                  setAmount(quote ? formatPlain(quote.fromAmount, fromCurrency?.decimals ?? 2) : '');
+                  setAmount(legs.from > 0n ? formatPlain(legs.from.toString(), fromCurrency?.decimals ?? 2) : '');
                 }
               }}
               onType={(raw) => typeAmount(raw, 'pay')}
@@ -497,7 +587,7 @@ export function MachineView({
               onFocusSide={() => {
                 if (side !== 'receive') {
                   setSide('receive');
-                  setAmount(quote ? formatPlain(quote.toAmount, toCurrency?.decimals ?? 2) : '');
+                  setAmount(received > 0n ? formatPlain(received.toString(), toCurrency?.decimals ?? 2) : '');
                 }
               }}
               onType={(raw) => typeAmount(raw, 'receive')}
@@ -513,18 +603,21 @@ export function MachineView({
               <span className="flex items-center gap-2 text-content-secondary">
                 <span className="size-1.5 animate-pulse rounded-full bg-success" aria-hidden />
                 <span className="ltr-content font-medium tabular-nums text-content">
-                  1 {from} = {formatScaled(quote ? quote.rate : effectiveRate(boardRate!, from), 4)}{' '}
-                  {to}
+                  1 {from} = {formatScaled(shownRate ?? effectiveRate(boardRate!, from), 4)} {to}
                 </span>
               </span>
             ) : (
               <span className="text-danger-text">{t('rates.noRateForPair')}</span>
             )}
 
-            {canSeeSpread && quote?.profit && (
+            {canSeeSpread && margin !== null && (
               <span className="text-content-tertiary">
                 {t('transactions.profit')}{' '}
-                <Money value={quote.profit} currency={to} className="text-content-secondary" />
+                <Money
+                  value={margin.toString()}
+                  currency={to}
+                  className="text-content-secondary"
+                />
               </span>
             )}
           </div>
@@ -544,14 +637,14 @@ export function MachineView({
               </span>
 
               <div dir="ltr" className="flex gap-1 rounded-full bg-surface-sunken p-1">
-                {(['CASH', 'BANK', 'SPLIT'] as const).map((option) => (
+                {(['CASH', 'BROKER', 'SPLIT'] as const).map((option) => (
                   <button
                     key={option}
                     type="button"
                     onClick={() => {
                       setChannel(option);
                       setDone(null);
-                      if (option !== 'SPLIT') setBankShare('');
+                      if (option !== 'SPLIT') setBrokerShare('');
                     }}
                     aria-pressed={channel === option}
                     className={cn(
@@ -563,7 +656,7 @@ export function MachineView({
                   >
                     {option === 'CASH'
                       ? t('machine.payoutCash')
-                      : option === 'BANK'
+                      : option === 'BROKER'
                         ? t('machine.payoutBank')
                         : t('machine.payoutSplit')}
                   </button>
@@ -606,11 +699,11 @@ export function MachineView({
                     inputMode="decimal"
                     autoComplete="off"
                     data-zoom-safe=""
-                    value={bankShare}
-                    placeholder={(0).toFixed(toCurrency?.decimals ?? 2)}
+                    value={brokerShare}
+                    placeholder={(0).toFixed(fromCurrency?.decimals ?? 2)}
                     onChange={(event) => {
                       setDone(null);
-                      const decimals = toCurrency?.decimals ?? 2;
+                      const decimals = fromCurrency?.decimals ?? 2;
                       const typed = sanitiseAmount(event.target.value, decimals);
 
                       /*
@@ -619,10 +712,10 @@ export function MachineView({
                        * than the one that will actually move would be a display
                        * disagreeing with what it is about to do.
                        */
-                      const total = quote ? BigInt(quote.toAmount) : 0n;
-                      setBankShare(
-                        quote && scaleAmount(typed) > total
-                          ? formatPlain(total.toString(), decimals)
+                      const paid = quote?.cash ? BigInt(quote.cash.fromAmount) : 0n;
+                      setBrokerShare(
+                        paid > 0n && scaleAmount(typed) > paid
+                          ? formatPlain(paid.toString(), decimals)
                           : typed,
                       );
                     }}
@@ -635,7 +728,10 @@ export function MachineView({
                     {t('machine.payoutCashLeg')}
                   </span>
                   <p className="mt-1 flex h-12 items-center justify-end rounded-xl bg-surface-sunken px-3 text-xl font-semibold tabular-nums text-content-secondary ltr-content">
-                    {formatScaled(legs.cash.toString(), toCurrency?.decimals ?? 2)}
+                    {formatScaled(
+                      (legs.from - (scaleAmount(brokerShare) > legs.from ? legs.from : scaleAmount(brokerShare))).toString(),
+                      fromCurrency?.decimals ?? 2,
+                    )}
                   </p>
                 </div>
               </div>
@@ -645,11 +741,11 @@ export function MachineView({
           {/* --- Anything standing in the way --------------------------- */}
           {error && <Blocker tone="danger">{error}</Blocker>}
 
-          {quote && shortLeg === 'BANK' && (
+          {quote && shortLeg === 'BROKER' && (
             <Blocker tone="danger" title={t('machine.cannotPayTitle')}>
               {t('machine.payoutBankShort', {
                 currency: to,
-                available: `${formatScaled(quote.availableBank, toCurrency?.decimals ?? 2)} ${to}`,
+                available: `${formatScaled(quote.availableBroker, toCurrency?.decimals ?? 2)} ${to}`,
               })}
             </Blocker>
           )}
@@ -658,7 +754,7 @@ export function MachineView({
             <Blocker tone="danger" title={t('machine.cannotPayTitle')}>
               {t('machine.cannotPayBody', {
                 account: `${t('drawers.title')} ${to}`,
-                available: `${formatScaled(quote.availableAmount, toCurrency?.decimals ?? 2)} ${to}`,
+                available: `${formatScaled(quote.availableCash, toCurrency?.decimals ?? 2)} ${to}`,
               })}
             </Blocker>
           )}
@@ -1131,6 +1227,21 @@ function sanitiseAmount(raw: string, limit: number): string {
   const next = hasPoint ? `${whole}.${fraction}` : whole;
   // "007" is a typo, "0.5" is not.
   return next.replace(/^0+(?=\d)/, '');
+}
+
+/**
+ * Converts an amount at a per-unit rate, both scaled 1e8, rounding half-up to
+ * the target currency's precision.
+ *
+ * The same arithmetic the server performs, so the figure the customer is read
+ * out is the figure that gets posted rather than one that rounds differently on
+ * the way through.
+ */
+function applyRate(amount: bigint, rate: string, decimals: number): bigint {
+  const product = amount * BigInt(rate);
+  const step = 10n ** BigInt(16 - decimals);
+  const rounded = (product + step / 2n) / step;
+  return rounded * step / 100000000n;
 }
 
 /**

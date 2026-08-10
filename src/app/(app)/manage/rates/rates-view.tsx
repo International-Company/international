@@ -29,6 +29,7 @@ interface BoardRow {
   id: string;
   baseCode: string;
   quoteCode: string;
+  channel: 'CASH' | 'BROKER';
   buyRate: string;
   sellRate: string;
   midRate: string;
@@ -52,6 +53,7 @@ interface HistoryRow {
 
 interface Coverage {
   pair: string;
+  channel: 'CASH' | 'BROKER';
   from: string;
   to: string;
   rateId: string | null;
@@ -79,7 +81,11 @@ export function RatesView({
   const router = useRouter();
   const toast = useToast();
 
-  const [editing, setEditing] = useState<{ base: string; quote: string } | null>(null);
+  const [editing, setEditing] = useState<{
+    base: string;
+    quote: string;
+    channel: 'CASH' | 'BROKER';
+  } | null>(null);
   const [buyRate, setBuyRate] = useState('');
   const [sellRate, setSellRate] = useState('');
   const [note, setNote] = useState('');
@@ -87,20 +93,25 @@ export function RatesView({
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState('');
 
+  /*
+   * Keyed by pair *and* channel. A pair no longer has "a rate": the till and
+   * the broker are priced separately, and keying by pair alone would show one
+   * channel's figures while publishing over the other's.
+   */
   const byPair = useMemo(
-    () => new Map(board.map((row) => [`${row.baseCode}/${row.quoteCode}`, row])),
+    () => new Map(board.map((row) => [`${row.baseCode}/${row.quoteCode}:${row.channel}`, row])),
     [board],
   );
 
   const missing = coverage.filter((entry) => entry.rateId === null);
 
-  const open = (base: string, quote: string) => {
-    const current = byPair.get(`${base}/${quote}`);
+  const open = (base: string, quote: string, channel: 'CASH' | 'BROKER' = 'CASH') => {
+    const current = byPair.get(`${base}/${quote}:${channel}`);
     setError(null);
     setBuyRate(current ? decimal(current.buyRate, 4) : '');
     setSellRate(current ? decimal(current.sellRate, 4) : '');
     setNote('');
-    setEditing({ base, quote });
+    setEditing({ base, quote, channel });
   };
 
   const publish = async () => {
@@ -111,11 +122,17 @@ export function RatesView({
       await api.post('/api/exchange/rates', {
         baseCode: editing.base,
         quoteCode: editing.quote,
+        channel: editing.channel,
         buyRate,
         sellRate,
         note: note.trim() || undefined,
       });
-      toast.success(t('rates.published'), `${editing.base}/${editing.quote}`);
+      toast.success(
+        t('rates.published'),
+        `${editing.base}/${editing.quote} — ${
+          editing.channel === 'BROKER' ? t('drawers.broker') : t('drawers.cash')
+        }`,
+      );
       setEditing(null);
       router.refresh();
     } catch (caught) {
@@ -152,13 +169,13 @@ export function RatesView({
           <div className="mt-2 flex flex-wrap gap-2">
             {missing.map((entry) => (
               <button
-                key={entry.pair}
+                key={`${entry.pair}:${entry.channel}`}
                 type="button"
-                onClick={() => canManage && open(entry.from, entry.to)}
+                onClick={() => canManage && open(entry.from, entry.to, entry.channel)}
                 disabled={!canManage}
                 className="rounded-[var(--radius-control)] border border-danger px-2 py-1 font-mono text-xs text-danger-text ltr-content transition-colors enabled:hover:bg-danger-subtle"
               >
-                {entry.pair}
+                {entry.pair} · {entry.channel === 'BROKER' ? t('drawers.broker') : t('drawers.cash')}
               </button>
             ))}
           </div>
@@ -198,7 +215,7 @@ export function RatesView({
 
               return (
                 <li
-                  key={entry.pair}
+                  key={`${entry.pair}:${entry.channel}`}
                   className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:gap-4"
                 >
                   {/* The pair */}
@@ -210,6 +227,9 @@ export function RatesView({
                     <span className="font-mono text-sm font-semibold text-content ltr-content">
                       {entry.to}
                     </span>
+                    <Badge tone={entry.channel === 'BROKER' ? 'primary' : 'neutral'}>
+                      {entry.channel === 'BROKER' ? t('drawers.broker') : t('drawers.cash')}
+                    </Badge>
                     {inverted && <Badge tone="neutral">{t('rates.inverted')}</Badge>}
                   </div>
 
@@ -258,7 +278,7 @@ export function RatesView({
                             variant="ghost"
                             size="icon"
                             title={t('rates.update')}
-                            onClick={() => open(row.baseCode, row.quoteCode)}
+                            onClick={() => open(row.baseCode, row.quoteCode, row.channel)}
                           >
                             <Pencil className="size-4" />
                           </Button>
@@ -273,7 +293,7 @@ export function RatesView({
                           variant="secondary"
                           size="sm"
                           icon={<Plus />}
-                          onClick={() => open(entry.from, entry.to)}
+                          onClick={() => open(entry.from, entry.to, entry.channel)}
                         >
                           {t('rates.publish')}
                         </Button>
@@ -368,7 +388,9 @@ export function RatesView({
         onClose={() => setEditing(null)}
         title={
           editing
-            ? `${t('rates.publish')} — ${editing.base}/${editing.quote}`
+            ? `${t('rates.publish')} — ${editing.base}/${editing.quote} · ${
+                editing.channel === 'BROKER' ? t('drawers.broker') : t('drawers.cash')
+              }`
             : t('rates.publish')
         }
         size="sm"

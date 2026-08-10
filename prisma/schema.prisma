@@ -283,6 +283,14 @@ model ExchangeRate {
   baseCode  String
   quoteCode String
 
+  /// CASH | BROKER — which balance the money is paid out of.
+  ///
+  /// The counter charges a different price depending on where the money comes
+  /// from: notes out of the till are one price, a transfer through the broker
+  /// is another. So a pair does not have "a rate" — it has one per channel, and
+  /// quoting without saying which is asking an incomplete question.
+  channel String @default("CASH")
+
   buyRate  BigInt // scaled 1e8 — company BUYS base at this rate
   sellRate BigInt // scaled 1e8 — company SELLS base at this rate
   midRate  BigInt
@@ -303,7 +311,7 @@ model ExchangeRate {
 
   transactions Transaction[]
 
-  @@index([baseCode, quoteCode, isActive])
+  @@index([baseCode, quoteCode, channel, isActive])
   @@index([effectiveFrom])
   @@map("exchange_rates")
 }

@@ -27,7 +27,7 @@ import * as audit from '@/modules/audit/audit.service';
 const log = createLogger('drawers');
 
 /** Where the money physically is. */
-export const DRAWER_KINDS = ['CASH', 'BANK'] as const;
+export const DRAWER_KINDS = ['CASH', 'BROKER'] as const;
 export type DrawerKind = (typeof DRAWER_KINDS)[number];
 
 export interface Actor {
@@ -54,7 +54,7 @@ export interface Movement {
 
 /** How a drawer is named in an error the operator will actually read. */
 function describe(currency: string, kind: DrawerKind): string {
-  return kind === 'BANK' ? `The ${currency} bank balance` : `The ${currency} drawer`;
+  return kind === 'BROKER' ? `The ${currency} bank balance` : `The ${currency} drawer`;
 }
 
 // ---------------------------------------------------------------------------
@@ -248,8 +248,8 @@ export async function fund(
   const balance = balances[balanceKey(movement)]!;
   const verb = input.direction === 'IN' ? 'Added to' : 'Taken from';
   const verbAr = input.direction === 'IN' ? 'إيداع في' : 'سحب من';
-  const place = kind === 'BANK' ? `${input.currency} bank balance` : `${input.currency} drawer`;
-  const placeAr = kind === 'BANK' ? `رصيد بنك ${input.currency}` : `صندوق ${input.currency}`;
+  const place = kind === 'BROKER' ? `${input.currency} bank balance` : `${input.currency} drawer`;
+  const placeAr = kind === 'BROKER' ? `رصيد بنك ${input.currency}` : `صندوق ${input.currency}`;
 
   await audit.record({
     action: 'UPDATE',
@@ -327,7 +327,7 @@ export async function createDrawer(
       allowNegative: input.allowNegative ?? false,
       // Beside its own currency's other drawer, so the screen stays ordered by
       // currency rather than by creation date.
-      sortOrder: currency.sortOrder * 10 + (input.kind === 'BANK' ? 1 : 0),
+      sortOrder: currency.sortOrder * 10 + (input.kind === 'BROKER' ? 1 : 0),
     },
   });
 
@@ -337,7 +337,7 @@ export async function createDrawer(
     entityType: 'Drawer',
     entityId: `${input.currency}:${input.kind}`,
     summaryEn: `Opened ${describe(input.currency, input.kind).toLowerCase()}`,
-    summaryAr: `فتح ${input.kind === 'BANK' ? `رصيد بنك ${input.currency}` : `صندوق ${input.currency}`}`,
+    summaryAr: `فتح ${input.kind === 'BROKER' ? `رصيد بنك ${input.currency}` : `صندوق ${input.currency}`}`,
     actor,
     after: { currency: input.currency, kind: input.kind, nameEn: drawer.nameEn },
   });
@@ -404,7 +404,7 @@ export async function deleteDrawer(
     entityType: 'Drawer',
     entityId: `${currency}:${kind}`,
     summaryEn: `Removed ${describe(currency, kind).toLowerCase()}, which had never been used`,
-    summaryAr: `حذف ${kind === 'BANK' ? `رصيد بنك ${currency}` : `صندوق ${currency}`} ولم يكن قد استُعمل قط`,
+    summaryAr: `حذف ${kind === 'BROKER' ? `رصيد بنك ${currency}` : `صندوق ${currency}`} ولم يكن قد استُعمل قط`,
     actor,
     before: { currency, kind, nameEn: drawer.nameEn },
   });
@@ -487,7 +487,7 @@ export async function updateDrawer(
     entityType: 'Drawer',
     entityId: `${currency}:${kind}`,
     summaryEn: `Updated ${describe(currency, kind).toLowerCase()}`,
-    summaryAr: `تعديل ${kind === 'BANK' ? `رصيد بنك ${currency}` : `صندوق ${currency}`}`,
+    summaryAr: `تعديل ${kind === 'BROKER' ? `رصيد بنك ${currency}` : `صندوق ${currency}`}`,
     actor,
     before: {
       nameEn: drawer.nameEn,

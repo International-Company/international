@@ -88,12 +88,12 @@ async function main() {
   // One per currency and kind, and that is the whole chart. What the branch
   // holds is a number on a row; there is nothing else to reconcile it against.
   //
-  // The bank side exists only for the cash currencies the counter trades. USDT
-  // is held on a chain, not at a bank, and a bank row for it would be a balance
-  // nobody could ever fund.
+  // The broker side exists only for the cash currencies the counter trades.
+  // USDT is held on a chain, not moved by the broker, and a row for it would be
+  // a balance nobody could ever fund.
   let drawerCount = 0;
   for (const currency of CURRENCIES) {
-    const kinds = currency.kind === 'CRYPTO' ? ['CASH'] : ['CASH', 'BANK'];
+    const kinds = currency.kind === 'CRYPTO' ? ['CASH'] : ['CASH', 'BROKER'];
 
     for (const kind of kinds) {
       await prisma.drawer.upsert({
@@ -101,10 +101,10 @@ async function main() {
         create: {
           currencyCode: currency.code,
           kind,
-          nameEn: kind === 'BANK' ? `${currency.nameEn} bank` : `${currency.nameEn} drawer`,
-          nameAr: kind === 'BANK' ? `بنك ${currency.nameAr}` : `صندوق ${currency.nameAr}`,
-          // Bank rows sort immediately after their own cash row.
-          sortOrder: currency.sortOrder * 10 + (kind === 'BANK' ? 1 : 0),
+          nameEn: kind === 'BROKER' ? `${currency.nameEn} — broker` : `${currency.nameEn} drawer`,
+          nameAr: kind === 'BROKER' ? `الوسيط — ${currency.nameAr}` : `صندوق ${currency.nameAr}`,
+          // The broker row sorts immediately after its own cash row.
+          sortOrder: currency.sortOrder * 10 + (kind === 'BROKER' ? 1 : 0),
         },
         update: {},
       });

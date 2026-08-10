@@ -44,16 +44,23 @@ export default async function RatesPage() {
 
   const required = [...pairs, ...usdtPairs];
 
-  // Which of those the board can actually serve — in either direction, since
-  // pricing inverts a stored pair when it has to.
+  /*
+   * Which of those the board can actually serve — in either direction, since
+   * pricing inverts a stored pair when it has to, and now for each channel,
+   * since the counter charges differently depending on where the money comes
+   * from. A pair priced for the till and not for the broker is a pair the
+   * teller can only pay one way, and this is where that becomes visible.
+   */
   const served = await Promise.all(
-    required.map(async (pair) => {
+    required.flatMap((pair) =>
+      (['CASH', 'BROKER'] as const).map(async (channel) => {
       const [from, to] = pair.split('/') as [string, string];
-      const direct = await getActiveRate(from, to);
-      const reverse = direct ? null : await getActiveRate(to, from);
+      const direct = await getActiveRate(from, to, channel);
+      const reverse = direct ? null : await getActiveRate(to, from, channel);
 
       return {
         pair,
+        channel,
         from,
         to,
         rateId: direct?.id ?? reverse?.id ?? null,
@@ -63,7 +70,8 @@ export default async function RatesPage() {
         // something the machine trades happily.
         servedBy: direct ? pair : reverse ? `${to}/${from}` : null,
       };
-    }),
+      }),
+    ),
   );
 
   return (

@@ -129,7 +129,7 @@ const STEPS = [
             'صندوق ' || "currencyCode",
             SUM("balance")
           FROM "accounts"
-          WHERE "kind" IN ('CASH', 'BANK', 'CRYPTO')
+          WHERE "kind" IN ('CASH', 'BROKER', 'CRYPTO')
           GROUP BY "currencyCode"
           ON CONFLICT ("currencyCode") DO NOTHING;
         END IF;
@@ -308,7 +308,27 @@ const STEPS = [
   },
 
   /*
-   * The bank rows themselves, one per cash currency, at zero.
+   * What was called the bank is the broker.
+   *
+   * The office holds no account of its own: a broker moves everything through
+   * his, and charges a different price for it. Naming it correctly is not
+   * cosmetic — the whole reason it prices separately is that it is somebody
+   * else's balance sheet.
+   */
+  {
+    name: 'Rename the bank balance to what it is: the broker',
+    sql: `
+      DO $$
+      BEGIN
+        IF to_regclass('public.drawers') IS NOT NULL THEN
+          UPDATE "drawers" SET "kind" = 'BROKER' WHERE "kind" = 'BANK';
+        END IF;
+      END $$;
+    `,
+  },
+
+  /*
+   * The broker rows themselves, one per cash currency, at zero.
    *
    * Created here rather than left to the seed because the seed only runs after
    * push, and a manager opening the drawers screen on the first request after a
@@ -319,7 +339,7 @@ const STEPS = [
    * for it would be a balance nobody could ever fund.
    */
   {
-    name: 'Open a bank balance beside each cash drawer',
+    name: 'Open a broker balance beside each cash drawer',
     sql: `
       DO $$
       BEGIN
@@ -331,7 +351,7 @@ const STEPS = [
         SELECT
           'drw_bank_' || lower(c."code"),
           c."code",
-          'BANK',
+          'BROKER',
           c."nameEn" || ' bank',
           'بنك ' || c."nameAr",
           0,

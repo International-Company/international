@@ -290,9 +290,9 @@ export function DrawersView({
                     carry the same currency code, and only this says which of
                     them the money is actually in.
                   */}
-                  <Badge tone={drawer.kind === 'BANK' ? 'primary' : 'neutral'}>
+                  <Badge tone={drawer.kind === 'BROKER' ? 'primary' : 'neutral'}>
                     {drawer.currencyCode} ·{' '}
-                    {drawer.kind === 'BANK' ? t('drawers.bank') : t('drawers.cash')}
+                    {drawer.kind === 'BROKER' ? t('drawers.broker') : t('drawers.cash')}
                   </Badge>
                 </span>
 
@@ -589,7 +589,7 @@ export function DrawersView({
                 options={openable.map((target, index) => ({
                   value: String(index),
                   label: `${target.currency} — ${
-                    target.kind === 'BANK' ? t('drawers.bank') : t('drawers.cash')
+                    target.kind === 'BROKER' ? t('drawers.broker') : t('drawers.cash')
                   }`,
                 }))}
               />
@@ -637,7 +637,7 @@ export function DrawersView({
 
 /** A sensible starting name, so the manager usually just presses Save. */
 function nameFor(target: Openable): { nameEn: string; nameAr: string } {
-  return target.kind === 'BANK'
+  return target.kind === 'BROKER'
     ? { nameEn: `${target.nameEn} bank`, nameAr: `بنك ${target.nameAr}` }
     : { nameEn: `${target.nameEn} drawer`, nameAr: `صندوق ${target.nameAr}` };
 }
