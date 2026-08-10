@@ -8,7 +8,7 @@ import type { TranslationKey } from '@/i18n/types';
 import { api, ApiError } from '@/lib/api-client';
 import { Alert, Badge, Button, Card, CardHeader, EmptyState, StatTile } from '@/ui/primitives';
 import { ConfirmDialog, Dialog, useToast } from '@/ui/overlay';
-import { Checkbox, Field, FormGrid, Input, Select, Switch } from '@/ui/form';
+import { Checkbox, Field, FormGrid, Input, NumberInput, Select, Switch } from '@/ui/form';
 import { DateText, Money, StatusBadge } from '@/ui/display';
 
 interface WalletRow {
@@ -431,31 +431,23 @@ export function WalletsView({
           <FormGrid columns={2}>
             <Field label={t('usdt.minConfirmations')} hint={t('usdt.minConfirmationsHint')}>
               {(props) => (
-                <Input
+                <NumberInput
                   {...props}
-                  type="number"
                   min={1}
                   max={200}
                   value={editForm.minConfirmations}
-                  onChange={(event) =>
-                    setEditForm({ ...editForm, minConfirmations: Number(event.target.value) })
-                  }
-                  dir="ltr"
+                  onValueChange={(minConfirmations) => setEditForm({ ...editForm, minConfirmations })}
                 />
               )}
             </Field>
             <Field label={t('usdt.counterOrder')} hint={t('usdt.counterOrderHint')}>
               {(props) => (
-                <Input
+                <NumberInput
                   {...props}
-                  type="number"
                   min={0}
                   max={999}
                   value={editForm.counterSortOrder}
-                  onChange={(event) =>
-                    setEditForm({ ...editForm, counterSortOrder: Number(event.target.value) })
-                  }
-                  dir="ltr"
+                  onValueChange={(counterSortOrder) => setEditForm({ ...editForm, counterSortOrder })}
                 />
               )}
             </Field>
@@ -567,16 +559,12 @@ export function WalletsView({
 
           <Field label={t('usdt.minConfirmations')}>
             {(props) => (
-              <Input
+              <NumberInput
                 {...props}
-                type="number"
                 min={1}
                 max={200}
                 value={form.minConfirmations}
-                onChange={(event) =>
-                  setForm({ ...form, minConfirmations: Number(event.target.value) })
-                }
-                dir="ltr"
+                onValueChange={(minConfirmations) => setForm({ ...form, minConfirmations })}
               />
             )}
           </Field>

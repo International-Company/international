@@ -136,6 +136,62 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
 });
 
 // ---------------------------------------------------------------------------
+// Whole-number input
+// ---------------------------------------------------------------------------
+
+export interface NumberInputProps extends Omit<InputProps, 'onChange' | 'value' | 'type'> {
+  value: number | string;
+  onValueChange: (value: number) => void;
+  min?: number;
+  max?: number;
+}
+
+/**
+ * A count — minutes, days, copies, confirmations.
+ *
+ * A text field rather than `type="number"`, and that is the whole reason it
+ * exists. The browser draws a number field's value through the *document's*
+ * locale, so on an Arabic page it renders Arabic-Indic digits while every
+ * amount beside it — balances, rates, totals — stays Western. Two numeral
+ * systems on one form is a difference that means nothing and reads as a fault.
+ * Setting `lang` on the field does not override it; only not being a number
+ * field does.
+ *
+ * Typing Arabic-Indic still works. What is typed is normalised the same way
+ * `MoneyInput` normalises it, because staff type on Arabic keyboards.
+ */
+export const NumberInput = forwardRef<HTMLInputElement, NumberInputProps>(function NumberInput(
+  { value, onValueChange, min, max, ...props },
+  ref,
+) {
+  return (
+    <input
+      ref={ref}
+      type="text"
+      inputMode="numeric"
+      dir="ltr"
+      autoComplete="off"
+      className={cn(CONTROL_BASE, CONTROL_SIZE, props.className)}
+      {...props}
+      value={String(value ?? '')}
+      onChange={(event) => {
+        const digits = normalizeDigits(event.target.value).replace(/\D/g, '');
+        if (digits === '') {
+          // An empty field is the floor rather than nothing: these are counts,
+          // and every caller holds a number.
+          onValueChange(min ?? 0);
+          return;
+        }
+        const parsed = Number(digits);
+        onValueChange(
+          max !== undefined && parsed > max ? max : min !== undefined && parsed < min ? min : parsed,
+        );
+      }}
+    />
+  );
+});
+
+// ---------------------------------------------------------------------------
 // Money input
 // ---------------------------------------------------------------------------
 

@@ -6,7 +6,7 @@ import { Save } from 'lucide-react';
 import { useLocale } from '@/i18n/provider';
 import { api, ApiError } from '@/lib/api-client';
 import { Alert, Badge, Button, Card, CardBody, CardFooter, CardHeader } from '@/ui/primitives';
-import { Checkbox, Field, Input, MoneyInput, Select } from '@/ui/form';
+import { Checkbox, Field, Input, MoneyInput, NumberInput, Select } from '@/ui/form';
 import { useToast } from '@/ui/overlay';
 import { cn } from '@/ui/utils';
 import { AppearanceSettings } from './appearance-settings';
@@ -32,7 +32,7 @@ export function SettingsView({
   settings: SettingWithValue[];
   canManage: boolean;
 }) {
-  const { t } = useLocale();
+  const { t, ln } = useLocale();
   const router = useRouter();
   const toast = useToast();
 
@@ -88,22 +88,18 @@ export function SettingsView({
             onChange={(event) =>
               setDraft((current) => ({ ...current, [setting.key]: event.target.checked }))
             }
-            label={t(`settings.category.${setting.category}` as never)}
+            label={t('common.enabled')}
           />
         );
 
       case 'number':
         return (
-          <Input
-            type="number"
+          <NumberInput
             value={String(value ?? '')}
             min={setting.min}
             max={setting.max}
             disabled={disabled}
-            dir="ltr"
-            onChange={(event) =>
-              setDraft((current) => ({ ...current, [setting.key]: Number(event.target.value) }))
-            }
+            onValueChange={(next) => setDraft((current) => ({ ...current, [setting.key]: next }))}
           />
         );
 
@@ -121,7 +117,7 @@ export function SettingsView({
           <Select
             options={(setting.options ?? []).map((option) => ({
               value: option.value,
-              label: option.labelEn,
+              label: ln(option, 'label'),
             }))}
             value={String(value ?? '')}
             disabled={disabled}
@@ -189,22 +185,25 @@ export function SettingsView({
 
               {(byCategory.get(category) ?? []).map((setting) => (
                 <div key={setting.key}>
+                  {/*
+                    In the language the person is reading the rest of the screen
+                    in. Every setting carries both, and the catalogue is the only
+                    place either is written — so this is the one line that had to
+                    stop choosing English for an Arabic reader.
+                  */}
                   <Field
                     label={
                       <span className="flex items-center gap-2">
-                        {setting.labelEn}
+                        {ln(setting, 'label')}
                         {setting.isSensitive && (
                           <Badge tone="warning">{t('roles.sensitive')}</Badge>
                         )}
                       </span>
                     }
-                    hint={setting.descriptionEn}
+                    hint={ln(setting, 'description')}
                   >
                     {() => renderControl(setting)}
                   </Field>
-                  <p className="mt-1 text-xs text-content-tertiary" dir="rtl">
-                    {setting.labelAr} — {setting.descriptionAr}
-                  </p>
                 </div>
               ))}
             </CardBody>
