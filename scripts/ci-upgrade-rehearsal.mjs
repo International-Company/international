@@ -261,6 +261,34 @@ async function verify(db) {
   check('the ones that fit survived',
     kept[0]?.reference === 'TXN-KEEP-1' && kept[1]?.reference === 'TXN-KEEP-2');
 
+  /*
+   * Both sides of every surviving row say where the money came from and went.
+   *
+   * Left at zero, a reversal would restore nothing: the columns are what a
+   * reversal reads to know which balances to give the money back to.
+   */
+  const legs = await db.transaction.findMany({
+    select: {
+      reference: true,
+      fromAmount: true,
+      toAmount: true,
+      intakeCashAmount: true,
+      intakeBrokerAmount: true,
+      payoutCashAmount: true,
+      payoutBankAmount: true,
+    },
+    orderBy: { reference: 'asc' },
+  });
+  check(
+    'every carried transaction says how it was paid for',
+    legs.every((row) => row.intakeCashAmount + row.intakeBrokerAmount === row.fromAmount),
+    legs.map((row) => `${row.reference}=${row.intakeCashAmount}`).join(', ') || 'none',
+  );
+  check(
+    'every carried transaction says how it was paid out',
+    legs.every((row) => row.payoutCashAmount + row.payoutBankAmount === row.toAmount),
+  );
+
   check('the staging table was drained and removed', !(await tableExists(db, '_ifms_drawer_carryover')));
 
   const receipts = await db.receipt.count();

@@ -13,6 +13,7 @@ import { requireOpenDay } from './business-day.service';
 import {
   TRANSACTION_TYPE_META,
   balancesFor,
+  type BalanceSide,
   type TransactionStatus,
   type TransactionType,
 } from './transaction-types';
@@ -52,14 +53,21 @@ export interface RecordInput {
   toCurrency: string;
   toAmount: bigint;
   /**
-   * How that is handed over. Omit for all cash, which is most of them.
+   * How the customer paid. Omit for all cash, which is most of them.
    *
-   * The two must sum to exactly `toAmount`; a split allowed to disagree with
+   * The two must sum to exactly `fromAmount`; a split allowed to disagree with
    * its own total leaks a fraction on every trade.
    */
+  intake?: { cash: bigint; broker: bigint };
+  /** Which of the broker's accounts the customer paid into. */
+  intakeChannel?: string | null;
+  /** How it is handed over. The mirror of `intake`, summing to `toAmount`. */
   payout?: { cash: bigint; bank: bigint };
   /** Where the transfer went. Recorded as given; see the schema for why. */
   payoutChannel?: string | null;
+  /** Where the USDT was sent, for a withdrawal, and from which wallet. */
+  payoutAddress?: string | null;
+  payoutWalletId?: string | null;
   rate: bigint;
   rateId?: string | null;
   profitAmount?: bigint;
@@ -112,31 +120,42 @@ export async function record(
   if (!meta) throw errors.precondition(`Unknown transaction type: ${input.type}`);
 
   /*
-   * Which balances this type moves between, and how the payout is divided when
-   * it leaves through more than one.
+   * Which balances this type moves between, and how each side is divided when
+   * it goes through more than one.
    *
-   * A remittance's payout leaves neither the till nor the broker, so its two
-   * legs are zero rather than the total: a report adding payout legs is adding
-   * up cash and broker movements, and counting a correspondent debit among them
-   * would overstate both.
+   * A side pinned to one balance records the whole amount against it, except
+   * the correspondent: a report adding these legs is adding up cash and broker
+   * movements, and counting a correspondent debit among them would overstate
+   * both. So that side records zeroes, and the movement below is what says
+   * where the money actually went.
    */
   const balances = balancesFor(input.type);
-  const payout =
-    balances.payout === 'CORRESPONDENT'
-      ? { cash: 0n, bank: 0n }
-      : (input.payout ?? { cash: input.toAmount, bank: 0n });
+  const split = (side: BalanceSide, total: bigint, given: { cash: bigint; broker: bigint } | undefined) => {
+    if (side === 'CORRESPONDENT') return { cash: 0n, broker: 0n };
+    if (side === 'CASH') return { cash: total, broker: 0n };
+    return given ?? { cash: total, broker: 0n };
+  };
 
-  if (payout.cash < 0n || payout.bank < 0n) {
-    throw errors.precondition('A payout leg cannot be negative', 'errors.amountNotPositive');
-  }
+  const intake = split(balances.intake, input.fromAmount, input.intake);
+  const payout = split(
+    balances.payout,
+    input.toAmount,
+    input.payout && { cash: input.payout.cash, broker: input.payout.bank },
+  );
+
   // Exactly, not approximately. Checked here rather than at the caller because
   // this is the last place before the money moves, and every caller would
   // otherwise have to be trusted to have got it right.
-  if (balances.payout === null && payout.cash + payout.bank !== input.toAmount) {
-    throw errors.precondition(
-      'The cash and bank legs must add up to the amount handed over',
-      'errors.payoutDoesNotBalance',
-    );
+  for (const [side, legs, total, key] of [
+    [balances.intake, intake, input.fromAmount, 'errors.intakeDoesNotBalance'],
+    [balances.payout, payout, input.toAmount, 'errors.payoutDoesNotBalance'],
+  ] as const) {
+    if (legs.cash < 0n || legs.broker < 0n) {
+      throw errors.precondition('A leg cannot be negative', 'errors.amountNotPositive');
+    }
+    if (side === null && legs.cash + legs.broker !== total) {
+      throw errors.precondition('The two legs must add up to their own total', key);
+    }
   }
 
   const recorded = await withTransaction(async (tx) => {
@@ -158,18 +177,32 @@ export async function record(
       data: {
         reference,
         type: input.type,
-        // A bank leg is a promise until someone says it left; a purely cash
-        // payout is finished the moment the notes cross the counter.
-        status: payout.bank > 0n ? 'PENDING_TRANSFER' : 'POSTED',
+        /*
+         * A promise the branch made is pending until someone says it was kept;
+         * a purely cash payout is finished the moment the notes cross the
+         * counter. The branch makes two kinds of promise — a transfer through
+         * the broker, and USDT sent from its own wallet — and both wait.
+         *
+         * Money coming *in* through the broker is not a promise the branch
+         * made, so it does not make the trade pending. The teller who recorded
+         * it is the person who checked it arrived.
+         */
+        status:
+          payout.broker > 0n || input.type === 'USDT_SEND' ? 'PENDING_TRANSFER' : 'POSTED',
         branchId: input.branchId,
         customerId: input.customerId ?? null,
         fromCurrency: input.fromCurrency,
         fromAmount: input.fromAmount,
         toCurrency: input.toCurrency,
         toAmount: input.toAmount,
+        intakeCashAmount: intake.cash,
+        intakeBrokerAmount: intake.broker,
+        intakeBankChannel: intake.broker > 0n ? (input.intakeChannel ?? null) : null,
         payoutCashAmount: payout.cash,
-        payoutBankAmount: payout.bank,
-        payoutBankChannel: payout.bank > 0n ? (input.payoutChannel ?? null) : null,
+        payoutBankAmount: payout.broker,
+        payoutBankChannel: payout.broker > 0n ? (input.payoutChannel ?? null) : null,
+        payoutAddress: input.payoutAddress ?? null,
+        payoutWalletId: input.payoutWalletId ?? null,
         rate: input.rate,
         rateId: input.rateId ?? null,
         profitAmount: input.profitAmount ?? 0n,
@@ -192,64 +225,53 @@ export async function record(
      * was kept.
      */
     /*
-     * The two sides, named rather than assumed.
+     * The two sides, named rather than assumed, and built the same way.
      *
-     * An exchange takes cash in and pays out of the till, the broker, or both.
-     * A remittance takes cash in and puts the branch in debt to the
-     * correspondent — or draws on that debt to pay cash out. Building the list
-     * as one array of decided legs keeps the two cases readable side by side;
-     * the earlier nested version was correct and unreadable, which for money is
-     * only half a virtue.
+     * A side pinned to one balance is one movement. A side that can go through
+     * the till and the broker at once is two, and the account is carried on the
+     * broker movement so his statement can be checked line by line.
      */
-    const legs: drawers.Movement[] = [
-      {
-        currency: input.fromCurrency,
-        kind: balances.intake,
-        direction: 'IN',
-        amount: input.fromAmount,
-        reason: 'TRANSACTION',
-        transactionId: row.id,
-      },
-    ];
+    const sideLegs = (
+      side: BalanceSide,
+      currency: string,
+      direction: 'IN' | 'OUT',
+      total: bigint,
+      legs: { cash: bigint; broker: bigint },
+      account: string | null | undefined,
+    ): drawers.Movement[] => {
+      const common = { currency, direction, reason: 'TRANSACTION' as const, transactionId: row.id };
+      if (side) return [{ ...common, kind: side, amount: total }];
 
-    if (balances.payout) {
-      // One balance takes the whole payout — the correspondent for a remittance
-      // sent, the till for one received.
-      legs.push({
-        currency: input.toCurrency,
-        kind: balances.payout,
-        direction: 'OUT',
-        amount: input.toAmount,
-        reason: 'TRANSACTION',
-        transactionId: row.id,
-      });
-    } else {
-      if (payout.cash > 0n) {
-        legs.push({
-          currency: input.toCurrency,
-          kind: 'CASH',
-          direction: 'OUT',
-          amount: payout.cash,
-          reason: 'TRANSACTION',
-          transactionId: row.id,
-        });
-      }
-      if (payout.bank > 0n) {
-        legs.push({
-          currency: input.toCurrency,
-          kind: 'BROKER',
-          direction: 'OUT',
-          amount: payout.bank,
-          reason: 'TRANSACTION',
-          // The account the instruction named, kept on the movement so the
-          // broker's statement can be checked line by line.
-          account: input.payoutChannel ?? null,
-          transactionId: row.id,
-        });
-      }
-    }
+      return [
+        ...(legs.cash > 0n ? [{ ...common, kind: 'CASH' as const, amount: legs.cash }] : []),
+        ...(legs.broker > 0n
+          ? [{ ...common, kind: 'BROKER' as const, amount: legs.broker, account: account ?? null }]
+          : []),
+      ];
+    };
 
-    await drawers.move(legs, actor, tx);
+    await drawers.move(
+      [
+        ...sideLegs(
+          balances.intake,
+          input.fromCurrency,
+          'IN',
+          input.fromAmount,
+          intake,
+          input.intakeChannel,
+        ),
+        ...sideLegs(
+          balances.payout,
+          input.toCurrency,
+          'OUT',
+          input.toAmount,
+          payout,
+          input.payoutChannel,
+        ),
+      ],
+      actor,
+      tx,
+    );
 
     await audit.record(
       {
@@ -344,6 +366,31 @@ export async function reverse(
      */
     const mirrored = balancesFor(original.type as TransactionType);
 
+    /*
+     * How each side of the original was divided.
+     *
+     * A row recorded before a side could be split carries zeroes in both its
+     * legs. Those were all cash — that was the only thing either side could be
+     * — so they are read that way rather than restoring nothing at all. The
+     * migration backfills them too; this is the belt to that pair of braces,
+     * and it also covers anything written by a path that forgot to set them. It
+     * cannot mistake a pinned side for one of those: those are read from the
+     * type instead, and never reach this.
+     */
+    const divided = (cash: bigint, broker: bigint, total: bigint) =>
+      cash + broker === total ? { cash, broker } : { cash: total, broker: 0n };
+
+    const wasIntake = divided(
+      original.intakeCashAmount,
+      original.intakeBrokerAmount,
+      original.fromAmount,
+    );
+    const wasPayout = divided(
+      original.payoutCashAmount,
+      original.payoutBankAmount,
+      original.toAmount,
+    );
+
     // The mirror: what went out comes back, what came in goes away.
     const reversal = await tx.transaction.create({
       data: {
@@ -357,15 +404,19 @@ export async function reverse(
         toCurrency: original.fromCurrency,
         toAmount: original.fromAmount,
         /*
-         * A reversal hands back what the customer handed over, out of whichever
-         * balance took it in. Left at the default zero these would disagree
-         * with the movement made below, and any report adding up payout legs
-         * would quietly miss every reversal — while a remittance's return to
-         * the correspondent is not a cash payout at all, so it stays at zero
-         * for the same reason the original's did.
+         * The original's two sides, swapped. What the branch paid out it now
+         * takes back in, and what it took in it now pays out — through the same
+         * balances and the same broker accounts, or the two sides would never
+         * cancel on his statement. Left at the default zero these would
+         * disagree with the movements made below, and any report adding up legs
+         * would quietly miss every reversal.
          */
-        payoutCashAmount: mirrored.intake === 'CASH' ? original.fromAmount : 0n,
-        payoutBankAmount: 0n,
+        intakeCashAmount: wasPayout.cash,
+        intakeBrokerAmount: wasPayout.broker,
+        intakeBankChannel: original.payoutBankChannel,
+        payoutCashAmount: wasIntake.cash,
+        payoutBankAmount: wasIntake.broker,
+        payoutBankChannel: original.intakeBankChannel,
         rate: original.rate,
         profitAmount: -original.profitAmount,
         counterpartyName: original.counterpartyName,
@@ -379,73 +430,53 @@ export async function reverse(
     });
 
     /*
-     * What went out comes back to the balance it went out of.
+     * Every leg goes back to the balance it came from.
      *
-     * Returning a split payout wholly to cash would quietly move money from the
-     * broker's account into the till — the totals would still balance, and the
-     * two balances would both be wrong.
+     * Returning a split wholly to cash would quietly move money between the
+     * broker's account and the till — the totals would still balance, and both
+     * balances would be wrong.
      */
-    const legs: drawers.Movement[] = [];
+    const undo = (
+      side: BalanceSide,
+      currency: string,
+      direction: 'IN' | 'OUT',
+      total: bigint,
+      legs: { cash: bigint; broker: bigint },
+      account: string | null,
+    ): drawers.Movement[] => {
+      const common = { currency, direction, reason: 'REVERSAL' as const, transactionId: reversal.id };
+      if (side) return [{ ...common, kind: side, amount: total }];
 
-    if (mirrored.payout) {
-      legs.push({
-        currency: original.toCurrency,
-        kind: mirrored.payout,
-        direction: 'IN',
-        amount: original.toAmount,
-        reason: 'REVERSAL',
-        transactionId: reversal.id,
-      });
-    } else {
-      /*
-       * A row recorded before payouts could be split carries zeroes in both
-       * legs. Those were all cash — that was the only thing a payout could be —
-       * so they are read that way rather than restoring nothing at all. The
-       * migration backfills them too; this is the belt to that pair of braces,
-       * and it also covers anything written by a path that forgot to set the
-       * legs. It cannot mistake a remittance for one of those: a remittance
-       * never reaches here, having taken the branch above.
-       */
-      const split =
-        original.payoutCashAmount + original.payoutBankAmount === original.toAmount
-          ? { cash: original.payoutCashAmount, bank: original.payoutBankAmount }
-          : { cash: original.toAmount, bank: 0n };
+      return [
+        ...(legs.cash > 0n ? [{ ...common, kind: 'CASH' as const, amount: legs.cash }] : []),
+        ...(legs.broker > 0n
+          ? [{ ...common, kind: 'BROKER' as const, amount: legs.broker, account }]
+          : []),
+      ];
+    };
 
-      if (split.cash > 0n) {
-        legs.push({
-          currency: original.toCurrency,
-          kind: 'CASH',
-          direction: 'IN',
-          amount: split.cash,
-          reason: 'REVERSAL',
-          transactionId: reversal.id,
-        });
-      }
-      if (split.bank > 0n) {
-        legs.push({
-          currency: original.toCurrency,
-          kind: 'BROKER',
-          direction: 'IN',
-          amount: split.bank,
-          reason: 'REVERSAL',
-          // Back through the same account it went out of, or the two sides
-          // would never cancel on his statement.
-          account: original.payoutBankChannel,
-          transactionId: reversal.id,
-        });
-      }
-    }
-
-    legs.push({
-      currency: original.fromCurrency,
-      kind: mirrored.intake,
-      direction: 'OUT',
-      amount: original.fromAmount,
-      reason: 'REVERSAL',
-      transactionId: reversal.id,
-    });
-
-    await drawers.move(legs, actor, tx);
+    await drawers.move(
+      [
+        ...undo(
+          mirrored.payout,
+          original.toCurrency,
+          'IN',
+          original.toAmount,
+          wasPayout,
+          original.payoutBankChannel,
+        ),
+        ...undo(
+          mirrored.intake,
+          original.fromCurrency,
+          'OUT',
+          original.fromAmount,
+          wasIntake,
+          original.intakeBankChannel,
+        ),
+      ],
+      actor,
+      tx,
+    );
 
     await tx.transaction.update({ where: { id }, data: { status: 'REVERSED' } });
 
@@ -688,14 +719,15 @@ export async function correct(
     const profitAmount = (original.profitAmount * input.fromAmount) / original.fromAmount;
 
     /*
-     * The payout keeps its shape. The bank share is taken first and the till
-     * takes the remainder, so the two still sum to exactly the new total no
-     * matter how the division rounds.
+     * Both sides keep their shape. The broker's share is taken first and the
+     * till takes the remainder, so each pair still sums to exactly its own new
+     * total no matter how the division rounds.
      */
-    const bank =
-      original.toAmount === 0n
-        ? 0n
-        : (toAmount * original.payoutBankAmount) / original.toAmount;
+    const share = (part: bigint, oldTotal: bigint, newTotal: bigint) =>
+      oldTotal === 0n ? 0n : (newTotal * part) / oldTotal;
+
+    const intakeBroker = share(original.intakeBrokerAmount, original.fromAmount, input.fromAmount);
+    const payoutBroker = share(original.payoutBankAmount, original.toAmount, toAmount);
 
     // Reverse first: the balances must be back before the replacement asks them
     // to cover it, or a correction upward could be refused for want of money
@@ -711,8 +743,12 @@ export async function correct(
         fromAmount: input.fromAmount,
         toCurrency: original.toCurrency,
         toAmount,
-        payout: { cash: toAmount - bank, bank },
+        intake: { cash: input.fromAmount - intakeBroker, broker: intakeBroker },
+        intakeChannel: original.intakeBankChannel,
+        payout: { cash: toAmount - payoutBroker, bank: payoutBroker },
         payoutChannel: original.payoutBankChannel,
+        payoutAddress: original.payoutAddress,
+        payoutWalletId: original.payoutWalletId,
         rate: original.rate,
         rateId: original.rateId,
         profitAmount,
@@ -867,6 +903,7 @@ export async function getById(id: string, actor: Actor, db: DbClient = prisma) {
       receipts: true,
       chainTransaction: true,
       depositRequest: { select: { id: true, reference: true } },
+      payoutWallet: { select: { id: true, label: true, labelAr: true, network: true } },
       reversalOf: { select: { id: true, reference: true } },
       reversedBy: { select: { id: true, reference: true } },
       movements: {

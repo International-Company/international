@@ -180,6 +180,20 @@ export const SETTINGS: SettingDefinition[] = [
     descriptionAr: 'السماح للتلر بفتح طلبات استلام وعرض عنوان الاستقبال',
   },
   {
+    key: 'usdt.withdrawalEnabled', category: 'usdt', type: 'boolean', defaultValue: true,
+    labelEn: 'USDT withdrawals', labelAr: 'سحب USDT',
+    descriptionEn: 'Let tellers sell USDT and send it to a customer wallet',
+    descriptionAr: 'السماح للتلر ببيع USDT وإرساله إلى محفظة العميل',
+  },
+  {
+    key: 'usdt.withdrawalMaxAmount', category: 'usdt', type: 'money', defaultValue: '0',
+    labelEn: 'Withdrawal limit', labelAr: 'حد السحب',
+    descriptionEn:
+      'Largest amount of USDT a teller may send in one withdrawal. Zero removes the limit.',
+    descriptionAr:
+      'أكبر مبلغ USDT يستطيع التلر إرساله في عملية سحب واحدة. القيمة صفر تلغي الحد.',
+  },
+  {
     key: 'usdt.counterRequestMinutes', category: 'usdt', type: 'number', defaultValue: 30, min: 5, max: 240,
     labelEn: 'Request validity (minutes)', labelAr: 'صلاحية الطلب (دقائق)',
     descriptionEn:

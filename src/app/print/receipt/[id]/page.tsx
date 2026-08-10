@@ -33,10 +33,22 @@ export default async function ReceiptPage({ params }: { params: Promise<{ id: st
       createdBy: { select: { fullNameEn: true, fullNameAr: true } },
       branch: true,
       receipts: { orderBy: { createdAt: 'asc' }, take: 1 },
+      payoutWallet: { select: { network: true } },
     },
   });
 
-  if (!transaction || transaction.status !== 'POSTED') notFound();
+  /*
+   * A transfer still awaiting confirmation prints too.
+   *
+   * The customer has already paid and is standing at the counter; withholding
+   * their receipt until a manager confirms the transfer left would mean nobody
+   * gets paper for a bank payout or a USDT sale until later that day. What the
+   * receipt must not do is claim more than happened, so the pending state is
+   * printed on it.
+   */
+  if (!transaction || (transaction.status !== 'POSTED' && transaction.status !== 'PENDING_TRANSFER')) {
+    notFound();
+  }
 
   const [companyName, licenseNumber, phone, address, copies] = await Promise.all([
     settings.getString(locale === 'ar' ? 'company.name.ar' : 'company.name.en'),
@@ -127,6 +139,11 @@ export default async function ReceiptPage({ params }: { params: Promise<{ id: st
             <div className="mt-3 space-y-2">
               <p className="text-sm font-semibold">
                 {t(`transactions.type.${transaction.type}` as never)}
+                {transaction.status === 'PENDING_TRANSFER' && (
+                  <span className="ms-2 font-normal">
+                    — {t('machine.pendingTransfer')}
+                  </span>
+                )}
               </p>
 
               <table className="w-full text-sm">
@@ -154,6 +171,29 @@ export default async function ReceiptPage({ params }: { params: Promise<{ id: st
                         </td>
                       </tr>
                     </>
+                  )}
+
+                  {/*
+                    Where the coins went. On the receipt because this is the
+                    only copy the customer takes away, and the address is the
+                    one part of a withdrawal nobody can correct afterwards —
+                    printing it whole is what lets them check it while they are
+                    still standing at the counter.
+                  */}
+                  {transaction.payoutAddress && (
+                    <tr className="border-t border-gray-300">
+                      <td className="py-1 align-top">{t('withdraw.address')}</td>
+                      <td className="py-1 text-end align-top" dir="ltr">
+                        <span className="break-all font-mono text-xs">
+                          {transaction.payoutAddress}
+                        </span>
+                        {transaction.payoutWallet && (
+                          <span className="block text-xs text-gray-600">
+                            {transaction.payoutWallet.network}
+                          </span>
+                        )}
+                      </td>
+                    </tr>
                   )}
                 </tbody>
               </table>

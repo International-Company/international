@@ -390,9 +390,14 @@ const STEPS = [
         ALTER TABLE "transactions" ADD COLUMN IF NOT EXISTS "transferConfirmedAt" TIMESTAMP(3);
         ALTER TABLE "transactions" ADD COLUMN IF NOT EXISTS "transferConfirmedById" TEXT;
 
+        -- A remittance sent is excluded, and must be: its payout leaves the
+        -- correspondent's balance, not the till, so its zeroes are deliberate.
+        -- These steps run on every deploy, so without this the next one would
+        -- quietly restate every outgoing transfer as a cash payout.
         UPDATE "transactions"
         SET "payoutCashAmount" = "toAmount"
-        WHERE "payoutCashAmount" = 0 AND "payoutBankAmount" = 0 AND "toAmount" <> 0;
+        WHERE "payoutCashAmount" = 0 AND "payoutBankAmount" = 0 AND "toAmount" <> 0
+          AND "type" <> 'REMITTANCE_OUT';
 
         -- Where a transfer was sent. Nothing to backfill: no transfer has ever
         -- been recorded without one, because the column arrives with the field.
@@ -445,6 +450,44 @@ const STEPS = [
         FROM "currencies" c
         WHERE c."kind" <> 'CRYPTO'
         ON CONFLICT ("currencyCode", "kind") DO NOTHING;
+      END $$;
+    `,
+  },
+
+  /*
+   * How the customer paid, recorded the way the payout already is.
+   *
+   * Every trade until now was paid for in notes — that was the only thing the
+   * intake could be — so say so on the row rather than leaving zeroes. Not
+   * cosmetic, and for exactly the reason the payout backfill was not: a
+   * reversal returns the money to the balances it came from and reads these two
+   * columns to know which. Left at zero, reversing an old transaction would
+   * take nothing back out of the till.
+   */
+  {
+    name: 'Record that every existing intake was cash',
+    sql: `
+      DO $$
+      BEGIN
+        IF to_regclass('public.transactions') IS NULL THEN
+          RETURN;
+        END IF;
+
+        ALTER TABLE "transactions" ADD COLUMN IF NOT EXISTS "intakeCashAmount" BIGINT NOT NULL DEFAULT 0;
+        ALTER TABLE "transactions" ADD COLUMN IF NOT EXISTS "intakeBrokerAmount" BIGINT NOT NULL DEFAULT 0;
+        ALTER TABLE "transactions" ADD COLUMN IF NOT EXISTS "intakeBankChannel" TEXT;
+
+        UPDATE "transactions"
+        SET "intakeCashAmount" = "fromAmount"
+        -- A remittance received is excluded for the mirror reason: what came in
+        -- was drawn on the correspondent, not counted into the till.
+        WHERE "intakeCashAmount" = 0 AND "intakeBrokerAmount" = 0 AND "fromAmount" <> 0
+          AND "type" <> 'REMITTANCE_IN';
+
+        -- Where USDT was sent. Nothing to backfill: no withdrawal has ever been
+        -- recorded, because the column arrives with the screen that records one.
+        ALTER TABLE "transactions" ADD COLUMN IF NOT EXISTS "payoutAddress" TEXT;
+        ALTER TABLE "transactions" ADD COLUMN IF NOT EXISTS "payoutWalletId" TEXT;
       END $$;
     `,
   },

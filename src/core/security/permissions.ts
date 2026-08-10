@@ -123,6 +123,9 @@ export const PERMISSIONS: PermissionDefinition[] = [
   def('usdt.counter.use', 'usdt', 'use', 'Use the USDT counter', 'استخدام شاشة استلام USDT',
     'Show a receiving address, quote a customer and settle the transfer',
     'عرض عنوان الاستقبال وتسعير العميل وتسوية التحويل'),
+  def('usdt.withdrawal.use', 'usdt', 'use', 'Sell USDT', 'بيع USDT',
+    "Take payment and send USDT to a customer's wallet",
+    'استلام الدفعة وإرسال USDT إلى محفظة العميل'),
   def('usdt.counter.manage', 'usdt', 'manage', 'Manage counter addresses', 'إدارة عناوين الشباك',
     'Choose which monitored addresses tellers may show customers',
     'تحديد العناوين المراقبة التي يجوز للتلر عرضها على العملاء', true),
@@ -238,11 +241,12 @@ export const SYSTEM_ROLES: RoleDefinition[] = [
       // and checks the drawer on the server, inside the permission the teller
       // already holds — so granting those would buy the tools nothing and cost
       // something real, because the navigation is filtered by the same
-      // permissions. Three manager entries would appear in a sidebar that is
-      // supposed to hold two things.
+      // permissions: manager entries would appear in a sidebar that is supposed
+      // to hold the teller's own tools and nothing else.
       'exchange.machine.use',
       'exchange.remittance.use',
       'usdt.counter.use',
+      'usdt.withdrawal.use',
       'exchange.transaction.view',
       'exchange.transaction.create',
       'exchange.receipt.print',

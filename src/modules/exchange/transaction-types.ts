@@ -16,6 +16,7 @@
 export const TRANSACTION_TYPES = [
   'EXCHANGE',
   'USDT_RECEIVE',
+  'USDT_SEND',
   'REMITTANCE_OUT',
   'REMITTANCE_IN',
 ] as const;
@@ -39,6 +40,7 @@ export const TRANSACTION_TYPE_META: Record<TransactionType, TransactionTypeMeta>
   REMITTANCE_OUT: { type: 'REMITTANCE_OUT', nameEn: 'Remittance Sent', nameAr: 'حوالة صادرة' },
   REMITTANCE_IN: { type: 'REMITTANCE_IN', nameEn: 'Remittance Received', nameAr: 'حوالة واردة' },
   USDT_RECEIVE: { type: 'USDT_RECEIVE', nameEn: 'USDT Received', nameAr: 'استلام USDT' },
+  USDT_SEND: { type: 'USDT_SEND', nameEn: 'USDT Sent', nameAr: 'سحب USDT' },
 };
 
 /**
@@ -52,16 +54,23 @@ export const TRANSACTION_TYPE_META: Record<TransactionType, TransactionTypeMeta>
  * disagree with the original — which, when it did, left a debt standing that
  * had already been undone.
  *
- * `payout: null` means the payout has no single balance: an exchange can pay
- * from the till, through the broker, or from both at once, and the two legs on
- * the row are what say how.
+ * `null` on a side means that side has no single balance: it can go through
+ * the till, the broker, or both at once, and the two legs recorded on the row
+ * are what say how. Both sides can be null, because both sides can go through
+ * the broker — the branch pays out that way on the machine, and takes money in
+ * that way when a customer buys USDT.
  */
+export type BalanceSide = 'CASH' | 'CORRESPONDENT' | null;
+
 export function balancesFor(type: TransactionType): {
-  intake: 'CASH' | 'CORRESPONDENT';
-  payout: 'CASH' | 'CORRESPONDENT' | null;
+  intake: BalanceSide;
+  payout: BalanceSide;
 } {
   if (type === 'REMITTANCE_OUT') return { intake: 'CASH', payout: 'CORRESPONDENT' };
   if (type === 'REMITTANCE_IN') return { intake: 'CORRESPONDENT', payout: 'CASH' };
+  // A withdrawal is the machine reversed: the customer pays through the till or
+  // the broker, and what they take away is USDT out of the one wallet balance.
+  if (type === 'USDT_SEND') return { intake: null, payout: 'CASH' };
   return { intake: 'CASH', payout: null };
 }
 

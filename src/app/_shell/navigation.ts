@@ -61,6 +61,13 @@ export const NAVIGATION: NavSection[] = [
         shortcut: 'g u',
       },
       {
+        href: '/counter/withdraw',
+        labelKey: 'nav.withdraw',
+        icon: 'wallet',
+        permissions: ['usdt.withdrawal.use'],
+        shortcut: 'g w',
+      },
+      {
         href: '/counter/machine',
         labelKey: 'nav.machine',
         icon: 'machine',

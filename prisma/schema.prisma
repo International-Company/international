@@ -497,7 +497,9 @@ model Transaction {
 
   /// EXCHANGE — cash for cash on the machine.
   /// USDT_RECEIVE — USDT taken at the window, cash handed back.
-  /// Both are the same shape: the customer gives one currency and takes another.
+  /// USDT_SEND — cash taken at the window, USDT sent to the customer's wallet.
+  /// REMITTANCE_OUT / REMITTANCE_IN — a transfer carried by the correspondent.
+  /// All the same shape: the customer gives one thing and takes another.
   type   String
   /// POSTED | PENDING_TRANSFER | REVERSED. Recording is posting; there is no
   /// draft and no approval.
@@ -527,16 +529,29 @@ model Transaction {
   /// Spread earned against the mid rate, in toCurrency. Shown to the manager.
   profitAmount BigInt @default(0)
 
-  // --- How the customer was paid ------------------------------------------
+  // --- How the customer paid, and how they were paid ----------------------
   //
-  // These two always sum to exactly `toAmount`. Not approximately: a split that
-  // is allowed to disagree with its own total leaks a fraction on every trade,
-  // and the server refuses one that does.
+  // Each pair always sums to exactly its own total — the intake legs to
+  // `fromAmount`, the payout legs to `toAmount`. Not approximately: a split
+  // that is allowed to disagree with its own total leaks a fraction on every
+  // trade, and the server refuses one that does.
   //
-  // An all-cash payout — which is most of them — leaves the bank leg at zero,
-  // so nothing about the ordinary case changes shape.
-  payoutCashAmount BigInt @default(0)
-  payoutBankAmount BigInt @default(0)
+  // Both sides can be split because both sides can go through the broker. A
+  // customer buying USDT may hand over part in notes and transfer the rest to
+  // the broker's account, at a different price for each part — the mirror of
+  // the exchange machine, where the branch pays out the same two ways.
+  //
+  // The ordinary all-cash trade leaves both broker legs at zero, so nothing
+  // about its shape changes.
+  intakeCashAmount   BigInt @default(0)
+  intakeBrokerAmount BigInt @default(0)
+  payoutCashAmount   BigInt @default(0)
+  payoutBankAmount   BigInt @default(0)
+
+  /// Which of the broker's accounts the customer paid into. Null unless the
+  /// intake had a broker leg. Free text for the same reason as the payout
+  /// channel below.
+  intakeBankChannel String?
 
   /// Where the transfer was sent — a bank, a wallet service, whatever the
   /// manager has listed. Free text rather than a foreign key on purpose: the
@@ -545,7 +560,20 @@ model Transaction {
   /// time. Null whenever there was no bank leg.
   payoutBankChannel String?
 
-  /// When someone confirmed the bank leg actually left. Null while pending.
+  /// Where the USDT was sent, for a withdrawal. Recorded as typed: the address
+  /// is a fact about a transfer that already happened, and it belongs to the
+  /// customer rather than to anything this system owns.
+  payoutAddress String?
+
+  /// Which of the branch's wallets the withdrawal was promised from. It fixes
+  /// the network the address was checked against, and it is where the outgoing
+  /// transfer will be looked for when the promise is reconciled.
+  payoutWalletId String?
+  payoutWallet   Wallet? @relation("TransactionPayoutWallet", fields: [payoutWalletId], references: [id], onDelete: SetNull)
+
+  /// When someone confirmed the promised transfer actually left. Null while
+  /// pending. It covers both promises a branch can make — a bank transfer
+  /// through the broker, and USDT sent from the branch's own wallet.
   transferConfirmedAt   DateTime?
   transferConfirmedById String?
   transferConfirmedBy   User?     @relation("TransactionTransferConfirmedBy", fields: [transferConfirmedById], references: [id], onDelete: SetNull)
@@ -680,6 +708,8 @@ model Wallet {
   snapshots       WalletSnapshot[]
   syncRuns        WalletSyncRun[]
   depositRequests UsdtDepositRequest[]
+  /// Withdrawals the branch promised to send from this wallet.
+  payouts         Transaction[]        @relation("TransactionPayoutWallet")
 
   @@unique([network, address, tokenSymbol])
   @@index([isActive])

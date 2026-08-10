@@ -57,7 +57,10 @@ interface TransactionData {
   createdById: string;
   counterpartyName: string | null;
   counterpartyPhone: string | null;
+  intakeBankChannel: string | null;
   payoutBankChannel: string | null;
+  payoutAddress: string | null;
+  payoutWallet: { id: string; label: string; labelAr: string; network: string } | null;
   reverseReason: string | null;
   customer: { id: string; code: string; fullNameEn: string; fullNameAr: string } | null;
   createdBy: { fullNameEn: string; fullNameAr: string; username: string };
@@ -306,6 +309,26 @@ export function TransactionDetail({
               {transaction.payoutBankChannel && (
                 <DetailRow label={t('transactions.transferredTo')}>
                   {transaction.payoutBankChannel}
+                </DetailRow>
+              )}
+              {transaction.intakeBankChannel && (
+                <DetailRow label={t('withdraw.paidInto')}>
+                  {transaction.intakeBankChannel}
+                </DetailRow>
+              )}
+              {/* Where the coins went, and from which wallet. The address is
+                  shown whole: a shortened one cannot be checked against
+                  anything, and checking it is the only reason to print it. */}
+              {transaction.payoutAddress && (
+                <DetailRow label={t('withdraw.address')}>
+                  <span className="break-all font-mono text-xs ltr-content">
+                    {transaction.payoutAddress}
+                  </span>
+                </DetailRow>
+              )}
+              {transaction.payoutWallet && (
+                <DetailRow label={t('withdraw.sendFrom')}>
+                  {ln(transaction.payoutWallet, 'label')} — {transaction.payoutWallet.network}
                 </DetailRow>
               )}
               {permissions.includes('exchange.margin.view') && (
