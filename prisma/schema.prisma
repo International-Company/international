@@ -113,6 +113,7 @@ model User {
   backups             Backup[]
   wallets             Wallet[]
   drawerMovements     DrawerMovement[]
+  cutoffRates         CutoffRate[]
   rates               ExchangeRate[]
   depositRequests     UsdtDepositRequest[]
 
@@ -268,10 +269,11 @@ model Currency {
   isBase    Boolean @default(false)
   sortOrder Int     @default(0)
 
-  baseRates  ExchangeRate[] @relation("RateBase")
-  quoteRates ExchangeRate[] @relation("RateQuote")
+  baseRates   ExchangeRate[] @relation("RateBase")
+  quoteRates  ExchangeRate[] @relation("RateQuote")
   /// One per kind: the till, and the branch's account at a bank.
-  drawers    Drawer[]
+  drawers     Drawer[]
+  cutoffRates CutoffRate[]
 
   @@map("currencies")
 }
@@ -365,6 +367,7 @@ model Drawer {
 
   movements DrawerMovement[]
   wallets   Wallet[]
+  positions DayPosition[]
 
   @@unique([currencyCode, kind])
   @@index([isActive, sortOrder])
@@ -391,6 +394,15 @@ model DrawerMovement {
   /// TRANSACTION | FUNDING | REVERSAL
   reason String
 
+  /// Why a funding movement happened, which the daily result cannot be measured
+  /// without. Money the owner puts in is not profit and money they take out is
+  /// not a loss, so the two have to be told apart from everything else before
+  /// the change in the branch's worth means anything.
+  ///
+  /// OWNER_IN | OWNER_OUT | EXPENSE | TRANSFER | CORRECTION. Null on anything
+  /// that is not funding — a transaction says why it happened by being one.
+  category String?
+
   /// Which of the broker's accounts this went through.
   ///
   /// The office keeps no books per account — its claim is on the broker, not on
@@ -402,6 +414,16 @@ model DrawerMovement {
   transactionId String?
   transaction   Transaction? @relation(fields: [transactionId], references: [id], onDelete: SetNull)
 
+  /// The day this movement belongs to.
+  ///
+  /// Not the calendar date it happened on. A day is opened and closed by hand,
+  /// and the result of one is measured by what moved inside it — so a manager
+  /// funding the till at half past midnight, or a day opened for a date that is
+  /// not today, must land where the close will look for it. Every other way
+  /// money moves already belongs to a day; this makes funding belong too.
+  businessDayId String?
+  businessDay   BusinessDay? @relation(fields: [businessDayId], references: [id], onDelete: SetNull)
+
   note String?
 
   createdById String
@@ -410,6 +432,7 @@ model DrawerMovement {
 
   @@index([drawerId, createdAt])
   @@index([transactionId])
+  @@index([businessDayId])
   @@index([account])
   @@map("drawer_movements")
 }
@@ -630,6 +653,65 @@ model Receipt {
 // DAILY CLOSING
 // ===========================================================================
 
+/// The rate the manager approves for valuing a currency at the close.
+///
+/// Not a trading rate. The board says what the counter charges; this says what
+/// the branch's holdings are worth, and the two are different judgements — the
+/// second is the one the owner's profit is measured against.
+///
+/// One row per currency per day, written only when the manager sets one. A day
+/// with no row for a currency uses the most recent earlier row, which is what
+/// "the rates roll forward" means: silence is agreement with yesterday, not an
+/// absence, and a day whose rates were never touched still values correctly.
+model CutoffRate {
+  id           String   @id @default(cuid())
+  /// Calendar date at 00:00 local time, the same key a business day uses.
+  date         DateTime
+  currencyCode String
+  currency     Currency @relation(fields: [currencyCode], references: [code])
+
+  /// Units of the base currency for one unit of this one, scaled 1e8.
+  rate BigInt
+
+  note      String?
+  setById   String
+  setBy     User     @relation(fields: [setById], references: [id])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([date, currencyCode])
+  @@index([currencyCode, date])
+  @@map("cutoff_rates")
+}
+
+/// What a drawer held when a day was closed, and what it was worth.
+///
+/// Written once, at the close, and never recomputed. The rate is copied onto
+/// the row rather than looked up later for the reason every historical figure
+/// in this system is frozen: a result that quietly changes when the manager
+/// approves tomorrow's rate is not a result, it is a moving opinion about one.
+model DayPosition {
+  id            String      @id @default(cuid())
+  businessDayId String
+  businessDay   BusinessDay @relation(fields: [businessDayId], references: [id], onDelete: Cascade)
+
+  drawerId String
+  drawer   Drawer @relation(fields: [drawerId], references: [id])
+
+  currencyCode String
+  /// CASH | BROKER | CORRESPONDENT, copied so a closed day reads on its own.
+  kind         String
+  balance      BigInt
+  /// The cut-off rate applied, scaled 1e8. The base currency's is exactly 1.
+  cutoffRate   BigInt
+
+  createdAt DateTime @default(now())
+
+  @@unique([businessDayId, drawerId])
+  @@index([businessDayId])
+  @@map("day_positions")
+}
+
 model BusinessDay {
   id       String   @id @default(cuid())
   branchId String
@@ -651,6 +733,8 @@ model BusinessDay {
   notes String?
 
   transactions Transaction[]
+  positions    DayPosition[]
+  movements    DrawerMovement[]
 
   @@unique([branchId, date])
   @@index([status])

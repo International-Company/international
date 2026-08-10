@@ -289,6 +289,19 @@ async function verify(db) {
     legs.every((row) => row.payoutCashAmount + row.payoutBankAmount === row.toAmount),
   );
 
+  /*
+   * The ledger's own tables, and the column the daily result is measured on.
+   *
+   * A movement with no category cannot be told apart from the owner's own
+   * money, so the column existing is the difference between a result and a
+   * guess. The carried movements have none — nobody said why at the time, and
+   * inventing a reason here would be inventing evidence.
+   */
+  check('cut-off rates have a table', await tableExists(db, 'cutoff_rates'));
+  check('closed days can hold a position', await tableExists(db, 'day_positions'));
+  check('funding movements can say why', await columnExists(db, 'drawer_movements', 'category'));
+  check('movements belong to a day', await columnExists(db, 'drawer_movements', 'businessDayId'));
+
   check('the staging table was drained and removed', !(await tableExists(db, '_ifms_drawer_carryover')));
 
   const receipts = await db.receipt.count();

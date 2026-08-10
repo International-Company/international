@@ -239,7 +239,13 @@ export async function record(
       legs: { cash: bigint; broker: bigint },
       account: string | null | undefined,
     ): drawers.Movement[] => {
-      const common = { currency, direction, reason: 'TRANSACTION' as const, transactionId: row.id };
+      const common = {
+        currency,
+        direction,
+        reason: 'TRANSACTION' as const,
+        transactionId: row.id,
+        businessDayId: day.id,
+      };
       if (side) return [{ ...common, kind: side, amount: total }];
 
       return [
@@ -444,7 +450,13 @@ export async function reverse(
       legs: { cash: bigint; broker: bigint },
       account: string | null,
     ): drawers.Movement[] => {
-      const common = { currency, direction, reason: 'REVERSAL' as const, transactionId: reversal.id };
+      const common = {
+        currency,
+        direction,
+        reason: 'REVERSAL' as const,
+        transactionId: reversal.id,
+        businessDayId: day.id,
+      };
       if (side) return [{ ...common, kind: side, amount: total }];
 
       return [

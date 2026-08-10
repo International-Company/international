@@ -3,6 +3,8 @@ import { prisma, withTransaction, type DbClient } from '@/core/db/prisma';
 import { errors } from '@/core/errors/app-error';
 import { emitAsync } from '@/core/events/bus';
 import * as audit from '@/modules/audit/audit.service';
+import * as ledger from '@/modules/ledger/ledger.service';
+import { dayKey, formatDayKey, dayBounds } from '@/core/time/day-key';
 
 /**
  * The business day — the daily open/close cycle every exchange office runs.
@@ -22,33 +24,15 @@ export interface Actor {
   sessionId?: string;
 }
 
-/** Normalises any timestamp to local midnight — the day's canonical key. */
-export function dayKey(date: Date): Date {
-  const key = new Date(date);
-  key.setHours(0, 0, 0, 0);
-  return key;
-}
-
-/**
- * Renders a business day as `YYYY-MM-DD` from its **local** calendar fields.
+/*
+ * The date helpers live in `@/core/time/day-key` and are re-exported here.
  *
- * `toISOString()` cannot be used here: a day key is local midnight, and in any
- * timezone ahead of UTC that instant belongs to the previous UTC date — so the
- * branch that opened on the 6th would be labelled the 5th in its own audit log.
+ * They were written here first, and everything that needs a day key still
+ * imports it from here. They had to move because the ledger needs them too, and
+ * the ledger is what this file calls to freeze a position at the close — two
+ * modules importing each other for the sake of three lines of date arithmetic.
  */
-export function formatDayKey(date: Date): string {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-}
-
-export function dayBounds(date: Date): { start: Date; end: Date } {
-  const start = dayKey(date);
-  const end = new Date(start);
-  end.setHours(23, 59, 59, 999);
-  return { start, end };
-}
+export { dayKey, formatDayKey, dayBounds };
 
 export async function getDay(branchId: string, date: Date, db: DbClient = prisma) {
   return db.businessDay.findUnique({
@@ -86,6 +70,32 @@ export async function requireOpenDay(branchId: string, date: Date, db: DbClient 
     );
   }
 
+  return day;
+}
+
+/**
+ * The branch's open session, whatever date it carries.
+ *
+ * A business day here is opened and closed by hand, so it is a session rather
+ * than a calendar date — an office still working at one in the morning is still
+ * working the day it opened. Anything that belongs to "the day in progress"
+ * asks this, and gets the latest open one when more than one was left open.
+ *
+ * A transaction is different and deliberately so: it is keyed to the calendar
+ * date it happened on, because that is what a customer's receipt says.
+ */
+export async function currentOpenDay(branchId: string, db: DbClient = prisma) {
+  const day = await db.businessDay.findFirst({
+    where: { branchId, status: { in: ['OPEN', 'REOPENED'] } },
+    orderBy: { date: 'desc' },
+  });
+
+  if (!day) {
+    throw errors.precondition(
+      'No business day is open — open the day first',
+      'errors.dayNotOpen',
+    );
+  }
   return day;
 }
 
@@ -143,10 +153,20 @@ export async function openDay(
 /**
  * Closes the day.
  *
- * There is no count sheet and no variance posting any more: those existed to
- * reconcile a ledger against physical cash, and the ledger is gone. What closing
- * still does is draw a line — after it, the day's transactions are a fixed set
- * the manager can review, and nothing further can be recorded against it.
+ * Two things happen, and the second is the point. It draws a line — after it
+ * the day's transactions are a fixed set and nothing further can be recorded
+ * against them — and it freezes what every drawer held, at the cut-off rates in
+ * force, onto the day itself.
+ *
+ * That freeze is what makes a result a result. The office's profit is the
+ * change in what it is worth, so tomorrow's approved rates must not be able to
+ * reach back and restate today; the balances and the rates that valued them are
+ * copied onto the day and never recomputed.
+ *
+ * It follows that a day cannot close while a currency the branch actually holds
+ * has no approved rate. Valuing that holding at nothing would understate the
+ * office by exactly the amount nobody had got round to pricing — and would then
+ * report the understatement as a loss.
  */
 export async function closeDay(
   branchId: string,
@@ -166,6 +186,10 @@ export async function closeDay(
     if (day.status === 'CLOSED') {
       throw errors.conflict('This day is already closed', 'errors.dayAlreadyClosed');
     }
+
+    // Before the status changes, so a day that cannot be valued is not left
+    // closed with no position behind it.
+    await ledger.freezePosition(day.id, date, tx);
 
     const closed = await tx.businessDay.update({
       where: { id: day.id },

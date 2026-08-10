@@ -42,6 +42,7 @@ export type IconName =
   | 'drawers'
   | 'day'
   | 'wallet'
+  | 'ledger'
   | 'transactions'
   | 'audit'
   | 'staff'
@@ -137,6 +138,13 @@ export const NAVIGATION: NavSection[] = [
     id: 'oversight',
     labelKey: 'nav.oversight',
     items: [
+      {
+        href: '/manage/ledger',
+        labelKey: 'nav.ledger',
+        icon: 'ledger',
+        permissions: ['ledger.view'],
+        shortcut: 'g l',
+      },
       {
         href: '/manage/day',
         labelKey: 'nav.day',

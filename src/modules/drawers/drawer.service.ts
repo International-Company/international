@@ -1,9 +1,11 @@
 import 'server-only';
 import { prisma, withTransaction, type DbClient, type Tx } from '@/core/db/prisma';
 import { errors } from '@/core/errors/app-error';
+import type { FundingCategory } from './funding-categories';
 import { toDecimalString } from '@/core/money/money';
 import { createLogger } from '@/core/logger/logger';
 import * as audit from '@/modules/audit/audit.service';
+import { currentOpenDay } from '@/modules/exchange/business-day.service';
 
 /**
  * The drawers.
@@ -44,9 +46,22 @@ export interface Actor {
   userAgent?: string | null;
   sessionId?: string;
   permissions?: string[];
+  /** Which branch's day a funding movement belongs to. */
+  branchId?: string | null;
 }
 
 export type MovementReason = 'TRANSACTION' | 'FUNDING' | 'REVERSAL';
+
+/*
+ * The funding categories live in `./funding-categories` and are re-exported
+ * here. They had to move because the screen that records a funding movement
+ * offers them, and a client component cannot import this file.
+ */
+export {
+  FUNDING_CATEGORIES,
+  isFundingCategory,
+  type FundingCategory,
+} from './funding-categories';
 
 export interface Movement {
   currency: string;
@@ -55,6 +70,8 @@ export interface Movement {
   direction: 'IN' | 'OUT';
   amount: bigint;
   reason: MovementReason;
+  /** Why, for funding. Meaningless on anything else, which says why by being it. */
+  category?: FundingCategory | null;
   /**
    * Which of the broker's accounts this went through.
    *
@@ -64,6 +81,8 @@ export interface Movement {
    */
   account?: string | null;
   transactionId?: string | null;
+  /** The day this belongs to. Every movement of money belongs to one. */
+  businessDayId?: string | null;
   note?: string | null;
 }
 
@@ -178,8 +197,10 @@ async function applyMovement(tx: Tx, movement: Movement, actor: Actor): Promise<
       amount: movement.amount,
       balanceAfter: updated.balance,
       reason: movement.reason,
+      category: movement.category ?? null,
       account: movement.account ?? null,
       transactionId: movement.transactionId ?? null,
+      businessDayId: movement.businessDayId ?? null,
       note: movement.note ?? null,
       createdById: actor.id,
     },
@@ -238,6 +259,12 @@ export async function fund(
     kind?: DrawerKind;
     direction: 'IN' | 'OUT';
     amount: bigint;
+    /**
+     * Why. Required, because the daily result is measured by telling an owner's
+     * deposit apart from a day's takings, and a default would silently pick one
+     * of those answers for a manager who never chose.
+     */
+    category: FundingCategory;
     /** Which broker account, when the money is moving through him. */
     account?: string | null;
     note?: string | null;
@@ -253,6 +280,24 @@ export async function fund(
     throw errors.forbidden('exchange.drawer.manage');
   }
 
+  /*
+   * Funding belongs to a day, like everything else that moves money.
+   *
+   * Required rather than optional: the day's result is measured by what moved
+   * inside it, and a deposit belonging to no day is money the ledger can see in
+   * the balance and cannot explain.
+   *
+   * The session that is open, not the one matching today's date. A manager
+   * counting the till at one in the morning is still working the day he opened,
+   * and money he puts in then belongs to that day's result rather than to a day
+   * nobody has opened yet.
+   */
+  const branchId = actor.branchId;
+  if (!branchId) {
+    throw errors.precondition('No branch is assigned', 'errors.noBranch');
+  }
+  const day = await currentOpenDay(branchId, db);
+
   const kind = input.kind ?? 'CASH';
   const movement: Movement = {
     currency: input.currency,
@@ -260,6 +305,8 @@ export async function fund(
     direction: input.direction,
     amount: input.amount,
     reason: 'FUNDING',
+    category: input.category,
+    businessDayId: day.id,
     account: input.account ?? null,
     note: input.note ?? null,
   };
@@ -283,6 +330,7 @@ export async function fund(
     after: {
       currency: input.currency,
       kind,
+      category: input.category,
       amount: input.amount.toString(),
       balance: balance.toString(),
     },

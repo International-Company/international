@@ -378,16 +378,19 @@ async function main() {
   // The system is deliberately empty. Say what has to happen before it can be
   // used, so nobody discovers it at the counter with a customer waiting.
   console.log('\n  Before the first transaction:\n');
-  console.log('    1. Exchange → Rates        publish a rate for every pair you trade.');
-  console.log('                               Until then pricing refuses to quote.');
-  console.log('    2. Daily Closing           open the business day.');
-  console.log('    3. Transactions → New      enter opening balances as an Internal');
-  console.log('                               Adjustment, one per currency:');
-  console.log('                               From "Opening Balance" → To "Cash Drawer".');
-  console.log('    4. Administration → Users  create the real staff accounts.\n');
+  console.log('    1. Exchange → Rates        publish a rate for every pair you trade,');
+  console.log('                               for cash and for the broker. Until then');
+  console.log('                               pricing refuses to quote.');
+  console.log('    2. The Day                 open the business day.');
+  console.log('    3. Drawers                 put the opening balances in, one per');
+  console.log('                               currency, as an owner deposit.');
+  console.log('    4. Ledger                  approve a cut-off rate for every currency');
+  console.log('                               you hold. A day cannot close without one,');
+  console.log('                               and the result is measured against them.');
+  console.log('    5. Administration → Users  create the real staff accounts.\n');
   console.log('  Recording a transaction posts it — there is no approval step.');
   console.log('  A posting that turns out to be wrong is reversed, which leaves');
-  console.log('  both entries in the ledger rather than erasing the mistake.\n');
+  console.log('  both entries standing rather than erasing the mistake.\n');
 }
 
 main()

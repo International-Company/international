@@ -12,6 +12,7 @@ import {
   Trash2,
   Vault,
 } from 'lucide-react';
+import { FUNDING_CATEGORIES, type FundingCategory } from '@/modules/drawers/funding-categories';
 import { useLocale } from '@/i18n/provider';
 import { api, ApiError, queryString } from '@/lib/api-client';
 import { Alert, Badge, Button, Card, CardBody, CardHeader } from '@/ui/primitives';
@@ -84,6 +85,7 @@ export function DrawersView({
   const [funding, setFunding] = useState<{ currency: string; kind: string; direction: 'IN' | 'OUT' } | null>(null);
   const [amount, setAmount] = useState('');
   const [note, setNote] = useState('');
+  const [category, setCategory] = useState<FundingCategory>('OWNER_IN');
   const [busy, setBusy] = useState(false);
   const [selected, setSelected] = useState(drawers[0] ? drawerKey(drawers[0]) : '');
 
@@ -221,12 +223,14 @@ export function DrawersView({
         kind: funding.kind,
         direction: funding.direction,
         amount: amount.trim(),
+        category,
         note: note.trim() || undefined,
       });
       toast.success(t('common.saved'), `${funding.currency} — ${funding.kind}`);
       setFunding(null);
       setAmount('');
       setNote('');
+      setCategory('OWNER_IN');
       router.refresh();
     } catch (cause) {
       toast.error(
@@ -474,6 +478,26 @@ export function DrawersView({
                 value={amount}
                 onValueChange={setAmount}
                 currency={funding?.currency}
+              />
+            )}
+          </Field>
+          {/*
+            Why the money moved, with no default chosen for the manager.
+            The day's result is the change in what the branch is worth with the
+            owner's own money taken back out of it — so an owner's withdrawal
+            recorded as anything else is reported as a loss, and an expense
+            recorded as a withdrawal quietly disappears from the costs.
+          */}
+          <Field label={t('ledger.fundingCategory')} hint={t('ledger.fundingCategoryHint')} required>
+            {(props) => (
+              <Select
+                {...props}
+                value={category}
+                onChange={(event) => setCategory(event.target.value as FundingCategory)}
+                options={FUNDING_CATEGORIES.map((value) => ({
+                  value,
+                  label: t(`ledger.category.${value}` as never),
+                }))}
               />
             )}
           </Field>

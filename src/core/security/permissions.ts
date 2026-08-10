@@ -107,6 +107,14 @@ export const PERMISSIONS: PermissionDefinition[] = [
   def('exchange.day.reopen', 'exchange', 'reopen', 'Reopen business day', 'إعادة فتح يوم العمل',
     'Reopen a closed day for correction', 'إعادة فتح يوم مغلق للتصحيح', true),
 
+  // --- The ledger ----------------------------------------------------------
+  def('ledger.view', 'exchange', 'view', 'View the ledger', 'عرض دفتر الأستاذ',
+    "See the branch's position, what it is worth and what the day produced",
+    'عرض مركز الفرع وقيمته ونتيجة اليوم', true),
+  def('ledger.cutoff.manage', 'exchange', 'manage', 'Approve cut-off rates', 'اعتماد أسعار القص',
+    'Set the rates the position is valued at, and which the result is measured against',
+    'تحديد الأسعار التي يُقيَّم بها المركز، والتي تُقاس عليها نتيجة اليوم', true),
+
   // --- USDT ----------------------------------------------------------------
   def('usdt.wallet.view', 'usdt', 'view', 'View wallets', 'عرض المحافظ',
     'View monitored wallet addresses and balances', 'عرض عناوين المحافظ المراقبة وأرصدتها'),
@@ -230,9 +238,9 @@ export const SYSTEM_ROLES: RoleDefinition[] = [
     nameEn: 'Teller',
     nameAr: 'التلر',
     descriptionEn:
-      'Works the two counter tools and nothing else: takes USDT, exchanges cash, prints receipts. Cannot reverse a posting, move a rate or fund a drawer.',
+      'Works the counter tools and nothing else: takes and sells USDT, exchanges cash, sends and pays out remittances, prints receipts. Cannot reverse a posting, move a rate or fund a drawer.',
     descriptionAr:
-      'يعمل على أداتَي الشباك لا غير: يستلم USDT ويصرّف النقد ويطبع الإيصالات. لا يعكس عملية ولا يحرّك سعراً ولا يموّل صندوقاً.',
+      'يعمل على أدوات الشباك لا غير: يستلم USDT ويبيعه، ويصرّف النقد، ويرسل الحوالات ويسلّمها، ويطبع الإيصالات. لا يعكس عملية ولا يحرّك سعراً ولا يموّل صندوقاً.',
     level: 50,
     permissions: [
       // The two tools, and only what they cannot work without.
