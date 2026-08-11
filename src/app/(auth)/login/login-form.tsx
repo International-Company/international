@@ -84,15 +84,31 @@ export function LoginForm() {
    * older phone, or an insecure origin all answer no, and offering a button
    * that opens nothing is worse than not offering one.
    */
-  const [biometricReady, setBiometricReady] = useState(false);
+  /*
+   * Three states, not two. `null` means "not asked yet", and it is what lets
+   * the space be held open instead of the card growing once the answer comes
+   * back — which is the same jump, just later.
+   */
+  const [biometricReady, setBiometricReady] = useState<boolean | null>(null);
   const [biometricBusy, setBiometricBusy] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
     void (async () => {
       try {
-        const { platformAuthenticatorIsAvailable } = await import('@simplewebauthn/browser');
-        const available = await platformAuthenticatorIsAvailable();
+        /*
+         * Asked of the browser directly rather than through the WebAuthn
+         * library. The library's helper is the same one call, but reaching it
+         * means fetching its chunk first — and that delay is visible: the
+         * button arrives late and the whole centred card grows under the
+         * operator's eyes. The library is still what performs the sign-in, and
+         * by then a moment's wait costs nothing.
+         */
+        const available =
+          typeof window.PublicKeyCredential?.isUserVerifyingPlatformAuthenticatorAvailable ===
+          'function'
+            ? await window.PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable()
+            : false;
         if (!cancelled) setBiometricReady(available);
       } catch {
         if (!cancelled) setBiometricReady(false);
@@ -206,27 +222,36 @@ export function LoginForm() {
         passkey enrolled yet would find the top of the form occupied by a button
         that cannot help it — and the password is still the way in that always
         works.
-      */}
-      {biometricReady && (
-        <>
-          <div className="flex items-center gap-3 pt-1" aria-hidden>
-            <span className="h-px flex-1 bg-border-base" />
-            <span className="text-xs text-content-tertiary">{t('common.or')}</span>
-            <span className="h-px flex-1 bg-border-base" />
-          </div>
 
-          <Button
-            type="button"
-            variant="secondary"
-            fullWidth
-            size="lg"
-            loading={biometricBusy}
-            icon={<Fingerprint />}
-            onClick={() => void signInWithBiometrics()}
-          >
-            {t('auth.signInWithBiometrics')}
-          </Button>
-        </>
+        The space is held from the first paint while the answer is still
+        unknown, so the button appears *into* it rather than pushing the card
+        open underneath it. A form that grows a moment after it is drawn is a
+        form somebody is already typing into.
+      */}
+      {biometricReady !== false && (
+        <div className="space-y-4" style={{ minHeight: '5.75rem' }}>
+          {biometricReady && (
+            <>
+              <div className="flex items-center gap-3 pt-1" aria-hidden>
+                <span className="h-px flex-1 bg-border-base" />
+                <span className="text-xs text-content-tertiary">{t('common.or')}</span>
+                <span className="h-px flex-1 bg-border-base" />
+              </div>
+
+              <Button
+                type="button"
+                variant="secondary"
+                fullWidth
+                size="lg"
+                loading={biometricBusy}
+                icon={<Fingerprint />}
+                onClick={() => void signInWithBiometrics()}
+              >
+                {t('auth.signInWithBiometrics')}
+              </Button>
+            </>
+          )}
+        </div>
       )}
 
       <p className="pt-2 text-center text-xs text-content-tertiary">

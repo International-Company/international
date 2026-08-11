@@ -32,13 +32,17 @@ export default async function LoginPage() {
     .getString(locale === 'ar' ? 'company.name.ar' : 'company.name.en')
     .catch(() => t('app.name'));
 
+  /*
+   * `svh`, not `dvh`.
+   *
+   * `dvh` tracks the viewport as the address bar slides in and out and as the
+   * keyboard opens, so a centred card re-centres every time — a shudder that
+   * repeats for as long as the person keeps touching the screen. `svh` is the
+   * viewport at its smallest and never changes, so the layout holds still and
+   * the browser simply scrolls the focused field into view.
+   */
   return (
-    <main className="flex min-h-[100dvh] flex-col bg-canvas">
-      {/*
-        Vertically centred, but pinned to the top once the keyboard is up and
-        the viewport collapses — `justify-center` on a short screen pushes the
-        fields under the keyboard, which is precisely when they are needed.
-      */}
+    <main className="flex min-h-[100svh] flex-col bg-canvas">
       <div className="flex flex-1 items-center justify-center px-5 py-10">
         <div className="w-full max-w-[22rem]">
           <div className="flex flex-col items-center text-center">
