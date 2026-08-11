@@ -78,7 +78,7 @@ export async function login(
     // whether the account exists.
     await verifyPassword(input.password, 'scrypt$32768$8$1$AAAA$AAAA');
     await fail('UNKNOWN_USER');
-    throw errors.unauthenticated('Invalid credentials');
+    throw errors.invalidCredentials();
   }
 
   if (user.lockedUntil && user.lockedUntil > new Date()) {
@@ -88,7 +88,7 @@ export async function login(
 
   if (user.status !== 'ACTIVE') {
     await fail(`STATUS_${user.status}`);
-    throw errors.unauthenticated('Invalid credentials');
+    throw errors.invalidCredentials();
   }
 
   const passwordOk = await verifyPassword(input.password, user.passwordHash);
@@ -127,7 +127,7 @@ export async function login(
       throw errors.accountLocked();
     }
 
-    throw errors.unauthenticated('Invalid credentials');
+    throw errors.invalidCredentials();
   }
 
   // --- Password accepted --------------------------------------------------

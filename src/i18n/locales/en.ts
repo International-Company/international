@@ -1238,6 +1238,7 @@ const en = {
     generic: 'An unexpected error occurred. Please try again.',
     validationError: 'Please correct the highlighted fields',
     unauthenticated: 'Please sign in to continue',
+    invalidCredentials: 'Wrong username or password',
     forbidden: 'You do not have permission to do that',
     notFound: 'The requested record was not found',
     conflict: 'This action conflicts with the current state of the record',

@@ -290,7 +290,7 @@ export async function verifyAuthentication(
     include: { user: true },
   });
   if (!passkey) {
-    throw errors.unauthenticated('Invalid credentials');
+    throw errors.invalidCredentials();
   }
 
   const { user } = passkey;
@@ -300,7 +300,7 @@ export async function verifyAuthentication(
     throw errors.accountLocked(user.lockedUntil);
   }
   if (user.status !== 'ACTIVE') {
-    throw errors.unauthenticated('Invalid credentials');
+    throw errors.invalidCredentials();
   }
 
   const { rpId, origin } = relyingParty(context.request);
@@ -318,11 +318,11 @@ export async function verifyAuthentication(
       transports: parseTransports(passkey.transports),
     },
   }).catch(() => {
-    throw errors.unauthenticated('Invalid credentials');
+    throw errors.invalidCredentials();
   });
 
   if (!verification.verified) {
-    throw errors.unauthenticated('Invalid credentials');
+    throw errors.invalidCredentials();
   }
 
   await prisma.passkey.update({

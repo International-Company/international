@@ -103,6 +103,20 @@ export const errors = {
   unauthenticated: (message = 'Authentication required') =>
     new AppError('UNAUTHENTICATED', message),
 
+  /**
+   * A sign-in that was refused, as opposed to a page that needs one.
+   *
+   * The same 401 and deliberately the same vagueness about *which* half was
+   * wrong — saying "no such user" tells anyone who asks which usernames exist.
+   * But it must not borrow the other message: someone typing their password
+   * into a form and being told "please sign in to continue" has been told
+   * nothing at all, and will type the same password again.
+   */
+  invalidCredentials: () =>
+    new AppError('UNAUTHENTICATED', 'Invalid credentials', {
+      messageKey: 'errors.invalidCredentials',
+    }),
+
   forbidden: (permission?: string) =>
     new AppError('FORBIDDEN', `Missing permission${permission ? `: ${permission}` : ''}`, {
       params: permission ? { permission } : {},

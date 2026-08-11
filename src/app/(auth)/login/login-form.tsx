@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { AlertTriangle, Fingerprint, LogIn } from 'lucide-react';
 import { useLocale } from '@/i18n/provider';
@@ -119,9 +119,97 @@ export function LoginForm() {
     };
   }, []);
 
+  /**
+   * Anything that has to stop when the person does something else.
+   *
+   * The waiting request is a live `navigator.credentials.get()`, and only one
+   * may be outstanding at a time — so pressing the button, or leaving, has to
+   * call it off first or the browser refuses the second.
+   */
+  const waiting = useRef<AbortController | null>(null);
+
+  const completeSignIn = useCallback(
+    async (challengeId: string, response: unknown) => {
+      const result = await api.post<LoginResponse>('/api/auth/passkey', {
+        step: 'verify',
+        challengeId,
+        response,
+      });
+
+      router.push(result.redirect);
+      router.refresh();
+    },
+    [router],
+  );
+
+  /**
+   * The phone offering the fingerprint by itself.
+   *
+   * A modal prompt cannot be opened without the person having touched
+   * something — browsers refuse, and they are right to: a page that could raise
+   * a fingerprint prompt on load could raise one on any page. What is allowed,
+   * and what this is, is a *conditional* request: it waits, silently, and the
+   * passkey appears inside the sign-in field's own suggestions. Touching the
+   * field offers it; one tap reads the finger and the person is in, without
+   * ever meeting a button.
+   *
+   * It stays pending until it is used or the page goes away, so a person who
+   * would rather type a password is not interrupted by it.
+   */
+  useEffect(() => {
+    let cancelled = false;
+
+    void (async () => {
+      try {
+        if (typeof window.PublicKeyCredential?.isConditionalMediationAvailable !== 'function') {
+          return;
+        }
+        if (!(await window.PublicKeyCredential.isConditionalMediationAvailable())) return;
+        if (cancelled) return;
+
+        const { startAuthentication } = await import('@simplewebauthn/browser');
+
+        const { challengeId, options } = await api.post<{ challengeId: string; options: never }>(
+          '/api/auth/passkey',
+          { step: 'options' },
+        );
+        if (cancelled) return;
+
+        const controller = new AbortController();
+        waiting.current = controller;
+
+        const response = await startAuthentication({
+          optionsJSON: options,
+          useBrowserAutofill: true,
+        });
+        if (cancelled) return;
+
+        await completeSignIn(challengeId, response);
+      } catch {
+        /*
+         * Silent by design. This one was never asked for: it is an offer the
+         * browser makes on its own, and an offer nobody took up is not a
+         * failure to report. Anything the person actually pressed reports
+         * through `signInWithBiometrics`.
+         */
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      waiting.current?.abort();
+      waiting.current = null;
+    };
+  }, [completeSignIn]);
+
   const signInWithBiometrics = useCallback(async () => {
     setError(null);
     setBiometricBusy(true);
+
+    // The silent request holds the only slot the browser allows.
+    waiting.current?.abort();
+    waiting.current = null;
+
     try {
       const { startAuthentication } = await import('@simplewebauthn/browser');
 
@@ -132,19 +220,12 @@ export function LoginForm() {
 
       const response = await startAuthentication({ optionsJSON: options });
 
-      const result = await api.post<LoginResponse>('/api/auth/passkey', {
-        step: 'verify',
-        challengeId,
-        response,
-      });
-
-      router.push(result.redirect);
-      router.refresh();
+      await completeSignIn(challengeId, response);
     } catch (caught) {
       setError(describeBiometricFailure(caught, t));
       setBiometricBusy(false);
     }
-  }, [router, t]);
+  }, [completeSignIn, t]);
 
   const onSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -186,7 +267,13 @@ export function LoginForm() {
             {...props}
             value={identifier}
             onChange={(event) => setIdentifier(event.target.value)}
-            autoComplete="username"
+            /*
+             * `webauthn` is what lets the passkey appear among this field's own
+             * suggestions. Without it the conditional request above waits for a
+             * hint the browser never gives, and the fingerprint is only ever
+             * reachable through the button.
+             */
+            autoComplete="username webauthn"
             autoFocus
             dir="ltr"
             required
