@@ -107,6 +107,14 @@ export const PERMISSIONS: PermissionDefinition[] = [
   def('exchange.day.reopen', 'exchange', 'reopen', 'Reopen business day', 'إعادة فتح يوم العمل',
     'Reopen a closed day for correction', 'إعادة فتح يوم مغلق للتصحيح', true),
 
+  // --- The treasury and the tellers ----------------------------------------
+  def('treasury.handover.manage', 'exchange', 'manage', 'Hand over to tellers', 'تسليم التلرات',
+    'Declare a float for a teller, count what they return, and cancel a handover',
+    'تسليم رصيد للتلر، وعدّ ما يرجعه، وإلغاء تسليم', true),
+  def('treasury.handover.receive', 'exchange', 'use', 'Receive and return a float', 'استلام الرصيد وترحيله',
+    'Count and confirm a float handed over, and declare what is being returned',
+    'عدّ الرصيد المسلَّم وتأكيده، وإعلان ما يُرحَّل'),
+
   // --- The ledger ----------------------------------------------------------
   def('ledger.view', 'exchange', 'view', 'View the ledger', 'عرض دفتر الأستاذ',
     "See the branch's position, what it is worth and what the day produced",
@@ -253,6 +261,7 @@ export const SYSTEM_ROLES: RoleDefinition[] = [
       // to hold the teller's own tools and nothing else.
       'exchange.machine.use',
       'exchange.remittance.use',
+      'treasury.handover.receive',
       'usdt.counter.use',
       'usdt.withdrawal.use',
       'exchange.transaction.view',

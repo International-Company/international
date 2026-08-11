@@ -45,6 +45,7 @@ model Branch {
   transactions    Transaction[]
   customers       Customer[]
   businessDays    BusinessDay[]
+  handovers       Handover[]
   depositRequests UsdtDepositRequest[]
 
   @@map("branches")
@@ -104,6 +105,9 @@ model User {
   sessions        Session[]
   passkeys        Passkey[]
   heldDrawers     Drawer[]                @relation("DrawerHeldBy")
+  handovers       Handover[]              @relation("HandoverTeller")
+  handoversMade   Handover[]              @relation("HandoverCreatedBy")
+  handoversTaken  Handover[]              @relation("HandoverConfirmedBy")
   passwordHistory PasswordHistory[]
   drafts          Draft[]
   notifications   NotificationRecipient[]
@@ -267,6 +271,90 @@ model WebAuthnChallenge {
 
   @@index([expiresAt])
   @@map("webauthn_challenges")
+}
+
+/// Money moving between the treasury and a teller, counted by both.
+///
+/// The office's money lives at two levels, and this is the only door between
+/// them. It is a document rather than a transfer because a transfer is one
+/// party's assertion, and what makes a handover trustworthy is that the other
+/// party counted it and said so under their own name.
+///
+/// The sender declares what they are handing over; the receiver counts it and
+/// confirms. Nothing moves until they agree — a count that disagrees leaves the
+/// document in dispute with both balances untouched, which is the only state
+/// from which the truth can still be established.
+model Handover {
+  id        String @id @default(cuid())
+  reference String @unique // HND-20260811-00001
+
+  /// TO_TELLER — the treasury hands a teller their float.
+  /// TO_TREASURY — the teller hands back what they hold.
+  direction String
+
+  /// PENDING | CONFIRMED | DISPUTED | CANCELLED
+  ///
+  /// Money moves on exactly one transition: PENDING → CONFIRMED. A dispute
+  /// moves nothing, which is what lets it be cancelled and reissued rather than
+  /// unwound.
+  status String @default("PENDING")
+
+  /// The teller side of it. The other side is always the treasury.
+  tellerId String
+  teller   User   @relation("HandoverTeller", fields: [tellerId], references: [id])
+
+  branchId String
+  branch   Branch @relation(fields: [branchId], references: [id])
+
+  businessDayId String?
+  businessDay   BusinessDay? @relation(fields: [businessDayId], references: [id], onDelete: SetNull)
+
+  /// Whoever declared it — the treasury for a float, the teller for a return.
+  createdById String
+  createdBy   User     @relation("HandoverCreatedBy", fields: [createdById], references: [id])
+  createdAt   DateTime @default(now())
+
+  /// Whoever counted it. Never the same person as `createdById`; the service
+  /// refuses that, because one person signing both halves is the whole thing
+  /// this document exists to prevent.
+  confirmedById String?
+  confirmedBy   User?     @relation("HandoverConfirmedBy", fields: [confirmedById], references: [id], onDelete: SetNull)
+  confirmedAt   DateTime?
+
+  cancelReason String?
+  note         String?
+
+  lines HandoverLine[]
+
+  @@index([tellerId, status])
+  @@index([status, createdAt])
+  @@map("handovers")
+}
+
+/// One currency of one handover.
+model HandoverLine {
+  id         String   @id @default(cuid())
+  handoverId String
+  handover   Handover @relation(fields: [handoverId], references: [id], onDelete: Cascade)
+
+  currencyCode String
+  /// CASH | BROKER | CORRESPONDENT
+  kind         String
+
+  /// COUNTED — notes that change hands and are counted, so a difference can
+  /// arise. ALLOCATED — a balance that never physically moves, such as USDT or
+  /// the broker: the receiver acknowledges it and there is nothing to miscount.
+  nature String @default("COUNTED")
+
+  /// What the sender says they are handing over.
+  amount BigInt
+
+  /// What the receiver counted. Null until confirmed, and on an allocated line
+  /// always equal to `amount` — there was nothing to count.
+  countedAmount BigInt?
+
+  @@unique([handoverId, currencyCode, kind])
+  @@map("handover_lines")
 }
 
 model Session {
@@ -823,6 +911,7 @@ model BusinessDay {
   transactions Transaction[]
   positions    DayPosition[]
   movements    DrawerMovement[]
+  handovers    Handover[]
 
   @@unique([branchId, date])
   @@index([status])

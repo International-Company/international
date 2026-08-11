@@ -77,7 +77,15 @@ export interface Actor {
   branchId?: string | null;
 }
 
-export type MovementReason = 'TRANSACTION' | 'FUNDING' | 'REVERSAL';
+/**
+ * Why a drawer changed.
+ *
+ * `HANDOVER` is money crossing between the treasury and a teller. It is not
+ * funding and must never be counted as such: funding is money entering or
+ * leaving the company, while a handover moves it from one pocket of the same
+ * company to another and changes what the office is worth by nothing.
+ */
+export type MovementReason = 'TRANSACTION' | 'FUNDING' | 'REVERSAL' | 'HANDOVER';
 
 /*
  * The funding categories live in `./funding-categories` and are re-exported
