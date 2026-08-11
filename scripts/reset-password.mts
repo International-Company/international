@@ -58,9 +58,25 @@ if (password.length < 12) {
   process.exit(1);
 }
 
-const rl = createInterface({ input: process.stdin, output: process.stdout });
-const who = (await rl.question('  Who is doing this (for the audit log)? ')).trim() || 'command line';
-rl.close();
+/*
+ * Asked only where there is somebody to ask.
+ *
+ * A deploy shell is often not a terminal, and a prompt written to a pipe waits
+ * for an answer that will never come — the command appears to hang at exactly
+ * the moment its operator is already locked out and anxious. So it reads
+ * `RESET_BY` when set, asks when it can, and names itself when it cannot.
+ */
+async function attribution(): Promise<string> {
+  if (process.env.RESET_BY?.trim()) return process.env.RESET_BY.trim();
+  if (!process.stdin.isTTY) return 'command line';
+
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  const answer = (await rl.question('  Who is doing this (for the audit log)? ')).trim();
+  rl.close();
+  return answer || 'command line';
+}
+
+const who = await attribution();
 
 await prisma.user.update({
   where: { id: user.id },
