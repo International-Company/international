@@ -72,8 +72,16 @@ export async function createWallet(
     if (input.linkToLedger !== false) {
       // The token is held on a chain, so it belongs to the cash side: there is
       // no bank account holding USDT for the branch.
+      // The treasury's, always: a monitored wallet is the company's holding,
+      // never a teller's — what a teller gets is an allocation against it.
       const drawer = await tx.drawer.findUnique({
-        where: { currencyCode_kind: { currencyCode: tokenSymbol, kind: 'CASH' } },
+        where: {
+          ownerKey_currencyCode_kind: {
+            ownerKey: 'TREASURY',
+            currencyCode: tokenSymbol,
+            kind: 'CASH',
+          },
+        },
       });
       drawerId = drawer?.id ?? null;
     }

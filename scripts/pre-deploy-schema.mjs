@@ -491,6 +491,49 @@ const STEPS = [
       END $$;
     `,
   },
+
+  /*
+   * Give every drawer an owner, and move its identity onto that owner.
+   *
+   * The office's money is about to live at two levels — the treasury, and one
+   * drawer per teller — so a currency and a kind stop being enough to name a
+   * drawer. Everything that exists today is the treasury's, and is marked so
+   * before the key changes, or the new unique index would have nothing to
+   * distinguish rows by.
+   *
+   * `db push` would do this on its own. It is written here because it is a
+   * change of identity: the column the whole system looks a drawer up by. That
+   * is worth stating explicitly and applying in a known order — mark first,
+   * then swap the constraint — rather than leaving the order to a tool.
+   */
+  {
+    name: 'Give every drawer an owner, and key it by that owner',
+    sql: `
+      DO $$
+      BEGIN
+        IF to_regclass('public.drawers') IS NULL THEN
+          RETURN;
+        END IF;
+
+        ALTER TABLE "drawers" ADD COLUMN IF NOT EXISTS "ownerKey" TEXT NOT NULL DEFAULT 'TREASURY';
+        ALTER TABLE "drawers" ADD COLUMN IF NOT EXISTS "tellerId" TEXT;
+
+        -- Anything already there was the office's before there was anyone else
+        -- to hold it.
+        UPDATE "drawers" SET "ownerKey" = 'TREASURY' WHERE "ownerKey" IS NULL OR "ownerKey" = '';
+
+        -- The old key allowed one drawer per currency and kind, which is
+        -- exactly what two tellers holding shekels would violate.
+        ALTER TABLE "drawers" DROP CONSTRAINT IF EXISTS "drawers_currencyCode_kind_key";
+        DROP INDEX IF EXISTS "drawers_currencyCode_kind_key";
+
+        CREATE UNIQUE INDEX IF NOT EXISTS "drawers_ownerKey_currencyCode_kind_key"
+          ON "drawers" ("ownerKey", "currencyCode", "kind");
+
+        CREATE INDEX IF NOT EXISTS "drawers_tellerId_idx" ON "drawers" ("tellerId");
+      END $$;
+    `,
+  },
 ];
 
 /** Host and database only — a connection string in a deploy log is a leak. */

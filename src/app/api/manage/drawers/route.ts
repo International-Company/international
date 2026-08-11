@@ -7,13 +7,13 @@ export const GET = route({
   permissions: ['exchange.drawer.view'],
   handler: async () => {
     const [rows, check] = await Promise.all([drawers.listDrawers(), drawers.verifyBalances()]);
-    const derived = new Map(check.drawers.map((entry) => [`${entry.currency}:${entry.kind}`, entry]));
+    const derived = new Map(check.drawers.map((entry) => [entry.drawerId, entry]));
 
     return rows.map((drawer) => ({
       ...drawer,
       // Surfaced rather than logged quietly: a drawer that disagrees with its
       // own movements is the one thing here nobody should have to go looking for.
-      agrees: derived.get(`${drawer.currencyCode}:${drawer.kind}`)?.agrees ?? true,
+      agrees: derived.get(drawer.id)?.agrees ?? true,
     }));
   },
 });

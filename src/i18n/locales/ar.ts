@@ -478,6 +478,7 @@ const ar: Dictionary = {
     cash: 'نقد',
     broker: 'الوسيط',
     correspondent: 'المراسل',
+    treasury: 'الخزينة',
     title: 'الصناديق',
     subtitle: 'ما يحتفظ به الفرع، وكيف صار إليه',
     movements: 'الحركات',

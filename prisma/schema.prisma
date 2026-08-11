@@ -103,6 +103,7 @@ model User {
   permissions     UserPermission[]
   sessions        Session[]
   passkeys        Passkey[]
+  heldDrawers     Drawer[]                @relation("DrawerHeldBy")
   passwordHistory PasswordHistory[]
   drafts          Draft[]
   notifications   NotificationRecipient[]
@@ -402,6 +403,21 @@ model ExchangeRate {
 model Drawer {
   id String @id @default(cuid())
 
+  /// Who holds this drawer: the treasury, or one named teller.
+  ///
+  /// `TREASURY` or `teller:<userId>`, and a single string rather than a pair of
+  /// columns because it is half of a unique key. A nullable owner id cannot
+  /// carry one: PostgreSQL treats NULLs as distinct, so two treasury tills of
+  /// the same currency would both be allowed and nothing would notice until the
+  /// money was in the wrong one.
+  ownerKey String @default("TREASURY")
+
+  /// The person, when it is a teller's. Null for the treasury, and kept beside
+  /// `ownerKey` only so a drawer can be joined to its holder — the key above is
+  /// what identifies it.
+  tellerId String?
+  teller   User?   @relation("DrawerHeldBy", fields: [tellerId], references: [id], onDelete: Restrict)
+
   currencyCode String
   currency     Currency @relation(fields: [currencyCode], references: [code])
 
@@ -440,8 +456,9 @@ model Drawer {
   wallets   Wallet[]
   positions DayPosition[]
 
-  @@unique([currencyCode, kind])
+  @@unique([ownerKey, currencyCode, kind])
   @@index([isActive, sortOrder])
+  @@index([tellerId])
   @@map("drawers")
 }
 

@@ -39,7 +39,8 @@ export default async function DrawersPage() {
   );
 
   const agrees = new Map(
-    check.drawers.map((entry) => [`${entry.currency}:${entry.kind}`, entry.agrees]),
+    // By drawer id: a currency and a kind no longer name one drawer.
+    check.drawers.map((entry) => [entry.drawerId, entry.agrees]),
   );
 
   /*
@@ -77,7 +78,7 @@ export default async function DrawersPage() {
         drawers={toJsonSafe(
           drawers.map((drawer) => ({
             ...drawer,
-            agrees: agrees.get(`${drawer.currencyCode}:${drawer.kind}`) ?? true,
+            agrees: agrees.get(drawer.id) ?? true,
           })),
         )}
         openable={toJsonSafe(openable)}

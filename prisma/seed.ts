@@ -97,8 +97,13 @@ async function main() {
 
     for (const kind of kinds) {
       await prisma.drawer.upsert({
-        where: { currencyCode_kind: { currencyCode: currency.code, kind } },
+        // Every drawer a fresh install creates belongs to the treasury; a
+        // teller's is opened when their shift is, not before there is one.
+        where: {
+          ownerKey_currencyCode_kind: { ownerKey: 'TREASURY', currencyCode: currency.code, kind },
+        },
         create: {
+          ownerKey: 'TREASURY',
           currencyCode: currency.code,
           kind,
           nameEn:

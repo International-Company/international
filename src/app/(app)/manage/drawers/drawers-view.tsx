@@ -40,6 +40,8 @@ interface Drawer {
   allowNegative: boolean;
   isActive: boolean;
   kind: string;
+  tellerId: string | null;
+  teller: { fullNameEn: string; fullNameAr: string } | null;
   agrees: boolean;
   currency: { symbol: string; decimals: number; kind: string };
 }
@@ -290,13 +292,20 @@ export function DrawersView({
                 <span className="flex items-center justify-between gap-2">
                   <span className="text-sm text-content-secondary">{ln(drawer, 'name')}</span>
                   {/*
-                    The kind is the distinction that matters here — two cards now
-                    carry the same currency code, and only this says which of
-                    them the money is actually in.
+                    The kind is the distinction that matters here — several cards
+                    now carry the same currency code, and only this says which of
+                    them the money is actually in. The holder is named beside it
+                    for the same reason: once tellers hold drawers of their own,
+                    "the shekel drawer" stops identifying anything.
                   */}
-                  <Badge tone={drawer.kind === 'CASH' ? 'neutral' : 'primary'}>
-                    {drawer.currencyCode} · {t(kindLabel(drawer.kind))}
-                  </Badge>
+                  <span className="flex flex-wrap items-center justify-end gap-1.5">
+                    <Badge tone={drawer.tellerId ? 'warning' : 'neutral'}>
+                      {drawer.teller ? ln(drawer.teller, 'fullName') : t('drawers.treasury')}
+                    </Badge>
+                    <Badge tone={drawer.kind === 'CASH' ? 'neutral' : 'primary'}>
+                      {drawer.currencyCode} · {t(kindLabel(drawer.kind))}
+                    </Badge>
+                  </span>
                 </span>
 
                 <span className="mt-2 block font-mono text-2xl font-semibold text-content ltr-content tabular-nums">

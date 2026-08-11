@@ -476,6 +476,7 @@ const en = {
     cash: 'Cash',
     broker: 'Broker',
     correspondent: 'Correspondent',
+    treasury: 'Treasury',
     title: 'Drawers',
     subtitle: 'What the branch holds, and how it came to hold it',
     movements: 'Movements',

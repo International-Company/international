@@ -29,6 +29,33 @@ import { currentOpenDay } from '@/modules/exchange/business-day.service';
 const log = createLogger('drawers');
 
 /**
+ * Who holds a drawer.
+ *
+ * The office's money lives at two levels: the treasury, which the manager runs,
+ * and one drawer per teller, handed over and counted at the start and end of a
+ * shift. Until the shift machinery exists every drawer is the treasury's, and
+ * every caller here says so by omission — the default below.
+ *
+ * The key is a single string because it is half of the drawer's unique
+ * identity, and a nullable owner id cannot be: PostgreSQL treats NULLs as
+ * distinct, so two treasury tills of the same currency would both be accepted.
+ */
+export const TREASURY = 'TREASURY';
+
+export function tellerOwner(userId: string): string {
+  return `teller:${userId}`;
+}
+
+export function isTellerOwner(ownerKey: string): boolean {
+  return ownerKey.startsWith('teller:');
+}
+
+/** The user id inside a teller's owner key, or null for the treasury. */
+export function ownerTellerId(ownerKey: string): string | null {
+  return isTellerOwner(ownerKey) ? ownerKey.slice('teller:'.length) : null;
+}
+
+/**
  * Where the money is.
  *
  * `CASH` is the till. `BROKER` is what the bank broker owes the branch. And
@@ -67,6 +94,8 @@ export interface Movement {
   currency: string;
   /** Defaults to the till, which is what the overwhelming majority of movements are. */
   kind?: DrawerKind;
+  /** Whose drawer. Defaults to the treasury, which is every drawer for now. */
+  owner?: string;
   direction: 'IN' | 'OUT';
   amount: bigint;
   reason: MovementReason;
@@ -110,8 +139,13 @@ export async function listDrawers(
 ) {
   return db.drawer.findMany({
     where: options.includeInactive ? {} : { isActive: true },
-    orderBy: { sortOrder: 'asc' },
-    include: { currency: { select: { symbol: true, decimals: true, kind: true } } },
+    // The treasury's first, then each teller's, so the office's own money is
+    // never buried among the drawers it lent out.
+    orderBy: [{ ownerKey: 'asc' }, { sortOrder: 'asc' }],
+    include: {
+      currency: { select: { symbol: true, decimals: true, kind: true } },
+      teller: { select: { fullNameEn: true, fullNameAr: true } },
+    },
   });
 }
 
@@ -119,9 +153,10 @@ export async function getDrawer(
   currency: string,
   kind: DrawerKind = 'CASH',
   db: DbClient = prisma,
+  owner: string = TREASURY,
 ) {
   const drawer = await db.drawer.findUnique({
-    where: { currencyCode_kind: { currencyCode: currency, kind } },
+    where: { ownerKey_currencyCode_kind: { ownerKey: owner, currencyCode: currency, kind } },
     include: { currency: { select: { symbol: true, decimals: true, kind: true } } },
   });
   if (!drawer) throw errors.notFound('Drawer', `${currency} ${kind}`);
@@ -134,9 +169,10 @@ export async function canPay(
   amount: bigint,
   kind: DrawerKind = 'CASH',
   db: DbClient = prisma,
+  owner: string = TREASURY,
 ): Promise<{ ok: boolean; balance: bigint }> {
   const drawer = await db.drawer.findUnique({
-    where: { currencyCode_kind: { currencyCode: currency, kind } },
+    where: { ownerKey_currencyCode_kind: { ownerKey: owner, currencyCode: currency, kind } },
   });
   if (!drawer || !drawer.isActive) return { ok: false, balance: 0n };
   return { ok: drawer.allowNegative || drawer.balance >= amount, balance: drawer.balance };
@@ -158,8 +194,9 @@ export async function canPay(
  */
 async function applyMovement(tx: Tx, movement: Movement, actor: Actor): Promise<bigint> {
   const kind = movement.kind ?? 'CASH';
+  const owner = movement.owner ?? TREASURY;
   const drawer = await tx.drawer.findUnique({
-    where: { currencyCode_kind: { currencyCode: movement.currency, kind } },
+    where: { ownerKey_currencyCode_kind: { ownerKey: owner, currencyCode: movement.currency, kind } },
   });
   if (!drawer) throw errors.notFound('Drawer', `${movement.currency} ${kind}`);
   if (!drawer.isActive) {
@@ -361,6 +398,8 @@ export async function createDrawer(
     nameAr: string;
     lowBalanceThreshold?: bigint;
     allowNegative?: boolean;
+    /** Whose drawer this is. The treasury's unless a teller is named. */
+    owner?: string;
   },
   actor: Actor,
   db: DbClient = prisma,
@@ -373,7 +412,13 @@ export async function createDrawer(
   if (!currency) throw errors.notFound('Currency', input.currency);
 
   const existing = await db.drawer.findUnique({
-    where: { currencyCode_kind: { currencyCode: input.currency, kind: input.kind } },
+    where: {
+      ownerKey_currencyCode_kind: {
+        ownerKey: input.owner ?? TREASURY,
+        currencyCode: input.currency,
+        kind: input.kind,
+      },
+    },
   });
   if (existing) {
     throw errors.conflict(
@@ -388,6 +433,11 @@ export async function createDrawer(
 
   const drawer = await db.drawer.create({
     data: {
+      ownerKey: input.owner ?? TREASURY,
+      // Kept beside the key so a drawer can be joined to its holder. The two
+      // are set together here and nowhere else, which is what stops them
+      // disagreeing about whose drawer this is.
+      tellerId: ownerTellerId(input.owner ?? TREASURY),
       currencyCode: input.currency,
       kind: input.kind,
       nameEn: input.nameEn.trim(),
@@ -582,12 +632,18 @@ export async function updateDrawer(
 /** The movements behind a drawer's balance, newest first. */
 export async function history(
   currency: string,
-  options: { limit?: number; kind?: DrawerKind } = {},
+  options: { limit?: number; kind?: DrawerKind; owner?: string } = {},
   db: DbClient = prisma,
 ) {
   const kind = options.kind ?? 'CASH';
   const drawer = await db.drawer.findUnique({
-    where: { currencyCode_kind: { currencyCode: currency, kind } },
+    where: {
+      ownerKey_currencyCode_kind: {
+        ownerKey: options.owner ?? TREASURY,
+        currencyCode: currency,
+        kind,
+      },
+    },
   });
   if (!drawer) throw errors.notFound('Drawer', `${currency} ${kind}`);
 
@@ -695,6 +751,12 @@ export async function verifyBalances(db: DbClient = prisma) {
     const derived = inflow - outflow;
 
     results.push({
+      // Identified the way the database identifies it. Currency and kind alone
+      // stopped being unique the moment a teller could hold shekels too, and a
+      // caller keying these results on that pair would show one person's
+      // disagreement against another person's drawer.
+      drawerId: drawer.id,
+      owner: drawer.ownerKey,
       currency: drawer.currencyCode,
       kind: drawer.kind as DrawerKind,
       balance: drawer.balance,

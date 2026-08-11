@@ -303,6 +303,21 @@ async function verify(db) {
    * guess. The carried movements have none — nobody said why at the time, and
    * inventing a reason here would be inventing evidence.
    */
+  /*
+   * Every drawer carried across belongs to the treasury.
+   *
+   * The identity of a drawer changed in this upgrade — currency and kind no
+   * longer name one — so the money that was already there has to end up under
+   * an owner, and there is only one it can be: the office held it before there
+   * was anybody else to hold it.
+   */
+  const owned = await db.drawer.findMany({ select: { ownerKey: true, tellerId: true } });
+  check(
+    'every carried drawer belongs to the treasury',
+    owned.length > 0 && owned.every((d) => d.ownerKey === 'TREASURY' && d.tellerId === null),
+    `${owned.length} drawer(s)`,
+  );
+
   check('cut-off rates have a table', await tableExists(db, 'cutoff_rates'));
   check('closed days can hold a position', await tableExists(db, 'day_positions'));
   check('funding movements can say why', await columnExists(db, 'drawer_movements', 'category'));
