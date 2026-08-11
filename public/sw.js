@@ -50,6 +50,19 @@ self.addEventListener('activate', (event) => {
   );
 });
 
+/**
+ * The page asking for the cached build output to be dropped.
+ *
+ * Sent just before it reloads onto a new deployment. Every entry is
+ * content-addressed, so the old ones would never be served again — they would
+ * only pile up, one deployment at a time, on a phone nobody ever clears.
+ */
+self.addEventListener('message', (event) => {
+  if (event.data?.type === 'CLEAR_STATIC') {
+    event.waitUntil(caches.delete(STATIC_CACHE));
+  }
+});
+
 self.addEventListener('fetch', (event) => {
   const { request } = event;
 

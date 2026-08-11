@@ -86,6 +86,8 @@ const ar: Dictionary = {
     view: 'عرض',
     yes: 'نعم',
     or: 'أو',
+    updateReady: 'نسخة جديدة جاهزة',
+    updateNow: 'تحديث الآن',
     rowsPerPage: 'صفوف في الصفحة',
     selected: 'تم تحديد {count}',
     lastUpdated: 'آخر تحديث',

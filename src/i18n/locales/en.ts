@@ -84,6 +84,8 @@ const en = {
     view: 'View',
     yes: 'Yes',
     or: 'or',
+    updateReady: 'A new version is ready',
+    updateNow: 'Update now',
     rowsPerPage: 'Rows per page',
     selected: '{count} selected',
     lastUpdated: 'Last updated',

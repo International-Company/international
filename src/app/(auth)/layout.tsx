@@ -7,6 +7,7 @@ import {
   type ThemePreference,
 } from '@/ui/theme/provider';
 import { Providers } from '../providers';
+import { UpdateWatcher } from '../update-watcher';
 
 /**
  * Layout for the sign-in area.
@@ -28,6 +29,7 @@ export default async function AuthLayout({ children }: { children: React.ReactNo
   return (
     <Providers locale={locale} theme={theme} density={density}>
       {children}
+      <UpdateWatcher />
     </Providers>
   );
 }
