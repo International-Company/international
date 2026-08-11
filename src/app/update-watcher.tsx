@@ -22,6 +22,15 @@ import { useLocale } from '@/i18n/provider';
  * from the network every time — see `public/sw.js` for why nothing here is
  * cached in the first place.
  *
+ * **It reloads at most once for any given build.** The first version of this
+ * did not, and the consequence was the worst failure it could have: the two
+ * sides disagreed about which build was live for a reason reloading could not
+ * fix, so it reloaded, and reloaded, and the application shook itself apart in
+ * front of whoever was using it. The cause is fixed — see `/api/version` — but
+ * a mechanism that can reload the page must not be able to spin no matter what
+ * it is told, so the guard stays. After one attempt the update waits behind the
+ * button like any other.
+ *
  * Mounted inside the two authenticated-area layouts rather than the root, which
  * is static and carries no locale — and a banner that can only speak one
  * language is a string hard-coded in a system that has none.
@@ -29,8 +38,15 @@ import { useLocale } from '@/i18n/provider';
 
 const POLL_MS = 60_000;
 
-/** Baked in at build time; see `generateBuildId` in next.config. */
-const MY_BUILD = process.env.NEXT_PUBLIC_BUILD_ID ?? 'development';
+/**
+ * Baked in at build time by `generateBuildId`, which writes the same value into
+ * `.next/BUILD_ID` — the file the server reads back. Equal by construction for
+ * any one build, which is what makes a difference between them mean something.
+ */
+const MY_BUILD = process.env.NEXT_PUBLIC_BUILD_ID ?? '';
+
+/** Which build this tab has already reloaded itself in the hope of reaching. */
+const ATTEMPTED_KEY = 'international.update.attempted';
 
 export function UpdateWatcher() {
   const { t } = useLocale();
@@ -67,8 +83,9 @@ export function UpdateWatcher() {
   }, []);
 
   useEffect(() => {
-    // Nothing to compare against when running from `next dev`.
-    if (MY_BUILD === 'development') return;
+    // Nothing to compare against when running from `next dev`, where the build
+    // has no id at all.
+    if (!MY_BUILD) return;
 
     let cancelled = false;
 
@@ -78,11 +95,29 @@ export function UpdateWatcher() {
         const response = await fetch('/api/version', { cache: 'no-store' });
         if (!response.ok) return;
 
-        const { build } = (await response.json()) as { build?: string };
+        const { build } = (await response.json()) as { build?: string | null };
+
+        // No id at all means the server cannot tell us — not that it is newer.
         if (!build || build === MY_BUILD) return;
 
-        if (hasTypedWork()) setAvailable(true);
-        else apply();
+        /*
+         * Already reloaded once reaching for this exact build and still here.
+         * Reloading again would not land anywhere different, so it stops and
+         * offers the button instead. This is the guard that turns a possible
+         * loop into at most one wasted reload.
+         */
+        if (window.sessionStorage.getItem(ATTEMPTED_KEY) === build) {
+          setAvailable(true);
+          return;
+        }
+
+        if (hasTypedWork()) {
+          setAvailable(true);
+          return;
+        }
+
+        window.sessionStorage.setItem(ATTEMPTED_KEY, build);
+        apply();
       } catch {
         // Offline, or the server is restarting mid-deploy. Either way the next
         // tick asks again; a failed check is not news worth showing anyone.
