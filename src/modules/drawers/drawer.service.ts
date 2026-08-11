@@ -1,7 +1,7 @@
 import 'server-only';
 import { prisma, withTransaction, type DbClient, type Tx } from '@/core/db/prisma';
 import { errors } from '@/core/errors/app-error';
-import type { FundingCategory } from './funding-categories';
+import type { FundingCategory, DrawerKind } from './funding-categories';
 import { toDecimalString } from '@/core/money/money';
 import { createLogger } from '@/core/logger/logger';
 import * as audit from '@/modules/audit/audit.service';
@@ -55,16 +55,15 @@ export function ownerTellerId(ownerKey: string): string | null {
   return isTellerOwner(ownerKey) ? ownerKey.slice('teller:'.length) : null;
 }
 
-/**
- * Where the money is.
+/*
+ * The kinds live in `./funding-categories` and are re-exported here.
  *
  * `CASH` is the till. `BROKER` is what the bank broker owes the branch. And
  * `CORRESPONDENT` is the running account with the remittance company, which is
  * the one that spends much of its life negative: sending a remittance means
  * owing them until it is settled.
  */
-export const DRAWER_KINDS = ['CASH', 'BROKER', 'CORRESPONDENT'] as const;
-export type DrawerKind = (typeof DRAWER_KINDS)[number];
+export { DRAWER_KINDS, type DrawerKind } from './funding-categories';
 
 export interface Actor {
   id: string;

@@ -38,6 +38,7 @@ export type IconName =
   | 'machine'
   | 'counter'
   | 'transfer'
+  | 'handover'
   | 'rates'
   | 'drawers'
   | 'day'
@@ -54,6 +55,13 @@ export const NAVIGATION: NavSection[] = [
     id: 'counter',
     labelKey: 'nav.counter',
     items: [
+      {
+        href: '/treasury/handovers',
+        labelKey: 'nav.handovers',
+        icon: 'handover',
+        permissions: ['treasury.handover.manage', 'treasury.handover.receive'],
+        shortcut: 'g s',
+      },
       {
         href: '/counter/usdt',
         labelKey: 'nav.usdtCounter',

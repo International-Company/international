@@ -1,5 +1,6 @@
 import {
   ArrowLeftRight,
+  ArrowRightLeft,
   CalendarCheck,
   Calculator,
   ChartNoAxesColumn,
@@ -30,6 +31,7 @@ export const NAV_ICONS: Record<IconName, LucideIcon> = {
   day: CalendarCheck,
   wallet: Wallet,
   ledger: BookOpen,
+  handover: ArrowRightLeft,
   transfer: Send,
   transactions: ArrowLeftRight,
   audit: ScrollText,
