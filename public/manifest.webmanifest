@@ -1,6 +1,6 @@
 {
   "id": "/",
-  "name": "انترنشونال — نظام الصرافة",
+  "name": "انترنشونال",
   "short_name": "انترنشونال",
   "description": "أدوات الشباك ودفتر الأستاذ: التصريف والحوالات و USDT.",
   "lang": "ar",
@@ -8,32 +8,55 @@
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
-  "display_override": ["standalone", "minimal-ui"],
+  "display_override": [
+    "standalone",
+    "minimal-ui"
+  ],
   "orientation": "portrait-primary",
-  "background_color": "#f7f8fa",
-  "theme_color": "#1d4ed8",
-  "categories": ["finance", "business"],
+  "background_color": "#ffffff",
+  "theme_color": "#0b3b8c",
+  "categories": [
+    "finance",
+    "business"
+  ],
   "icons": [
-    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
-    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
-    { "src": "/icons/icon-maskable-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
-    { "src": "/icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+    {
+      "src": "/brand/icon-192.056439d9.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/brand/icon-512.056439d9.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/brand/icon-maskable-192.056439d9.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/brand/icon-maskable-512.056439d9.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
   ],
   "shortcuts": [
     {
       "name": "ماكينة التصريف",
-      "url": "/counter/machine",
-      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }]
+      "url": "/counter/machine"
     },
     {
       "name": "الحوالات",
-      "url": "/counter/remittance",
-      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }]
+      "url": "/counter/remittance"
     },
     {
       "name": "استلام USDT",
-      "url": "/counter/usdt",
-      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }]
+      "url": "/counter/usdt"
     }
   ]
 }

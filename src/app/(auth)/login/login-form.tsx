@@ -13,6 +13,61 @@ interface LoginResponse {
   redirect: string;
 }
 
+/**
+ * Set on this device when a passkey is enrolled from it.
+ *
+ * It is a hint for the wording of a message and nothing else — every real check
+ * happens on the server. What it buys is the difference between the two things
+ * the browser reports identically: a person who dismissed the prompt, and a
+ * device that has no key to offer. Telling the first "enrol first" is noise;
+ * telling the second nothing at all is a button that appears broken.
+ */
+export const ENROLLED_MARKER = 'international.passkey.enrolled';
+
+type Translate = ReturnType<typeof useLocale>['t'];
+
+/**
+ * What the browser actually objected to.
+ *
+ * The WebAuthn library wraps the browser's exception in one of its own and
+ * hangs the original off `cause`, so testing the thrown value for a
+ * `DOMException` finds nothing and every distinct failure collapses into the
+ * same unhelpful sentence. Unwrapping is the difference between "it did not
+ * work" and "you have not enabled this on this device yet".
+ */
+export function browserErrorName(caught: unknown): string | null {
+  if (caught instanceof DOMException) return caught.name;
+
+  const cause = (caught as { cause?: unknown } | null)?.cause;
+  if (cause instanceof DOMException) return cause.name;
+
+  return null;
+}
+
+function describeBiometricFailure(caught: unknown, t: Translate): string {
+  if (caught instanceof ApiError) {
+    return (
+      t(caught.messageKey as never, caught.params) || caught.message || t('errors.generic')
+    );
+  }
+
+  const name = browserErrorName(caught);
+
+  // The browser refuses to sign for a domain that is not its own. Nothing the
+  // operator can do about it, so it says who can.
+  if (name === 'SecurityError') return t('auth.biometricDomain');
+
+  if (name === 'NotAllowedError' || name === 'AbortError') {
+    const enrolled =
+      typeof window !== 'undefined' && window.localStorage.getItem(ENROLLED_MARKER) === '1';
+    // Enrolled here already: they changed their mind, and the password field is
+    // right in front of them. Say nothing.
+    return enrolled ? '' : t('auth.biometricNotEnrolled');
+  }
+
+  return t('auth.biometricFailed');
+}
+
 export function LoginForm() {
   const { t } = useLocale();
   const router = useRouter();
@@ -70,17 +125,7 @@ export function LoginForm() {
       router.push(result.redirect);
       router.refresh();
     } catch (caught) {
-      // Cancelling the system prompt is not an error worth shouting about —
-      // the person changed their mind and the password field is right there.
-      if (caught instanceof DOMException && (caught.name === 'NotAllowedError' || caught.name === 'AbortError')) {
-        setBiometricBusy(false);
-        return;
-      }
-      setError(
-        caught instanceof ApiError
-          ? t(caught.messageKey as never, caught.params) || caught.message || t('errors.generic')
-          : t('auth.biometricFailed'),
-      );
+      setError(describeBiometricFailure(caught, t));
       setBiometricBusy(false);
     }
   }, [router, t]);

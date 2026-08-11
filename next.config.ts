@@ -97,7 +97,13 @@ const nextConfig: NextConfig = {
         source: '/manifest.webmanifest',
         headers: [
           { key: 'Content-Type', value: 'application/manifest+json; charset=utf-8' },
-          { key: 'Cache-Control', value: 'public, max-age=3600' },
+          /*
+           * Revalidated every time. The installed application's icon and name
+           * come from here, and Chrome only notices they changed when it sees a
+           * changed manifest — an hour of caching is an hour of the old logo on
+           * somebody's home screen.
+           */
+          { key: 'Cache-Control', value: 'no-cache' },
         ],
       },
     ];

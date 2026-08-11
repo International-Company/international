@@ -8,6 +8,7 @@ import { Alert, Badge, Button, Card, CardBody, CardHeader } from '@/ui/primitive
 import { ConfirmDialog, Dialog, useToast } from '@/ui/overlay';
 import { Field, Input } from '@/ui/form';
 import { DateText } from '@/ui/display';
+import { ENROLLED_MARKER, browserErrorName } from '@/app/(auth)/login/login-form';
 
 /**
  * Turning the fingerprint on, for this device.
@@ -79,16 +80,26 @@ export function ProfileBiometrics() {
         label: label.trim(),
       });
 
+      // Remembered on this device so the sign-in screen can tell a person who
+      // cancelled the prompt from one whose device holds no key at all.
+      window.localStorage.setItem(ENROLLED_MARKER, '1');
+
       toast.success(t('auth.biometricsAdded'));
       setAdding(false);
       setLabel('');
       void load();
     } catch (caught) {
-      // Dismissing the system prompt is a decision, not a failure.
-      if (
-        caught instanceof DOMException &&
-        (caught.name === 'NotAllowedError' || caught.name === 'AbortError')
-      ) {
+      // Dismissing the system prompt is a decision, not a failure. The name has
+      // to be unwrapped from the library's own error — see `browserErrorName`.
+      const name = browserErrorName(caught);
+      if (name === 'NotAllowedError' || name === 'AbortError') {
+        setBusy(false);
+        return;
+      }
+      if (name === 'InvalidStateError') {
+        // The authenticator already holds a key for this account: it was
+        // enrolled here before, and saying so beats a generic refusal.
+        toast.error(t('errors.title'), t('auth.biometricsAlready'));
         setBusy(false);
         return;
       }
@@ -108,6 +119,10 @@ export function ProfileBiometrics() {
     setBusy(true);
     try {
       await api.delete(`/api/me/passkeys${queryString({ id: removing.id })}`);
+      // The marker is per device and the list is per account, so it is only
+      // safe to forget once nothing is left registered anywhere.
+      if (keys.length <= 1) window.localStorage.removeItem(ENROLLED_MARKER);
+
       toast.success(t('auth.biometricsRemoved'), removing.label);
       setRemoving(null);
       void load();

@@ -22,6 +22,7 @@ import { useTheme } from '@/ui/theme/provider';
 import { Badge, Button } from '@/ui/primitives';
 import { DropdownMenu, MenuItem, MenuLabel, MenuSeparator } from '@/ui/overlay';
 import { cn, initials } from '@/ui/utils';
+import { BRAND } from './brand';
 import { isActiveRoute, visibleNavigation, type NavItem } from './navigation';
 import { NAV_ICONS } from './icons';
 import { CommandPalette } from './command-palette';
@@ -141,9 +142,16 @@ export function AppShell({
         )}
       >
         <div className="flex h-14 items-center gap-2.5 border-b border-border-base px-4">
-          <div className="flex size-8 shrink-0 items-center justify-center rounded bg-primary text-sm font-bold text-white">
-            I
-          </div>
+          {/* eslint-disable-next-line @next/next/no-img-element -- the emblem
+              is a fixed-size, hashed asset; the image pipeline would add a
+              round trip and a layout shift for no benefit. */}
+          <img
+            src={BRAND.logoSmall}
+            alt=""
+            width={32}
+            height={32}
+            className="size-8 shrink-0 rounded-full"
+          />
           {!collapsed && (
             <div className="min-w-0 flex-1">
               <p className="truncate text-sm font-semibold text-content">{t('app.name')}</p>

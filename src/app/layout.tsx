@@ -3,6 +3,7 @@ import { IBM_Plex_Sans_Arabic, Inter } from 'next/font/google';
 import { DEFAULT_LOCALE, LOCALE_META } from '@/i18n/config';
 import { PreferenceScript } from './preference-script';
 import { ServiceWorker } from './service-worker';
+import { BRAND } from './_shell/brand';
 import './globals.css';
 
 /**
@@ -43,10 +44,18 @@ export const metadata: Metadata = {
   description: 'Enterprise exchange and treasury operations platform',
   robots: { index: false, follow: false },
   manifest: '/manifest.webmanifest',
+  /*
+   * Every path carries a hash of the logo file, so replacing the logo replaces
+   * the URL — and no browser tab, no launcher and no home screen can go on
+   * showing the previous one.
+   */
   icons: {
-    icon: '/favicon.svg',
+    icon: [
+      { url: BRAND.favicon32, sizes: '32x32', type: 'image/png' },
+      { url: BRAND.favicon64, sizes: '64x64', type: 'image/png' },
+    ],
     // iOS ignores the manifest entirely and reads this link instead.
-    apple: '/icons/apple-touch-icon.png',
+    apple: BRAND.appleTouchIcon,
   },
   /*
    * Installed on a phone, this is a standalone application rather than a page
@@ -74,7 +83,7 @@ export const viewport: Viewport = {
   // the safe area, so the alternative is a letterboxed strip on every iPhone.
   viewportFit: 'cover',
   themeColor: [
-    { media: '(prefers-color-scheme: light)', color: '#f7f8fa' },
+    { media: '(prefers-color-scheme: light)', color: '#ffffff' },
     { media: '(prefers-color-scheme: dark)', color: '#111827' },
   ],
 };

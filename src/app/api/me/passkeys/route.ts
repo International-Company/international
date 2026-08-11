@@ -38,13 +38,13 @@ export const POST = route<z.infer<typeof bodySchema>>({
     if (!user) throw errors.notFound('User', actor.id);
 
     if (body.step === 'options') {
-      return passkeys.registrationOptions(user, request.url);
+      return passkeys.registrationOptions(user, request);
     }
 
     return passkeys.verifyRegistration(
       { challengeId: body.challengeId, response: body.response, label: body.label },
       user,
-      { ip: meta.ip, userAgent: meta.userAgent, requestUrl: request.url },
+      { ip: meta.ip, userAgent: meta.userAgent, request },
     );
   },
 });

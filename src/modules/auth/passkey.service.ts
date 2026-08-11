@@ -41,18 +41,39 @@ const RP_NAME = 'انترنشونال';
 /**
  * Which origin the credential belongs to.
  *
- * Set `WEBAUTHN_RP_ID` and `WEBAUTHN_ORIGIN` in production and this is decided;
- * otherwise it follows the request, which is what makes `localhost` work in
- * development without configuration. A forged Host header cannot borrow another
- * domain's credentials — the browser will not sign for an RP ID that is not a
- * suffix of its own origin — it can only fail the verification.
+ * This has to be the domain **the browser thinks it is on**, exactly. A key
+ * registered for one domain is refused on any other — that is what makes a
+ * passkey phishing-resistant, and it is also what makes a wrong answer here
+ * fail every sign-in with a security error rather than a subtle bug.
+ *
+ * `request.url` is the wrong source behind a proxy. The platform terminates TLS
+ * and forwards to the process over plain HTTP on an internal hostname, so the
+ * URL the handler sees can be `http://0.0.0.0:8080/…` while the browser is on
+ * `https://exchange.example.com`. The forwarded headers are what carry the real
+ * one, which is why they are read first.
+ *
+ * A forged header cannot steal anything: the browser refuses to sign for an RP
+ * ID that is not a suffix of its own origin, so the worst case is a failure.
  */
-export function relyingParty(requestUrl: string): { rpId: string; origin: string } {
-  const url = new URL(requestUrl);
-  return {
-    rpId: process.env.WEBAUTHN_RP_ID || url.hostname,
-    origin: process.env.WEBAUTHN_ORIGIN || url.origin,
-  };
+export function relyingParty(request: { url: string; headers: Headers }): {
+  rpId: string;
+  origin: string;
+} {
+  if (process.env.WEBAUTHN_RP_ID && process.env.WEBAUTHN_ORIGIN) {
+    return { rpId: process.env.WEBAUTHN_RP_ID, origin: process.env.WEBAUTHN_ORIGIN };
+  }
+
+  const forwardedHost = request.headers.get('x-forwarded-host')?.split(',')[0]?.trim();
+  const host = forwardedHost || request.headers.get('host') || new URL(request.url).host;
+  const proto =
+    request.headers.get('x-forwarded-proto')?.split(',')[0]?.trim() ||
+    new URL(request.url).protocol.replace(':', '');
+
+  // The RP ID is a domain, never a port: `localhost:3000` is not one.
+  const rpId = process.env.WEBAUTHN_RP_ID || host.split(':')[0]!;
+  const origin = process.env.WEBAUTHN_ORIGIN || `${proto}://${host}`;
+
+  return { rpId, origin };
 }
 
 async function newChallenge(challenge: string, purpose: 'REGISTER' | 'LOGIN', userId?: string) {
@@ -107,9 +128,9 @@ async function consumeChallenge(id: string, purpose: 'REGISTER' | 'LOGIN') {
  */
 export async function registrationOptions(
   user: { id: string; username: string; fullNameEn: string },
-  requestUrl: string,
+  request: { url: string; headers: Headers },
 ) {
-  const { rpId } = relyingParty(requestUrl);
+  const { rpId } = relyingParty(request);
 
   const existing = await prisma.passkey.findMany({
     where: { userId: user.id },
@@ -136,8 +157,16 @@ export async function registrationOptions(
       // The sensor built into this device, not a key on a keyring. It is the
       // phone in the teller's hand that we are binding to.
       authenticatorAttachment: 'platform',
-      // Discoverable, so signing in needs no username first — open, touch, in.
-      residentKey: 'preferred',
+      /*
+       * Required, not preferred — and the difference is the whole feature.
+       *
+       * Sign-in offers no username and no credential list, so the authenticator
+       * has to be able to produce the key from nothing but the domain. A
+       * credential created as merely "preferred" may not be discoverable, and
+       * the button would then find nothing on a device that had plainly
+       * enrolled.
+       */
+      residentKey: 'required',
       // The whole point. Without it the key proves possession of the device and
       // nothing about who is holding it, which is not what was asked for.
       userVerification: 'required',
@@ -151,14 +180,14 @@ export async function registrationOptions(
 export async function verifyRegistration(
   input: { challengeId: string; response: unknown; label: string },
   user: { id: string; fullNameEn: string; fullNameAr: string },
-  context: LoginContext & { requestUrl: string },
+  context: LoginContext & { request: { url: string; headers: Headers } },
 ) {
   const challenge = await consumeChallenge(input.challengeId, 'REGISTER');
   if (challenge.userId !== user.id) {
     throw errors.forbidden('users.update');
   }
 
-  const { rpId, origin } = relyingParty(context.requestUrl);
+  const { rpId, origin } = relyingParty(context.request);
 
   const verification = await verifyRegistrationResponse({
     // The library validates the shape; a malformed body fails verification
@@ -220,8 +249,8 @@ export async function verifyRegistration(
  * offers them; the server learns who this is only from a signature it has
  * verified.
  */
-export async function authenticationOptions(requestUrl: string) {
-  const { rpId } = relyingParty(requestUrl);
+export async function authenticationOptions(request: { url: string; headers: Headers }) {
+  const { rpId } = relyingParty(request);
 
   const options = await generateAuthenticationOptions({
     rpID: rpId,
@@ -245,7 +274,7 @@ export async function authenticationOptions(requestUrl: string) {
  */
 export async function verifyAuthentication(
   input: { challengeId: string; response: unknown },
-  context: LoginContext & { requestUrl: string },
+  context: LoginContext & { request: { url: string; headers: Headers } },
 ): Promise<LoginResult> {
   const limit = checkRateLimit(`passkey:ip:${context.ip ?? 'unknown'}`, RATE_LIMITS.login);
   if (!limit.allowed) throw errors.rateLimited(limit.retryAfterSeconds);
@@ -274,7 +303,7 @@ export async function verifyAuthentication(
     throw errors.unauthenticated('Invalid credentials');
   }
 
-  const { rpId, origin } = relyingParty(context.requestUrl);
+  const { rpId, origin } = relyingParty(context.request);
 
   const verification = await verifyAuthenticationResponse({
     response,

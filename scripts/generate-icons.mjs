@@ -1,209 +1,196 @@
 #!/usr/bin/env node
 /**
- * Renders the application icons from the same mark as `public/favicon.svg`.
+ * Builds every image the application wears, from one source: `img/logo.jpeg`.
  *
- * PNG rather than SVG because an installed app's icon is drawn by the operating
- * system, and Android, iOS and Windows all want raster. And generated rather
- * than committed by hand so the mark has one definition: changing the favicon
- * and forgetting the launcher icon is exactly the kind of drift that shows up
- * on somebody's home screen a year later.
+ * One source, because a brand kept in six files is a brand that is wrong in
+ * five of them. Change the logo, run this, and the launcher icon, the tab icon,
+ * the sign-in screen and the shell header all move together.
  *
- * No image library. A PNG is a handful of length-prefixed chunks around a
- * zlib-deflated bitmap, and Node ships zlib — so pulling in a dependency to
- * draw four circles would cost more than it saves.
+ * Every output carries a hash of the source in its filename, and that is not
+ * decoration. An installed application's icon is drawn by the operating system
+ * from a copy it took at install time; replacing the bytes behind the same URL
+ * changes nothing on the phone. A new URL is what makes it a new icon — so the
+ * manifest is written from here too, and the two can never disagree.
  *
  *     node scripts/generate-icons.mjs
  */
 
-import { deflateSync } from 'node:zlib';
-import { writeFileSync, mkdirSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { readFileSync, writeFileSync, mkdirSync, readdirSync, unlinkSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
+import sharp from 'sharp';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const outDir = path.join(root, 'public', 'icons');
+const SOURCE = path.join(root, 'img', 'logo.jpeg');
+const outDir = path.join(root, 'public', 'brand');
 
-const BRAND = [0x1d, 0x4e, 0xd8];
-const WHITE = [0xff, 0xff, 0xff];
+/** The emblem sits on a white page; the icons keep that white behind it. */
+const PAGE = { r: 255, g: 255, b: 255, alpha: 1 };
 
-// ---------------------------------------------------------------------------
-// The mark, in the favicon's own 32×32 coordinates
-// ---------------------------------------------------------------------------
-
-/** Three ledger rules and a full stop — the same shapes as favicon.svg. */
-const STROKE = 2.5;
-const MARK = {
-  bars: [
-    [8, 11, 24, 11],
-    [8, 16, 19, 16],
-    [8, 21, 24, 21],
-  ],
-  dot: [23, 21, 2.5],
-};
-
-/** Distance from a point to a line segment. */
-function distanceToSegment(px, py, x1, y1, x2, y2) {
-  const dx = x2 - x1;
-  const dy = y2 - y1;
-  const lengthSquared = dx * dx + dy * dy;
-  const t = lengthSquared === 0 ? 0 : Math.max(0, Math.min(1, ((px - x1) * dx + (py - y1) * dy) / lengthSquared));
-  return Math.hypot(px - (x1 + t * dx), py - (y1 + t * dy));
+let source;
+try {
+  source = readFileSync(SOURCE);
+} catch {
+  console.error(`\n  Missing ${path.relative(root, SOURCE)} — nothing to generate from.\n`);
+  process.exit(1);
 }
 
-/** Whether a point in 32-space falls on the white mark. */
-function onMark(x, y) {
-  for (const [x1, y1, x2, y2] of MARK.bars) {
-    // Round caps, so the capsule is "within half a stroke of the segment".
-    if (distanceToSegment(x, y, x1, y1, x2, y2) <= STROKE / 2) return true;
-  }
-  const [cx, cy, r] = MARK.dot;
-  return Math.hypot(x - cx, y - cy) <= r;
+const VERSION = createHash('sha256').update(source).digest('hex').slice(0, 8);
+
+/**
+ * The emblem alone, square and edge to edge.
+ *
+ * Trimming the page away first means the logo fills its icon rather than
+ * floating in whatever margin the original file happened to have.
+ */
+const emblem = await sharp(source).trim({ threshold: 20 }).toBuffer();
+const { width, height } = await sharp(emblem).metadata();
+const side = Math.max(width, height);
+
+/** A circular cut, so the emblem can sit on any colour without a white box. */
+function circleMask(size) {
+  const r = size / 2;
+  return Buffer.from(
+    `<svg width="${size}" height="${size}"><circle cx="${r}" cy="${r}" r="${r}" fill="#fff"/></svg>`,
+  );
 }
 
 /**
- * Whether a point falls inside a rounded square of the given radius.
+ * One icon.
  *
- * The standard signed distance to a rounded box. The obvious shortcut — treat
- * the corners as circles and everything else as inside — is what the first
- * version of this did, and it cut the straight edges away between the corners:
- * a point in the top band has `dy > 0` while `dx <= 0`, which is inside the
- * shape but outside any corner circle.
+ * `coverage` is how much of the square the emblem occupies. A maskable icon
+ * gives it 62% — inside the safe zone every launcher respects — because the
+ * rest may be cropped to a circle or a squircle without warning.
  */
-function inRoundedSquare(x, y, size, radius) {
-  const dx = Math.abs(x - size / 2) - (size / 2 - radius);
-  const dy = Math.abs(y - size / 2) - (size / 2 - radius);
-  const outside = Math.hypot(Math.max(dx, 0), Math.max(dy, 0));
-  const inside = Math.min(Math.max(dx, dy), 0);
-  return outside + inside <= radius;
+async function icon(size, { coverage = 1, background = PAGE, round = false }) {
+  const inner = Math.round(size * coverage);
+
+  const scaled = await sharp(emblem)
+    .resize(inner, inner, { fit: 'contain', background: { r: 255, g: 255, b: 255, alpha: 0 } })
+    .toBuffer();
+
+  const cut = round
+    ? await sharp(scaled)
+        .composite([{ input: circleMask(inner), blend: 'dest-in' }])
+        .png()
+        .toBuffer()
+    : scaled;
+
+  const offset = Math.round((size - inner) / 2);
+
+  return sharp({
+    create: { width: size, height: size, channels: 4, background },
+  })
+    .composite([{ input: cut, top: offset, left: offset }])
+    .png({ compressionLevel: 9 })
+    .toBuffer();
 }
 
-/**
- * Draws one icon.
- *
- * `maskable` means the launcher may crop it to a circle or a squircle, so the
- * background bleeds to every edge and the mark shrinks into the safe zone.
- * Getting this wrong is what produces the icons with their corners sliced off.
- */
-function draw(size, { maskable }) {
-  const pixels = Buffer.alloc(size * size * 4);
-  const SAMPLES = 4; // 4×4 supersampling, which is enough for shapes this simple
-  const scale = size / 32;
+const TRANSPARENT = { r: 0, g: 0, b: 0, alpha: 0 };
 
-  // The mark occupies the middle 62% of a maskable icon — inside the safe zone
-  // every platform respects — and the whole of a normal one.
-  const markScale = maskable ? 0.62 : 1;
-  const markOffset = ((1 - markScale) * 32) / 2;
+const OUTPUTS = [
+  // Launcher icons. White behind, because the emblem's own lettering is dark
+  // blue and would disappear into a coloured tile.
+  { name: `icon-192.${VERSION}.png`, size: 192, coverage: 0.96 },
+  { name: `icon-512.${VERSION}.png`, size: 512, coverage: 0.96 },
+  { name: `icon-maskable-192.${VERSION}.png`, size: 192, coverage: 0.62 },
+  { name: `icon-maskable-512.${VERSION}.png`, size: 512, coverage: 0.62 },
+  // iOS reads this from a link tag, applies its own rounding, and composites
+  // onto white — so it is drawn full-bleed rather than with corners of its own.
+  { name: `apple-touch-icon.${VERSION}.png`, size: 180, coverage: 0.88 },
 
-  for (let py = 0; py < size; py++) {
-    for (let px = 0; px < size; px++) {
-      let inside = 0;
-      let onGlyph = 0;
+  // The browser tab. Circular and transparent so it reads on a dark tab strip.
+  { name: `favicon-32.${VERSION}.png`, size: 32, coverage: 1, background: TRANSPARENT, round: true },
+  { name: `favicon-64.${VERSION}.png`, size: 64, coverage: 1, background: TRANSPARENT, round: true },
 
-      for (let sy = 0; sy < SAMPLES; sy++) {
-        for (let sx = 0; sx < SAMPLES; sx++) {
-          const x = px + (sx + 0.5) / SAMPLES;
-          const y = py + (sy + 0.5) / SAMPLES;
-
-          if (maskable || inRoundedSquare(x, y, size, 6 * scale)) inside++;
-
-          const mx = (x / scale - markOffset) / markScale;
-          const my = (y / scale - markOffset) / markScale;
-          if (onMark(mx, my)) onGlyph++;
-        }
-      }
-
-      const total = SAMPLES * SAMPLES;
-      const coverage = inside / total;
-      const glyph = Math.min(onGlyph / total, coverage);
-
-      // The glyph is composited over the brand square, and the square over
-      // nothing — so the alpha is the square's coverage and the colour is the
-      // glyph mixed into the brand.
-      const offset = (py * size + px) * 4;
-      for (let channel = 0; channel < 3; channel++) {
-        const mixed = coverage === 0 ? 0 : (BRAND[channel] * (coverage - glyph) + WHITE[channel] * glyph) / coverage;
-        pixels[offset + channel] = Math.round(mixed);
-      }
-      pixels[offset + 3] = Math.round(coverage * 255);
-    }
-  }
-
-  return pixels;
-}
-
-// ---------------------------------------------------------------------------
-// PNG encoding
-// ---------------------------------------------------------------------------
-
-const CRC_TABLE = (() => {
-  const table = new Int32Array(256);
-  for (let n = 0; n < 256; n++) {
-    let c = n;
-    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
-    table[n] = c;
-  }
-  return table;
-})();
-
-function crc32(buffer) {
-  let c = 0xffffffff;
-  for (const byte of buffer) c = CRC_TABLE[(c ^ byte) & 0xff] ^ (c >>> 8);
-  return (c ^ 0xffffffff) >>> 0;
-}
-
-function chunk(type, data) {
-  const length = Buffer.alloc(4);
-  length.writeUInt32BE(data.length);
-  const body = Buffer.concat([Buffer.from(type, 'latin1'), data]);
-  const crc = Buffer.alloc(4);
-  crc.writeUInt32BE(crc32(body));
-  return Buffer.concat([length, body, crc]);
-}
-
-function encodePng(size, pixels) {
-  const header = Buffer.alloc(13);
-  header.writeUInt32BE(size, 0);
-  header.writeUInt32BE(size, 4);
-  header[8] = 8; // bit depth
-  header[9] = 6; // colour type: RGBA
-  // 10..12 are compression, filter and interlace — all zero.
-
-  // Every scanline carries a leading filter byte. Filter 0 (none) keeps this
-  // readable; the shapes compress well enough that a smarter filter would save
-  // a few hundred bytes on a file nobody downloads twice.
-  const raw = Buffer.alloc(size * (size * 4 + 1));
-  for (let y = 0; y < size; y++) {
-    raw[y * (size * 4 + 1)] = 0;
-    pixels.copy(raw, y * (size * 4 + 1) + 1, y * size * 4, (y + 1) * size * 4);
-  }
-
-  return Buffer.concat([
-    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
-    chunk('IHDR', header),
-    chunk('IDAT', deflateSync(raw, { level: 9 })),
-    chunk('IEND', Buffer.alloc(0)),
-  ]);
-}
-
-// ---------------------------------------------------------------------------
+  // For the interface itself — the sign-in screen and the shell header, where
+  // it sits on a coloured surface and must not carry a white square with it.
+  { name: `logo.${VERSION}.png`, size: 512, coverage: 1, background: TRANSPARENT, round: true },
+  { name: `logo-128.${VERSION}.png`, size: 128, coverage: 1, background: TRANSPARENT, round: true },
+];
 
 mkdirSync(outDir, { recursive: true });
 
-const ICONS = [
-  { file: 'icon-192.png', size: 192, maskable: false },
-  { file: 'icon-512.png', size: 512, maskable: false },
-  { file: 'icon-maskable-192.png', size: 192, maskable: true },
-  { file: 'icon-maskable-512.png', size: 512, maskable: true },
-  // iOS ignores the manifest and reads this one from a link tag. It also
-  // composites onto a white background, so it is drawn full-bleed like a
-  // maskable icon rather than with its own rounded corners on top of Apple's.
-  { file: 'apple-touch-icon.png', size: 180, maskable: true },
-];
-
-for (const { file, size, maskable } of ICONS) {
-  const png = encodePng(size, draw(size, { maskable }));
-  writeFileSync(path.join(outDir, file), png);
-  console.log(`  ${file}  ${size}×${size}  ${(png.length / 1024).toFixed(1)} kB`);
+// Anything from an earlier logo goes, or the directory accumulates one dead set
+// per revision and it stops being obvious which is live.
+for (const file of readdirSync(outDir)) {
+  if (!file.includes(VERSION)) unlinkSync(path.join(outDir, file));
 }
 
-console.log(`\n${ICONS.length} icon(s) written to public/icons.`);
+for (const output of OUTPUTS) {
+  const png = await icon(output.size, output);
+  writeFileSync(path.join(outDir, output.name), png);
+  console.log(`  ${output.name}  ${output.size}×${output.size}  ${(png.length / 1024).toFixed(1)} kB`);
+}
+
+// ---------------------------------------------------------------------------
+// The manifest, written here so its icon URLs cannot drift from the files
+// ---------------------------------------------------------------------------
+
+const manifest = {
+  id: '/',
+  name: 'انترنشونال',
+  short_name: 'انترنشونال',
+  description: 'أدوات الشباك ودفتر الأستاذ: التصريف والحوالات و USDT.',
+  lang: 'ar',
+  dir: 'rtl',
+  start_url: '/',
+  scope: '/',
+  display: 'standalone',
+  display_override: ['standalone', 'minimal-ui'],
+  orientation: 'portrait-primary',
+  background_color: '#ffffff',
+  theme_color: '#0b3b8c',
+  categories: ['finance', 'business'],
+  icons: [
+    { src: `/brand/icon-192.${VERSION}.png`, sizes: '192x192', type: 'image/png', purpose: 'any' },
+    { src: `/brand/icon-512.${VERSION}.png`, sizes: '512x512', type: 'image/png', purpose: 'any' },
+    {
+      src: `/brand/icon-maskable-192.${VERSION}.png`,
+      sizes: '192x192',
+      type: 'image/png',
+      purpose: 'maskable',
+    },
+    {
+      src: `/brand/icon-maskable-512.${VERSION}.png`,
+      sizes: '512x512',
+      type: 'image/png',
+      purpose: 'maskable',
+    },
+  ],
+  shortcuts: [
+    { name: 'ماكينة التصريف', url: '/counter/machine' },
+    { name: 'الحوالات', url: '/counter/remittance' },
+    { name: 'استلام USDT', url: '/counter/usdt' },
+  ],
+};
+
+writeFileSync(
+  path.join(root, 'public', 'manifest.webmanifest'),
+  `${JSON.stringify(manifest, null, 2)}\n`,
+);
+
+// And the paths the interface imports, so a component never spells one out.
+writeFileSync(
+  path.join(root, 'src', 'app', '_shell', 'brand.ts'),
+  `/**
+ * Generated by \`scripts/generate-icons.mjs\` — do not edit.
+ *
+ * The filenames carry a hash of \`img/logo.jpeg\`, so replacing the logo changes
+ * every URL and no browser or launcher can serve the previous one.
+ */
+
+export const BRAND_VERSION = '${VERSION}';
+
+export const BRAND = {
+  logo: '/brand/logo.${VERSION}.png',
+  logoSmall: '/brand/logo-128.${VERSION}.png',
+  favicon32: '/brand/favicon-32.${VERSION}.png',
+  favicon64: '/brand/favicon-64.${VERSION}.png',
+  appleTouchIcon: '/brand/apple-touch-icon.${VERSION}.png',
+} as const;
+`,
+);
+
+console.log(`\n${OUTPUTS.length} image(s) written to public/brand, plus the manifest. Version ${VERSION}.`);

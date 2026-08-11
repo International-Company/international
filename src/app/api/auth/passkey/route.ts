@@ -35,12 +35,12 @@ export const POST = route<z.infer<typeof bodySchema>>({
   rateLimit: { key: 'passkey', limit: 30, windowSeconds: 300 },
   handler: async ({ body, request, meta }) => {
     if (body.step === 'options') {
-      return passkeys.authenticationOptions(request.url);
+      return passkeys.authenticationOptions(request);
     }
 
     const result = await passkeys.verifyAuthentication(
       { challengeId: body.challengeId, response: body.response },
-      { ip: meta.ip, userAgent: meta.userAgent, requestUrl: request.url },
+      { ip: meta.ip, userAgent: meta.userAgent, request },
     );
 
     // The same cookie, with the same flags, as a password sign-in. Two ways in

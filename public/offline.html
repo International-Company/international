@@ -37,15 +37,16 @@
         max-width: 26rem;
         width: 100%;
       }
-      .mark {
-        width: 56px; height: 56px;
-        margin: 0 auto 1.25rem;
-        border-radius: 12px;
-        background: #1d4ed8;
-        display: grid;
-        place-items: center;
+      /* Typographic, not an image: this is the page that shows when nothing
+         can be fetched, so anything it had to download it could not have. */
+      .wordmark {
+        margin: 0 0 1.25rem;
+        font-size: 1.4rem;
+        font-weight: 700;
+        letter-spacing: .01em;
+        color: #0b3b8c;
       }
-      .mark svg { width: 34px; height: 34px; display: block; }
+      @media (prefers-color-scheme: dark) { .wordmark { color: #7ea6f0; } }
       h1 { font-size: 1.25rem; margin: 0 0 .5rem; font-weight: 650; }
       p { margin: 0; color: #6b7280; font-size: .95rem; }
       button {
@@ -65,12 +66,7 @@
   </head>
   <body>
     <main class="card">
-      <div class="mark" aria-hidden="true">
-        <svg viewBox="0 0 32 32" fill="none">
-          <path d="M8 11h16M8 16h11M8 21h16" stroke="#fff" stroke-width="2.5" stroke-linecap="round" />
-          <circle cx="23" cy="21" r="2.5" fill="#fff" />
-        </svg>
-      </div>
+      <p class="wordmark">انترنشونال</p>
       <h1>لا يوجد اتصال</h1>
       <p>
         الأرصدة والعمليات تُقرأ من الخادم لحظةً بلحظة، ولا يُعرض منها شيء محفوظ —

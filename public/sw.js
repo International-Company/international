@@ -28,11 +28,13 @@ const SHELL_CACHE = `shell-${VERSION}`;
 const OFFLINE_URL = '/offline.html';
 
 /** Only these prefixes are ever cached. All of them are content-addressed. */
-const IMMUTABLE = ['/_next/static/', '/icons/'];
+const IMMUTABLE = ['/_next/static/', '/brand/'];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(SHELL_CACHE).then((cache) => cache.addAll([OFFLINE_URL, '/favicon.svg'])),
+    // Only the offline notice. The brand images are hashed and change with the
+    // logo, so precaching them by name here would go stale the moment it did.
+    caches.open(SHELL_CACHE).then((cache) => cache.addAll([OFFLINE_URL])),
   );
 });
 

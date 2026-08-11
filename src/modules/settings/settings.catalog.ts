@@ -41,12 +41,14 @@ export const SETTING_CATEGORY_LABELS: Record<SettingCategory, { en: string; ar: 
 export const SETTINGS: SettingDefinition[] = [
   // --- Company -------------------------------------------------------------
   {
-    key: 'company.name.en', category: 'company', type: 'string', defaultValue: 'International Exchange Co.',
+    key: 'company.name.en', category: 'company', type: 'string',
+    defaultValue: 'International Financial Services & Jewellery Co.',
     labelEn: 'Company name (English)', labelAr: 'اسم الشركة (إنجليزي)',
     descriptionEn: 'Printed on receipts and reports', descriptionAr: 'يُطبع على الإيصالات والتقارير',
   },
   {
-    key: 'company.name.ar', category: 'company', type: 'string', defaultValue: 'شركة الصرافة الدولية',
+    key: 'company.name.ar', category: 'company', type: 'string',
+    defaultValue: 'شركة انترنشونال للخدمات المالية والمجوهرات',
     labelEn: 'Company name (Arabic)', labelAr: 'اسم الشركة (عربي)',
     descriptionEn: 'Printed on receipts and reports', descriptionAr: 'يُطبع على الإيصالات والتقارير',
   },
