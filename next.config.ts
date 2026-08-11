@@ -24,8 +24,32 @@ const nextConfig: NextConfig = {
           { key: 'X-DNS-Prefetch-Control', value: 'off' },
           {
             key: 'Permissions-Policy',
+            // `publickey-credentials-get` is left out of the deny list on
+            // purpose: it is what a passkey sign-in needs, and naming it here
+            // with an empty allowlist would switch fingerprint login off.
             value: 'camera=(), microphone=(), geolocation=(), payment=()',
           },
+        ],
+      },
+      {
+        /*
+         * The worker file must be revalidated on every load.
+         *
+         * Served with the default static caching it can sit in the browser for
+         * a day, so a correction to what the worker is allowed to cache would
+         * not reach the phones it was written for until the day after.
+         */
+        source: '/sw.js',
+        headers: [
+          { key: 'Cache-Control', value: 'no-cache, no-store, must-revalidate' },
+          { key: 'Service-Worker-Allowed', value: '/' },
+        ],
+      },
+      {
+        source: '/manifest.webmanifest',
+        headers: [
+          { key: 'Content-Type', value: 'application/manifest+json; charset=utf-8' },
+          { key: 'Cache-Control', value: 'public, max-age=3600' },
         ],
       },
     ];

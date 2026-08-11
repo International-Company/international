@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from 'next';
 import { IBM_Plex_Sans_Arabic, Inter } from 'next/font/google';
 import { DEFAULT_LOCALE, LOCALE_META } from '@/i18n/config';
 import { PreferenceScript } from './preference-script';
+import { ServiceWorker } from './service-worker';
 import './globals.css';
 
 /**
@@ -41,13 +42,37 @@ export const metadata: Metadata = {
   },
   description: 'Enterprise exchange and treasury operations platform',
   robots: { index: false, follow: false },
-  icons: { icon: '/favicon.svg' },
+  manifest: '/manifest.webmanifest',
+  icons: {
+    icon: '/favicon.svg',
+    // iOS ignores the manifest entirely and reads this link instead.
+    apple: '/icons/apple-touch-icon.png',
+  },
+  /*
+   * Installed on a phone, this is a standalone application rather than a page
+   * in a browser: no address bar, and its own entry in the task switcher. The
+   * title is what shows under the icon, so it is the short Arabic name and not
+   * the long bilingual one above.
+   */
+  appleWebApp: {
+    capable: true,
+    title: 'انترنشونال',
+    statusBarStyle: 'default',
+  },
 };
 
 export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
+  /*
+   * Zoom is left enabled. An installed counter tool is used by people reading
+   * amounts, and locking the scale to save a pinch is the kind of tidiness that
+   * costs somebody their ability to read the figure they are about to pay out.
+   */
   maximumScale: 5,
+  // Draws under the notch and the home indicator; the shell already pads for
+  // the safe area, so the alternative is a letterboxed strip on every iPhone.
+  viewportFit: 'cover',
   themeColor: [
     { media: '(prefers-color-scheme: light)', color: '#f7f8fa' },
     { media: '(prefers-color-scheme: dark)', color: '#111827' },
@@ -66,7 +91,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <head>
         <PreferenceScript />
       </head>
-      <body className={`${latin.variable} ${arabic.variable} antialiased`}>{children}</body>
+      <body className={`${latin.variable} ${arabic.variable} antialiased`}>
+        {children}
+        <ServiceWorker />
+      </body>
     </html>
   );
 }

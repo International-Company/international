@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>لا يوجد اتصال · انترنشونال</title>
+    <!--
+      Deliberately self-contained: no stylesheet, no font, no script. This is the
+      page that shows when the network is gone, so anything it needs to fetch is
+      something it cannot have.
+    -->
+    <style>
+      :root { color-scheme: light dark; }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        min-height: 100dvh;
+        display: grid;
+        place-items: center;
+        padding: 2rem calc(1.5rem + env(safe-area-inset-right)) 2rem calc(1.5rem + env(safe-area-inset-left));
+        background: #f7f8fa;
+        color: #111827;
+        font-family: "Segoe UI", "Noto Sans Arabic", Tahoma, system-ui, sans-serif;
+        line-height: 1.9;
+        text-align: center;
+      }
+      @media (prefers-color-scheme: dark) {
+        body { background: #111827; color: #e5e7eb; }
+        .card { background: #1f2937; border-color: #374151; }
+        p { color: #9ca3af; }
+      }
+      .card {
+        background: #fff;
+        border: 1px solid #e5e7eb;
+        border-radius: 16px;
+        padding: 2.5rem 1.75rem;
+        max-width: 26rem;
+        width: 100%;
+      }
+      .mark {
+        width: 56px; height: 56px;
+        margin: 0 auto 1.25rem;
+        border-radius: 12px;
+        background: #1d4ed8;
+        display: grid;
+        place-items: center;
+      }
+      .mark svg { width: 34px; height: 34px; display: block; }
+      h1 { font-size: 1.25rem; margin: 0 0 .5rem; font-weight: 650; }
+      p { margin: 0; color: #6b7280; font-size: .95rem; }
+      button {
+        margin-top: 1.75rem;
+        width: 100%;
+        min-height: 48px;
+        border: 0;
+        border-radius: 12px;
+        background: #1d4ed8;
+        color: #fff;
+        font: inherit;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      button:active { transform: scale(.98); }
+    </style>
+  </head>
+  <body>
+    <main class="card">
+      <div class="mark" aria-hidden="true">
+        <svg viewBox="0 0 32 32" fill="none">
+          <path d="M8 11h16M8 16h11M8 21h16" stroke="#fff" stroke-width="2.5" stroke-linecap="round" />
+          <circle cx="23" cy="21" r="2.5" fill="#fff" />
+        </svg>
+      </div>
+      <h1>لا يوجد اتصال</h1>
+      <p>
+        الأرصدة والعمليات تُقرأ من الخادم لحظةً بلحظة، ولا يُعرض منها شيء محفوظ —
+        رقمٌ قديم عن المال أسوأ من لا رقم.
+      </p>
+      <button type="button" onclick="location.reload()">إعادة المحاولة</button>
+    </main>
+  </body>
+</html>
