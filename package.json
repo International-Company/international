@@ -18,6 +18,7 @@
     "db:seed": "tsx prisma/seed.ts",
     "db:reset": "npm run db:prepare && prisma db push --force-reset && npm run db:seed",
     "db:clear-operational": "node scripts/clear-operational-data.mjs",
+    "reset-password": "tsx --conditions=react-server scripts/reset-password.mts",
     "setup": "npm run db:prepare && prisma generate && prisma db push && npm run db:seed",
     "test": "tsx --conditions=react-server --test \"tests/*.test.ts\""
   },

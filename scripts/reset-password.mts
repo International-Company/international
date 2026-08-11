@@ -41,12 +41,47 @@ if (!username) {
   process.exit(1);
 }
 
+/**
+ * Which database this is about to change.
+ *
+ * Printed before anything happens, and not as decoration. The usual way this
+ * script fails to help is by working perfectly — on the wrong database. Someone
+ * locked out of the deployed system runs it on their laptop, resets the
+ * password in `dev.db`, and reports that nothing changed. Seeing "local SQLite
+ * file" where they expected a hostname is what makes that visible.
+ *
+ * Credentials are never printed: a host and a database name are enough to tell
+ * a local file from a live server.
+ */
+function describeDatabase(): string {
+  const url = process.env.DATABASE_URL ?? '';
+  if (!url) return 'no DATABASE_URL is set';
+  if (url.startsWith('file:')) return `local SQLite file — ${url.slice('file:'.length)}`;
+
+  try {
+    const parsed = new URL(url);
+    return `${parsed.protocol.replace(':', '')} — ${parsed.hostname}${parsed.pathname}`;
+  } catch {
+    return 'the configured database';
+  }
+}
+
+console.log(`\n  Database: ${describeDatabase()}\n`);
+
 const user = await prisma.user.findFirst({
   where: { OR: [{ username }, { email: username }] },
 });
 
 if (!user) {
-  console.error(`\n  No user "${username}".\n`);
+  // Naming who *is* in there turns "it did not work" into "wrong database" or
+  // "wrong username", which are fixed in completely different ways.
+  const all = await prisma.user.findMany({ select: { username: true }, take: 20 });
+  console.error(`  No user "${username}" in that database.`);
+  console.error(
+    all.length
+      ? `  It holds: ${all.map((account) => account.username).join(', ')}\n`
+      : '  It holds no users at all — so this is not the database the application uses.\n',
+  );
   await prisma.$disconnect();
   process.exit(1);
 }
