@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from 'next';
-import { IBM_Plex_Sans_Arabic, Inter } from 'next/font/google';
+import localFont from 'next/font/local';
 import { DEFAULT_LOCALE, LOCALE_META } from '@/i18n/config';
 import { PreferenceScript } from './preference-script';
 import { ServiceWorker } from './service-worker';
@@ -22,18 +22,47 @@ import './globals.css';
  * `(app)/layout.tsx`, which is dynamic and passes it into the providers.
  */
 
-const latin = Inter({
-  subsets: ['latin'],
+/*
+ * The fonts are in the repository, not fetched from Google at build time.
+ *
+ * `next/font/google` downloads them while compiling, which makes every
+ * deployment depend on a third party being reachable from the build machine —
+ * and one afternoon it was not, so a build that had nothing to do with fonts
+ * failed and the office could not deploy. A financial system should not stop
+ * shipping because a font server had a bad day.
+ *
+ * The files are the same faces, taken from their npm packages, trimmed to the
+ * weights and subsets actually used: Latin for Inter, Arabic and Latin for
+ * Plex. 368 kB in the repository buys a build that needs nothing but itself.
+ */
+const latin = localFont({
+  src: [
+    { path: './fonts/inter-400.woff2', weight: '400', style: 'normal' },
+    { path: './fonts/inter-500.woff2', weight: '500', style: 'normal' },
+    { path: './fonts/inter-600.woff2', weight: '600', style: 'normal' },
+    { path: './fonts/inter-700.woff2', weight: '700', style: 'normal' },
+  ],
   variable: '--font-latin',
   display: 'swap',
-  weight: ['400', '500', '600', '700'],
+  // Named so the fallback metrics match, which is what keeps text from
+  // shifting as the real face arrives.
+  fallback: ['system-ui', 'Segoe UI', 'Arial', 'sans-serif'],
 });
 
-const arabic = IBM_Plex_Sans_Arabic({
-  subsets: ['arabic', 'latin'],
+const arabic = localFont({
+  src: [
+    { path: './fonts/plex-arabic-400.woff2', weight: '400', style: 'normal' },
+    { path: './fonts/plex-latin-400.woff2', weight: '400', style: 'normal' },
+    { path: './fonts/plex-arabic-500.woff2', weight: '500', style: 'normal' },
+    { path: './fonts/plex-latin-500.woff2', weight: '500', style: 'normal' },
+    { path: './fonts/plex-arabic-600.woff2', weight: '600', style: 'normal' },
+    { path: './fonts/plex-latin-600.woff2', weight: '600', style: 'normal' },
+    { path: './fonts/plex-arabic-700.woff2', weight: '700', style: 'normal' },
+    { path: './fonts/plex-latin-700.woff2', weight: '700', style: 'normal' },
+  ],
   variable: '--font-arabic',
   display: 'swap',
-  weight: ['400', '500', '600', '700'],
+  fallback: ['Segoe UI', 'Tahoma', 'system-ui', 'sans-serif'],
 });
 
 export const metadata: Metadata = {
