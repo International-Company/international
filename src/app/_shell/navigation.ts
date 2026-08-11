@@ -154,6 +154,12 @@ export const NAVIGATION: NavSection[] = [
         shortcut: 'g l',
       },
       {
+        href: '/treasury/differences',
+        labelKey: 'nav.differences',
+        icon: 'handover',
+        permissions: ['ledger.view'],
+      },
+      {
         href: '/manage/day',
         labelKey: 'nav.day',
         icon: 'day',

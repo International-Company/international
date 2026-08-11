@@ -24,7 +24,13 @@
  * component cannot import the drawer service, and both the screens and the
  * server have to agree on this list.
  */
-export const DRAWER_KINDS = ['CASH', 'BROKER', 'CORRESPONDENT'] as const;
+export const DRAWER_KINDS = [
+  'CASH',
+  'BROKER',
+  'CORRESPONDENT',
+  'DIFFERENCE',
+  'RECEIVABLE',
+] as const;
 export type DrawerKind = (typeof DRAWER_KINDS)[number];
 
 export const FUNDING_CATEGORIES = [

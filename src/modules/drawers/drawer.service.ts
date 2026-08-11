@@ -79,12 +79,18 @@ export interface Actor {
 /**
  * Why a drawer changed.
  *
- * `HANDOVER` is money crossing between the treasury and a teller. It is not
- * funding and must never be counted as such: funding is money entering or
- * leaving the company, while a handover moves it from one pocket of the same
- * company to another and changes what the office is worth by nothing.
+ * `HANDOVER` is money crossing between the treasury and a teller, and
+ * `DIFFERENCE` is a count that did not match being parked until somebody rules
+ * on it. Neither is funding and neither may be counted as such: funding is
+ * money entering or leaving the company, while these move it between pockets of
+ * the same company and change what the office is worth by nothing.
  */
-export type MovementReason = 'TRANSACTION' | 'FUNDING' | 'REVERSAL' | 'HANDOVER';
+export type MovementReason =
+  | 'TRANSACTION'
+  | 'FUNDING'
+  | 'REVERSAL'
+  | 'HANDOVER'
+  | 'DIFFERENCE';
 
 /*
  * The funding categories live in `./funding-categories` and are re-exported
@@ -199,12 +205,65 @@ export async function canPay(
  * the value the increment actually produced, which is the only value that was
  * ever true.
  */
+/**
+ * Opens a teller's drawer for a currency and kind, returning null for anyone
+ * else. Idempotent: two movements in the same transaction find the first one.
+ */
+export async function ensureTellerDrawer(
+  ownerKey: string,
+  currency: string,
+  kind: DrawerKind,
+  tx: DbClient,
+) {
+  const tellerId = ownerTellerId(ownerKey);
+  if (!tellerId) return null;
+
+  const [teller, currencyRow] = await Promise.all([
+    tx.user.findUniqueOrThrow({ where: { id: tellerId } }),
+    tx.currency.findUniqueOrThrow({ where: { code: currency } }),
+  ]);
+
+  return tx.drawer.create({
+    data: {
+      ownerKey,
+      tellerId,
+      currencyCode: currency,
+      kind,
+      nameEn: `${teller.fullNameEn} — ${currencyRow.nameEn}`,
+      nameAr: `${teller.fullNameAr} — ${currencyRow.nameAr}`,
+      /*
+       * A teller's drawer never runs short: it holds what was handed to them,
+       * and the server refuses to pay out more than that. The one exception is
+       * what they owe, which only ever grows by a manager's decision.
+       */
+      allowNegative: false,
+      sortOrder:
+        currencyRow.sortOrder * 10 +
+        (kind === 'BROKER' ? 1 : kind === 'CORRESPONDENT' ? 2 : kind === 'RECEIVABLE' ? 4 : 0),
+    },
+  });
+}
+
 async function applyMovement(tx: Tx, movement: Movement, actor: Actor): Promise<bigint> {
   const kind = movement.kind ?? 'CASH';
   const owner = movement.owner ?? TREASURY;
-  const drawer = await tx.drawer.findUnique({
-    where: { ownerKey_currencyCode_kind: { ownerKey: owner, currencyCode: movement.currency, kind } },
-  });
+  const drawer =
+    (await tx.drawer.findUnique({
+      where: { ownerKey_currencyCode_kind: { ownerKey: owner, currencyCode: movement.currency, kind } },
+    })) ??
+    /*
+     * A teller's drawer is opened the moment they hold something in it. It is
+     * not a configured thing the way the treasury's is — a teller who buys
+     * dollars across the counter needs somewhere to put them, and refusing the
+     * trade because nobody thought to create the container first would be
+     * refusing it for a reason the teller cannot act on. It ends the shift at
+     * zero like every other one.
+     *
+     * The treasury's drawers are never conjured. A movement against one that
+     * does not exist is a misconfiguration, and should say so.
+     */
+    (await ensureTellerDrawer(owner, movement.currency, kind, tx));
+
   if (!drawer) throw errors.notFound('Drawer', `${movement.currency} ${kind}`);
   if (!drawer.isActive) {
     throw errors.precondition(

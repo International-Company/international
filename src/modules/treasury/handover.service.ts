@@ -7,6 +7,7 @@ import { nextReference } from '@/modules/sequence/reference';
 import { currentOpenDay } from '@/modules/exchange/business-day.service';
 import * as drawers from '@/modules/drawers/drawer.service';
 import * as audit from '@/modules/audit/audit.service';
+import * as shifts from './shift.service';
 
 /**
  * التسليم — money crossing between the treasury and a teller.
@@ -209,26 +210,7 @@ async function ensureTellerDrawer(
   });
   if (existing) return;
 
-  const [teller, currencyRow] = await Promise.all([
-    tx.user.findUniqueOrThrow({ where: { id: tellerId } }),
-    tx.currency.findUniqueOrThrow({ where: { code: currency } }),
-  ]);
-
-  await tx.drawer.create({
-    data: {
-      ownerKey: owner,
-      tellerId,
-      currencyCode: currency,
-      kind,
-      nameEn: `${teller.fullNameEn} — ${currencyRow.nameEn}`,
-      nameAr: `${teller.fullNameAr} — ${currencyRow.nameAr}`,
-      // A teller's drawer never runs short: it holds what was handed to them,
-      // and the server refuses to pay out more than that.
-      allowNegative: false,
-      sortOrder: currencyRow.sortOrder * 10 + (kind === 'BROKER' ? 1 : kind === 'CORRESPONDENT' ? 2 : 0),
-    },
-  });
-
+  await drawers.ensureTellerDrawer(owner, currency, kind as drawers.DrawerKind, tx);
   log.info('Opened a teller drawer', { tellerId, currency, kind });
 }
 
@@ -342,8 +324,24 @@ export async function confirm(
     }
 
     /*
-     * Agreed. Every line moves both balances, and all of them in this one
-     * transaction — so the money is in exactly one place whatever happens next.
+     * Agreed between the two of them. Now the books get their turn.
+     *
+     * A closing handover reconciles the teller to what was counted *before* the
+     * money moves — see `reconcileForClosing`, and note that the order is what
+     * makes a surplus possible at all.
+     */
+    if (handover.direction === 'TO_TREASURY') {
+      await shifts.reconcileForClosing(
+        { ...handover, businessDayId: handover.businessDayId },
+        new Map(settled.map(({ line, amount }) => [`${line.currencyCode}:${line.kind}`, amount])),
+        actor,
+        tx,
+      );
+    }
+
+    /*
+     * Every line moves both balances, and all of them in this one transaction —
+     * so the money is in exactly one place whatever happens next.
      */
     const treasury = drawers.TREASURY;
     const teller = drawers.tellerOwner(handover.tellerId);
@@ -380,6 +378,20 @@ export async function confirm(
       where: { id },
       data: { status: 'CONFIRMED', confirmedById: actor.id, confirmedAt: new Date() },
     });
+
+    /*
+     * Taking a float starts the shift and giving one back ends it. There is no
+     * separate button for either, because there is no separate act: a teller
+     * who has the bag is working, and one who has handed it back is not.
+     */
+    if (handover.direction === 'TO_TELLER') {
+      await shifts.openFromHandover(
+        { ...handover, businessDayId: handover.businessDayId },
+        tx,
+      );
+    } else {
+      await shifts.closeFromHandover(handover, actor, tx);
+    }
 
     await audit.record(
       {

@@ -88,6 +88,56 @@ jobs:
       - name: Rehearse the upgrade
         run: node scripts/ci-upgrade-rehearsal.mjs
 
+  money:
+    runs-on: ubuntu-latest
+    name: a shift, end to end
+
+    # The same real PostgreSQL, for a different reason: this drives a whole
+    # working day through the services — a float handed out, a trade, an evening
+    # count that comes up short, and each of the three ways a manager can settle
+    # it. What it guards is the property the whole design rests on, that a
+    # teller's drawer ends at zero and the office is worth the same afterwards.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: ifms
+          POSTGRES_PASSWORD: ifms
+          POSTGRES_DB: ifms
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ifms"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://ifms:ifms@127.0.0.1:5432/ifms
+      AUTH_SECRET: continuous-integration-secret-value-not-a-real-one
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci --no-audit --no-fund
+
+      - name: Generate Prisma client
+        run: npm run db:generate
+
+      - name: Create the schema
+        run: npx prisma db push --skip-generate
+
+      - name: Seed it
+        run: npx tsx prisma/seed.ts
+
+      - name: Run a shift end to end
+        run: npm run verify:shift
+
   image:
     runs-on: ubuntu-latest
     name: production image

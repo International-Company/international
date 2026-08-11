@@ -3,6 +3,7 @@ import { prisma, type DbClient } from '@/core/db/prisma';
 import { errors } from '@/core/errors/app-error';
 import { divideRounded, MONEY_FACTOR, toDecimalString } from '@/core/money/money';
 import * as drawers from '@/modules/drawers/drawer.service';
+import { cashOwnerFor } from '@/modules/treasury/shift.service';
 import * as settings from '@/modules/settings/settings.service';
 import {
   quoteExchange,
@@ -187,6 +188,12 @@ export async function quote(
     /** Which channel a reverse-priced amount is quoted through. */
     reverseThrough?: RateChannel;
     branchId: string;
+    /**
+     * Who is asking. A teller on shift must be shown what *their* drawer holds,
+     * not the office's — quoting against the treasury would offer them money
+     * they cannot hand over.
+     */
+    actorId?: string;
   },
   db: DbClient = prisma,
 ): Promise<MachineQuote> {
@@ -221,10 +228,12 @@ export async function quote(
       )
     ).fromAmount;
 
+  const owner = input.actorId ? await cashOwnerFor(input.actorId, db) : drawers.TREASURY;
+
   const [cash, broker, cashHeld, brokerHeld, maxAmount, requireCustomerAbove] = await Promise.all([
     priceOrNull(input.fromCurrency, input.toCurrency, fromAmount, 'CASH', db),
     priceOrNull(input.fromCurrency, input.toCurrency, fromAmount, 'BROKER', db),
-    drawers.canPay(input.toCurrency, 0n, 'CASH', db),
+    drawers.canPay(input.toCurrency, 0n, 'CASH', db, owner),
     drawers.canPay(input.toCurrency, 0n, 'BROKER', db),
     settings.getMoney('machine.maxAmount', db),
     settings.getMoney('machine.requireCustomerAbove', db),
@@ -361,12 +370,21 @@ export async function record(input: MachineRecordInput, actor: Actor, db: DbClie
    * means the teller is told which balance is short and by how much, rather
    * than reading a posting error after quoting a figure aloud.
    */
+  const cashOwner = await cashOwnerFor(actor.id, db);
+
   for (const [kind, amount] of [
     ['CASH', legs.cash.to],
     ['BROKER', legs.broker.to],
   ] as const) {
     if (amount <= 0n) continue;
-    const held = await drawers.canPay(input.toCurrency, amount, kind, db);
+    // The teller pays from their own drawer; the broker balance is the office's.
+    const held = await drawers.canPay(
+      input.toCurrency,
+      amount,
+      kind,
+      db,
+      kind === 'CASH' ? cashOwner : drawers.TREASURY,
+    );
     if (!held.ok) {
       throw errors.insufficientFunds(
         kind === 'BROKER'

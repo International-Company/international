@@ -21,6 +21,7 @@ export const GET = route<unknown, z.infer<typeof querySchema>>({
   querySchema,
   handler: async ({ query, actor }) => {
     const priced = await withdrawals.quote({
+      actorId: actor.id,
       payCurrency: query.currency.toUpperCase(),
       payAmount: parseMoney(query.pay),
     });

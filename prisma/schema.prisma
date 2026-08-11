@@ -46,6 +46,7 @@ model Branch {
   customers       Customer[]
   businessDays    BusinessDay[]
   handovers       Handover[]
+  shifts          Shift[]
   depositRequests UsdtDepositRequest[]
 
   @@map("branches")
@@ -106,6 +107,9 @@ model User {
   passkeys        Passkey[]
   heldDrawers     Drawer[]                @relation("DrawerHeldBy")
   handovers       Handover[]              @relation("HandoverTeller")
+  shifts          Shift[]                 @relation("ShiftTeller")
+  discrepancies   Discrepancy[]           @relation("DiscrepancyTeller")
+  resolvedDiffs   Discrepancy[]           @relation("DiscrepancyResolvedBy")
   handoversMade   Handover[]              @relation("HandoverCreatedBy")
   handoversTaken  Handover[]              @relation("HandoverConfirmedBy")
   passwordHistory PasswordHistory[]
@@ -284,6 +288,95 @@ model WebAuthnChallenge {
 /// confirms. Nothing moves until they agree — a count that disagrees leaves the
 /// document in dispute with both balances untouched, which is the only state
 /// from which the truth can still be established.
+/// A teller's stretch of work, from the float they took to the one they gave back.
+///
+/// Opened by confirming a handover into the teller, closed by confirming one
+/// out of them. Any number in a day: two tellers passing the counter between
+/// them, or one person working a morning and an evening.
+///
+/// Its whole purpose is that the cash drawer ends at zero. That makes the count
+/// absolute — what should be there is the float plus what the teller traded,
+/// what is there is what was counted, and the gap belongs to nobody yet.
+model Shift {
+  id        String @id @default(cuid())
+  reference String @unique // SHF-20260811-00001
+
+  tellerId String
+  teller   User   @relation("ShiftTeller", fields: [tellerId], references: [id])
+
+  branchId String
+  branch   Branch @relation(fields: [branchId], references: [id])
+
+  businessDayId String?
+  businessDay   BusinessDay? @relation(fields: [businessDayId], references: [id], onDelete: SetNull)
+
+  /// OPEN | CLOSED
+  status String @default("OPEN")
+
+  openingHandoverId String   @unique
+  openingHandover   Handover @relation("ShiftOpening", fields: [openingHandoverId], references: [id])
+
+  closingHandoverId String?   @unique
+  closingHandover   Handover? @relation("ShiftClosing", fields: [closingHandoverId], references: [id], onDelete: SetNull)
+
+  openedAt DateTime  @default(now())
+  closedAt DateTime?
+
+  discrepancies Discrepancy[]
+
+  @@index([tellerId, status])
+  @@index([businessDayId])
+  @@map("shifts")
+}
+
+/// A gap between what the books said a teller held and what was counted.
+///
+/// Suspended, deliberately. At the moment it is found it belongs to nobody: the
+/// cameras and the day's operations have not been reviewed, and guessing is
+/// worse than waiting. So it sits in the differences balance, where it changes
+/// what the office is worth by nothing — the cash is gone and this stands in
+/// its place — until somebody decides whose it was.
+///
+/// The loss, if it is a loss, lands on the day of that decision rather than the
+/// day of the discovery. Which is why the ledger reports how old the oldest
+/// open one is: a suspense account nobody looks at is where losses go quiet.
+model Discrepancy {
+  id String @id @default(cuid())
+
+  shiftId String
+  shift   Shift  @relation(fields: [shiftId], references: [id], onDelete: Cascade)
+
+  tellerId String
+  teller   User   @relation("DiscrepancyTeller", fields: [tellerId], references: [id])
+
+  businessDayId String?
+  businessDay   BusinessDay? @relation(fields: [businessDayId], references: [id], onDelete: SetNull)
+
+  currencyCode String
+  currency     Currency @relation(fields: [currencyCode], references: [code])
+
+  /// Expected minus counted. Positive is a shortage; negative is a surplus.
+  amount BigInt
+
+  /// OPEN | RESOLVED
+  status String @default("OPEN")
+
+  /// MISCOUNT — the money turned up and the count was wrong.
+  /// CHARGED_TO_TELLER — it becomes a debt owed by them.
+  /// COMPANY_LOSS — the office absorbs it, and the result takes it that day.
+  resolution     String?
+  resolutionNote String?
+  resolvedById   String?
+  resolvedBy     User?     @relation("DiscrepancyResolvedBy", fields: [resolvedById], references: [id], onDelete: SetNull)
+  resolvedAt     DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([status, createdAt])
+  @@index([tellerId])
+  @@map("discrepancies")
+}
+
 model Handover {
   id        String @id @default(cuid())
   reference String @unique // HND-20260811-00001
@@ -324,7 +417,9 @@ model Handover {
   cancelReason String?
   note         String?
 
-  lines HandoverLine[]
+  lines       HandoverLine[]
+  openedShift Shift?         @relation("ShiftOpening")
+  closedShift Shift?         @relation("ShiftClosing")
 
   @@index([tellerId, status])
   @@index([status, createdAt])
@@ -424,11 +519,12 @@ model Currency {
   isBase    Boolean @default(false)
   sortOrder Int     @default(0)
 
-  baseRates   ExchangeRate[] @relation("RateBase")
-  quoteRates  ExchangeRate[] @relation("RateQuote")
+  baseRates     ExchangeRate[] @relation("RateBase")
+  quoteRates    ExchangeRate[] @relation("RateQuote")
   /// One per kind: the till, and the branch's account at a bank.
-  drawers     Drawer[]
-  cutoffRates CutoffRate[]
+  drawers       Drawer[]
+  cutoffRates   CutoffRate[]
+  discrepancies Discrepancy[]
 
   @@map("currencies")
 }
@@ -908,10 +1004,12 @@ model BusinessDay {
 
   notes String?
 
-  transactions Transaction[]
-  positions    DayPosition[]
-  movements    DrawerMovement[]
-  handovers    Handover[]
+  transactions  Transaction[]
+  positions     DayPosition[]
+  movements     DrawerMovement[]
+  handovers     Handover[]
+  shifts        Shift[]
+  discrepancies Discrepancy[]
 
   @@unique([branchId, date])
   @@index([status])

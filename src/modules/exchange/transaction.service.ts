@@ -10,6 +10,7 @@ import { nextReference } from '@/modules/sequence/reference';
 import * as audit from '@/modules/audit/audit.service';
 import * as drawers from '@/modules/drawers/drawer.service';
 import { requireOpenDay } from './business-day.service';
+import { cashOwnerFor } from '@/modules/treasury/shift.service';
 import {
   TRANSACTION_TYPE_META,
   balancesFor,
@@ -231,6 +232,13 @@ export async function record(
      * the till and the broker at once is two, and the account is carried on the
      * broker movement so his statement can be checked line by line.
      */
+    /*
+     * Whose cash this is. A teller on shift trades out of the drawer they
+     * counted this morning and will hand back tonight; anyone else out of the
+     * treasury. Resolved once, here, so both sides of the transaction agree.
+     */
+    const cashOwner = await cashOwnerFor(actor.id, tx);
+
     const sideLegs = (
       side: BalanceSide,
       currency: string,
@@ -246,10 +254,15 @@ export async function record(
         transactionId: row.id,
         businessDayId: day.id,
       };
-      if (side) return [{ ...common, kind: side, amount: total }];
+      // The correspondent is the office's account, never a teller's.
+      if (side) return [{ ...common, kind: side, amount: total, owner: side === 'CASH' ? cashOwner : undefined }];
 
       return [
-        ...(legs.cash > 0n ? [{ ...common, kind: 'CASH' as const, amount: legs.cash }] : []),
+        ...(legs.cash > 0n
+          ? [{ ...common, kind: 'CASH' as const, amount: legs.cash, owner: cashOwner }]
+          : []),
+        // The broker's balance belongs to the office; a teller instructing a
+        // transfer draws on the company's claim, not on their own drawer.
         ...(legs.broker > 0n
           ? [{ ...common, kind: 'BROKER' as const, amount: legs.broker, account: account ?? null }]
           : []),

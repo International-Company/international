@@ -5,6 +5,7 @@ import { toDecimalString, MONEY_FACTOR, divideRounded } from '@/core/money/money
 import { quoteExchange, type Quote, type RateChannel } from '@/modules/exchange/rates.service';
 import { transferChannels } from '@/modules/exchange/machine.service';
 import * as drawers from '@/modules/drawers/drawer.service';
+import { cashOwnerFor } from '@/modules/treasury/shift.service';
 import * as transactions from '@/modules/exchange/transaction.service';
 import type { Actor } from '@/modules/exchange/transaction.service';
 import * as settings from '@/modules/settings/settings.service';
@@ -56,7 +57,7 @@ export interface WithdrawalQuote {
  * answers and price a split at rates that were never simultaneously true.
  */
 export async function quote(
-  input: { payCurrency: string; payAmount: bigint },
+  input: { payCurrency: string; payAmount: bigint; actorId?: string },
   db: DbClient = prisma,
 ): Promise<WithdrawalQuote> {
   if (input.payAmount <= 0n) {
@@ -73,10 +74,13 @@ export async function quote(
     }
   };
 
+  // A teller is shown the USDT allocated to them, never the wallet's total.
+  const owner = input.actorId ? await cashOwnerFor(input.actorId, db) : drawers.TREASURY;
+
   const [cash, broker, held] = await Promise.all([
     price('CASH'),
     price('BROKER'),
-    drawers.canPay(TOKEN, 0n, 'CASH', db),
+    drawers.canPay(TOKEN, 0n, 'CASH', db, owner),
   ]);
 
   return { payCurrency: input.payCurrency, cash, broker, availableUsdt: held.balance };
@@ -234,7 +238,7 @@ export async function record(input: RecordInput, actor: Actor, db: DbClient = pr
    * branch is short and by how much, rather than reading a posting error after
    * naming a figure aloud.
    */
-  const held = await drawers.canPay(TOKEN, total, 'CASH', db);
+  const held = await drawers.canPay(TOKEN, total, 'CASH', db, await cashOwnerFor(actor.id, db));
   if (!held.ok) {
     throw errors.insufficientFunds(
       `The ${TOKEN} balance`,

@@ -9,7 +9,8 @@ import { normalizeDigits } from '@/core/money/money';
 import { Alert, Badge, Button, Card, CardBody, CardHeader, EmptyState } from '@/ui/primitives';
 import { ConfirmDialog, Dialog, useToast } from '@/ui/overlay';
 import { Field, Input, Select } from '@/ui/form';
-import { DateText } from '@/ui/display';
+import { DateText, Money } from '@/ui/display';
+import type { TranslationKey } from '@/i18n/types';
 
 /**
  * التسليم — one screen for both sides of it.
@@ -192,6 +193,9 @@ export function HandoversView({
 
   return (
     <div className="space-y-4">
+      {/* ============ What I am holding ============ */}
+      {!isTreasury && <MyShift t={t} />}
+
       {/* ============ Waiting on me ============ */}
       {awaiting.length > 0 ? (
         awaiting.map((handover) => (
@@ -483,4 +487,68 @@ function format(scaled: string, decimals: number): string {
   const fraction = digits.slice(-8).slice(0, decimals);
   const text = decimals > 0 ? `${grouped}.${fraction}` : grouped;
   return negative ? `-${text}` : text;
+}
+
+/**
+ * The teller's own drawer, and the shift it belongs to.
+ *
+ * Shown only to the teller, because it is the only balance they act on: every
+ * note they hand a customer comes out of this, and tonight it has to be empty.
+ * The treasury has its own screen for its own money.
+ */
+function MyShift({ t }: { t: (key: TranslationKey, params?: Record<string, string | number>) => string }) {
+  const [state, setState] = useState<{
+    shift: { reference: string; openedAt: string } | null;
+    holdings: { currency: string; kind: string; decimals: number; amount: string }[];
+  } | null>(null);
+
+  useEffect(() => {
+    void api
+      .get<NonNullable<typeof state>>('/api/treasury/shift')
+      .then(setState)
+      .catch(() => setState(null));
+  }, []);
+
+  if (!state) return null;
+
+  if (!state.shift) {
+    return (
+      <Alert tone="neutral" title={t('handover.noShift')}>
+        {t('handover.noShiftHint')}
+      </Alert>
+    );
+  }
+
+  // Cash only. A teller instructing a bank transfer draws on the office's claim,
+  // which is not theirs to count.
+  const cash = state.holdings.filter((row) => row.kind === 'CASH');
+  const anything = cash.some((row) => BigInt(row.amount) !== 0n);
+
+  return (
+    <Card>
+      <CardHeader
+        title={`${t('handover.myShift')} — ${state.shift.reference}`}
+        description={t('handover.myShiftHint')}
+      />
+      <CardBody>
+        {anything ? (
+          <div className="flex flex-wrap gap-x-6 gap-y-2">
+            {cash
+              .filter((row) => BigInt(row.amount) !== 0n)
+              .map((row) => (
+                <Money
+                  key={row.currency}
+                  value={row.amount}
+                  currency={row.currency}
+                  decimals={row.decimals}
+                  className="text-base font-semibold"
+                />
+              ))}
+          </div>
+        ) : (
+          <p className="text-sm text-content-secondary">{t('handover.emptyDrawer')}</p>
+        )}
+      </CardBody>
+    </Card>
+  );
 }

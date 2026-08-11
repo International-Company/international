@@ -34,6 +34,7 @@ export const GET = route<unknown, z.infer<typeof querySchema>>({
     }
 
     const priced = await machine.quote({
+      actorId: actor.id,
       fromCurrency: query.from.toUpperCase(),
       toCurrency: query.to.toUpperCase(),
       fromAmount: query.pay !== undefined ? parseMoney(query.pay) : undefined,
