@@ -1,8 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { AlertTriangle, LogIn } from 'lucide-react';
+import { AlertTriangle, Fingerprint, LogIn } from 'lucide-react';
 import { useLocale } from '@/i18n/provider';
 import { api, ApiError } from '@/lib/api-client';
 import { Alert, Button } from '@/ui/primitives';
@@ -21,6 +21,69 @@ export function LoginForm() {
   const [password, setPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  /*
+   * Whether this device can do it at all.
+   *
+   * Asked of the browser rather than assumed: a desktop with no sensor, an
+   * older phone, or an insecure origin all answer no, and offering a button
+   * that opens nothing is worse than not offering one.
+   */
+  const [biometricReady, setBiometricReady] = useState(false);
+  const [biometricBusy, setBiometricBusy] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const { platformAuthenticatorIsAvailable } = await import('@simplewebauthn/browser');
+        const available = await platformAuthenticatorIsAvailable();
+        if (!cancelled) setBiometricReady(available);
+      } catch {
+        if (!cancelled) setBiometricReady(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const signInWithBiometrics = useCallback(async () => {
+    setError(null);
+    setBiometricBusy(true);
+    try {
+      const { startAuthentication } = await import('@simplewebauthn/browser');
+
+      const { challengeId, options } = await api.post<{ challengeId: string; options: never }>(
+        '/api/auth/passkey',
+        { step: 'options' },
+      );
+
+      const response = await startAuthentication({ optionsJSON: options });
+
+      const result = await api.post<LoginResponse>('/api/auth/passkey', {
+        step: 'verify',
+        challengeId,
+        response,
+      });
+
+      router.push(result.redirect);
+      router.refresh();
+    } catch (caught) {
+      // Cancelling the system prompt is not an error worth shouting about —
+      // the person changed their mind and the password field is right there.
+      if (caught instanceof DOMException && (caught.name === 'NotAllowedError' || caught.name === 'AbortError')) {
+        setBiometricBusy(false);
+        return;
+      }
+      setError(
+        caught instanceof ApiError
+          ? t(caught.messageKey as never, caught.params) || caught.message || t('errors.generic')
+          : t('auth.biometricFailed'),
+      );
+      setBiometricBusy(false);
+    }
+  }, [router, t]);
 
   const onSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -92,6 +155,34 @@ export function LoginForm() {
       >
         {submitting ? t('auth.signingIn') : t('auth.signIn')}
       </Button>
+
+      {/*
+        Offered under the password rather than above it. A device with no
+        passkey enrolled yet would find the top of the form occupied by a button
+        that cannot help it — and the password is still the way in that always
+        works.
+      */}
+      {biometricReady && (
+        <>
+          <div className="flex items-center gap-3 pt-1" aria-hidden>
+            <span className="h-px flex-1 bg-border-base" />
+            <span className="text-xs text-content-tertiary">{t('common.or')}</span>
+            <span className="h-px flex-1 bg-border-base" />
+          </div>
+
+          <Button
+            type="button"
+            variant="secondary"
+            fullWidth
+            size="lg"
+            loading={biometricBusy}
+            icon={<Fingerprint />}
+            onClick={() => void signInWithBiometrics()}
+          >
+            {t('auth.signInWithBiometrics')}
+          </Button>
+        </>
+      )}
 
       <p className="pt-2 text-center text-xs text-content-tertiary">
         {t('auth.forgotPasswordHint')}

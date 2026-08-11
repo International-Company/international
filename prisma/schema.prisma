@@ -102,6 +102,7 @@ model User {
   roles           UserRole[]
   permissions     UserPermission[]
   sessions        Session[]
+  passkeys        Passkey[]
   passwordHistory PasswordHistory[]
   drafts          Draft[]
   notifications   NotificationRecipient[]
@@ -200,6 +201,71 @@ model UserPermission {
 
   @@id([userId, permissionId])
   @@map("user_permissions")
+}
+
+/// A device the user can sign in from with their fingerprint or face.
+///
+/// A WebAuthn credential. The private key never leaves the phone's secure
+/// element and is released only after the device verifies the person holding
+/// it — so this is two factors in one gesture: something they have, and
+/// something they are. The server keeps only the public half, which is useless
+/// to whoever steals this table.
+///
+/// It is also phishing-resistant in a way a password can never be: the browser
+/// binds the signature to this origin, so a copy of the login page on another
+/// domain gets nothing the real one would accept.
+model Passkey {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// The authenticator's own identifier for this key, base64url.
+  credentialId String @unique
+  /// The public half, base64url COSE.
+  publicKey    String
+
+  /// The authenticator's signature counter, when it keeps one.
+  ///
+  /// A signature arriving with a counter no higher than the last is evidence
+  /// the credential has been cloned, and the sign-in is refused. Many modern
+  /// authenticators keep it at zero and the check is skipped — it defends
+  /// against the authenticators that do count, which is all it ever could.
+  counter BigInt @default(0)
+
+  /// JSON array: usb | nfc | ble | internal | hybrid.
+  transports String?
+  /// singleDevice | multiDevice — whether the key syncs across the user's devices.
+  deviceType String?
+  backedUp   Boolean @default(false)
+
+  /// What the user calls this device, so they can tell two of them apart.
+  label      String
+  lastUsedAt DateTime?
+  createdAt  DateTime  @default(now())
+  createdIp  String?
+
+  @@index([userId])
+  @@map("passkeys")
+}
+
+/// A one-shot challenge, held only for the seconds between offering it and
+/// verifying the answer.
+///
+/// It exists so a signature cannot be replayed: the row is deleted the moment
+/// it is used, and the delete is what decides the race when the same answer
+/// arrives twice.
+model WebAuthnChallenge {
+  id        String   @id @default(cuid())
+  challenge String
+  /// REGISTER | LOGIN
+  purpose   String
+  /// Set when the user is already known — registering, never signing in.
+  userId    String?
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([expiresAt])
+  @@map("webauthn_challenges")
 }
 
 model Session {

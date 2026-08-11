@@ -153,6 +153,35 @@ export async function login(
     twoFactorSatisfied = true;
   }
 
+  resetRateLimit(`login:user:${identifier}`);
+
+  return issueSession(user, identifier, context, { twoFactorSatisfied });
+}
+
+/**
+ * Everything that happens once a user has proved who they are.
+ *
+ * Shared by the password path and the passkey path, and shared deliberately: a
+ * second way in with its own copy of these steps is a second way in that will
+ * one day forget one of them. The proof differs; what follows it must not.
+ */
+export async function issueSession(
+  user: {
+    id: string;
+    username: string;
+    fullNameEn: string;
+    fullNameAr: string;
+    locale: string;
+    mustChangePassword: boolean;
+    passwordUpdatedAt: Date;
+  },
+  identifier: string,
+  context: LoginContext,
+  options: { twoFactorSatisfied: boolean; method?: 'PASSWORD' | 'PASSKEY' },
+): Promise<LoginResult> {
+  const { twoFactorSatisfied } = options;
+  const method = options.method ?? 'PASSWORD';
+
   await prisma.user.update({
     where: { id: user.id },
     data: {
@@ -162,8 +191,6 @@ export async function login(
       lastLoginIp: context.ip,
     },
   });
-
-  resetRateLimit(`login:user:${identifier}`);
 
   const session = await createSession(user.id, {
     ip: context.ip,
@@ -191,8 +218,8 @@ export async function login(
     module: 'auth',
     entityType: 'User',
     entityId: user.id,
-    summaryEn: `${user.fullNameEn} signed in`,
-    summaryAr: `${user.fullNameAr} سجّل الدخول`,
+    summaryEn: `${user.fullNameEn} signed in${method === 'PASSKEY' ? ' with a passkey' : ''}`,
+    summaryAr: `${user.fullNameAr} سجّل الدخول${method === 'PASSKEY' ? ' بالبصمة' : ''}`,
     actor: {
       id: user.id,
       name: user.fullNameEn,
@@ -200,6 +227,7 @@ export async function login(
       userAgent: context.userAgent,
       sessionId: session.sessionId,
     },
+    metadata: { method },
   });
 
   if (isPasswordExpired(user.passwordUpdatedAt) || user.mustChangePassword) {

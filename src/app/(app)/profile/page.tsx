@@ -6,6 +6,7 @@ import { toJsonSafe } from '@/core/http/json';
 import { Badge, Card, CardBody, CardHeader, DetailRow, PageHeader } from '@/ui/primitives';
 import { AppearanceSettings } from '../manage/settings/appearance-settings';
 import { ProfileSecurity } from './profile-security';
+import { ProfileBiometrics } from './profile-biometrics';
 
 export const metadata: Metadata = { title: 'My profile' };
 export const dynamic = 'force-dynamic';
@@ -61,6 +62,8 @@ export default async function ProfilePage() {
           <AppearanceSettings />
         </div>
       </div>
+
+      <ProfileBiometrics />
 
       <ProfileSecurity sessions={toJsonSafe(sessions)} currentSessionId={session.sessionId} />
     </div>

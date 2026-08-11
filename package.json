@@ -24,6 +24,8 @@
   "//dependencies": "Anything `next build`, `prisma generate` or the deploy start command needs at build time lives here, NOT in devDependencies. Platforms that set NODE_ENV=production during the build (Railway, Heroku, Nixpacks) make npm skip devDependencies entirely, so a build-time package placed there is simply absent when the build runs.",
   "dependencies": {
     "@prisma/client": "^6.2.1",
+    "@simplewebauthn/browser": "^13.3.0",
+    "@simplewebauthn/server": "^13.3.2",
     "@tailwindcss/postcss": "^4.0.0",
     "@tanstack/react-query": "^5.62.7",
     "@tanstack/react-table": "^8.20.6",
@@ -46,7 +48,6 @@
     "typescript": "^5.7.2",
     "zod": "^3.24.1"
   },
-  "devDependencies": {},
   "engines": {
     "node": ">=20.0.0"
   }
