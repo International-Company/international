@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import { requirePermission } from '@/modules/auth/context';
+import { requirePagePermission } from '@/modules/auth/context';
 import { getTranslator } from '@/i18n/server';
 import { machineConfig } from '@/modules/exchange/machine.service';
 import { rateBoard } from '@/modules/exchange/rates.service';
@@ -11,7 +11,7 @@ export const metadata: Metadata = { title: 'Exchange machine' };
 export const dynamic = 'force-dynamic';
 
 export default async function MachinePage() {
-  const session = await requirePermission('exchange.machine.use');
+  const session = await requirePagePermission('exchange.machine.use');
   const { t } = await getTranslator();
 
   const [config, board] = await Promise.all([machineConfig(), rateBoard()]);

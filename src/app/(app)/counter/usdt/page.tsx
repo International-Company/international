@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import { prisma } from '@/core/db/prisma';
-import { requirePermission } from '@/modules/auth/context';
+import { requirePagePermission } from '@/modules/auth/context';
 import { getTranslator } from '@/i18n/server';
 import { counterAddresses, listRequests } from '@/modules/usdt/counter.service';
 import { getBoolean, getNumber } from '@/modules/settings/settings.service';
@@ -12,7 +12,7 @@ export const metadata: Metadata = { title: 'Receive USDT' };
 export const dynamic = 'force-dynamic';
 
 export default async function UsdtCounterPage() {
-  const session = await requirePermission('usdt.counter.use');
+  const session = await requirePagePermission('usdt.counter.use');
   const { t } = await getTranslator();
 
   const enabled = await getBoolean('usdt.counterEnabled');

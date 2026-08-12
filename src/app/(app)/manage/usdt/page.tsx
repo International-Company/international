@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import { requirePermission } from '@/modules/auth/context';
+import { requirePagePermission } from '@/modules/auth/context';
 import { getTranslator } from '@/i18n/server';
 import { listWallets, portfolio } from '@/modules/usdt/wallet.service';
 import { availableNetworks } from '@/modules/usdt/providers';
@@ -11,7 +11,7 @@ export const metadata: Metadata = { title: 'USDT wallets' };
 export const dynamic = 'force-dynamic';
 
 export default async function WalletsPage() {
-  const session = await requirePermission('usdt.wallet.view');
+  const session = await requirePagePermission('usdt.wallet.view');
   const { t } = await getTranslator();
 
   const [wallets, position] = await Promise.all([

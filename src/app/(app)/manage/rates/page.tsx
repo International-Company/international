@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import { requirePermission } from '@/modules/auth/context';
+import { requirePagePermission } from '@/modules/auth/context';
 import { getTranslator } from '@/i18n/server';
 import { prisma } from '@/core/db/prisma';
 import { rateBoard, rateHistory, getActiveRate } from '@/modules/exchange/rates.service';
@@ -21,7 +21,7 @@ export const dynamic = 'force-dynamic';
  * quote, and an empty row is the only thing that says so.
  */
 export default async function RatesPage() {
-  const session = await requirePermission('exchange.rate.view');
+  const session = await requirePagePermission('exchange.rate.view');
   const { t } = await getTranslator();
 
   const [board, history, currencies, pairs, addresses] = await Promise.all([

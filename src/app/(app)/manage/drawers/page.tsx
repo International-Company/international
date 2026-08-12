@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import { requirePermission } from '@/modules/auth/context';
+import { requirePagePermission } from '@/modules/auth/context';
 import { getTranslator } from '@/i18n/server';
 import {
   DRAWER_KINDS,
@@ -17,7 +17,7 @@ export const metadata: Metadata = { title: 'Drawers' };
 export const dynamic = 'force-dynamic';
 
 export default async function DrawersPage() {
-  const session = await requirePermission('exchange.drawer.view');
+  const session = await requirePagePermission('exchange.drawer.view');
   const { t } = await getTranslator();
 
   // Closed drawers included: this is the screen that closes them, and one that

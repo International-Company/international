@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import { prisma } from '@/core/db/prisma';
-import { requireAnyPermission } from '@/modules/auth/context';
+import { requirePageAnyPermission } from '@/modules/auth/context';
 import { getTranslator } from '@/i18n/server';
 import { PageHeader } from '@/ui/primitives';
 import { HandoversView } from './handovers-view';
@@ -17,7 +17,7 @@ export const dynamic = 'force-dynamic';
  * half; the server decides which half that is.
  */
 export default async function HandoversPage() {
-  const session = await requireAnyPermission(
+  const session = await requirePageAnyPermission(
     'treasury.handover.manage',
     'treasury.handover.receive',
   );

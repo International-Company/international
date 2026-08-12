@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import { requirePermission } from '@/modules/auth/context';
+import { requirePagePermission } from '@/modules/auth/context';
 import { getTranslator } from '@/i18n/server';
 import { brokerActivity } from '@/modules/drawers/drawer.service';
 import { transferChannels } from '@/modules/exchange/machine.service';
@@ -20,7 +20,7 @@ export const dynamic = 'force-dynamic';
  * Two figures to compare, and the movements behind them when they disagree.
  */
 export default async function BrokerPage() {
-  await requirePermission('exchange.drawer.view');
+  await requirePagePermission('exchange.drawer.view');
   const { t } = await getTranslator();
 
   // A month back: long enough to cover a statement cycle, short enough that the

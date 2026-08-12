@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import { requirePermission } from '@/modules/auth/context';
+import { requirePagePermission } from '@/modules/auth/context';
 import { getTranslator } from '@/i18n/server';
 import { query } from '@/modules/audit/audit.service';
 import { toJsonSafe } from '@/core/http/json';
@@ -10,7 +10,7 @@ export const metadata: Metadata = { title: 'Audit log' };
 export const dynamic = 'force-dynamic';
 
 export default async function AuditPage() {
-  const session = await requirePermission('audit.view');
+  const session = await requirePagePermission('audit.view');
   const { t } = await getTranslator();
 
   const initial = await query({ pageSize: 50 });

@@ -5,6 +5,7 @@ import { divideRounded, MONEY_FACTOR, toDecimalString } from '@/core/money/money
 import * as drawers from '@/modules/drawers/drawer.service';
 import { cashOwnerFor } from '@/modules/treasury/shift.service';
 import * as exceptions from './price-exception.service';
+import { ceilingFor } from '@/modules/users/counter-limit';
 import * as settings from '@/modules/settings/settings.service';
 import {
   quoteExchange,
@@ -236,7 +237,11 @@ export async function quote(
     priceOrNull(input.fromCurrency, input.toCurrency, fromAmount, 'BROKER', db),
     drawers.canPay(input.toCurrency, 0n, 'CASH', db, owner),
     drawers.canPay(input.toCurrency, 0n, 'BROKER', db),
-    settings.getMoney('machine.maxAmount', db),
+    // The person's own ceiling if they have a tighter one, so they are told
+    // before they read a figure aloud rather than after they press record.
+    input.actorId
+      ? ceilingFor(input.actorId, await settings.getMoney('machine.maxAmount', db), db)
+      : settings.getMoney('machine.maxAmount', db),
     settings.getMoney('machine.requireCustomerAbove', db),
   ]);
 
@@ -349,10 +354,12 @@ async function post(input: MachineRecordInput, actor: Actor, db: DbClient) {
     throw errors.precondition('Amount must be greater than zero', 'errors.amountNotPositive');
   }
 
-  const [maxAmount, requireCustomerAbove] = await Promise.all([
+  const [officeLimit, requireCustomerAbove] = await Promise.all([
     settings.getMoney('machine.maxAmount', db),
     settings.getMoney('machine.requireCustomerAbove', db),
   ]);
+  // The office's ceiling or this person's, whichever binds first.
+  const maxAmount = await ceilingFor(actor.id, officeLimit, db);
 
   if (maxAmount > 0n && fromTotal > maxAmount) {
     throw errors.precondition(

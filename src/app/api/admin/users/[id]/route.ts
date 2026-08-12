@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { route } from '@/core/http/route';
 import { errors } from '@/core/errors/app-error';
+import { parseMoney } from '@/core/money/money';
 import {
   deleteUser,
   getUser,
@@ -38,6 +39,8 @@ const updateSchema = z.object({
   phone: z.string().max(40).nullable().optional(),
   branchId: z.string().nullable().optional(),
   status: z.enum(['ACTIVE', 'SUSPENDED', 'DISABLED']).optional(),
+  /** Their own ceiling, on what the customer hands over. Empty puts it back. */
+  counterLimit: z.string().nullable().optional(),
 });
 
 export const PATCH = route<z.infer<typeof updateSchema>, unknown, z.infer<typeof paramsSchema>>({
@@ -45,7 +48,17 @@ export const PATCH = route<z.infer<typeof updateSchema>, unknown, z.infer<typeof
   paramsSchema,
   bodySchema: updateSchema,
   handler: async ({ params, body, actor }) => {
-    await updateUser(params.id, body, actor);
+    const { counterLimit, ...rest } = body;
+    await updateUser(
+      params.id,
+      {
+        ...rest,
+        ...(counterLimit !== undefined
+          ? { counterLimit: counterLimit ? parseMoney(counterLimit) : null }
+          : {}),
+      },
+      actor,
+    );
     return { ok: true };
   },
 });

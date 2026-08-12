@@ -7,6 +7,7 @@ import { nextReference } from '@/modules/sequence/reference';
 import { quoteExchange } from '@/modules/exchange/rates.service';
 import * as transactions from '@/modules/exchange/transaction.service';
 import * as settings from '@/modules/settings/settings.service';
+import { ceilingFor } from '@/modules/users/counter-limit';
 import * as audit from '@/modules/audit/audit.service';
 import { syncWallet } from './sync.service';
 import { providerFor } from './providers';
@@ -141,7 +142,11 @@ export async function openRequest(input: OpenRequestInput, actor: Actor, db: DbC
     throw errors.precondition('Amount must be greater than zero', 'errors.amountNotPositive');
   }
 
-  const maximum = await settings.getMoney('usdt.counterMaxAmount', db);
+  const maximum = await ceilingFor(
+    actor.id,
+    await settings.getMoney('usdt.counterMaxAmount', db),
+    db,
+  );
   if (maximum > 0n && input.amount > maximum) {
     throw errors.precondition(
       `A counter request cannot exceed ${toDecimalString(maximum, 2)} USDT`,

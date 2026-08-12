@@ -136,6 +136,7 @@ export async function getUser(id: string, db: DbClient = prisma) {
       employeeCode: true,
       fullNameEn: true,
       fullNameAr: true,
+      counterLimit: true,
       jobTitleEn: true,
       jobTitleAr: true,
       phone: true,
@@ -260,6 +261,8 @@ export interface UpdateUserInput {
   phone?: string | null;
   branchId?: string | null;
   status?: 'ACTIVE' | 'SUSPENDED' | 'DISABLED';
+  /** The most they may take in one deal. Null puts them back on the office's. */
+  counterLimit?: bigint | null;
 }
 
 export async function updateUser(
@@ -288,6 +291,11 @@ export async function updateUser(
         ...(input.jobTitleAr !== undefined ? { jobTitleAr: input.jobTitleAr || null } : {}),
         ...(input.phone !== undefined ? { phone: input.phone || null } : {}),
         ...(input.branchId !== undefined ? { branchId: input.branchId || null } : {}),
+        // Zero means "no ceiling of their own", the same way the office setting
+        // reads it, so the two are never in different languages.
+        ...(input.counterLimit !== undefined
+          ? { counterLimit: input.counterLimit && input.counterLimit > 0n ? input.counterLimit : null }
+          : {}),
         ...(input.status !== undefined
           ? { status: input.status, ...(input.status === 'ACTIVE' ? { lockedUntil: null, failedLoginCount: 0 } : {}) }
           : {}),

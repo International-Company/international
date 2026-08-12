@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import { requirePermission } from '@/modules/auth/context';
+import { requirePagePermission } from '@/modules/auth/context';
 import { getTranslator } from '@/i18n/server';
 import { prisma } from '@/core/db/prisma';
 import { MACHINE_CURRENCIES, machineConfig } from '@/modules/exchange/machine.service';
@@ -21,7 +21,7 @@ export const dynamic = 'force-dynamic';
  * sees, so there is nothing to translate between the two screens.
  */
 export default async function MachineControlPage() {
-  const session = await requirePermission('exchange.rate.view');
+  const session = await requirePagePermission('exchange.rate.view');
   const { t } = await getTranslator();
 
   const start = new Date();

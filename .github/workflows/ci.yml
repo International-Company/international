@@ -144,6 +144,12 @@ jobs:
         # freshly seeded one.
         run: npm run verify:price-exception
 
+      - name: Take a permission away, end to end
+        # Last, because it narrows what the teller may do and lowers his
+        # ceiling — everything before it should run against a counter that is
+        # still whole.
+        run: npm run verify:permissions
+
   image:
     runs-on: ubuntu-latest
     name: production image

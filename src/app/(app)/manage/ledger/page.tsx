@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import { prisma } from '@/core/db/prisma';
-import { requirePermission } from '@/modules/auth/context';
+import { requirePagePermission } from '@/modules/auth/context';
 import { getTranslator } from '@/i18n/server';
 import { dayResult, fundingOn } from '@/modules/ledger/ledger.service';
 import { ratesOn } from '@/modules/ledger/cutoff.service';
@@ -28,7 +28,7 @@ export default async function LedgerPage({
 }: {
   searchParams: Promise<{ date?: string }>;
 }) {
-  const session = await requirePermission('ledger.view');
+  const session = await requirePagePermission('ledger.view');
   const { t } = await getTranslator();
 
   const { date: requested } = await searchParams;

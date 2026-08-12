@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import { requirePermission } from '@/modules/auth/context';
+import { requirePagePermission } from '@/modules/auth/context';
 import { getTranslator } from '@/i18n/server';
 import { PageHeader } from '@/ui/primitives';
 import { DifferencesView } from './differences-view';
@@ -18,7 +18,7 @@ export const dynamic = 'force-dynamic';
  * where the manager's permission is required.
  */
 export default async function DifferencesPage() {
-  await requirePermission('ledger.view');
+  await requirePagePermission('ledger.view');
   const { t } = await getTranslator();
 
   return (

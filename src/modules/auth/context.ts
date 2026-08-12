@@ -1,6 +1,7 @@
 import 'server-only';
 import { cache } from 'react';
 import { cookies, headers } from 'next/headers';
+import { redirect } from 'next/navigation';
 import { errors } from '@/core/errors/app-error';
 import { resolveSession, touchSession, SESSION_COOKIE, type ResolvedSession } from './session.service';
 
@@ -110,4 +111,41 @@ export async function auditActor(session: ResolvedSession) {
     userAgent: meta.userAgent,
     sessionId: session.sessionId,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Screens
+// ---------------------------------------------------------------------------
+
+/**
+ * The same check, for a screen rather than an endpoint.
+ *
+ * An endpoint that refuses should throw: the caller is code, and a status is
+ * the answer it understands. A person who follows a link they no longer have
+ * the right to is not an error — it is the ordinary consequence of a manager
+ * taking a permission away, and it happens most to the people least able to
+ * make sense of a crash page. So this sends them somewhere that says so in
+ * words, in their own language, with a way back.
+ *
+ * Kept beside the throwing versions rather than replacing them, because the two
+ * audiences genuinely want different answers to the same question.
+ */
+export async function requirePagePermission(
+  ...permissions: string[]
+): Promise<ResolvedSession> {
+  const session = await requireActiveSession();
+  const missing = permissions.find((p) => !session.user.permissions.includes(p));
+  if (missing) redirect(`/no-access?need=${encodeURIComponent(missing)}`);
+  return session;
+}
+
+/** As above, for a screen reachable by any one of several permissions. */
+export async function requirePageAnyPermission(
+  ...permissions: string[]
+): Promise<ResolvedSession> {
+  const session = await requireActiveSession();
+  if (!permissions.some((p) => session.user.permissions.includes(p))) {
+    redirect(`/no-access?need=${encodeURIComponent(permissions[0] ?? '')}`);
+  }
+  return session;
 }

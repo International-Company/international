@@ -6,6 +6,7 @@ import { quoteExchange, type Quote, type RateChannel } from '@/modules/exchange/
 import { transferChannels } from '@/modules/exchange/machine.service';
 import * as drawers from '@/modules/drawers/drawer.service';
 import { cashOwnerFor } from '@/modules/treasury/shift.service';
+import { ceilingFor } from '@/modules/users/counter-limit';
 import * as transactions from '@/modules/exchange/transaction.service';
 import type { Actor } from '@/modules/exchange/transaction.service';
 import * as settings from '@/modules/settings/settings.service';
@@ -198,7 +199,11 @@ export async function record(input: RecordInput, actor: Actor, db: DbClient = pr
     throw errors.precondition('Amount must be greater than zero', 'errors.amountNotPositive');
   }
 
-  const maximum = await settings.getMoney('usdt.withdrawalMaxAmount', db);
+  const maximum = await ceilingFor(
+    actor.id,
+    await settings.getMoney('usdt.withdrawalMaxAmount', db),
+    db,
+  );
   if (maximum > 0n && total > maximum) {
     throw errors.precondition(
       `A withdrawal cannot exceed ${toDecimalString(maximum, 2)} ${TOKEN}`,

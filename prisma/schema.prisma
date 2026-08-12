@@ -131,6 +131,18 @@ model User {
   @@index([status])
   @@index([branchId])
   @@map("users")
+  /// The most this person may take in a single deal, on what the customer hands
+  /// over, scaled 1e8. Null leaves them on the office's own ceiling.
+  ///
+  /// A separate idea from a permission, and it has to be: a permission answers
+  /// whether they may work the counter at all, and this answers how far they
+  /// are trusted at it. Expressing "up to five thousand" as a permission would
+  /// mean a permission per amount.
+  ///
+  /// Compared against whichever currency the deal is in, exactly as the office
+  /// ceilings already are — the stricter of the two applies.
+  counterLimit BigInt?
+
   priceExceptionsAsked    PriceException[] @relation("PriceExceptionRequester")
   priceExceptionsDecided  PriceException[] @relation("PriceExceptionApprover")
 }

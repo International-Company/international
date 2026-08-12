@@ -193,6 +193,12 @@ export const NAVIGATION: NavSection[] = [
         matchPrefix: true,
       },
       {
+        href: '/manage/permissions',
+        labelKey: 'nav.access',
+        icon: 'staff',
+        permissions: ['users.roles.assign'],
+      },
+      {
         href: '/manage/settings',
         labelKey: 'nav.settings',
         icon: 'settings',

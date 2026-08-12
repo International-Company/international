@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import { prisma } from '@/core/db/prisma';
-import { requirePermission } from '@/modules/auth/context';
+import { requirePagePermission } from '@/modules/auth/context';
 import { getTranslator } from '@/i18n/server';
 import { getCurrentDay, listDays } from '@/modules/exchange/business-day.service';
 import { todaySummary } from '@/modules/exchange/transaction.service';
@@ -12,7 +12,7 @@ export const metadata: Metadata = { title: 'The counter day' };
 export const dynamic = 'force-dynamic';
 
 export default async function DayPage() {
-  const session = await requirePermission('exchange.day.view');
+  const session = await requirePagePermission('exchange.day.view');
   const { t } = await getTranslator();
 
   const branch = await prisma.branch.findFirst({ where: { isActive: true }, orderBy: { code: 'asc' } });

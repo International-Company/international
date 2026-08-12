@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import { requirePermission } from '@/modules/auth/context';
+import { requirePagePermission } from '@/modules/auth/context';
 import { getTranslator } from '@/i18n/server';
 import { listUsers } from '@/modules/users/users.service';
 import { prisma } from '@/core/db/prisma';
@@ -11,7 +11,7 @@ export const metadata: Metadata = { title: 'Users' };
 export const dynamic = 'force-dynamic';
 
 export default async function UsersPage() {
-  const session = await requirePermission('users.view');
+  const session = await requirePagePermission('users.view');
   const { t } = await getTranslator();
 
   const [users, roles, branches] = await Promise.all([

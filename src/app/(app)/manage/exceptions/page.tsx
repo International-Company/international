@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import { requirePermission } from '@/modules/auth/context';
+import { requirePagePermission } from '@/modules/auth/context';
 import { getTranslator } from '@/i18n/server';
 import { PageHeader } from '@/ui/primitives';
 import { ExceptionsView } from './exceptions-view';
@@ -15,7 +15,7 @@ export const dynamic = 'force-dynamic';
  * them to do.
  */
 export default async function ExceptionsPage() {
-  await requirePermission('exchange.priceException.approve');
+  await requirePagePermission('exchange.priceException.approve');
   const { t } = await getTranslator();
 
   return (

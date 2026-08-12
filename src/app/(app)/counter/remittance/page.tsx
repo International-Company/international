@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import { requirePermission } from '@/modules/auth/context';
+import { requirePagePermission } from '@/modules/auth/context';
 import { getTranslator } from '@/i18n/server';
 import { config } from '@/modules/exchange/remittance.service';
 import { toJsonSafe } from '@/core/http/json';
@@ -10,7 +10,7 @@ export const metadata: Metadata = { title: 'Remittances' };
 export const dynamic = 'force-dynamic';
 
 export default async function RemittancePage() {
-  const session = await requirePermission('exchange.remittance.use');
+  const session = await requirePagePermission('exchange.remittance.use');
   const { t } = await getTranslator();
 
   const settings = await config();
