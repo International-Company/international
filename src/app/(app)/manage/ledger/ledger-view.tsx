@@ -6,7 +6,7 @@ import { ArrowDownLeft, ArrowUpRight, Lock, Pencil, TrendingDown, TrendingUp } f
 import { useLocale } from '@/i18n/provider';
 import { api, ApiError } from '@/lib/api-client';
 import { normalizeDigits } from '@/core/money/money';
-import { Alert, Badge, Button, Card, CardBody, CardHeader } from '@/ui/primitives';
+import { Alert, Badge, Button, Card, CardBody, CardHeader, StatTile } from '@/ui/primitives';
 import { Dialog, useToast } from '@/ui/overlay';
 import { Field, Input } from '@/ui/form';
 import { DateText } from '@/ui/display';
@@ -28,8 +28,11 @@ import { cn } from '@/ui/utils';
  */
 
 interface PositionLine {
+  drawerId: string;
   currencyCode: string;
   kind: string;
+  ownerKey: string;
+  tellerId: string | null;
   balance: string;
   cutoffRate: string;
   worth: string;
@@ -73,14 +76,33 @@ export function LedgerView({
   day,
   currencies,
   permissions,
+  tellerNames,
 }: {
   day: Day;
   currencies: { code: string; nameEn: string; nameAr: string; decimals: number }[];
   permissions: string[];
+  /** Whose drawer is whose, so a line can say it in a name rather than an id. */
+  tellerNames: Record<string, string>;
 }) {
   const { t, ln } = useLocale();
   const router = useRouter();
   const toast = useToast();
+
+  /*
+   * The same total, split by the state the money is in. A shekel in the safe, a
+   * shekel in a teller's drawer and a shekel suspended in the differences
+   * balance are all worth one shekel and none of them is the same thing.
+   */
+  const whereIsIt = day.position.reduce(
+    (totals, line) => {
+      const worth = BigInt(line.worth);
+      if (line.kind === 'DIFFERENCE') totals.differences += worth;
+      else if (line.tellerId !== null) totals.tellers += worth;
+      else totals.treasury += worth;
+      return totals;
+    },
+    { treasury: 0n, tellers: 0n, differences: 0n },
+  );
 
   const [editing, setEditing] = useState<string | null>(null);
   const [rate, setRate] = useState('');
@@ -227,6 +249,28 @@ export function LedgerView({
         </CardBody>
       </Card>
 
+      {/* ============ Where it is ============ */}
+      {/*
+        The office is worth what it holds plus what it has lent to the people at
+        its own counters plus what is suspended in the differences balance. Three
+        very different states of the same money, and a total that shows only the
+        sum invites the manager to read it as cash in the safe.
+      */}
+      <div className="grid gap-3 sm:grid-cols-3">
+        <StatTile label={t('ledger.inTreasury')} value={`${format(whereIsIt.treasury.toString(), BASE_DECIMALS)} ${day.base}`} />
+        <StatTile
+          label={t('ledger.withTellers')}
+          value={`${format(whereIsIt.tellers.toString(), BASE_DECIMALS)} ${day.base}`}
+          hint={t('ledger.withTellersHint')}
+        />
+        <StatTile
+          label={t('ledger.suspended')}
+          value={`${format(whereIsIt.differences.toString(), BASE_DECIMALS)} ${day.base}`}
+          hint={t('ledger.suspendedHint')}
+          tone={whereIsIt.differences === 0n ? undefined : 'warning'}
+        />
+      </div>
+
       {/* ============ The position ============ */}
       <Card>
         <CardHeader
@@ -256,10 +300,7 @@ export function LedgerView({
               </thead>
               <tbody>
                 {day.position.map((line) => (
-                  <tr
-                    key={`${line.currencyCode}:${line.kind}`}
-                    className="border-t border-border-subtle text-sm"
-                  >
+                  <tr key={line.drawerId} className="border-t border-border-subtle text-sm">
                     <td className="px-3 py-2">
                       <span className="font-medium text-content ltr-content">
                         {line.currencyCode}
@@ -267,6 +308,11 @@ export function LedgerView({
                       <span className="ms-2 text-xs text-content-tertiary">
                         {t(kindLabel(line.kind))}
                       </span>
+                      {line.tellerId && (
+                        <span className="ms-2 text-xs text-content-secondary">
+                          {tellerNames[line.tellerId] ?? ''}
+                        </span>
+                      )}
                     </td>
                     <td className="px-3 py-2 text-end tabular-nums ltr-content">
                       {format(line.balance, decimalsOf(line.currencyCode))}

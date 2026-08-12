@@ -54,6 +54,12 @@ export default async function LedgerPage({
     }),
   ]);
 
+  // Only the people who actually hold a drawer, so a line can name its holder.
+  const holders = await prisma.user.findMany({
+    where: { id: { in: [...new Set(result.position.map((l) => l.tellerId).filter(Boolean))] as string[] } },
+    select: { id: true, fullNameEn: true, fullNameAr: true },
+  });
+
   const day = {
     ...result,
     rates: [...rates].map(([currency, entry]) => ({
@@ -75,6 +81,12 @@ export default async function LedgerPage({
         day={toJsonSafe(day)}
         currencies={currencies}
         permissions={session.user.permissions}
+        tellerNames={Object.fromEntries(
+          holders.map((person) => [
+            person.id,
+            session.user.locale === 'en' ? person.fullNameEn : person.fullNameAr,
+          ]),
+        )}
       />
     </div>
   );

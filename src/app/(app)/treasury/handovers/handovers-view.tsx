@@ -196,6 +196,9 @@ export function HandoversView({
       {/* ============ What I am holding ============ */}
       {!isTreasury && <MyShift t={t} />}
 
+      {/* ============ What the management wrote to me ============ */}
+      <StaffNotes t={t} ln={ln} />
+
       {/* ============ Waiting on me ============ */}
       {awaiting.length > 0 ? (
         awaiting.map((handover) => (
@@ -548,6 +551,76 @@ function MyShift({ t }: { t: (key: TranslationKey, params?: Record<string, strin
         ) : (
           <p className="text-sm text-content-secondary">{t('handover.emptyDrawer')}</p>
         )}
+      </CardBody>
+    </Card>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// A word from the management
+// ---------------------------------------------------------------------------
+
+/**
+ * Notes written to this person, on the screen they open every morning.
+ *
+ * Shown where the shift begins rather than on a page of its own, because a
+ * message on a page nobody visits is a message that was not sent. Reading it is
+ * recorded — not as agreement, only as delivery, so "nobody told me" has an
+ * answer either way.
+ */
+function StaffNotes({
+  t,
+  ln,
+}: {
+  t: (key: TranslationKey, params?: Record<string, string | number>) => string;
+  ln: (record: object, baseKey: string) => string;
+}) {
+  const toast = useToast();
+  const [notes, setNotes] = useState<
+    { id: string; tone: string; body: string; authorEn: string; authorAr: string }[]
+  >([]);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    void api
+      .get<{ notes: typeof notes }>('/api/me/notes')
+      .then((data) => setNotes(data.notes))
+      .catch(() => setNotes([]));
+  }, []);
+
+  if (notes.length === 0) return null;
+
+  const acknowledge = async () => {
+    setBusy(true);
+    try {
+      await api.post('/api/me/notes', {});
+      toast.success(t('evaluation.acknowledged'));
+      setNotes([]);
+    } catch (cause) {
+      toast.error(cause instanceof ApiError ? cause.message : t('errors.generic'));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Card className="ring-warning-border ring-2">
+      <CardHeader title={t('evaluation.forYou')} description={t('evaluation.forYouHint')} />
+      <CardBody className="space-y-3">
+        {notes.map((note) => (
+          <div key={note.id} className="space-y-1">
+            <Badge
+              tone={note.tone === 'WARNING' ? 'danger' : note.tone === 'PRAISE' ? 'success' : 'neutral'}
+            >
+              {t(`evaluation.tone.${note.tone === 'WARNING' ? 'WARNING' : note.tone === 'PRAISE' ? 'PRAISE' : 'NOTE'}`)}
+            </Badge>
+            <p className="text-sm">{note.body}</p>
+            <p className="text-content-tertiary text-xs">{ln(note, 'author')}</p>
+          </div>
+        ))}
+        <Button size="sm" variant="secondary" onClick={acknowledge} loading={busy}>
+          {t('evaluation.acknowledge')}
+        </Button>
       </CardBody>
     </Card>
   );

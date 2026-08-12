@@ -342,9 +342,7 @@ export async function record(input: MachineRecordInput, actor: Actor, db: DbClie
 }
 
 async function post(input: MachineRecordInput, actor: Actor, db: DbClient) {
-  const forced = input.priceExceptionId
-    ? await claimForDeal(input, actor, db)
-    : null;
+  const forced = input.priceExceptionId ? await claimForDeal(input, actor, db) : null;
 
   const legs = await priceLegs(input, db, forced);
   const total = legs.cash.to + legs.broker.to;
@@ -463,8 +461,18 @@ async function post(input: MachineRecordInput, actor: Actor, db: DbClient) {
   // Stamped on the deal, which is the fourth leash: the concession is read
   // where the transaction is read, not only in a list somebody must think to
   // open.
-  if (input.priceExceptionId) {
-    await exceptions.stamp(input.priceExceptionId, posted.id, db);
+  if (input.priceExceptionId && forced) {
+    await exceptions.stamp(
+      input.priceExceptionId,
+      posted.id,
+      // What the customer got over and above the board, on the leg the approval
+      // priced — which is exactly what the office gave up.
+      {
+        amount: ((forced.rate - forced.boardRate) * forced.covered) / 100000000n,
+        currency: input.toCurrency,
+      },
+      db,
+    );
   }
 
   return posted;
@@ -486,7 +494,7 @@ async function claimForDeal(
   input: MachineRecordInput,
   actor: Actor,
   db: DbClient,
-): Promise<{ channel: RateChannel; rate: bigint }> {
+): Promise<{ channel: RateChannel; rate: bigint; boardRate: bigint; covered: bigint }> {
   const approvedFor = await channelOfException(input.priceExceptionId!, db);
 
   let channel: RateChannel;
@@ -516,7 +524,7 @@ async function claimForDeal(
         .fromAmount;
   }
 
-  const rate = await exceptions.claim(
+  const claimed = await exceptions.claim(
     {
       id: input.priceExceptionId!,
       fromCurrency: input.fromCurrency,
@@ -528,7 +536,7 @@ async function claimForDeal(
     db,
   );
 
-  return { channel, rate };
+  return { channel, covered, ...claimed };
 }
 
 async function channelOfException(id: string, db: DbClient): Promise<RateChannel> {

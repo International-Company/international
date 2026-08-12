@@ -160,6 +160,12 @@ export const NAVIGATION: NavSection[] = [
         shortcut: 'g l',
       },
       {
+        href: '/manage/tellers',
+        labelKey: 'nav.tellers',
+        icon: 'staff',
+        permissions: ['ledger.view'],
+      },
+      {
         href: '/treasury/differences',
         labelKey: 'nav.differences',
         icon: 'handover',

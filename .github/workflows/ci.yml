@@ -144,6 +144,15 @@ jobs:
         # freshly seeded one.
         run: npm run verify:price-exception
 
+      - name: Judge the tellers, end to end
+        # Its own database: it builds two tellers whose figures are compared
+        # against each other, and a counter another check has already traded on
+        # would put its own margins into that comparison.
+        run: |
+          npx prisma db push --skip-generate --force-reset > /dev/null
+          npx tsx prisma/seed.ts > /dev/null
+          npm run verify:teller-result
+
       - name: Take a permission away, end to end
         # Last, because it narrows what the teller may do and lowers his
         # ceiling — everything before it should run against a counter that is

@@ -145,6 +145,8 @@ model User {
 
   priceExceptionsAsked    PriceException[] @relation("PriceExceptionRequester")
   priceExceptionsDecided  PriceException[] @relation("PriceExceptionApprover")
+  staffNotesAbout   StaffNote[] @relation("StaffNoteSubject")
+  staffNotesWritten StaffNote[] @relation("StaffNoteAuthor")
 }
 
 model Role {
@@ -342,6 +344,7 @@ model Shift {
   @@index([tellerId, status])
   @@index([businessDayId])
   @@map("shifts")
+  notes StaffNote[]
 }
 
 /// A gap between what the books said a teller held and what was counted.
@@ -390,6 +393,50 @@ model Discrepancy {
   @@index([status, createdAt])
   @@index([tellerId])
   @@map("discrepancies")
+  notes StaffNote[]
+}
+
+/// A word from the management to one member of staff, in writing.
+///
+/// The office already tells a teller things across the counter. What that
+/// cannot do is survive: a shortage explained in March and repeated in June is
+/// two conversations nobody can point at, and a teller who improved has no way
+/// to show it. So a note is a record with a name on it, and it can be attached
+/// to the thing it is about — a shift, or a difference — because "you were
+/// short on the fourteenth" and "you are often short" are different notes.
+///
+/// It is read by the person it is about. That is the point of writing it down,
+/// and it is also the discipline: a manager who knows the teller will read it
+/// writes something the teller can act on.
+model StaffNote {
+  id String @id @default(cuid())
+
+  /// Who it is about.
+  tellerId String
+  teller   User   @relation("StaffNoteSubject", fields: [tellerId], references: [id], onDelete: Cascade)
+
+  /// What it is about, when it is about one thing in particular.
+  shiftId       String?
+  shift         Shift?       @relation(fields: [shiftId], references: [id], onDelete: SetNull)
+  discrepancyId String?
+  discrepancy   Discrepancy? @relation(fields: [discrepancyId], references: [id], onDelete: SetNull)
+
+  /// PRAISE | NOTE | WARNING — how it is meant to be read. A system that only
+  /// records what went wrong becomes a file nobody wants opened.
+  tone String @default("NOTE")
+
+  body String
+
+  createdById String
+  createdBy   User     @relation("StaffNoteAuthor", fields: [createdById], references: [id])
+  createdAt   DateTime @default(now())
+
+  /// When the teller opened it. Not an agreement — only proof it was delivered,
+  /// so "nobody told me" has an answer either way.
+  readAt DateTime?
+
+  @@index([tellerId, createdAt])
+  @@map("staff_notes")
 }
 
 model Handover {
@@ -995,6 +1042,17 @@ model PriceException {
 
   reason       String?
   decisionNote String?
+
+  /// What the concession cost, in the currency the office handed out, worked
+  /// out at the moment the deal was struck and frozen here.
+  ///
+  /// Computed then rather than derived later because later is too late: it
+  /// depends on the amount of the leg the approval actually priced, which a
+  /// split does not put on the transaction, and on the board as it stood — and
+  /// the board moves. A teller's evaluation cannot rest on a figure that
+  /// quietly changes when the manager republishes a rate.
+  concededAmount   BigInt?
+  concededCurrency String?
 
   /// After this instant it is refused, whatever its status says.
   expiresAt DateTime?

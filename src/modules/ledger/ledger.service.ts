@@ -40,6 +40,9 @@ export interface PositionLine {
   drawerId: string;
   currencyCode: string;
   kind: string;
+  /** Whose it is: the treasury, or one named teller. */
+  ownerKey: string;
+  tellerId: string | null;
   balance: bigint;
   cutoffRate: bigint;
   /** The balance in the base currency. */
@@ -52,6 +55,11 @@ export interface PositionLine {
  * Used before a close — to show the manager what he is about to freeze — and
  * never after one: a closed day reads its own frozen rows instead, because a
  * result that changes when tomorrow's rate is approved is not a result.
+ *
+ * Every drawer, whoever holds it. The office is worth what it holds plus what
+ * it has lent to the people at its own counters plus what is suspended in the
+ * differences balance — a total that left out a teller's float would fall by
+ * five thousand every morning and rise by it every night.
  */
 export async function livePosition(
   date: Date = new Date(),
@@ -63,7 +71,14 @@ export async function livePosition(
     db.drawer.findMany({
       where: { isActive: true },
       orderBy: { sortOrder: 'asc' },
-      select: { id: true, currencyCode: true, kind: true, balance: true },
+      select: {
+        id: true,
+        currencyCode: true,
+        kind: true,
+        balance: true,
+        ownerKey: true,
+        tellerId: true,
+      },
     }),
   ]);
 
@@ -82,6 +97,8 @@ export async function livePosition(
       drawerId: drawer.id,
       currencyCode: drawer.currencyCode,
       kind: drawer.kind,
+      ownerKey: drawer.ownerKey,
+      tellerId: drawer.tellerId,
       balance: drawer.balance,
       cutoffRate: rate,
       worth: valued(drawer.balance, rate),
@@ -97,16 +114,35 @@ export async function livePosition(
 }
 
 /** The frozen position of a closed day, read back exactly as it was written. */
-export async function positionOf(businessDayId: string, db: DbClient = prisma) {
+export async function positionOf(
+  businessDayId: string,
+  db: DbClient = prisma,
+): Promise<PositionLine[]> {
   const rows = await db.dayPosition.findMany({
     where: { businessDayId },
     orderBy: [{ currencyCode: 'asc' }, { kind: 'asc' }],
   });
 
+  /*
+   * Whose drawer it was, looked up rather than frozen alongside the balance.
+   * Safe to look up, and only this: a drawer's owner is part of the identity
+   * that makes it that drawer, so unlike a rate it cannot have moved since.
+   */
+  const owners = new Map(
+    (
+      await db.drawer.findMany({
+        where: { id: { in: rows.map((row) => row.drawerId) } },
+        select: { id: true, ownerKey: true, tellerId: true },
+      })
+    ).map((drawer) => [drawer.id, drawer]),
+  );
+
   return rows.map((row) => ({
     drawerId: row.drawerId,
     currencyCode: row.currencyCode,
     kind: row.kind,
+    ownerKey: owners.get(row.drawerId)?.ownerKey ?? 'TREASURY',
+    tellerId: owners.get(row.drawerId)?.tellerId ?? null,
     balance: row.balance,
     cutoffRate: row.cutoffRate,
     worth: valued(row.balance, row.cutoffRate),

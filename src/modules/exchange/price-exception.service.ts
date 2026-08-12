@@ -397,9 +397,15 @@ export interface ClaimInput {
  * The claim is a conditional update — it only matches a row still approved — so
  * whichever request loses gets no rows back and is refused.
  *
- * Returns the rate the server will use. The caller never had one.
+ * Returns the rate the server will use — and the board it was granted against,
+ * so the caller can work out what the concession cost while it still knows the
+ * amount of the leg. The caller never had a rate of its own.
  */
-export async function claim(input: ClaimInput, actor: Actor, tx: DbClient): Promise<bigint> {
+export async function claim(
+  input: ClaimInput,
+  actor: Actor,
+  tx: DbClient,
+): Promise<{ rate: bigint; boardRate: bigint }> {
   const row = await tx.priceException.findUnique({ where: { id: input.id } });
   if (!row) throw errors.notFound('PriceException', input.id);
 
@@ -435,14 +441,30 @@ export async function claim(input: ClaimInput, actor: Actor, tx: DbClient): Prom
     throw refuse('That approval has already been used', 'errors.exceptionAlreadyUsed');
   }
 
-  return row.approvedRate;
+  return { rate: row.approvedRate, boardRate: row.boardRate };
 }
 
-/** Stamps the deal onto the approval, once the transaction row exists. */
-export async function stamp(id: string, transactionId: string, tx: DbClient): Promise<void> {
+/**
+ * Stamps the deal onto the approval, and what the concession cost.
+ *
+ * The cost is worked out here rather than derived later from the transaction,
+ * because later cannot see it: on a split only part of the deal was priced by
+ * the approval, and the board it is measured against moves. A teller's
+ * evaluation must not rest on a figure that changes when a rate is republished.
+ */
+export async function stamp(
+  id: string,
+  transactionId: string,
+  conceded: { amount: bigint; currency: string },
+  tx: DbClient,
+): Promise<void> {
   await tx.priceException.update({
     where: { id },
-    data: { usedByTransactionId: transactionId },
+    data: {
+      usedByTransactionId: transactionId,
+      concededAmount: conceded.amount,
+      concededCurrency: conceded.currency,
+    },
   });
 }
 
