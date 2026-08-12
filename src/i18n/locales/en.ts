@@ -185,6 +185,8 @@ const en = {
     verify: 'Verify',
     signingIn: 'Signing in…',
     signInWithBiometrics: 'Sign in with biometrics',
+    biometricWaiting: 'Touch the sensor to continue',
+    biometricCancel: 'Use my password instead',
     biometricFailed: 'This device could not sign you in with biometrics',
     biometricNotEnrolled: 'No biometrics are enabled on this device. Sign in with your password, then enable them from your profile.',
     biometricDomain: 'The domain is not configured for biometric sign-in — ask your administrator.',

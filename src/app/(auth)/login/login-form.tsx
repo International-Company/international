@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { AlertTriangle, Fingerprint, LogIn } from 'lucide-react';
+import { BRAND } from '@/app/_shell/brand';
 import { useLocale } from '@/i18n/provider';
 import { api, ApiError } from '@/lib/api-client';
 import { Alert, Button } from '@/ui/primitives';
@@ -68,7 +69,7 @@ function describeBiometricFailure(caught: unknown, t: Translate): string {
   return t('auth.biometricFailed');
 }
 
-export function LoginForm() {
+export function LoginForm({ companyName }: { companyName: string }) {
   const { t } = useLocale();
   const router = useRouter();
 
@@ -201,6 +202,25 @@ export function LoginForm() {
       waiting.current = null;
     };
   }, [completeSignIn]);
+
+  /**
+   * Gives up on the sensor and puts the form back.
+   *
+   * The branded screen is opaque, and an opaque screen with no way off it is a
+   * trap the moment anything fails to resolve — a prompt dismissed in a way the
+   * browser does not report, a sensor that never answers. The normal path
+   * clears itself, so this is for the path that does not, and it genuinely
+   * cancels the ceremony rather than only hiding it.
+   */
+  const stopBiometrics = useCallback(async () => {
+    try {
+      const { WebAuthnAbortService } = await import('@simplewebauthn/browser');
+      WebAuthnAbortService.cancelCeremony();
+    } catch {
+      // The module failing to load is why we are here; the state still clears.
+    }
+    setBiometricBusy(false);
+  }, []);
 
   const signInWithBiometrics = useCallback(async () => {
     setError(null);
@@ -344,6 +364,56 @@ export function LoginForm() {
       <p className="pt-2 text-center text-xs text-content-tertiary">
         {t('auth.forgotPasswordHint')}
       </p>
+
+      {/*
+        The moment the sensor is waiting.
+
+        The browser's own prompt is drawn on top of the page by the operating
+        system, and it says nothing about whose system is being unlocked — a
+        teller holding a phone sees a fingerprint dialog and nothing else. So
+        the page behind it becomes the office's own screen for those few
+        seconds: the emblem, and the name over the door.
+
+        Held near the top rather than centred, because on a phone the platform's
+        sheet rises from the bottom and would sit over anything in the middle.
+
+        Opaque rather than a dim veil: this is not a modal over a form, it is
+        the screen while the device asks. Cancelling puts the form straight
+        back, because `biometricBusy` is what draws this and the failure path
+        clears it.
+      */}
+      {biometricBusy && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="fixed inset-0 z-50 flex flex-col items-center bg-canvas px-6 pt-[14vh] text-center"
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element -- the same
+              fixed, hashed asset already painted above this form. */}
+          <img
+            src={BRAND.logo}
+            alt=""
+            width={112}
+            height={112}
+            className="size-28 sm:size-32"
+          />
+
+          <p className="mt-6 max-w-[20rem] text-base font-semibold text-content">{companyName}</p>
+
+          <p className="mt-8 flex items-center gap-2 text-sm text-content-secondary">
+            <Fingerprint className="size-5 motion-safe:animate-pulse" aria-hidden />
+            {t('auth.biometricWaiting')}
+          </p>
+
+          <button
+            type="button"
+            onClick={() => void stopBiometrics()}
+            className="mt-10 rounded-full px-4 py-2 text-sm text-content-tertiary underline underline-offset-4 transition-colors hover:text-content"
+          >
+            {t('auth.biometricCancel')}
+          </button>
+        </div>
+      )}
     </form>
   );
 }

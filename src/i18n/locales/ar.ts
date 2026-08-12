@@ -187,6 +187,8 @@ const ar: Dictionary = {
     verify: 'تحقق',
     signingIn: 'جارِ تسجيل الدخول…',
     signInWithBiometrics: 'الدخول بالبصمة',
+    biometricWaiting: 'ضع بصمتك للمتابعة',
+    biometricCancel: 'الدخول بكلمة المرور بدلاً من ذلك',
     biometricFailed: 'تعذّر الدخول بالبصمة على هذا الجهاز',
     biometricNotEnrolled: 'لا توجد بصمة مفعّلة على هذا الجهاز. ادخل بكلمة المرور، ثم فعّلها من صفحة حسابك.',
     biometricDomain: 'إعداد النطاق للبصمة غير صحيح — راجع مدير النظام.',

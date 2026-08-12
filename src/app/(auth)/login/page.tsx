@@ -67,7 +67,7 @@ export default async function LoginPage() {
           </div>
 
           <div className="mt-8">
-            <LoginForm />
+            <LoginForm companyName={companyName || t('app.name')} />
           </div>
         </div>
       </div>
