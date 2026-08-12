@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { MessageSquare } from 'lucide-react';
 import { useLocale } from '@/i18n/provider';
 import { api, ApiError } from '@/lib/api-client';
-import { Badge, Button, Card, CardBody, CardHeader, EmptyState } from '@/ui/primitives';
+import { Alert, Badge, Button, Card, CardBody, CardHeader, EmptyState } from '@/ui/primitives';
 import { Dialog, useToast } from '@/ui/overlay';
 import { Field, Select, Textarea } from '@/ui/form';
 import { DateText, Money } from '@/ui/display';
@@ -95,17 +95,19 @@ export function TellersView({ base }: { base: string }) {
   const [body, setBody] = useState('');
   const [busy, setBusy] = useState(false);
   const [reports, setReports] = useState<Report[]>([]);
+  const [unpriced, setUnpriced] = useState<string[]>([]);
 
   const load = useCallback(
     async (tellerId?: string) => {
       const from = new Date(Date.now() - days * 86_400_000).toISOString();
       try {
-        const data = await api.get<{ rows: Row[]; notes: Note[] }>(
+        const data = await api.get<{ rows: Row[]; notes: Note[]; unpriced: string[] }>(
           `/api/ledger/tellers?from=${encodeURIComponent(from)}${
             tellerId ? `&tellerId=${encodeURIComponent(tellerId)}` : ''
           }`,
         );
         setRows(data.rows);
+        setUnpriced(data.unpriced ?? []);
         if (tellerId) setNotes(data.notes);
 
         // The reports the system wrote for itself, newest first.
@@ -131,7 +133,6 @@ export function TellersView({ base }: { base: string }) {
     setBusy(true);
     try {
       await api.post('/api/ledger/tellers', {
-        action: 'note',
         tellerId: opened.tellerId,
         tone,
         body,
@@ -153,6 +154,15 @@ export function TellersView({ base }: { base: string }) {
 
   return (
     <div className="space-y-4">
+      {/*
+        A currency nobody has priced is left out of every figure below rather
+        than counted one-for-one — so the figures are short by something, and
+        saying so is the only honest way to show them.
+      */}
+      {unpriced.length > 0 && (
+        <Alert tone="warning">{t('evaluation.unpriced', { currencies: unpriced.join('، ') })}</Alert>
+      )}
+
       <Card>
         <CardHeader
           title={t('evaluation.title')}

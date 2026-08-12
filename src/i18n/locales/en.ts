@@ -822,6 +822,7 @@ const en = {
     deals: '{count} deals',
     shortages: '{count} short',
     owes: 'Owes',
+    unpriced: 'Currencies with no cut-off rate are left out of these figures: {currencies}. Approve a rate to complete them.',
     nobody: 'Nothing in this window',
     nobodyHint: 'Nobody recorded a deal and no difference was found.',
     lastDays: 'Last {count} days',
@@ -1468,6 +1469,8 @@ const en = {
   },
 
   errors: {
+    noteEmpty: 'Write something.',
+    noteToSelf: 'A note is written to somebody else, not to yourself.',
     transferChannelRequired: 'Say where the transfer is going',
     transferChannelUnknown: '{channel} is not a destination the counter offers',
     cannotEditReversal: 'A reversal carries the reason it was made; it is not edited',

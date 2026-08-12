@@ -78,23 +78,57 @@ export async function tellerResults(
   from: Date,
   to: Date,
   db: DbClient = prisma,
-): Promise<{ base: string; from: string; to: string; rows: TellerResult[] }> {
+): Promise<{
+  base: string;
+  from: string;
+  to: string;
+  rows: TellerResult[];
+  /** Currencies held with no cut-off rate, left out of every figure above. */
+  unpriced: string[];
+}> {
   const [base, rates] = await Promise.all([baseCurrency(db), ratesOn(to, db)]);
-  const rateOf = (currency: string) => rates.get(currency)?.rate ?? 100000000n;
+
+  /*
+   * A currency the manager has not priced is not worth one-for-one.
+   *
+   * This used to fall back to a rate of 1.00, so a dollar margin was counted as
+   * a shekel and nothing said so. `livePosition` treats the same condition as
+   * serious — it reports the currency and refuses to close the day on it — and
+   * a figure that decides how a person is judged has no business being quieter
+   * about it. So the amount is left out and the currency is named.
+   */
+  const unpriced = new Set<string>();
+  const worth = (amount: bigint, currency: string): bigint => {
+    const rate = rates.get(currency)?.rate;
+    if (rate === undefined) {
+      if (amount !== 0n) unpriced.add(currency);
+      return 0n;
+    }
+    return valued(amount, rate);
+  };
 
   const [deals, differences, concessions, owed, people] = await Promise.all([
     db.transaction.findMany({
       where: {
         branchId,
         createdAt: { gte: from, lte: to },
-        // A reversed deal earned nothing, and its reversal is a second row that
-        // would otherwise count against him twice.
+        // A reversed deal earned nothing.
         status: { in: ['POSTED', 'PENDING_TRANSFER'] },
+        /*
+         * And the reversal itself is not anybody's trading. It is a live row
+         * carrying the negated margin, stamped with whoever pressed reverse and
+         * with the two currencies swapped — so counted here it charged the
+         * manager for the teller's mistake, and valued the loss at the wrong
+         * currency's rate on top of that.
+         */
+        reversalOfId: null,
       },
       select: { createdById: true, profitAmount: true, toCurrency: true },
     }),
     db.discrepancy.findMany({
-      where: { createdAt: { gte: from, lte: to } },
+      // Through the shift, which is what carries the branch. Filtering only on
+      // the date put every branch's shortages into every branch's figures.
+      where: { createdAt: { gte: from, lte: to }, shift: { branchId } },
       select: { tellerId: true, amount: true, currencyCode: true },
     }),
     db.priceException.findMany({
@@ -103,13 +137,22 @@ export async function tellerResults(
         status: 'USED',
         usedAt: { gte: from, lte: to },
         concededAmount: { not: null },
+        // Reverse the deal and the teller loses its margin; he must not keep
+        // being charged for a price he gave away on a trade that no longer
+        // stands.
+        usedByTransaction: { status: { not: 'REVERSED' } },
       },
       select: { requestedById: true, concededAmount: true, concededCurrency: true },
     }),
     // What is still owed is a standing figure, not something that happened in
     // the window, so it is read as it is now.
     db.drawer.findMany({
-      where: { kind: 'RECEIVABLE', balance: { gt: 0n }, tellerId: { not: null } },
+      where: {
+        kind: 'RECEIVABLE',
+        balance: { gt: 0n },
+        tellerId: { not: null },
+        teller: { branchId },
+      },
       select: { tellerId: true, balance: true, currencyCode: true },
     }),
     db.user.findMany({
@@ -145,7 +188,7 @@ export async function tellerResults(
 
   for (const deal of deals) {
     const row = rowFor(deal.createdById);
-    row.margin += valued(deal.profitAmount, rateOf(deal.toCurrency));
+    row.margin += worth(deal.profitAmount, deal.toCurrency);
     row.deals += 1;
   }
 
@@ -157,17 +200,14 @@ export async function tellerResults(
      * numbers be added rather than each needing its own sign rule explained on
      * the screen.
      */
-    row.differences -= valued(difference.amount, rateOf(difference.currencyCode));
+    row.differences -= worth(difference.amount, difference.currencyCode);
     if (difference.amount > 0n) row.shortages += 1;
     else if (difference.amount < 0n) row.surpluses += 1;
   }
 
   for (const concession of concessions) {
     const row = rowFor(concession.requestedById);
-    row.concessions -= valued(
-      concession.concededAmount ?? 0n,
-      rateOf(concession.concededCurrency ?? base),
-    );
+    row.concessions -= worth(concession.concededAmount ?? 0n, concession.concededCurrency ?? base);
     row.concessionCount += 1;
   }
 
@@ -175,14 +215,20 @@ export async function tellerResults(
     if (!debt.tellerId) continue;
     // Only for somebody already on the list: a debt alone is not a period's work.
     const row = byId.get(debt.tellerId);
-    if (row) row.owed += valued(debt.balance, rateOf(debt.currencyCode));
+    if (row) row.owed += worth(debt.balance, debt.currencyCode);
   }
 
   const rows = [...byId.values()]
     .map((row) => ({ ...row, net: row.margin + row.differences + row.concessions }))
     .sort((a, b) => (b.net > a.net ? 1 : b.net < a.net ? -1 : 0));
 
-  return { base, from: from.toISOString(), to: to.toISOString(), rows };
+  return {
+    base,
+    from: from.toISOString(),
+    to: to.toISOString(),
+    rows,
+    unpriced: [...unpriced],
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -208,7 +254,16 @@ export interface NoteInput {
  * worse than no written warning.
  */
 export async function writeNote(input: NoteInput, actor: Actor, db: DbClient = prisma) {
-  if (!actor.permissions.includes('ledger.view')) throw errors.forbidden('ledger.view');
+  /*
+   * Its own permission, and a manage-level one.
+   *
+   * This was gated on `ledger.view` — the right to *read* what the office is
+   * worth. Anyone who could open the ledger could therefore file a formal
+   * warning against anyone, including their own manager, and the only check
+   * standing in the way was "not yourself". Writing in a person's file is an
+   * act of management, not a side effect of being allowed to read a figure.
+   */
+  if (!actor.permissions.includes('staff.note.write')) throw errors.forbidden('staff.note.write');
 
   const body = input.body.trim();
   if (body.length < 2) {

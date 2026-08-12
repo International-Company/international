@@ -45,6 +45,7 @@ const manager = {
     'ledger.cutoff.manage',
     'users.create',
     'users.roles.assign',
+    'staff.note.write',
   ],
 };
 
@@ -245,13 +246,25 @@ await reverse(last.id, 'خطأ في الإدخال', {
   ...manager,
   permissions: [...manager.permissions, 'exchange.transaction.reverse'],
 });
-const afterReversal = (await evaluation.tellerResults(branch.id, startedAt, new Date())).rows.find(
-  (row) => row.tellerId === second.id,
-)!;
+const reversed = await evaluation.tellerResults(branch.id, startedAt, new Date());
+const afterReversal = reversed.rows.find((row) => row.tellerId === second.id)!;
 ok(
   'a reversed deal stops counting as margin',
   afterReversal.margin < beforeReversal.margin,
   `${money(beforeReversal.margin)} → ${money(afterReversal.margin)}`,
+);
+
+/*
+ * And it must not land on whoever pressed reverse. The reversal is a live row
+ * carrying the negated margin, stamped with the manager and with the two
+ * currencies swapped — counted, it charged him for the teller's mistake and
+ * valued the loss at the wrong currency's rate on top.
+ */
+const managerRow = reversed.rows.find((row) => row.tellerId === admin.id);
+ok(
+  'and it is not charged to whoever reversed it',
+  managerRow === undefined || managerRow.margin >= 0n,
+  managerRow ? money(managerRow.margin) : 'not listed at all',
 );
 
 // === A word from the management ============================================
@@ -281,6 +294,135 @@ ok('only the person it is about can mark it read', refusedOther);
 
 await evaluation.markNotesRead(first.id, clerkA);
 ok('and once he does, it is delivered', (await evaluation.unreadFor(first.id)).length === 0);
+
+// === The rest of what the review found =====================================
+console.log('\n— ما وجدته المراجعة —');
+
+// Writing in a person's file is not a side effect of being allowed to read.
+let readerRefused = false;
+try {
+  await evaluation.writeNote(
+    { tellerId: first.id, body: 'من قارئ فقط' },
+    { ...manager, permissions: ['ledger.view'] },
+  );
+} catch {
+  readerRefused = true;
+}
+ok('reading the ledger does not buy the right to file a warning', readerRefused);
+
+// A concession dies with the deal it was spent on.
+const withConcession = (await evaluation.tellerResults(branch.id, startedAt, new Date())).rows.find(
+  (row) => row.tellerId === first.id,
+)!;
+ok('the concession is on his record to begin with', withConcession.concessions < 0n, money(withConcession.concessions));
+
+const brokenDeal = await prisma.priceException.findFirstOrThrow({
+  where: { status: 'USED', requestedById: first.id },
+  select: { usedByTransactionId: true },
+});
+await reverse(brokenDeal.usedByTransactionId!, 'الزبون تراجع', {
+  ...manager,
+  permissions: [...manager.permissions, 'exchange.transaction.reverse'],
+});
+const afterUndo = (await evaluation.tellerResults(branch.id, startedAt, new Date())).rows.find(
+  (row) => row.tellerId === first.id,
+)!;
+ok(
+  'and it goes when the deal is reversed',
+  afterUndo.concessions === 0n,
+  money(afterUndo.concessions),
+);
+
+// A currency nobody has priced is left out and named, not valued at par.
+await prisma.currency.upsert({
+  where: { code: 'EUR' },
+  update: { isActive: true },
+  create: {
+    code: 'EUR',
+    nameEn: 'Euro',
+    nameAr: 'يورو',
+    symbol: '€',
+    decimals: 2,
+    kind: 'FIAT',
+    sortOrder: 50,
+  },
+});
+await prisma.discrepancy.create({
+  data: {
+    shiftId: (await prisma.shift.findFirstOrThrow({ where: { tellerId: first.id } })).id,
+    tellerId: first.id,
+    currencyCode: 'EUR',
+    amount: 100n * unit,
+    status: 'OPEN',
+  },
+});
+const withEuro = await evaluation.tellerResults(branch.id, startedAt, new Date());
+ok('an unpriced currency is named', withEuro.unpriced.includes('EUR'), withEuro.unpriced.join(', '));
+ok(
+  'and it is left out rather than counted one-for-one',
+  withEuro.rows.find((row) => row.tellerId === first.id)!.differences === afterUndo.differences,
+);
+
+// Another branch's shortages are not this branch's.
+const other = await prisma.branch.create({
+  data: { code: 'BR2', nameEn: 'Second branch', nameAr: 'الفرع الثاني' },
+});
+/*
+ * Built with the client rather than through the services, because the point is
+ * to test the *query's* scoping: a shift and a shortage that genuinely exist in
+ * another branch, which the services would never let this branch's manager
+ * create.
+ */
+const strangerHandover = await prisma.handover.create({
+  data: {
+    reference: 'HND-OTHER-0001',
+    direction: 'TO_TELLER',
+    status: 'CONFIRMED',
+    branchId: other.id,
+    tellerId: second.id,
+    createdById: admin.id,
+  },
+});
+const strangerShift = await prisma.shift.create({
+  data: {
+    reference: 'SHF-OTHER-0001',
+    tellerId: second.id,
+    branchId: other.id,
+    status: 'CLOSED',
+    openingHandoverId: strangerHandover.id,
+  },
+});
+await prisma.discrepancy.create({
+  data: {
+    shiftId: strangerShift.id,
+    tellerId: second.id,
+    currencyCode: 'ILS',
+    amount: 9999n * unit,
+    status: 'OPEN',
+  },
+});
+
+const here = (await evaluation.tellerResults(branch.id, startedAt, new Date())).rows.find(
+  (row) => row.tellerId === second.id,
+)!;
+ok(
+  "another branch's shortage stays in that branch",
+  here.differences > -9000n * unit,
+  money(here.differences),
+);
+ok(
+  'and it does show up where it happened',
+  (await evaluation.tellerResults(other.id, startedAt, new Date())).rows.some(
+    (row) => row.tellerId === second.id && row.differences <= -9999n * unit,
+  ),
+);
+
+// And the two messages that used to render as their own keys.
+const { DICTIONARIES } = await import('../src/i18n/translate');
+for (const locale of ['ar', 'en'] as const) {
+  const errors = (DICTIONARIES[locale] as Record<string, Record<string, string>>).errors;
+  ok(`${locale}: the note messages are written`, Boolean(errors.noteEmpty && errors.noteToSelf));
+}
 
 // === Nothing moved that should not have ===================================
 const check = await drawers.verifyBalances();

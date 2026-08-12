@@ -821,6 +821,7 @@ const ar: Dictionary = {
     deals: '{count} عملية',
     shortages: '{count} نقص',
     owes: 'عليه',
+    unpriced: 'عملات بلا سعر قصّ لم تدخل في هذه الأرقام: {currencies}. اعتمد سعرها ليكتمل الحساب.',
     nobody: 'لا حركة في هذه المدة',
     nobodyHint: 'لم يسجّل أحد عملية ولم يقع فرق.',
     lastDays: 'آخر {count} يوم',
@@ -1466,6 +1467,8 @@ const ar: Dictionary = {
   },
 
   errors: {
+    noteEmpty: 'اكتب شيئاً.',
+    noteToSelf: 'الملاحظة تُكتب لغيرك، لا لنفسك.',
     transferChannelRequired: 'حدّد جهة التحويل',
     transferChannelUnknown: '{channel} ليست جهة يعرضها الشباك',
     cannotEditReversal: 'العملية العكسية تحمل سبب عكسها، ولا تُعدَّل',

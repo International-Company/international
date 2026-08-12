@@ -18,17 +18,13 @@ const querySchema = z.object({
   tellerId: z.string().optional(),
 });
 
-const bodySchema = z.discriminatedUnion('action', [
-  z.object({
-    action: z.literal('note'),
-    tellerId: z.string().min(1),
-    body: z.string().min(2).max(2000),
-    tone: z.enum(evaluation.NOTE_TONES).default('NOTE'),
-    shiftId: z.string().nullish(),
-    discrepancyId: z.string().nullish(),
-  }),
-  z.object({ action: z.literal('markRead') }),
-]);
+const bodySchema = z.object({
+  tellerId: z.string().min(1),
+  body: z.string().min(2).max(2000),
+  tone: z.enum(evaluation.NOTE_TONES).default('NOTE'),
+  shiftId: z.string().nullish(),
+  discrepancyId: z.string().nullish(),
+});
 
 const parseDay = (value: string | undefined, fallback: Date): Date => {
   if (!value) return fallback;
@@ -52,6 +48,8 @@ export const GET = route<unknown, z.infer<typeof querySchema>>({
       base: result.base,
       from: result.from,
       to: result.to,
+      // Said out loud rather than folded into the figures at par.
+      unpriced: result.unpriced,
       rows: result.rows.map((row) => ({
         tellerId: row.tellerId,
         fullNameEn: row.fullNameEn,
@@ -82,15 +80,18 @@ export const GET = route<unknown, z.infer<typeof querySchema>>({
   },
 });
 
+/**
+ * Writing in somebody's file, which is an act of management and declared as one.
+ *
+ * Marking a note read is not here — that belongs to the person it is about, and
+ * lives at `/api/me/notes` where the caller is the subject and no id can be
+ * pointed at anybody else. It used to be a second action on this route as well,
+ * which meant one act with two doors and only one of them thought about.
+ */
 export const POST = route<z.infer<typeof bodySchema>>({
+  permissions: ['staff.note.write'],
   bodySchema,
   handler: async ({ body, actor }) => {
-    if (body.action === 'markRead') {
-      // No permission needed: this is a person acknowledging what was written
-      // about them, and the service refuses to let them do it for anybody else.
-      return { read: await evaluation.markNotesRead(actor.id, actor) };
-    }
-
     const note = await evaluation.writeNote(
       {
         tellerId: body.tellerId,

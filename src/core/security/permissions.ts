@@ -181,6 +181,9 @@ export const PERMISSIONS: PermissionDefinition[] = [
     "Reset another user's password", 'إعادة تعيين كلمة مرور مستخدم آخر', true),
   def('users.sessions.manage', 'users', 'manage', 'Manage sessions', 'إدارة الجلسات',
     'View and revoke active sessions', 'عرض الجلسات النشطة وإنهاؤها', true),
+  def('staff.note.write', 'users', 'manage', 'Write to staff', 'كتابة ملاحظة لموظف',
+    'File a note, a commendation or a warning that the person reads under their own name',
+    'كتابة ملاحظة أو إشادة أو تنبيه يقرأه الموظف باسمه', true),
   def('users.roles.assign', 'users', 'manage', 'Assign roles', 'إسناد الأدوار',
     'Assign roles and permission overrides to users', 'إسناد الأدوار والصلاحيات للمستخدمين', true),
 
