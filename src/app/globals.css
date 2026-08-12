@@ -225,9 +225,10 @@
   --color-chart-5: var(--chart-5);
   --color-chart-6: var(--chart-6);
 
-  --font-sans: var(--font-latin), var(--font-arabic), ui-sans-serif, system-ui, sans-serif;
-  --font-arabic-stack: var(--font-arabic), var(--font-latin), ui-sans-serif, sans-serif;
-  --font-mono: ui-monospace, 'SF Mono', 'Cascadia Mono', 'Roboto Mono', Menlo, monospace;
+  /* One face for both scripts, so there is no second stack to disagree with. */
+  --font-sans: var(--font-sans-face), ui-sans-serif, system-ui, sans-serif;
+  --font-arabic-stack: var(--font-sans-face), ui-sans-serif, sans-serif;
+  --font-mono: var(--font-mono-face), ui-monospace, 'Cascadia Mono', Menlo, monospace;
 
   --shadow-card: var(--shadow-sm);
   --shadow-popover: var(--shadow-lg);
@@ -263,7 +264,7 @@
   body {
     background-color: var(--canvas);
     color: var(--text);
-    font-family: var(--font-latin), var(--font-arabic), ui-sans-serif, system-ui, sans-serif;
+    font-family: var(--font-sans-face), ui-sans-serif, system-ui, sans-serif;
     font-feature-settings: 'cv02', 'cv03', 'cv04', 'tnum';
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
@@ -271,7 +272,7 @@
 
   /* Arabic gets its own stack first — Latin fallbacks render Arabic poorly. */
   html[lang='ar'] body {
-    font-family: var(--font-arabic), var(--font-latin), ui-sans-serif, system-ui, sans-serif;
+    font-family: var(--font-sans-face), ui-sans-serif, system-ui, sans-serif;
   }
 
   /* Tabular figures everywhere a number is compared down a column. */

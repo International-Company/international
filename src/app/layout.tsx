@@ -31,38 +31,62 @@ import './globals.css';
  * failed and the office could not deploy. A financial system should not stop
  * shipping because a font server had a bad day.
  *
- * The files are the same faces, taken from their npm packages, trimmed to the
- * weights and subsets actually used: Latin for Inter, Arabic and Latin for
- * Plex. 368 kB in the repository buys a build that needs nothing but itself.
+ * ## One family for both scripts
+ *
+ * This replaced a pair — Inter for Latin, IBM Plex Sans Arabic for Arabic —
+ * drawn by different hands to different metrics. In an Arabic interface the two
+ * meet inside almost every line, because the digits are Latin and the words are
+ * not, and two families meeting mid-sentence never quite agree on the height of
+ * a figure beside a letter.
+ *
+ * Alexandria is one superfamily whose Arabic and Latin were designed together,
+ * so a rate and the word in front of it sit on the same line by construction
+ * rather than by adjustment.
+ *
+ * ## Chosen by measurement, not by taste
+ *
+ * Every candidate was loaded in a browser and asked one question: does
+ * `1111111111` occupy the same width as `0000000000` under `tabular-nums`? A
+ * face that answers no cannot hold a money column still — the figures shuffle
+ * sideways as the digits change, which is the one thing a ledger may not do.
+ *
+ * Three well-regarded Arabic faces failed it, including the one first chosen
+ * here for its looks. Alexandria passed, and so is what a column of shekels is
+ * set in.
+ *
+ * ## Variable, which is why this is smaller and not larger
+ *
+ * Two axis files carry every weight — for both scripts together, against the
+ * twelve static cuts they replace — and semi-bold is now an actual weight
+ * rather than the nearest one that happened to be bundled.
  */
-const latin = localFont({
+const sans = localFont({
   src: [
-    { path: './fonts/inter-400.woff2', weight: '400', style: 'normal' },
-    { path: './fonts/inter-500.woff2', weight: '500', style: 'normal' },
-    { path: './fonts/inter-600.woff2', weight: '600', style: 'normal' },
-    { path: './fonts/inter-700.woff2', weight: '700', style: 'normal' },
+    { path: './fonts/alexandria-latin.woff2', weight: '100 900', style: 'normal' },
+    { path: './fonts/alexandria-arabic.woff2', weight: '100 900', style: 'normal' },
   ],
-  variable: '--font-latin',
+  variable: '--font-sans-face',
   display: 'swap',
   // Named so the fallback metrics match, which is what keeps text from
   // shifting as the real face arrives.
-  fallback: ['system-ui', 'Segoe UI', 'Arial', 'sans-serif'],
+  fallback: ['Segoe UI', 'Tahoma', 'system-ui', 'sans-serif'],
 });
 
-const arabic = localFont({
-  src: [
-    { path: './fonts/plex-arabic-400.woff2', weight: '400', style: 'normal' },
-    { path: './fonts/plex-latin-400.woff2', weight: '400', style: 'normal' },
-    { path: './fonts/plex-arabic-500.woff2', weight: '500', style: 'normal' },
-    { path: './fonts/plex-latin-500.woff2', weight: '500', style: 'normal' },
-    { path: './fonts/plex-arabic-600.woff2', weight: '600', style: 'normal' },
-    { path: './fonts/plex-latin-600.woff2', weight: '600', style: 'normal' },
-    { path: './fonts/plex-arabic-700.woff2', weight: '700', style: 'normal' },
-    { path: './fonts/plex-latin-700.woff2', weight: '700', style: 'normal' },
-  ],
-  variable: '--font-arabic',
+/*
+ * A real monospace, at last.
+ *
+ * Sixty-three places set `font-mono` — every transaction reference, every shift
+ * and approval number, the countdown on a granted price — and until now the
+ * stack behind it named no file at all. A reference read aloud between a
+ * manager on Windows and a teller on Android was rendered by two different
+ * typefaces, and the one string in this system that exists to be quoted
+ * verbatim looked different at each end of the sentence.
+ */
+const mono = localFont({
+  src: [{ path: './fonts/geist-mono.woff2', weight: '100 900', style: 'normal' }],
+  variable: '--font-mono-face',
   display: 'swap',
-  fallback: ['Segoe UI', 'Tahoma', 'system-ui', 'sans-serif'],
+  fallback: ['ui-monospace', 'Cascadia Mono', 'Menlo', 'monospace'],
 });
 
 export const metadata: Metadata = {
@@ -129,7 +153,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <head>
         <PreferenceScript />
       </head>
-      <body className={`${latin.variable} ${arabic.variable} antialiased`}>
+      <body className={`${sans.variable} ${mono.variable} antialiased`}>
         {children}
         <ServiceWorker />
       </body>
