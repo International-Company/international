@@ -397,7 +397,40 @@ async function main() {
    * check fails — which makes it a check on somebody's memory rather than on
    * the deploy.
    */
-  const drawersAfterFirstPass = await after.drawer.count();
+  let drawersAfterFirstPass = await after.drawer.count();
+
+  /*
+   * A teller holding a float, before the deploy is repeated.
+   *
+   * This is the state the rehearsal never had, and its absence let a real
+   * deploy fail on a live database. Once a drawer has an owner, two of them may
+   * hold the same currency and kind — the treasury's dinars and a teller's —
+   * and any step still trying to build the old one-per-currency-and-kind key
+   * cannot, because the rows it forbids are already there and legitimate.
+   *
+   * An office that has traded for a day looks like this. A rehearsal that does
+   * not is rehearsing a database nobody has.
+   */
+  console.log('\n== A teller takes a float, so the repeat runs against a real office ==');
+  const anyTeller = await after.user.findFirst({ where: { isSystem: false } });
+  if (anyTeller) {
+    await after.drawer.create({
+      data: {
+        ownerKey: `teller:${anyTeller.id}`,
+        tellerId: anyTeller.id,
+        currencyCode: 'JOD',
+        kind: 'CASH',
+        nameEn: 'Teller — Jordanian Dinar',
+        nameAr: 'التلر — دينار أردني',
+        balance: 0n,
+        sortOrder: 999,
+      },
+    });
+    drawersAfterFirstPass += 1;
+    console.log('  a second JOD/CASH drawer now exists, held by a teller');
+  } else {
+    console.log('  !! no teller to give one to — the repeat below proves less than it should');
+  }
 
   console.log('\n== Running it again (deploys repeat) ==');
   run('node', ['scripts/pre-deploy-schema.mjs']);
@@ -408,6 +441,10 @@ async function main() {
   const ils = drawers.find((d) => d.currencyCode === 'ILS' && d.kind === 'CASH');
   check('idempotent — the balance did not move', ils?.balance === 250000_00000000n,
     String(ils?.balance));
+  check(
+    "the teller's drawer survived the repeat",
+    drawers.some((d) => d.ownerKey?.startsWith('teller:') && d.currencyCode === 'JOD'),
+  );
   check(
     'idempotent — no duplicate drawers',
     drawers.length === drawersAfterFirstPass,
