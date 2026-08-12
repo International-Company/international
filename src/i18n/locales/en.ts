@@ -885,9 +885,7 @@ const en = {
     title: 'USDT',
     subtitle: 'Receiving and selling in one place — choose the direction the customer came for.',
     receive: 'Receive',
-    receiveHint: 'The customer sends coin, the branch pays cash',
     send: 'Sell',
-    sendHint: 'The customer pays cash, the branch sends coin',
     offTitle: 'That direction is switched off',
   },
   handover: {

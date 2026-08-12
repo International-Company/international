@@ -102,14 +102,12 @@ export function UsdtView({
             onClick={() => pick('in')}
             icon={<ArrowDownToLine className="size-4" />}
             label={t('usdtWindow.receive')}
-            hint={t('usdtWindow.receiveHint')}
           />
           <Tab
             active={direction === 'out'}
             onClick={() => pick('out')}
             icon={<ArrowUpFromLine className="size-4" />}
             label={t('usdtWindow.send')}
-            hint={t('usdtWindow.sendHint')}
           />
         </div>
       )}
@@ -142,18 +140,17 @@ export function UsdtView({
   );
 }
 
+/** The two words, and an arrow that agrees with each. Nothing else. */
 function Tab({
   active,
   onClick,
   icon,
   label,
-  hint,
 }: {
   active: boolean;
   onClick: () => void;
   icon: ReactNode;
   label: string;
-  hint: string;
 }) {
   return (
     <button
@@ -162,19 +159,15 @@ function Tab({
       aria-selected={active}
       onClick={onClick}
       className={cn(
-        'flex flex-1 flex-col items-center gap-0.5 rounded-lg px-3 py-2 transition-colors',
+        'flex flex-1 items-center justify-center gap-2 rounded-lg px-3 py-2.5',
+        'text-sm font-semibold transition-colors',
         active
           ? 'bg-surface text-content shadow-[var(--shadow-sm)]'
           : 'text-content-tertiary hover:text-content',
       )}
     >
-      <span className="flex items-center gap-2 text-sm font-semibold">
-        {icon}
-        {label}
-      </span>
-      {/* The direction is the whole question, so it is spelled out rather than
-          left to an arrow somebody has to interpret. */}
-      <span className="text-xs font-normal">{hint}</span>
+      {icon}
+      {label}
     </button>
   );
 }
