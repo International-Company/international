@@ -476,3 +476,42 @@
     font-size: 16px !important;
   }
 }
+
+/* ---------------------------------------------------------------------------
+   Market ticker
+   ---------------------------------------------------------------------------
+   Two identical tracks side by side, the pair sliding exactly one track's
+   width: as the first leaves, the second is arriving in its place, so the loop
+   has no seam and no jump to hide.
+
+   It stops on hover because a figure somebody is trying to read should not
+   move, and it does not start at all for anybody who has asked their system
+   for less motion — a strip that crawls across the top of every screen is the
+   clearest possible case for honouring that.
+*/
+.marquee:hover .marquee-track {
+  animation-play-state: paused;
+}
+
+.marquee-track {
+  animation: marquee-slide 60s linear infinite;
+}
+
+@keyframes marquee-slide {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-100%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .marquee {
+    overflow-x: auto;
+  }
+
+  .marquee-track {
+    animation: none;
+  }
+}

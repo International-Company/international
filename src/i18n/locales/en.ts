@@ -891,9 +891,7 @@ const en = {
 
   market: {
     title: 'Market',
-    legend: 'Board · Market',
     stale: 'Market — stale',
-    noBoard: 'no published rate',
     asOf: 'Last updated',
   },
   handover: {

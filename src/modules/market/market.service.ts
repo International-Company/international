@@ -2,79 +2,71 @@ import 'server-only';
 import { prisma, type DbClient } from '@/core/db/prisma';
 import { createLogger } from '@/core/logger/logger';
 import * as settings from '@/modules/settings/settings.service';
-import { baseCurrency } from '@/modules/ledger/cutoff.service';
 
 /**
- * Where the market is — beside where the office's board is.
+ * The market ticker — the pairs an exchange office watches all day.
  *
- * ## The danger this is built around
+ * ## One table, one formula
  *
- * Everything in this system prices from one place: the board the manager
- * publishes. A second number on screen that looks like a rate is the most
- * expensive kind of decoration — a teller reads it aloud to a customer, and the
- * office has quoted a price nobody set.
+ * Every source is reduced to the same thing: **how many units of a symbol one
+ * dollar buys**. Gold arrives priced the other way round and is inverted on the
+ * way in; USDT arrives against the dollar directly. Once everything is in those
+ * terms, any pair at all is one division —
  *
- * So three rules hold, and the code is arranged to keep them:
+ *     A/B  =  perDollar[B] / perDollar[A]
  *
- * 1. **Nothing here prices anything.** No caller in the trading path may read
- *    this module, and none does. It is shown and never used.
- * 2. **It is never shown alone.** Every market figure appears beside the
- *    office's own published rate, so the screen reads as a comparison rather
- *    than as an alternative source.
- * 3. **It is behind `exchange.rate.view`.** The people who set prices see it;
- *    the people who quote them do not, which removes the misquoting risk at its
- *    root rather than warning about it.
+ * — which is why adding a pair here is a line of configuration rather than a
+ * line of code, and why `XAU/USD`, `EUR/USD` and `USD/ILS` need no special
+ * cases between them.
  *
- * ## Two sources, two cadences, said out loud
+ * ## What this is not
  *
- * Free reference data for shekels and dinars refreshes **once a day** — calling
- * that "live" would be the first lie the screen tells. USDT genuinely moves by
- * the minute and has a live free source. Each quote therefore carries its own
- * `asOf`, and the bar shows how old each one is rather than implying they share
- * a freshness they do not.
+ * It is not a price. Nothing in the trading path reads this module and none
+ * does: the office quotes the board its manager publishes, and a market figure
+ * that could reach a receipt would be the most expensive decoration in the
+ * system. The strip carries the word "market" at its head for the same reason.
  *
  * ## Failure is silence
  *
- * A rate provider having a bad afternoon must never be visible as an error in a
- * counter application, and must never delay a page. Every failure returns the
- * last good answer, or nothing — and the office carries on pricing from its own
- * board, which is the only thing it was ever pricing from.
+ * A provider having a bad afternoon must never be an error in a counter
+ * application and must never delay a page. Every failure keeps the last good
+ * answer, and the office carries on pricing from its own board — which is the
+ * only thing it was ever pricing from.
  */
 
 const log = createLogger('market');
 
-/** Money and rates in this system are scaled by this much. */
 const SCALE = 100_000_000n;
 
-export interface MarketQuote {
-  /** The currency being priced, against the office's base. */
-  code: string;
-  /** How many base units one unit costs, scaled 1e8. */
+/** Pairs shown when the manager has not said otherwise. */
+export const DEFAULT_PAIRS = 'USD/ILS,EUR/USD,GBP/USD,USD/JOD,USD/TRY,USD/EGP,XAU/USD';
+
+export interface TickerPair {
+  /** As written: `USD/ILS`. */
+  pair: string;
+  base: string;
+  quote: string;
+  /** How many quote units one base unit costs, scaled 1e8. */
   rate: bigint;
-  /** When the source last moved this figure. */
-  asOf: Date;
-  /** DAILY | LIVE — the cadence, so a screen never implies more than it has. */
+  /** DAILY | LIVE — so a strip never implies a freshness it does not have. */
   cadence: 'DAILY' | 'LIVE';
 }
 
-export interface MarketSnapshot {
-  base: string;
-  quotes: MarketQuote[];
+export interface Ticker {
+  pairs: TickerPair[];
   fetchedAt: Date;
-  /** True when every source failed and this is the last good answer. */
+  /** True when the sources failed and this is the last good answer. */
   stale: boolean;
 }
 
 /*
- * One upstream call serves every screen in the office.
- *
- * Twenty phones polling a free provider directly would be twenty times the
- * traffic for one answer, and the kind of thing that gets an address blocked.
+ * One upstream call serves every screen in the office. Twenty phones asking a
+ * free provider directly is twenty times the traffic for one answer, and the
+ * kind of thing that gets an address blocked.
  */
-let cache: { snapshot: MarketSnapshot; until: number } | null = null;
+let cache: { ticker: Ticker; until: number } | null = null;
 
-const scaled = (value: number): bigint =>
-  BigInt(Math.round(value * Number(SCALE)));
+const scaled = (value: number): bigint => BigInt(Math.round(value * Number(SCALE)));
 
 /** Fetches with a deadline; a slow provider must not become a slow page. */
 async function get(url: string, seconds = 6): Promise<unknown | null> {
@@ -84,108 +76,130 @@ async function get(url: string, seconds = 6): Promise<unknown | null> {
       cache: 'no-store',
       headers: { accept: 'application/json' },
     });
-    if (!response.ok) return null;
-    return await response.json();
+    return response.ok ? await response.json() : null;
   } catch {
     return null;
   }
 }
 
 /**
- * Paper currencies, from a free daily reference.
+ * Everything reduced to units per one dollar.
  *
- * The provider answers "one base buys this much of X", and the office thinks in
- * the other direction — what one dollar costs in shekels — so each is inverted
- * on the way in. A currency the provider does not carry is simply absent; there
- * is no sensible invented value for it.
+ * Paper money comes from a free reference that moves once a day. Gold and USDT
+ * move during it, and come from sources that do too — so each symbol carries
+ * the cadence it actually has rather than the best one in the set.
  */
-async function fiat(base: string, wanted: string[]): Promise<MarketQuote[]> {
-  const data = (await get(`https://open.er-api.com/v6/latest/${base}`)) as
-    | { result?: string; rates?: Record<string, number>; time_last_update_unix?: number }
-    | null;
+async function perDollar(): Promise<{
+  rates: Map<string, number>;
+  cadence: Map<string, 'DAILY' | 'LIVE'>;
+}> {
+  const rates = new Map<string, number>([['USD', 1]]);
+  const cadence = new Map<string, 'DAILY' | 'LIVE'>([['USD', 'DAILY']]);
 
-  if (!data || data.result !== 'success' || !data.rates) return [];
+  const [fx, gold, tether] = await Promise.all([
+    get('https://open.er-api.com/v6/latest/USD') as Promise<{
+      result?: string;
+      rates?: Record<string, number>;
+    } | null>,
+    get('https://api.gold-api.com/price/XAU') as Promise<{ price?: number } | null>,
+    get('https://api.coingecko.com/api/v3/simple/price?ids=tether&vs_currencies=usd') as Promise<{
+      tether?: { usd?: number };
+    } | null>,
+  ]);
 
-  const asOf = new Date((data.time_last_update_unix ?? Date.now() / 1000) * 1000);
+  if (fx?.result === 'success' && fx.rates) {
+    for (const [code, value] of Object.entries(fx.rates)) {
+      if (typeof value === 'number' && value > 0) {
+        rates.set(code, value);
+        cadence.set(code, 'DAILY');
+      }
+    }
+  }
 
-  return wanted.flatMap((code) => {
-    const perBase = data.rates?.[code];
-    if (!perBase || perBase <= 0) return [];
-    return [{ code, rate: scaled(1 / perBase), asOf, cadence: 'DAILY' as const }];
-  });
+  // Gold is quoted as dollars per ounce, which is the inverse of everything
+  // else in this table.
+  if (gold?.price && gold.price > 0) {
+    rates.set('XAU', 1 / gold.price);
+    cadence.set('XAU', 'LIVE');
+  }
+
+  if (tether?.tether?.usd && tether.tether.usd > 0) {
+    rates.set('USDT', 1 / tether.tether.usd);
+    cadence.set('USDT', 'LIVE');
+  }
+
+  return { rates, cadence };
 }
 
-/** USDT, from a free source that actually moves during the day. */
-async function tether(base: string): Promise<MarketQuote[]> {
-  const vs = base.toLowerCase();
-  const data = (await get(
-    `https://api.coingecko.com/api/v3/simple/price?ids=tether&vs_currencies=${vs}`,
-  )) as { tether?: Record<string, number> } | null;
-
-  const price = data?.tether?.[vs];
-  if (!price || price <= 0) return [];
-
-  return [{ code: 'USDT', rate: scaled(price), asOf: new Date(), cadence: 'LIVE' }];
+/** Splits `USD/ILS` into its two halves, ignoring anything malformed. */
+function parsePairs(raw: string): { base: string; quote: string }[] {
+  return raw
+    .split(',')
+    .map((entry) => entry.trim().toUpperCase())
+    .filter(Boolean)
+    .flatMap((entry) => {
+      const [base, quote] = entry.split('/');
+      return base && quote ? [{ base, quote }] : [];
+    });
 }
 
 /**
- * The market as it stands, for the currencies this office actually trades.
+ * The ticker as it stands.
  *
- * Cached for as long as the manager says. Returns the previous answer rather
- * than an error when a source is unreachable, because a counter screen has no
- * use for the news that somebody else's server is down.
+ * Cached for as long as the manager says, and a failed round is retried sooner
+ * than a good one is refreshed.
  */
-export async function snapshot(db: DbClient = prisma): Promise<MarketSnapshot> {
-  if (cache && cache.until > Date.now()) return cache.snapshot;
+export async function ticker(db: DbClient = prisma): Promise<Ticker> {
+  if (cache && cache.until > Date.now()) return cache.ticker;
 
-  const [base, minutes, currencies] = await Promise.all([
-    baseCurrency(db),
+  const [configured, minutes] = await Promise.all([
+    settings.getString('market.pairs').catch(() => DEFAULT_PAIRS),
     settings.getNumber('market.refreshMinutes').catch(() => 10),
-    db.currency.findMany({
-      where: { isActive: true },
-      orderBy: { sortOrder: 'asc' },
-      select: { code: true, kind: true },
-    }),
   ]);
 
-  const paper = currencies
-    .filter((row) => row.kind !== 'CRYPTO' && row.code !== base)
-    .map((row) => row.code);
-  const hasTether = currencies.some((row) => row.code === 'USDT');
+  const wanted = parsePairs(configured || DEFAULT_PAIRS);
+  const { rates, cadence } = await perDollar();
 
-  const [fiatQuotes, tetherQuotes] = await Promise.all([
-    paper.length > 0 ? fiat(base, paper) : Promise.resolve([]),
-    hasTether ? tether(base) : Promise.resolve([]),
-  ]);
+  const pairs = wanted.flatMap(({ base, quote }) => {
+    const from = rates.get(base);
+    const to = rates.get(quote);
+    // A pair the sources cannot price is left out. There is no sensible
+    // invented value for it, and a blank on a ticker is worse than an absence.
+    if (!from || !to) return [];
 
-  const quotes = [...fiatQuotes, ...tetherQuotes];
+    return [
+      {
+        pair: `${base}/${quote}`,
+        base,
+        quote,
+        rate: scaled(to / from),
+        // A pair is only as live as its slower half.
+        cadence:
+          cadence.get(base) === 'LIVE' && cadence.get(quote) === 'LIVE'
+            ? ('LIVE' as const)
+            : ('DAILY' as const),
+      },
+    ];
+  });
 
-  // Everything failed. Keep showing the last good answer, marked as such.
-  if (quotes.length === 0 && cache) {
+  if (pairs.length === 0 && cache) {
     log.debug('Market unreachable; serving the last good answer');
-    const stale = { ...cache.snapshot, stale: true };
-    cache = { snapshot: stale, until: Date.now() + 60_000 };
+    const stale = { ...cache.ticker, stale: true };
+    cache = { ticker: stale, until: Date.now() + 60_000 };
     return stale;
   }
 
-  const fresh: MarketSnapshot = {
-    base,
-    quotes,
-    fetchedAt: new Date(),
-    stale: quotes.length === 0,
-  };
-
+  const fresh: Ticker = { pairs, fetchedAt: new Date(), stale: pairs.length === 0 };
   cache = {
-    snapshot: fresh,
-    // A failed round is retried sooner than a good one is refreshed.
-    until: Date.now() + (quotes.length === 0 ? 60_000 : Math.max(1, minutes) * 60_000),
+    ticker: fresh,
+    until: Date.now() + (pairs.length === 0 ? 60_000 : Math.max(1, minutes) * 60_000),
   };
 
-  log.debug('Market refreshed', { quotes: quotes.length });
+  log.debug('Market refreshed', { pairs: pairs.length });
   return fresh;
 }
 
-/** Forgets the cached answer. Used when the refresh interval is changed. */
+/** Forgets the cached answer, for when the settings behind it change. */
 export function forget(): void {
   cache = null;
 }

@@ -890,9 +890,7 @@ const ar: Dictionary = {
 
   market: {
     title: 'السوق',
-    legend: 'اللوحة · السوق',
     stale: 'السوق — قديم',
-    noBoard: 'بلا سعر منشور',
     asOf: 'آخر تحديث',
   },
   handover: {

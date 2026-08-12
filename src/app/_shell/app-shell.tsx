@@ -116,10 +116,18 @@ export function AppShell({
 
   return (
     <div className="flex min-h-screen bg-canvas">
+      {/*
+        Above everything, including the sidebar. Its height is fixed at 2rem and
+        the three things beneath it are offset by exactly that — the sidebar
+        starts below it, the content is padded past it, and the sticky header
+        parks under it rather than over it.
+      */}
+      <MarketBar />
+
       {/* Mobile backdrop */}
       {mobileOpen && (
         <div
-          className="fixed inset-0 z-30 bg-[var(--overlay)] lg:hidden"
+          className="fixed inset-x-0 bottom-0 top-8 z-30 bg-[var(--overlay)] lg:hidden"
           onClick={() => setMobileOpen(false)}
           aria-hidden
         />
@@ -130,7 +138,7 @@ export function AppShell({
       {/* ---------------------------------------------------------------- */}
       <aside
         className={cn(
-          'fixed inset-y-0 z-40 flex-col border-e border-border-base bg-surface',
+          'fixed bottom-0 top-8 z-40 flex-col border-e border-border-base bg-surface',
           'transition-[width] duration-200 ease-out',
           collapsed ? 'w-16' : 'w-60',
           'start-0',
@@ -214,11 +222,11 @@ export function AppShell({
       {/* ---------------------------------------------------------------- */}
       <div
         className={cn(
-          'flex min-w-0 flex-1 flex-col transition-[padding] duration-200',
+          'flex min-w-0 flex-1 flex-col pt-8 transition-[padding] duration-200',
           collapsed ? 'lg:ps-16' : 'lg:ps-60',
         )}
       >
-        <header className="sticky top-0 z-20 flex h-14 items-center gap-2 border-b border-border-base bg-surface/95 px-3 backdrop-blur sm:px-4">
+        <header className="sticky top-8 z-20 flex h-14 items-center gap-2 border-b border-border-base bg-surface/95 px-3 backdrop-blur sm:px-4">
           <button
             type="button"
             onClick={() => setMobileOpen(true)}
@@ -374,14 +382,6 @@ export function AppShell({
             </DropdownMenu>
           </div>
         </header>
-
-        {/*
-          Under the header rather than over anything: it is information, not a
-          notice, and it displaces rather than covers. Only for the people who
-          set prices — a teller quotes the board and has no use for a second
-          number that looks like one.
-        */}
-        {user.permissions.includes('exchange.rate.view') && <MarketBar />}
 
         <main className="flex-1 px-3 py-4 sm:px-5 sm:py-6">
           <div className="mx-auto w-full max-w-[100rem]">{children}</div>

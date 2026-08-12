@@ -3,62 +3,76 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useLocale } from '@/i18n/provider';
 import { api } from '@/lib/api-client';
-import { cn } from '@/ui/utils';
 
 /**
- * The market strip under the header.
+ * The market ticker across the top of every screen.
  *
- * Each currency shows the office's own board first and the market beside it,
- * because those two figures are only interesting as a pair — the gap between
- * them is the office's margin, and it is the one number a manager wants at a
- * glance all day.
+ * The pairs an exchange office glances at all day — the shekel, the euro, the
+ * lira, the pound, and gold by the ounce, which matters here because the
+ * business is money *and jewellery*.
  *
- * Deliberately quiet. It sits in the flow of the layout rather than floating
- * over anything, it carries no controls, and it never grows: a strip that
- * demands attention every time a rate moves would be read for a week and
- * ignored for a year.
+ * ## Why it reads left to right in an Arabic interface
  *
- * It says how old each figure is, and does not pretend the two sources share a
- * freshness they do not — paper currencies come from a daily reference and USDT
- * from a live one.
+ * A rate is a number and a pair of codes, and both are Latin. Running the strip
+ * with the page would put `USD/ILS` beside a figure that belongs to its
+ * neighbour, so the strip is forced `ltr` regardless of the interface language —
+ * the same decision every amount in this system already makes.
+ *
+ * ## Why it moves
+ *
+ * There are more pairs than fit a phone. The alternatives were to cut the list
+ * down until it fits the smallest screen, or to let it scroll — and a ticker
+ * that scrolls is the form every trader already knows how to read. It pauses on
+ * hover so a figure can actually be caught, and it does not move at all for
+ * somebody who has asked their system for less motion.
+ *
+ * ## What it is not
+ *
+ * Not a price. The office quotes the board its manager publishes; this says
+ * "market" at its head and nothing in the trading path can read it.
  */
 
-interface Row {
-  code: string;
-  market: string;
-  asOf: string;
+interface Pair {
+  pair: string;
+  quote: string;
+  rate: string;
   cadence: 'DAILY' | 'LIVE';
-  buy: string | null;
-  sell: string | null;
 }
 
 /** How often the browser asks. The server answers from its own cache. */
 const POLL_MS = 120_000;
 
-const plain = (scaled: string, decimals = 4): string =>
-  (Number(BigInt(scaled)) / 1e8).toFixed(decimals);
+/**
+ * Rates are read at a glance, so the precision follows the magnitude rather
+ * than a fixed rule: four places on a currency pair, none on an ounce of gold
+ * where the fourth decimal is noise beside a four-figure price.
+ */
+function show(scaled: string): string {
+  const value = Number(BigInt(scaled)) / 1e8;
+  if (value >= 1000) return value.toLocaleString('en-US', { maximumFractionDigits: 0 });
+  if (value >= 100) return value.toFixed(2);
+  return value.toFixed(4);
+}
 
 export function MarketBar() {
   const { t } = useLocale();
-  const [rows, setRows] = useState<Row[] | null>(null);
+  const [pairs, setPairs] = useState<Pair[] | null>(null);
   const [stale, setStale] = useState(false);
 
   const load = useCallback(async () => {
     try {
-      const data = await api.get<{ enabled: boolean; rows: Row[]; stale?: boolean }>('/api/market');
-      setRows(data.enabled ? data.rows : []);
+      const data = await api.get<{ enabled: boolean; pairs: Pair[]; stale?: boolean }>('/api/market');
+      setPairs(data.enabled ? data.pairs : []);
       setStale(Boolean(data.stale));
     } catch {
-      // A market strip that shows an error has misunderstood its own importance.
-      setRows([]);
+      // A ticker that shows an error has misunderstood its own importance.
+      setPairs([]);
     }
   }, []);
 
   useEffect(() => {
     void load();
     const timer = setInterval(() => void load(), POLL_MS);
-    // Asking again on return costs one request and saves reading a stale figure
-    // after the phone has been in a pocket all morning.
     const onVisible = () => document.visibilityState === 'visible' && void load();
     document.addEventListener('visibilitychange', onVisible);
     return () => {
@@ -67,55 +81,46 @@ export function MarketBar() {
     };
   }, [load]);
 
-  if (rows === null || rows.length === 0) return null;
+  if (pairs === null || pairs.length === 0) return null;
 
   return (
     <div
-      className="border-border-base bg-surface-sunken/60 flex items-center gap-3 overflow-x-auto border-b px-3 py-1.5 sm:px-4"
+      dir="ltr"
       role="region"
       aria-label={t('market.title')}
+      className="fixed inset-x-0 top-0 z-50 flex h-8 items-stretch overflow-hidden bg-[#111214] text-white/90"
     >
       {/*
-        A legend rather than a repeated word. Naming the two columns once at the
-        head lets every figure after it be read without a label of its own,
-        which is what keeps the strip to one line.
+        Pinned outside the scroll, so the word that stops this being read as a
+        price is the one thing that never slides away.
       */}
-      <span className="text-content-tertiary shrink-0 text-[10px] font-medium tracking-wide">
-        {stale ? t('market.stale') : t('market.legend')}
+      <span className="z-10 flex shrink-0 items-center gap-1.5 bg-[#111214] px-3 text-[10px] font-semibold tracking-widest text-white/45 uppercase shadow-[8px_0_8px_-8px_rgba(0,0,0,0.9)]">
+        {stale && <span className="size-1.5 rounded-full bg-amber-400" aria-hidden />}
+        {stale ? t('market.stale') : t('market.title')}
       </span>
 
-      {rows.map((row) => (
-        <span
-          key={row.code}
-          className="flex shrink-0 items-baseline gap-1.5 text-xs whitespace-nowrap"
-          title={`${t('market.asOf')} ${new Date(row.asOf).toLocaleString()}`}
-        >
-          <span className="text-content font-semibold ltr-content">{row.code}</span>
-
-          {/* The office's own price leads. It is the one that is binding. */}
-          {row.buy && row.sell ? (
-            <span className="text-content tabular-nums ltr-content">
-              {plain(row.buy, 4)} / {plain(row.sell, 4)}
-            </span>
-          ) : (
-            <span className="text-warning-text">{t('market.noBoard')}</span>
-          )}
-
-          <span className="text-content-tertiary">·</span>
-
-          <span className="text-content-secondary tabular-nums ltr-content">
-            {plain(row.market, 4)}
-          </span>
-
-          {/* Only the live one is marked, because only it earns the word. */}
-          {row.cadence === 'LIVE' && (
-            <span
-              className={cn('bg-success size-1.5 shrink-0 rounded-full', !stale && 'animate-pulse')}
-              aria-hidden
-            />
-          )}
-        </span>
-      ))}
+      <div className="marquee flex min-w-0 flex-1 items-center">
+        {/* Twice, so the second copy is entering as the first leaves. */}
+        {[0, 1].map((copy) => (
+          <div key={copy} className="marquee-track flex shrink-0 items-center" aria-hidden={copy === 1}>
+            {pairs.map((row) => (
+              <span
+                key={`${copy}-${row.pair}`}
+                className="flex items-center gap-2 border-e border-white/10 px-5 text-xs whitespace-nowrap"
+              >
+                <span className="font-semibold tracking-wide">{row.pair}</span>
+                <span className="tabular-nums text-white/70">
+                  {row.quote === 'USD' && Number(BigInt(row.rate)) / 1e8 >= 1000 ? '$' : ''}
+                  {show(row.rate)}
+                </span>
+                {row.cadence === 'LIVE' && (
+                  <span className="size-1.5 shrink-0 rounded-full bg-emerald-400" aria-hidden />
+                )}
+              </span>
+            ))}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

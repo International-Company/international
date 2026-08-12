@@ -126,9 +126,18 @@ export const SETTINGS: SettingDefinition[] = [
     key: 'market.enabled', category: 'machine', type: 'boolean', defaultValue: true,
     labelEn: 'Market strip', labelAr: 'شريط السوق',
     descriptionEn:
-      'Show a reference market rate beside the branch’s own published rate, for whoever may view rates. It is never used to price anything.',
+      'Show the market ticker across the top of every screen. It is never used to price anything — the branch quotes the board its manager publishes.',
     descriptionAr:
-      'عرض سعر السوق المرجعي بجانب سعر اللوحة، لمن يملك عرض الأسعار. لا يُسعَّر به شيء إطلاقاً.',
+      'عرض شريط السوق أعلى كل شاشة. لا يُسعَّر به شيء إطلاقاً — المكتب يسعّر بلوحته المنشورة.',
+  },
+  {
+    key: 'market.pairs', category: 'machine', type: 'string',
+    defaultValue: 'USD/ILS,EUR/USD,GBP/USD,USD/JOD,USD/TRY,USD/EGP,XAU/USD',
+    labelEn: 'Ticker pairs', labelAr: 'أزواج الشريط',
+    descriptionEn:
+      'Comma-separated, in the order they scroll. Any pair the sources can price works — XAU is gold the ounce, USDT the coin. A pair nothing can price is simply left out.',
+    descriptionAr:
+      'مفصولة بفواصل، بالترتيب الذي تمرّ به. أي زوج تستطيع المصادر تسعيره يعمل — XAU هو الذهب للأونصة، وUSDT العملة. والزوج الذي لا يُسعَّر يُترك.',
   },
   {
     key: 'market.refreshMinutes', category: 'machine', type: 'number', defaultValue: 10,
