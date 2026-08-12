@@ -115,6 +115,14 @@ export const SETTINGS: SettingDefinition[] = [
       'مفصولة بفواصل، من تسعيرة المراسل. يختار التلر واحدة وتُثبَّت على الحوالة. حذف اسم يمنع عرضه ويترك الحوالات المرسلة إليه كما سُجّلت.',
   },
   {
+    key: 'exchange.priceException.minutes', category: 'machine', type: 'number', defaultValue: 10,
+    labelEn: 'A broken price lives for', labelAr: 'مدة صلاحية كسر السعر',
+    descriptionEn:
+      'Minutes an approved price stays usable. It is meant to cover the customer still standing at the counter — long enough to finish the deal, short enough that an unused approval cannot become a discount tomorrow.',
+    descriptionAr:
+      'عدد الدقائق التي يبقى فيها السعر المُوافق عليه صالحاً. المقصود هو الزبون الواقف الآن — مدة تكفي لإتمام الصفقة ولا تكفي لتتحول موافقة غير مستعملة إلى خصم جاهز غداً.',
+  },
+  {
     key: 'machine.maxAmount', category: 'machine', type: 'money', defaultValue: '0',
     labelEn: 'Counter limit', labelAr: 'حد الشباك',
     descriptionEn:

@@ -115,6 +115,14 @@ export const PERMISSIONS: PermissionDefinition[] = [
     'Count and confirm a float handed over, and declare what is being returned',
     'عدّ الرصيد المسلَّم وتأكيده، وإعلان ما يُرحَّل'),
 
+  // --- Breaking a price, for one deal ---------------------------------------
+  def('exchange.priceException.request', 'exchange', 'use', 'Ask to break a price', 'طلب كسر السعر',
+    'Ask the manager to shade the board for one deal, and use the approval once it is given',
+    'طلب سعر خارج اللوحة لصفقة واحدة، واستعمال الموافقة بعد صدورها'),
+  def('exchange.priceException.approve', 'exchange', 'approve', 'Approve a broken price', 'الموافقة على كسر السعر',
+    'Grant or refuse a price outside the board, with the wholesale cost shown',
+    'منح أو رفض سعر خارج اللوحة، والتكلفة معروضة', true),
+
   // --- The ledger ----------------------------------------------------------
   def('ledger.view', 'exchange', 'view', 'View the ledger', 'عرض دفتر الأستاذ',
     "See the branch's position, what it is worth and what the day produced",
@@ -260,6 +268,7 @@ export const SYSTEM_ROLES: RoleDefinition[] = [
       // permissions: manager entries would appear in a sidebar that is supposed
       // to hold the teller's own tools and nothing else.
       'exchange.machine.use',
+      'exchange.priceException.request',
       'exchange.remittance.use',
       'treasury.handover.receive',
       'usdt.counter.use',

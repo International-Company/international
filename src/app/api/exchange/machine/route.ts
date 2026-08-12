@@ -81,6 +81,11 @@ const bodySchema = z.object({
   brokerShare: z.string().optional(),
   /** Which of the broker's accounts the transfer is instructed to. */
   payoutChannel: z.string().max(80).nullish(),
+  /**
+   * An approval to break the board. The id and nothing else — the price lives
+   * on the approval, and the server reads it from there.
+   */
+  priceExceptionId: z.string().nullish(),
   customerId: z.string().nullish(),
   counterpartyName: z.string().max(200).nullish(),
   counterpartyPhone: z.string().max(40).nullish(),
@@ -103,6 +108,7 @@ export const POST = route<z.infer<typeof bodySchema>>({
         toAmount: body.receive !== undefined ? parseMoney(body.receive) : undefined,
         brokerShare: body.brokerShare !== undefined ? parseMoney(body.brokerShare) : undefined,
         payoutChannel: body.payoutChannel ?? null,
+        priceExceptionId: body.priceExceptionId ?? null,
         branchId: actor.branchId,
         customerId: body.customerId ?? null,
         counterpartyName: body.counterpartyName ?? null,

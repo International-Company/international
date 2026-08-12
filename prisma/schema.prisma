@@ -50,6 +50,7 @@ model Branch {
   depositRequests UsdtDepositRequest[]
 
   @@map("branches")
+  priceExceptions PriceException[]
 }
 
 // ===========================================================================
@@ -130,6 +131,8 @@ model User {
   @@index([status])
   @@index([branchId])
   @@map("users")
+  priceExceptionsAsked    PriceException[] @relation("PriceExceptionRequester")
+  priceExceptionsDecided  PriceException[] @relation("PriceExceptionApprover")
 }
 
 model Role {
@@ -739,6 +742,7 @@ model Customer {
   isBlocked     Boolean   @default(false)
   blockReason   String?
 
+
   /// Maximum negative balance allowed, scaled 1e8, in `creditCurrency`.
   creditLimit    BigInt  @default(0)
   creditCurrency String?
@@ -824,6 +828,11 @@ model Transaction {
   /// Spread earned against the mid rate, in toCurrency. Shown to the manager.
   profitAmount BigInt @default(0)
 
+  /// The broken price this deal was struck at, if it was one. Present on the
+  /// transaction so the concession is read where the deal is read, not only in
+  /// a list of approvals somebody has to think to open.
+  priceException PriceException?
+
   // --- How the customer paid, and how they were paid ----------------------
   //
   // Each pair always sums to exactly its own total — the intake legs to
@@ -866,6 +875,7 @@ model Transaction {
   payoutWalletId String?
   payoutWallet   Wallet? @relation("TransactionPayoutWallet", fields: [payoutWalletId], references: [id], onDelete: SetNull)
 
+
   /// When someone confirmed the promised transfer actually left. Null while
   /// pending. It covers both promises a branch can make — a bank transfer
   /// through the broker, and USDT sent from the branch's own wallet.
@@ -903,6 +913,92 @@ model Transaction {
   @@index([createdById, createdAt])
   @@index([customerId])
   @@map("transactions")
+}
+
+/// A price the manager broke, for one deal, before it was struck.
+///
+/// The teller meets a customer who will walk over an agura, and the office
+/// would rather take the trade than the principle. What makes that safe is not
+/// the approval — it is that the approval cannot outlive the moment it was
+/// given. An approved price with no leash becomes a standing discount: used
+/// tomorrow, for a different customer, at a different amount, by a different
+/// teller, and nobody would ever see it happen.
+///
+/// So it carries four leashes, and every one of them is checked again at the
+/// instant the money moves rather than at the moment the button was pressed:
+///
+///   1. it expires in minutes
+///   2. it names the pair, the direction and the channel, and caps the amount
+///   3. it can be spent once
+///   4. it is stamped on the transaction it was spent on
+///
+/// This does not reintroduce approvals of *transactions*. What is approved is a
+/// **price**, before the deal; the deal itself still posts the moment it is
+/// recorded. And the browser is still not trusted: the teller sends this row's
+/// id, never a rate, and the server reads the rate from here.
+model PriceException {
+  id        String @id @default(cuid())
+  reference String @unique // PEX-20260811-00001
+
+  /// PENDING | APPROVED | REJECTED | USED | EXPIRED | CANCELLED
+  status String @default("PENDING")
+
+  branchId      String
+  branch        Branch       @relation(fields: [branchId], references: [id])
+  businessDayId String?
+  businessDay   BusinessDay? @relation(fields: [businessDayId], references: [id], onDelete: SetNull)
+
+  /// Who asked. Only they may spend it — an approval is given to a person
+  /// standing in front of a customer, not to the branch.
+  requestedById String
+  requestedBy   User   @relation("PriceExceptionRequester", fields: [requestedById], references: [id])
+
+  approvedById String?
+  approvedBy   User?   @relation("PriceExceptionApprover", fields: [approvedById], references: [id], onDelete: SetNull)
+
+  // --- What it is bound to -------------------------------------------------
+  fromCurrency String
+  toCurrency   String
+  /// CASH | BROKER — the leg it prices. A deal settled the other way is a
+  /// different price and needs its own approval.
+  channel      String @default("CASH")
+  /// The most the customer may hand over on that leg, scaled 1e8. Asked for a
+  /// figure, granted for at most that figure.
+  maxFromAmount BigInt
+
+  // --- The three rates, all scaled 1e8, all frozen here --------------------
+  /// What the board said when the teller asked.
+  boardRate BigInt
+  /// What the teller asked for. Always worse for the office than the board —
+  /// a better price needs no permission.
+  requestedRate BigInt
+  /// What the manager actually granted. May be short of what was asked.
+  approvedRate BigInt?
+  /// Wholesale cost at the moment of the decision, derived from the cut-off
+  /// rates the manager himself approves. This is the number that turns "does
+  /// that seem reasonable?" into "are we still above cost?", and it is copied
+  /// here rather than looked up later for the same reason every historical
+  /// figure in this system is frozen.
+  costRate BigInt?
+
+  reason       String?
+  decisionNote String?
+
+  /// After this instant it is refused, whatever its status says.
+  expiresAt DateTime?
+
+  /// The deal it was spent on. Unique, which is what makes "once" true even if
+  /// two requests arrive in the same millisecond.
+  usedByTransactionId String?      @unique
+  usedByTransaction   Transaction? @relation(fields: [usedByTransactionId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime  @default(now())
+  decidedAt DateTime?
+  usedAt    DateTime?
+
+  @@index([status, createdAt])
+  @@index([requestedById, status])
+  @@map("price_exceptions")
 }
 
 model Receipt {
@@ -1014,6 +1110,7 @@ model BusinessDay {
   @@unique([branchId, date])
   @@index([status])
   @@map("business_days")
+  priceExceptions PriceException[]
 }
 
 // ===========================================================================

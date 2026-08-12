@@ -1,9 +1,10 @@
 import 'server-only';
-import { prisma, type DbClient } from '@/core/db/prisma';
+import { prisma, withTransaction, type DbClient } from '@/core/db/prisma';
 import { errors } from '@/core/errors/app-error';
 import { divideRounded, MONEY_FACTOR, toDecimalString } from '@/core/money/money';
 import * as drawers from '@/modules/drawers/drawer.service';
 import { cashOwnerFor } from '@/modules/treasury/shift.service';
+import * as exceptions from './price-exception.service';
 import * as settings from '@/modules/settings/settings.service';
 import {
   quoteExchange,
@@ -296,6 +297,13 @@ export interface MachineRecordInput {
   /** Which of the broker's accounts the transfer is instructed to. */
   payoutChannel?: string | null;
   branchId: string;
+  /**
+   * An approval to break the board, granted for this deal.
+   *
+   * The id, never a rate: the server reads the price from the approval, so a
+   * screen that was left open or edited cannot name its own.
+   */
+  priceExceptionId?: string | null;
   customerId?: string | null;
   counterpartyName?: string | null;
   counterpartyPhone?: string | null;
@@ -315,7 +323,25 @@ export async function record(input: MachineRecordInput, actor: Actor, db: DbClie
     throw errors.precondition('The exchange machine is switched off', 'errors.machineDisabled');
   }
 
-  const legs = await priceLegs(input, db);
+  /*
+   * One transaction around the whole thing, because of the approval.
+   *
+   * Spending a broken price and posting the deal it was spent on have to be the
+   * same event: claimed first and posted after, a failure between them burns an
+   * approval on a deal that never happened; posted first and claimed after, two
+   * screens can trade on one approval. Inside a transaction neither is
+   * possible, and the claim is a conditional update so the loser of a race gets
+   * nothing rather than a second copy.
+   */
+  return withTransaction((tx) => post(input, actor, tx), db);
+}
+
+async function post(input: MachineRecordInput, actor: Actor, db: DbClient) {
+  const forced = input.priceExceptionId
+    ? await claimForDeal(input, actor, db)
+    : null;
+
+  const legs = await priceLegs(input, db, forced);
   const total = legs.cash.to + legs.broker.to;
   const fromTotal = legs.cash.from + legs.broker.from;
 
@@ -405,7 +431,7 @@ export async function record(input: MachineRecordInput, actor: Actor, db: DbClie
   const rate = blendedRate(fromTotal, total);
   const single = legs.cash.to === 0n ? legs.broker.quote : legs.broker.to === 0n ? legs.cash.quote : null;
 
-  return transactions.record(
+  const posted = await transactions.record(
     {
       type: 'EXCHANGE',
       branchId: input.branchId,
@@ -426,6 +452,82 @@ export async function record(input: MachineRecordInput, actor: Actor, db: DbClie
     actor,
     db,
   );
+
+  // Stamped on the deal, which is the fourth leash: the concession is read
+  // where the transaction is read, not only in a list somebody must think to
+  // open.
+  if (input.priceExceptionId) {
+    await exceptions.stamp(input.priceExceptionId, posted.id, db);
+  }
+
+  return posted;
+}
+
+/**
+ * Spends the approval, having checked it belongs to this deal.
+ *
+ * The channel compared is **the deal's**, not the approval's. Reading it off
+ * the approval would make the comparison a tautology and quietly retire one of
+ * the four leashes: a price granted for notes out of the till would then also
+ * buy a transfer through the broker, which is a different price entirely.
+ *
+ * A split is the one case where both channels are genuinely running, so there
+ * the approval prices its own leg and the amount it is checked against is that
+ * leg's share rather than the whole deal.
+ */
+async function claimForDeal(
+  input: MachineRecordInput,
+  actor: Actor,
+  db: DbClient,
+): Promise<{ channel: RateChannel; rate: bigint }> {
+  const approvedFor = await channelOfException(input.priceExceptionId!, db);
+
+  let channel: RateChannel;
+  let covered: bigint;
+
+  if (input.mode === 'SPLIT') {
+    if (input.fromAmount === undefined) {
+      throw errors.precondition(
+        'A split is priced from what the customer hands over',
+        'errors.splitNeedsPayAmount',
+      );
+    }
+    const brokerShare = input.brokerShare ?? 0n;
+    channel = approvedFor;
+    covered = approvedFor === 'BROKER' ? brokerShare : input.fromAmount - brokerShare;
+  } else {
+    channel = input.mode === 'BROKER' ? 'BROKER' : 'CASH';
+    covered =
+      input.fromAmount ??
+      /*
+       * Priced backwards from what the customer wants to receive, so what they
+       * hand over is not known until the board has been read. Priced here at
+       * the board purely to have a figure to check the cap against; the deal
+       * itself is priced again, at the granted rate, below.
+       */
+      (await quoteReverse(input.fromCurrency, input.toCurrency, input.toAmount!, channel, db))
+        .fromAmount;
+  }
+
+  const rate = await exceptions.claim(
+    {
+      id: input.priceExceptionId!,
+      fromCurrency: input.fromCurrency,
+      toCurrency: input.toCurrency,
+      channel,
+      fromAmount: covered,
+    },
+    actor,
+    db,
+  );
+
+  return { channel, rate };
+}
+
+async function channelOfException(id: string, db: DbClient): Promise<RateChannel> {
+  const row = await db.priceException.findUnique({ where: { id }, select: { channel: true } });
+  if (!row) throw errors.notFound('PriceException', id);
+  return row.channel === 'BROKER' ? 'BROKER' : 'CASH';
 }
 
 interface Leg {
@@ -448,9 +550,21 @@ const NO_LEG: Leg = { from: 0n, to: 0n, profit: 0n, quote: null };
 async function priceLegs(
   input: MachineRecordInput,
   db: DbClient,
+  /** A price granted for one channel, applied only to that channel's leg. */
+  forced: { channel: RateChannel; rate: bigint } | null = null,
 ): Promise<{ cash: Leg; broker: Leg }> {
+  const rateFor = (channel: RateChannel) =>
+    forced && forced.channel === channel ? forced.rate : undefined;
+
   const price = async (amount: bigint, channel: RateChannel): Promise<Leg> => {
-    const quoted = await quoteExchange(input.fromCurrency, input.toCurrency, amount, channel, db);
+    const quoted = await quoteExchange(
+      input.fromCurrency,
+      input.toCurrency,
+      amount,
+      channel,
+      db,
+      rateFor(channel),
+    );
     return { from: quoted.fromAmount, to: quoted.toAmount, profit: quoted.profit, quote: quoted };
   };
 
@@ -459,8 +573,22 @@ async function priceLegs(
 
     const quoted =
       input.fromAmount !== undefined
-        ? await quoteExchange(input.fromCurrency, input.toCurrency, input.fromAmount, channel, db)
-        : await quoteReverse(input.fromCurrency, input.toCurrency, input.toAmount!, channel, db);
+        ? await quoteExchange(
+            input.fromCurrency,
+            input.toCurrency,
+            input.fromAmount,
+            channel,
+            db,
+            rateFor(channel),
+          )
+        : await quoteReverse(
+            input.fromCurrency,
+            input.toCurrency,
+            input.toAmount!,
+            channel,
+            db,
+            rateFor(channel),
+          );
 
     const leg: Leg = {
       from: quoted.fromAmount,

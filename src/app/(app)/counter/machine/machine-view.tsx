@@ -25,8 +25,8 @@ import { useLocale } from '@/i18n/provider';
 import { normalizeDigits } from '@/core/money/money';
 import { api, ApiError, queryString } from '@/lib/api-client';
 import { Button } from '@/ui/primitives';
-import { DropdownMenu, useToast } from '@/ui/overlay';
-import { Field, Input } from '@/ui/form';
+import { Dialog, DropdownMenu, useToast } from '@/ui/overlay';
+import { Field, Input, MoneyInput, Textarea } from '@/ui/form';
 import { Money } from '@/ui/display';
 import { CustomerPicker, type CustomerHit } from '@/ui/customer-picker';
 import { cn } from '@/ui/utils';
@@ -164,6 +164,8 @@ export function MachineView({
   const [quoting, setQuoting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [posting, setPosting] = useState(false);
+  /** An approval to break the board, once the manager has granted one. */
+  const [approval, setApproval] = useState<Approval | null>(null);
   const [done, setDone] = useState<{ id: string; reference: string } | null>(null);
   const [counterpartyName, setCounterpartyName] = useState('');
   const [customer, setCustomer] = useState<CustomerHit | null>(null);
@@ -477,6 +479,11 @@ export function MachineView({
            */
           brokerShare: channel === 'SPLIT' ? unscale(scaleAmount(brokerShare)) : undefined,
           payoutChannel: legs.broker > 0n ? destination : null,
+          /*
+           * The id, never the price. The server reads the rate off the approval,
+           * so this screen cannot name one even if it wanted to.
+           */
+          priceExceptionId: approval?.id ?? null,
           customerId: customer?.id ?? null,
           counterpartyName: counterpartyName.trim() || null,
         },
@@ -489,6 +496,9 @@ export function MachineView({
       setCounterpartyName('');
       setCustomer(null);
       setCustomerOpen(false);
+      // Spent. Leaving it on screen would invite a second press at a price that
+      // no longer exists.
+      setApproval(null);
       void loadRecent();
       router.refresh();
     } catch (cause) {
@@ -789,6 +799,16 @@ export function MachineView({
               )}
             </div>
           )}
+
+          <PriceException
+            from={from}
+            to={to}
+            channel={channel}
+            payAmount={side === 'pay' ? amount : ''}
+            approval={approval}
+            onApproval={setApproval}
+            enabled={permissions.includes('exchange.priceException.request')}
+          />
         </div>
 
         {/* ============ Shortcuts and the action ============ */}
@@ -1288,4 +1308,226 @@ function formatPlain(scaled: string, decimals: number): string {
   const whole = digits.slice(0, -8);
   const fraction = digits.slice(-8).slice(0, decimals);
   return decimals > 0 ? `${whole}.${fraction}` : whole;
+}
+
+// ---------------------------------------------------------------------------
+// Breaking the price
+// ---------------------------------------------------------------------------
+
+interface Approval {
+  id: string;
+  reference: string;
+  status: string;
+  fromCurrency: string;
+  toCurrency: string;
+  channel: string;
+  maxFromAmount: string;
+  requestedRate: string;
+  approvedRate: string | null;
+  expiresAt: string | null;
+}
+
+/**
+ * The teller's half of a broken price, on the machine screen where he needs it.
+ *
+ * Three states and nothing else: nothing asked, asked and waiting, granted and
+ * ticking. The countdown is shown rather than merely enforced — a teller who
+ * cannot see the seconds go will press record on a dead approval and be refused
+ * for a reason he had no way to anticipate, in front of the customer.
+ *
+ * It polls only while something is outstanding. A screen sitting idle at the
+ * counter all day should not be asking the server anything.
+ */
+function PriceException({
+  from,
+  to,
+  channel,
+  payAmount,
+  approval,
+  onApproval,
+  enabled,
+}: {
+  from: string;
+  to: string;
+  channel: Channel;
+  payAmount: string;
+  approval: Approval | null;
+  onApproval: (value: Approval | null) => void;
+  enabled: boolean;
+}) {
+  const { t } = useLocale();
+  const toast = useToast();
+
+  const [asking, setAsking] = useState(false);
+  const [wanted, setWanted] = useState('');
+  const [reason, setReason] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [waiting, setWaiting] = useState<Approval | null>(null);
+  const [left, setLeft] = useState(0);
+
+  const outstanding = waiting !== null || approval !== null;
+
+  const poll = useCallback(async () => {
+    try {
+      const data = await api.get<{ mine?: Approval[] }>('/api/exchange/price-exceptions');
+      const rows = data.mine ?? [];
+      const live = rows.find((row) => row.status === 'APPROVED');
+      const pending = rows.find((row) => row.status === 'PENDING');
+      setWaiting(pending ?? null);
+      if (live) onApproval(live);
+    } catch {
+      // A poll that fails changes nothing on screen; the teller still has the
+      // board and can trade on it.
+    }
+  }, [onApproval]);
+
+  /*
+   * Asked once when the screen opens, whatever the state — the manager may have
+   * answered while the teller was on another screen, or the tab may have been
+   * reopened, and a strip that only polls once something is already outstanding
+   * can never learn about the approval it is meant to show.
+   */
+  useEffect(() => {
+    if (enabled) void poll();
+  }, [enabled, poll]);
+
+  // After that, only while something is actually outstanding. A screen sitting
+  // idle at the counter all day should not be asking the server anything.
+  useEffect(() => {
+    if (!enabled || !outstanding) return;
+    const timer = setInterval(() => void poll(), 4000);
+    return () => clearInterval(timer);
+  }, [enabled, outstanding, poll]);
+
+  // The countdown, ticking on its own so the number moves without a request.
+  useEffect(() => {
+    if (!approval?.expiresAt) return;
+    const tick = () => {
+      const seconds = Math.max(
+        0,
+        Math.floor((new Date(approval.expiresAt!).getTime() - Date.now()) / 1000),
+      );
+      setLeft(seconds);
+      if (seconds === 0) onApproval(null);
+    };
+    tick();
+    const timer = setInterval(tick, 1000);
+    return () => clearInterval(timer);
+  }, [approval, onApproval]);
+
+  if (!enabled) return null;
+
+  // An approval names one channel, so a deal being settled another way cannot
+  // spend it. Saying so here beats being refused at the moment of recording.
+  const fits =
+    approval !== null &&
+    approval.fromCurrency === from &&
+    approval.toCurrency === to &&
+    (channel === 'SPLIT' || approval.channel === channel);
+
+  const ask = async () => {
+    setBusy(true);
+    try {
+      await api.post('/api/exchange/price-exceptions', {
+        action: 'request',
+        fromCurrency: from,
+        toCurrency: to,
+        channel: channel === 'BROKER' ? 'BROKER' : 'CASH',
+        maxFromAmount: payAmount.trim() || '0',
+        requestedRate: wanted,
+        reason: reason.trim() || null,
+      });
+      toast.success(t('exception.asked2'));
+      setAsking(false);
+      setWanted('');
+      setReason('');
+      await poll();
+    } catch (cause) {
+      toast.error(
+        t('errors.title'),
+        cause instanceof ApiError
+          ? t(cause.messageKey as never, cause.params as Record<string, string>) || cause.message
+          : t('errors.generic'),
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <>
+      {approval && fits ? (
+        <div className="flex flex-wrap items-center gap-3 rounded-2xl bg-warning-subtle px-4 py-3 text-sm ring-1 ring-warning-border">
+          <span className="font-semibold">
+            {t('exception.live', { rate: formatPlain(approval.approvedRate ?? '0', 6) })}
+          </span>
+          <span className="text-content-secondary text-xs">
+            {t('exception.liveHint', { amount: formatPlain(approval.maxFromAmount, 2) })}
+          </span>
+          <span className="ms-auto font-mono text-xs">
+            {t('exception.expiresIn', { seconds: left })}
+          </span>
+          <Button size="sm" variant="ghost" onClick={() => onApproval(null)}>
+            {t('exception.dropIt')}
+          </Button>
+        </div>
+      ) : waiting ? (
+        <div className="flex items-center gap-3 rounded-2xl bg-surface-sunken px-4 py-3 text-sm">
+          <Loader2 className="size-4 animate-spin" />
+          {t('exception.pendingMine')}
+          <span className="font-mono ltr-content ms-auto text-xs">{waiting.reference}</span>
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setAsking(true)}
+          className="text-content-secondary hover:text-content text-xs underline underline-offset-4"
+        >
+          {t('exception.ask')}
+        </button>
+      )}
+
+      <Dialog
+        open={asking}
+        onClose={() => setAsking(false)}
+        title={t('exception.ask')}
+        description={t('exception.askHint')}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setAsking(false)}>
+              {t('common.cancel')}
+            </Button>
+            <Button variant="primary" onClick={ask} loading={busy} disabled={!wanted}>
+              {t('common.confirm')}
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-3">
+          <Field label={t('exception.askRate')} required>
+            {(field) => (
+              <MoneyInput {...field} value={wanted} onValueChange={setWanted} decimals={6} />
+            )}
+          </Field>
+          <Field label={`${t('exception.askAmount')} — ${from}`}>
+            {() => (
+              <p className="text-content-secondary text-sm">
+                {payAmount.trim() || '—'}
+              </p>
+            )}
+          </Field>
+          <Field label={t('exception.askReason')}>
+            {(field) => (
+              <Textarea
+                {...field}
+                rows={2}
+                value={reason}
+                onChange={(event) => setReason(event.target.value)}
+              />
+            )}
+          </Field>
+        </div>
+      </Dialog>
+    </>
+  );
 }

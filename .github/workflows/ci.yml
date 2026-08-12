@@ -90,7 +90,7 @@ jobs:
 
   money:
     runs-on: ubuntu-latest
-    name: a shift, end to end
+    name: a day at the counter, end to end
 
     # The same real PostgreSQL, for a different reason: this drives a whole
     # working day through the services — a float handed out, a trade, an evening
@@ -137,6 +137,12 @@ jobs:
 
       - name: Run a shift end to end
         run: npm run verify:shift
+
+      - name: Break a price, end to end
+        # After the shift and on the same database on purpose: an approval has
+        # to survive a counter that has already been traded on, not only a
+        # freshly seeded one.
+        run: npm run verify:price-exception
 
   image:
     runs-on: ubuntu-latest

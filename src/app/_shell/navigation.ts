@@ -120,6 +120,12 @@ export const NAVIGATION: NavSection[] = [
         permissions: ['exchange.rate.view'],
       },
       {
+        href: '/manage/exceptions',
+        labelKey: 'nav.exceptions',
+        icon: 'rates',
+        permissions: ['exchange.priceException.approve'],
+      },
+      {
         href: '/manage/rates',
         labelKey: 'nav.rates',
         icon: 'rates',

@@ -283,6 +283,16 @@ export async function quoteExchange(
   fromAmount: bigint,
   channel: RateChannel = 'CASH',
   db: DbClient = prisma,
+  /**
+   * A price the manager granted for this one deal, replacing the board's.
+   *
+   * The board is still read: the mid, the row id and which side was used all
+   * stay as they were, so the margin given up shows as a smaller `profit`
+   * rather than disappearing from the record. Only the applied rate changes.
+   *
+   * Never reachable from a request body — see `price-exception.service`.
+   */
+  forcedRate?: bigint,
 ): Promise<Quote> {
   if (fromCurrency === toCurrency) {
     throw errors.precondition('Source and target currency must differ', 'errors.sameCurrencyPair');
@@ -298,14 +308,15 @@ export async function quoteExchange(
   // Direct: pair is stored as FROM/TO. Company buys FROM.
   const direct = await getActiveRate(fromCurrency, toCurrency, channel, db);
   if (direct) {
-    const toAmount = convert(fromAmount, direct.buyRate, targetDecimals);
+    const applied = forcedRate ?? direct.buyRate;
+    const toAmount = convert(fromAmount, applied, targetDecimals);
     const atMid = convert(fromAmount, direct.midRate, targetDecimals);
     return {
       fromCurrency,
       toCurrency,
       fromAmount,
       toAmount,
-      rate: direct.buyRate,
+      rate: applied,
       midRate: direct.midRate,
       rateId: direct.id,
       side: 'BUY',
@@ -317,7 +328,7 @@ export async function quoteExchange(
   // Reverse: pair is stored as TO/FROM. Company sells TO, so invert the sell side.
   const reverse = await getActiveRate(toCurrency, fromCurrency, channel, db);
   if (reverse) {
-    const rate = invertRate(reverse.sellRate);
+    const rate = forcedRate ?? invertRate(reverse.sellRate);
     const midInverted = invertRate(reverse.midRate);
     const toAmount = convert(fromAmount, rate, targetDecimals);
     const atMid = convert(fromAmount, midInverted, targetDecimals);
@@ -358,6 +369,8 @@ export async function quoteReverse(
   toAmount: bigint,
   channel: RateChannel = 'CASH',
   db: DbClient = prisma,
+  /** A price granted for this deal; see `quoteExchange`. */
+  forcedRate?: bigint,
 ): Promise<Quote> {
   if (fromCurrency === toCurrency) {
     throw errors.precondition('Source and target currency must differ', 'errors.sameCurrencyPair');
@@ -372,7 +385,7 @@ export async function quoteReverse(
   // Price a unit to learn the applied rate, then invert it to size the input.
   // Deriving from the rate rather than from a scaled probe keeps the answer
   // independent of how large the probe happened to be.
-  const unit = await quoteExchange(fromCurrency, toCurrency, MONEY_FACTOR, channel, db);
+  const unit = await quoteExchange(fromCurrency, toCurrency, MONEY_FACTOR, channel, db, forcedRate);
 
   const fromAmount = convert(toAmount, invertRate(unit.rate), source.decimals, 'half-up');
   if (fromAmount <= 0n) {
@@ -382,7 +395,7 @@ export async function quoteReverse(
     );
   }
 
-  return quoteExchange(fromCurrency, toCurrency, fromAmount, channel, db);
+  return quoteExchange(fromCurrency, toCurrency, fromAmount, channel, db, forcedRate);
 }
 
 /** The full rate board, as the branch display shows it. */
