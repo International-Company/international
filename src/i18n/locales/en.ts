@@ -890,6 +890,17 @@ const en = {
   },
 
   market: {
+    showing: 'What the ticker is showing',
+    refreshNow: 'Refresh now',
+    refreshed: 'Prices refreshed',
+    refreshedCount: '{count} pairs',
+    sourceLive: 'Market',
+    sourceReference: 'Daily reference',
+    justNow: 'just now',
+    minutesAgo: '{count}m ago',
+    hoursAgo: '{count}h ago',
+    nothing: 'Nothing to show — check the pairs, or the sources are not answering.',
+    missing: 'Pairs no source could price: {pairs}',
     title: 'Market',
     stale: 'Market — stale',
     asOf: 'Last updated',

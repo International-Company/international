@@ -131,6 +131,14 @@ export const SETTINGS: SettingDefinition[] = [
       'عرض شريط السوق أعلى كل شاشة. لا يُسعَّر به شيء إطلاقاً — المكتب يسعّر بلوحته المنشورة.',
   },
   {
+    key: 'market.liveSource', category: 'machine', type: 'boolean', defaultValue: true,
+    labelEn: 'Live market prices', labelAr: 'أسعار البورصة اللحظية',
+    descriptionEn:
+      'Ask the live market for each pair, falling back to the free daily reference for anything it does not answer. Turn this off to use the reference alone.',
+    descriptionAr:
+      'سؤال السوق اللحظي عن كل زوج، والرجوع إلى المرجع اليومي المجاني لما لا يجيب عنه. أوقفه للاكتفاء بالمرجع.',
+  },
+  {
     key: 'market.pairs', category: 'machine', type: 'string',
     defaultValue: 'USD/ILS,EUR/USD,GBP/USD,USD/JOD,USD/TRY,USD/EGP,XAU/USD',
     labelEn: 'Ticker pairs', labelAr: 'أزواج الشريط',

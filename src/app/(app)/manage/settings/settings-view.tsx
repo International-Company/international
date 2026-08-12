@@ -10,6 +10,7 @@ import { Checkbox, Field, Input, MoneyInput, NumberInput, Select } from '@/ui/fo
 import { useToast } from '@/ui/overlay';
 import { cn } from '@/ui/utils';
 import { AppearanceSettings } from './appearance-settings';
+import { MarketPanel } from './market-panel';
 import {
   SETTING_CATEGORIES,
   type SettingCategory,
@@ -182,6 +183,13 @@ export function SettingsView({
             />
             <CardBody className="space-y-5">
               {error && <Alert tone="danger">{error}</Alert>}
+
+              {/*
+                What the settings above actually produced. A manager editing the
+                pair list should see the result without walking to another
+                screen to squint at a moving strip.
+              */}
+              {category === 'machine' && <MarketPanel />}
 
               {(byCategory.get(category) ?? []).map((setting) => (
                 <div key={setting.key}>

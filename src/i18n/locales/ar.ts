@@ -889,6 +889,17 @@ const ar: Dictionary = {
   },
 
   market: {
+    showing: 'ما يعرضه الشريط الآن',
+    refreshNow: 'تحديث الآن',
+    refreshed: 'حُدّثت الأسعار',
+    refreshedCount: '{count} زوج',
+    sourceLive: 'البورصة',
+    sourceReference: 'مرجع يومي',
+    justNow: 'الآن',
+    minutesAgo: 'قبل {count} دقيقة',
+    hoursAgo: 'قبل {count} ساعة',
+    nothing: 'لا يوجد ما يُعرض — راجع الأزواج، أو أن المصادر لا تستجيب.',
+    missing: 'أزواج لم تستطع أي جهة تسعيرها: {pairs}',
     title: 'السوق',
     stale: 'السوق — قديم',
     asOf: 'آخر تحديث',

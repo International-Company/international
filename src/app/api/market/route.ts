@@ -18,16 +18,38 @@ export const GET = route({
 
     const data = await market.ticker();
 
-    return {
-      enabled: true,
-      stale: data.stale,
-      fetchedAt: data.fetchedAt.toISOString(),
-      pairs: data.pairs.map((pair) => ({
-        pair: pair.pair,
-        quote: pair.quote,
-        rate: pair.rate.toString(),
-        cadence: pair.cadence,
-      })),
-    };
+    return shape(data);
   },
 });
+
+/**
+ * Fetch again now, whatever the cache says.
+ *
+ * Behind the settings permission, because it is a manager's button and because
+ * it reaches three providers each time it is pressed — not something to leave
+ * on a counter screen where a bored afternoon could hammer them.
+ */
+export const POST = route({
+  permissions: ['settings.manage'],
+  handler: async () => {
+    market.forget();
+    return shape(await market.refresh());
+  },
+});
+
+function shape(data: Awaited<ReturnType<typeof market.ticker>>) {
+  return {
+    enabled: true,
+    stale: data.stale,
+    fetchedAt: data.fetchedAt.toISOString(),
+    missing: data.missing,
+    pairs: data.pairs.map((pair) => ({
+      pair: pair.pair,
+      quote: pair.quote,
+      rate: pair.rate.toString(),
+      cadence: pair.cadence,
+      source: pair.source,
+      asOf: pair.asOf.toISOString(),
+    })),
+  };
+}
