@@ -141,7 +141,7 @@ const ar: Dictionary = {
     machine: 'ماكينة التصريف',
     remittance: 'الحوالات',
     withdraw: 'سحب USDT',
-    handovers: 'التسليم',
+    handovers: 'تغذية رصيد',
     tellers: 'تقييم التلرات',
     access: 'الصلاحيات',
     exceptions: 'كسر السعر',

@@ -139,7 +139,7 @@ const en = {
     machine: 'Exchange Machine',
     remittance: 'Remittances',
     withdraw: 'Sell USDT',
-    handovers: 'Handovers',
+    handovers: 'Top-up',
     tellers: 'Tellers',
     access: 'Permissions',
     exceptions: 'Broken prices',
