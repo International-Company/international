@@ -281,6 +281,19 @@ const STEPS = [
 
         ALTER TABLE "drawers" ADD COLUMN IF NOT EXISTS "kind" TEXT NOT NULL DEFAULT 'CASH';
 
+        -- Once a drawer has an owner, the key below is not merely obsolete —
+        -- it is unbuildable: two tellers holding shekels are two rows with the
+        -- same currency and kind, which is the whole point of the newer key.
+        -- So everything in this step belongs to the world before ownership.
+        IF EXISTS (
+          SELECT 1 FROM information_schema.columns
+          WHERE table_schema = current_schema()
+            AND table_name = 'drawers'
+            AND column_name = 'ownerKey'
+        ) THEN
+          RETURN;
+        END IF;
+
         -- Prisma names this from the model, but a hand-made database may differ;
         -- drop whatever single-column unique index is actually on currencyCode.
         PERFORM 1;
@@ -347,20 +360,46 @@ const STEPS = [
           RETURN;
         END IF;
 
+        -- Which key exists decides which conflict target is valid: an upsert
+        -- needs a unique index on exactly the columns it names, and the drawers
+        -- table has carried two different ones in its life.
+        IF EXISTS (
+          SELECT 1 FROM information_schema.columns
+          WHERE table_schema = current_schema()
+            AND table_name = 'drawers'
+            AND column_name = 'ownerKey'
+        ) THEN
+        INSERT INTO "drawers" ("id", "ownerKey", "currencyCode", "kind", "nameEn", "nameAr", "balance", "sortOrder", "createdAt", "updatedAt")
+          SELECT
+            'drw_bank_' || lower(c."code"),
+            'TREASURY',
+            c."code",
+            'BROKER',
+            c."nameEn" || ' bank',
+            'بنك ' || c."nameAr",
+            0,
+            c."sortOrder" * 10 + 1,
+            NOW(),
+            NOW()
+          FROM "currencies" c
+          WHERE c."kind" <> 'CRYPTO'
+          ON CONFLICT ("ownerKey", "currencyCode", "kind") DO NOTHING;
+        ELSE
         INSERT INTO "drawers" ("id", "currencyCode", "kind", "nameEn", "nameAr", "balance", "sortOrder", "createdAt", "updatedAt")
-        SELECT
-          'drw_bank_' || lower(c."code"),
-          c."code",
-          'BROKER',
-          c."nameEn" || ' bank',
-          'بنك ' || c."nameAr",
-          0,
-          c."sortOrder" * 10 + 1,
-          NOW(),
-          NOW()
-        FROM "currencies" c
-        WHERE c."kind" <> 'CRYPTO'
-        ON CONFLICT ("currencyCode", "kind") DO NOTHING;
+          SELECT
+            'drw_bank_' || lower(c."code"),
+            c."code",
+            'BROKER',
+            c."nameEn" || ' bank',
+            'بنك ' || c."nameAr",
+            0,
+            c."sortOrder" * 10 + 1,
+            NOW(),
+            NOW()
+          FROM "currencies" c
+          WHERE c."kind" <> 'CRYPTO'
+          ON CONFLICT ("currencyCode", "kind") DO NOTHING;
+        END IF;
       END $$;
     `,
   },
@@ -435,21 +474,48 @@ const STEPS = [
           RETURN;
         END IF;
 
+        -- Which key exists decides which conflict target is valid: an upsert
+        -- needs a unique index on exactly the columns it names, and the drawers
+        -- table has carried two different ones in its life.
+        IF EXISTS (
+          SELECT 1 FROM information_schema.columns
+          WHERE table_schema = current_schema()
+            AND table_name = 'drawers'
+            AND column_name = 'ownerKey'
+        ) THEN
+        INSERT INTO "drawers" ("id", "ownerKey", "currencyCode", "kind", "nameEn", "nameAr", "balance", "allowNegative", "sortOrder", "createdAt", "updatedAt")
+          SELECT
+            'drw_corr_' || lower(c."code"),
+            'TREASURY',
+            c."code",
+            'CORRESPONDENT',
+            c."nameEn" || ' — correspondent',
+            'المراسل — ' || c."nameAr",
+            0,
+            true,
+            c."sortOrder" * 10 + 2,
+            NOW(),
+            NOW()
+          FROM "currencies" c
+          WHERE c."kind" <> 'CRYPTO'
+          ON CONFLICT ("ownerKey", "currencyCode", "kind") DO NOTHING;
+        ELSE
         INSERT INTO "drawers" ("id", "currencyCode", "kind", "nameEn", "nameAr", "balance", "allowNegative", "sortOrder", "createdAt", "updatedAt")
-        SELECT
-          'drw_corr_' || lower(c."code"),
-          c."code",
-          'CORRESPONDENT',
-          c."nameEn" || ' — correspondent',
-          'المراسل — ' || c."nameAr",
-          0,
-          true,
-          c."sortOrder" * 10 + 2,
-          NOW(),
-          NOW()
-        FROM "currencies" c
-        WHERE c."kind" <> 'CRYPTO'
-        ON CONFLICT ("currencyCode", "kind") DO NOTHING;
+          SELECT
+            'drw_corr_' || lower(c."code"),
+            c."code",
+            'CORRESPONDENT',
+            c."nameEn" || ' — correspondent',
+            'المراسل — ' || c."nameAr",
+            0,
+            true,
+            c."sortOrder" * 10 + 2,
+            NOW(),
+            NOW()
+          FROM "currencies" c
+          WHERE c."kind" <> 'CRYPTO'
+          ON CONFLICT ("currencyCode", "kind") DO NOTHING;
+        END IF;
       END $$;
     `,
   },
