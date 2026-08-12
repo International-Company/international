@@ -51,6 +51,7 @@ model Branch {
 
   @@map("branches")
   priceExceptions PriceException[]
+  shiftReports ShiftReport[]
 }
 
 // ===========================================================================
@@ -147,6 +148,7 @@ model User {
   priceExceptionsDecided  PriceException[] @relation("PriceExceptionApprover")
   staffNotesAbout   StaffNote[] @relation("StaffNoteSubject")
   staffNotesWritten StaffNote[] @relation("StaffNoteAuthor")
+  shiftReports ShiftReport[] @relation("ShiftReportTeller")
 }
 
 model Role {
@@ -340,11 +342,12 @@ model Shift {
   closedAt DateTime?
 
   discrepancies Discrepancy[]
+  notes         StaffNote[]
+  report        ShiftReport?
 
   @@index([tellerId, status])
   @@index([businessDayId])
   @@map("shifts")
-  notes StaffNote[]
 }
 
 /// A gap between what the books said a teller held and what was counted.
@@ -394,6 +397,80 @@ model Discrepancy {
   @@index([tellerId])
   @@map("discrepancies")
   notes StaffNote[]
+}
+
+/// The teller's own day, written by the system rather than by the teller.
+///
+/// A manager who has to ask for a report gets the report the teller chose to
+/// write. This one is composed at the moment the shift closes, out of the same
+/// rows that moved the money — the float he took, what he traded, what the two
+/// of them counted, the prices he asked to break — so there is nothing in it he
+/// could have shaded and nothing he had to remember.
+///
+/// **Frozen, like every other historical figure here.** A reversal next week is
+/// a real event and belongs to next week; it does not reach back and edit what
+/// this shift looked like when it was closed and signed off.
+///
+/// The observations are the part that makes it worth reading. A page of
+/// correct numbers is not a report — somebody still has to notice that the
+/// margin is down a third, or that this is the third shortage in five shifts.
+/// So the noticing is done here, against **this teller's own history**, and
+/// stored as codes with their numbers rather than as sentences: the manager
+/// reads them in his own language, and nothing is invented in prose about
+/// somebody's money.
+model ShiftReport {
+  id String @id @default(cuid())
+
+  shiftId String @unique
+  shift   Shift  @relation(fields: [shiftId], references: [id], onDelete: Cascade)
+
+  tellerId String
+  teller   User   @relation("ShiftReportTeller", fields: [tellerId], references: [id])
+  branchId String
+  branch   Branch @relation(fields: [branchId], references: [id])
+
+  businessDayId String?
+  businessDay   BusinessDay? @relation(fields: [businessDayId], references: [id], onDelete: SetNull)
+
+  openedAt DateTime
+  closedAt DateTime
+  /// How long he was on the counter, in whole minutes.
+  minutes  Int
+
+  /// The currency every figure below is expressed in, copied so a change of
+  /// base currency later cannot silently restate an old report.
+  baseCurrency String
+
+  /// What he was handed at the start and what came back, valued in the base.
+  floatWorth    BigInt
+  returnedWorth BigInt
+
+  deals Int
+  /// Counts per transaction type, as JSON — a shape that grows when a new kind
+  /// of business is added without a migration for every one.
+  dealsByType String
+
+  /// The three numbers, and their sum. Signed as the office reads them: money
+  /// he gave the office is positive, money it lost through him is negative.
+  margin      BigInt
+  differences BigInt
+  concessions BigInt
+  net         BigInt
+
+  shortages Int
+  surpluses Int
+
+  exceptionsAsked   Int
+  exceptionsGranted Int
+
+  /// What was noticed, as JSON: `[{ code, tone, params }]`.
+  observations String
+
+  createdAt DateTime @default(now())
+
+  @@index([tellerId, closedAt])
+  @@index([branchId, closedAt])
+  @@map("shift_reports")
 }
 
 /// A word from the management to one member of staff, in writing.
@@ -1181,6 +1258,7 @@ model BusinessDay {
   @@index([status])
   @@map("business_days")
   priceExceptions PriceException[]
+  shiftReports ShiftReport[]
 }
 
 // ===========================================================================

@@ -37,6 +37,34 @@ interface Row {
   owed: string;
 }
 
+interface Observation {
+  code: string;
+  tone: 'GOOD' | 'NOTE' | 'WARN';
+  params?: Record<string, string | number>;
+}
+
+interface Report {
+  id: string;
+  shift: string;
+  tellerId: string;
+  tellerNameEn: string;
+  tellerNameAr: string;
+  openedAt: string;
+  closedAt: string;
+  minutes: number;
+  base: string;
+  took: string;
+  returned: string;
+  deals: number;
+  dealsByType: string;
+  margin: string;
+  differences: string;
+  concessions: string;
+  net: string;
+  exceptionsAsked: number;
+  observations: Observation[];
+}
+
 interface Note {
   id: string;
   tone: string;
@@ -66,6 +94,7 @@ export function TellersView({ base }: { base: string }) {
   const [tone, setTone] = useState<Tone>('NOTE');
   const [body, setBody] = useState('');
   const [busy, setBusy] = useState(false);
+  const [reports, setReports] = useState<Report[]>([]);
 
   const load = useCallback(
     async (tellerId?: string) => {
@@ -78,6 +107,12 @@ export function TellersView({ base }: { base: string }) {
         );
         setRows(data.rows);
         if (tellerId) setNotes(data.notes);
+
+        // The reports the system wrote for itself, newest first.
+        const filed = await api.get<{ rows: Report[] }>(
+          `/api/treasury/shift-reports${tellerId ? `?tellerId=${encodeURIComponent(tellerId)}` : ''}`,
+        );
+        setReports(filed.rows);
       } catch (error) {
         toast.error(error instanceof ApiError ? error.message : String(error));
       }
@@ -266,6 +301,62 @@ export function TellersView({ base }: { base: string }) {
           </CardBody>
         </Card>
       )}
+
+      {/* --- What the system filed on its own --------------------------- */}
+      <Card>
+        <CardHeader title={t('shiftReport.title')} description={t('shiftReport.subtitle')} />
+        <CardBody className="p-0">
+          {reports.length === 0 ? (
+            <EmptyState title={t('shiftReport.none')} description={t('shiftReport.noneHint')} />
+          ) : (
+            <ul className="divide-border-base divide-y">
+              {reports.map((report) => (
+                <li key={report.id} className="space-y-2 px-4 py-3 text-sm">
+                  <div className="flex flex-wrap items-center gap-3">
+                    <span className="font-mono ltr-content text-xs">{report.shift}</span>
+                    <span className="font-medium">{ln(report, 'tellerName')}</span>
+                    <span className="text-content-tertiary text-xs">
+                      {t('shiftReport.deals')} {report.deals}
+                    </span>
+                    <span className="text-content-tertiary text-xs">
+                      {t('shiftReport.duration')}{' '}
+                      {report.minutes >= 60
+                        ? t('shiftReport.hours', { count: Math.round(report.minutes / 60) })
+                        : t('shiftReport.minutes', { count: report.minutes })}
+                    </span>
+                    <span className="ms-auto text-xs font-bold">
+                      <Money value={report.net} decimals={2} colored />
+                    </span>
+                  </div>
+
+                  {/*
+                    The noticing, worst first — the reason this is a report and
+                    not a table. Rendered from codes so the words are the
+                    reader's, and nothing was written in prose about a person's
+                    money.
+                  */}
+                  <ul className="space-y-1">
+                    {report.observations.map((entry, index) => (
+                      <li key={`${entry.code}-${index}`} className="flex items-start gap-2">
+                        <Badge
+                          tone={
+                            entry.tone === 'WARN' ? 'danger' : entry.tone === 'GOOD' ? 'success' : 'neutral'
+                          }
+                        >
+                          {t(`shiftReport.tone.${entry.tone}`)}
+                        </Badge>
+                        <span className="text-content-secondary text-xs leading-5">
+                          {t(`shiftReport.say.${entry.code}` as never, entry.params)}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </li>
+              ))}
+            </ul>
+          )}
+        </CardBody>
+      </Card>
 
       <Dialog
         open={writing}

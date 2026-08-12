@@ -6,6 +6,7 @@ import { createLogger } from '@/core/logger/logger';
 import { nextReference } from '@/modules/sequence/reference';
 import * as drawers from '@/modules/drawers/drawer.service';
 import * as audit from '@/modules/audit/audit.service';
+import * as reports from './shift-report.service';
 
 /**
  * الورديّة — a teller's stretch of work, and the count that ends it.
@@ -211,6 +212,15 @@ export async function closeFromHandover(
     where: { id: shift.id },
     data: { status: 'CLOSED', closedAt: new Date(), closingHandoverId: handover.id },
   });
+
+  /*
+   * The teller's own report, written here rather than asked of him — and inside
+   * this transaction, so a closed shift always has one. If it cannot be
+   * composed the handover fails with it and nothing has moved: he counts again,
+   * which costs a minute, rather than the office keeping a shift with no record
+   * of what happened in it.
+   */
+  await reports.writeForShift(shift, handover.id, tx);
 
   const found = await tx.discrepancy.count({ where: { shiftId: shift.id } });
 
