@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { RefreshCw } from 'lucide-react';
 import { useLocale } from '@/i18n/provider';
 
 /**
@@ -34,6 +35,24 @@ import { useLocale } from '@/i18n/provider';
  * Mounted inside the two authenticated-area layouts rather than the root, which
  * is static and carries no locale — and a banner that can only speak one
  * language is a string hard-coded in a system that has none.
+ *
+ * ## Where it appears
+ *
+ * The watching is one thing and the showing is another, so they are separated
+ * here: `useUpdateWatcher` does the asking, and two very small components do
+ * the showing, because the two places it can appear are not alike.
+ *
+ * Inside the application it is a chip **in the header**, in the flow of the
+ * layout rather than floating over it. A card pinned to the bottom of the
+ * viewport was painted across the navigation — it had to be, since it was
+ * centred on the whole window and drawn above everything — and a notice that
+ * covers the buttons somebody is reaching for has chosen the wrong moment to be
+ * helpful. In the header it cannot cover anything at any width, by construction
+ * rather than by arithmetic, and it sits where the rest of the system's state
+ * already lives.
+ *
+ * On the sign-in screen there is no header, and nothing behind it to cover, so
+ * there it stays a card.
  */
 
 const POLL_MS = 60_000;
@@ -48,7 +67,13 @@ const MY_BUILD = process.env.NEXT_PUBLIC_BUILD_ID ?? '';
 /** Which build this tab has already reloaded itself in the hope of reaching. */
 const ATTEMPTED_KEY = 'international.update.attempted';
 
-export function UpdateWatcher() {
+/**
+ * Asks whether the server is serving something newer, and applies it.
+ *
+ * A hook rather than a component so the answer can be shown in more than one
+ * shape without the asking being written twice.
+ */
+export function useUpdateWatcher() {
   const { t } = useLocale();
   const [available, setAvailable] = useState(false);
   const reloading = useRef(false);
@@ -138,6 +163,46 @@ export function UpdateWatcher() {
       window.removeEventListener('online', check);
     };
   }, [apply, hasTypedWork]);
+
+  return { available, apply };
+}
+
+/**
+ * The header form: a chip beside the other header controls.
+ *
+ * Nothing at all until there is something to say, so it costs no space on the
+ * days there is no new build — and when it does appear it is the only coloured
+ * thing in a row of grey icons, which is enough to be noticed without being in
+ * the way. The words are dropped on a narrow screen where the header is
+ * already tight; the icon and the colour carry it, and the label stays for
+ * anyone reading it aloud.
+ */
+export function UpdateChip() {
+  const { t } = useLocale();
+  const { available, apply } = useUpdateWatcher();
+
+  if (!available) return null;
+
+  return (
+    <button
+      type="button"
+      onClick={apply}
+      title={t('common.updateReady')}
+      aria-label={`${t('common.updateReady')} — ${t('common.updateNow')}`}
+      className="flex h-8 shrink-0 items-center gap-1.5 rounded-full bg-primary px-2.5 text-xs font-semibold text-white transition-colors hover:bg-primary-hover sm:px-3"
+    >
+      <RefreshCw className="size-3.5 shrink-0" aria-hidden />
+      <span className="hidden whitespace-nowrap sm:inline">{t('common.updateNow')}</span>
+    </button>
+  );
+}
+
+/**
+ * The standalone form, for the sign-in screen, which has no header to sit in.
+ */
+export function UpdateWatcher() {
+  const { t } = useLocale();
+  const { available, apply } = useUpdateWatcher();
 
   if (!available) return null;
 

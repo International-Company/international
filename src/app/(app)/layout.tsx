@@ -10,7 +10,6 @@ import {
 } from '@/ui/theme/provider';
 import { AppShell } from '../_shell/app-shell';
 import { Providers } from '../providers';
-import { UpdateWatcher } from '../update-watcher';
 import { bootstrap } from '@/core/bootstrap';
 
 /**
@@ -66,7 +65,6 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       >
         {children}
       </AppShell>
-      <UpdateWatcher />
     </Providers>
   );
 }

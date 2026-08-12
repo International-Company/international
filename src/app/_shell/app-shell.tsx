@@ -27,6 +27,7 @@ import { isActiveRoute, visibleNavigation, type NavItem } from './navigation';
 import { NAV_ICONS } from './icons';
 import { CommandPalette } from './command-palette';
 import { ShortcutHelp, useShortcuts } from './shortcuts';
+import { UpdateChip } from '../update-watcher';
 
 /**
  * The application shell.
@@ -257,6 +258,13 @@ export function AppShell({
             >
               <Languages className="size-4" />
             </Button>
+
+            {/*
+              Nothing on the days there is no new build. When there is one, it
+              is the only coloured thing in a row of grey icons — noticed
+              without standing in front of anything.
+            */}
+            <UpdateChip />
 
             <DropdownMenu
               trigger={(props) => (
