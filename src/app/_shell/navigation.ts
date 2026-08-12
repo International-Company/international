@@ -63,18 +63,13 @@ export const NAVIGATION: NavSection[] = [
         shortcut: 'g s',
       },
       {
+        // One counter, two directions. Whoever holds either permission belongs
+        // here; the screen offers each of them only the side they hold.
         href: '/counter/usdt',
         labelKey: 'nav.usdtCounter',
         icon: 'counter',
-        permissions: ['usdt.counter.use'],
+        permissions: ['usdt.counter.use', 'usdt.withdrawal.use'],
         shortcut: 'g u',
-      },
-      {
-        href: '/counter/withdraw',
-        labelKey: 'nav.withdraw',
-        icon: 'wallet',
-        permissions: ['usdt.withdrawal.use'],
-        shortcut: 'g w',
       },
       {
         href: '/counter/machine',

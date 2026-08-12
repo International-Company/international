@@ -144,7 +144,7 @@ const en = {
     access: 'Permissions',
     exceptions: 'Broken prices',
     differences: 'Differences',
-    usdtCounter: 'Receive USDT',
+    usdtCounter: 'USDT',
     rates: 'Exchange Rates',
     cashboxes: 'Cashboxes',
     businessDay: 'Daily Closing',
@@ -879,6 +879,16 @@ const en = {
       UNPRICED: 'Currencies with no cut-off rate, left out of the figures: {currencies}.',
     },
     tone: { GOOD: 'Good', NOTE: 'Note', WARN: 'Attention' },
+  },
+
+  usdtWindow: {
+    title: 'USDT',
+    subtitle: 'Receiving and selling in one place — choose the direction the customer came for.',
+    receive: 'Receive',
+    receiveHint: 'The customer sends coin, the branch pays cash',
+    send: 'Sell',
+    sendHint: 'The customer pays cash, the branch sends coin',
+    offTitle: 'That direction is switched off',
   },
   handover: {
     myShift: 'My shift',

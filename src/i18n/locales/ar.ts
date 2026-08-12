@@ -146,7 +146,7 @@ const ar: Dictionary = {
     access: 'الصلاحيات',
     exceptions: 'كسر السعر',
     differences: 'الفروقات',
-    usdtCounter: 'استلام USDT',
+    usdtCounter: 'معاملات USDT',
     rates: 'أسعار الصرف',
     cashboxes: 'الصناديق',
     businessDay: 'الإغلاق اليومي',
@@ -878,6 +878,16 @@ const ar: Dictionary = {
       UNPRICED: 'عملات بلا سعر قصّ لم تدخل في الأرقام: {currencies}.',
     },
     tone: { GOOD: 'جيّد', NOTE: 'ملاحظة', WARN: 'انتباه' },
+  },
+
+  usdtWindow: {
+    title: 'معاملات USDT',
+    subtitle: 'الاستلام والسحب في مكان واحد — اختر الاتجاه الذي جاء له العميل.',
+    receive: 'استلام',
+    receiveHint: 'العميل يرسل عملة، والفرع يدفع نقداً',
+    send: 'سحب',
+    sendHint: 'العميل يدفع نقداً، والفرع يرسل عملة',
+    offTitle: 'هذا الاتجاه متوقف',
   },
   handover: {
     myShift: 'ورديّتي',
