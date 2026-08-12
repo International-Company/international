@@ -888,6 +888,14 @@ const en = {
     send: 'Sell',
     offTitle: 'That direction is switched off',
   },
+
+  market: {
+    title: 'Market',
+    legend: 'Board · Market',
+    stale: 'Market — stale',
+    noBoard: 'no published rate',
+    asOf: 'Last updated',
+  },
   handover: {
     myShift: 'My shift',
     myShiftHint: 'What is in front of you right now. This is what you will be counted on tonight.',

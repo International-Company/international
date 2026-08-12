@@ -123,6 +123,22 @@ export const SETTINGS: SettingDefinition[] = [
       'عدد الدقائق التي يبقى فيها السعر المُوافق عليه صالحاً. المقصود هو الزبون الواقف الآن — مدة تكفي لإتمام الصفقة ولا تكفي لتتحول موافقة غير مستعملة إلى خصم جاهز غداً.',
   },
   {
+    key: 'market.enabled', category: 'machine', type: 'boolean', defaultValue: true,
+    labelEn: 'Market strip', labelAr: 'شريط السوق',
+    descriptionEn:
+      'Show a reference market rate beside the branch’s own published rate, for whoever may view rates. It is never used to price anything.',
+    descriptionAr:
+      'عرض سعر السوق المرجعي بجانب سعر اللوحة، لمن يملك عرض الأسعار. لا يُسعَّر به شيء إطلاقاً.',
+  },
+  {
+    key: 'market.refreshMinutes', category: 'machine', type: 'number', defaultValue: 10,
+    labelEn: 'Market refresh', labelAr: 'تحديث السوق',
+    descriptionEn:
+      'Minutes between calls to the rate source. One call serves every screen in the office, so this is not per device.',
+    descriptionAr:
+      'الدقائق بين كل استعلام والذي يليه. الاستعلام الواحد يخدم كل شاشات المكتب، فهذا ليس لكل جهاز.',
+  },
+  {
     key: 'machine.maxAmount', category: 'machine', type: 'money', defaultValue: '0',
     labelEn: 'Counter limit', labelAr: 'حد الشباك',
     descriptionEn:

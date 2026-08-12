@@ -887,6 +887,14 @@ const ar: Dictionary = {
     send: 'سحب',
     offTitle: 'هذا الاتجاه متوقف',
   },
+
+  market: {
+    title: 'السوق',
+    legend: 'اللوحة · السوق',
+    stale: 'السوق — قديم',
+    noBoard: 'بلا سعر منشور',
+    asOf: 'آخر تحديث',
+  },
   handover: {
     myShift: 'ورديّتي',
     myShiftHint: 'ما بين يديك الآن. هذا ما ستُعدّ عليه في آخر الدوام.',

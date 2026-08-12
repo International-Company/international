@@ -28,6 +28,7 @@ import { NAV_ICONS } from './icons';
 import { CommandPalette } from './command-palette';
 import { ShortcutHelp, useShortcuts } from './shortcuts';
 import { UpdateChip } from '../update-watcher';
+import { MarketBar } from './market-bar';
 
 /**
  * The application shell.
@@ -373,6 +374,14 @@ export function AppShell({
             </DropdownMenu>
           </div>
         </header>
+
+        {/*
+          Under the header rather than over anything: it is information, not a
+          notice, and it displaces rather than covers. Only for the people who
+          set prices — a teller quotes the board and has no use for a second
+          number that looks like one.
+        */}
+        {user.permissions.includes('exchange.rate.view') && <MarketBar />}
 
         <main className="flex-1 px-3 py-4 sm:px-5 sm:py-6">
           <div className="mx-auto w-full max-w-[100rem]">{children}</div>
