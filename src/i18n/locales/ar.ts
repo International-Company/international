@@ -1155,7 +1155,17 @@ const ar: Dictionary = {
 
   reports: {
     title: 'التقارير',
-    subtitle: 'التقارير التشغيلية والمالية',
+    pick: 'اختر التقرير والمدّة',
+    pickHint: 'الأعمدة تأتي من التقرير نفسه، فما تراه هنا هو ما يُصدَّر ويُطبع.',
+    report: 'التقرير',
+    rows: '{count} سطر',
+    excel: 'تنزيل Excel',
+    print: 'طباعة / PDF',
+    emptyHint: 'وسّع المدّة أو اختر تقريراً آخر.',
+    printedOn: 'طُبع في {date}',
+    printedPeriod: 'المدّة من {from} إلى {to}',
+    pdfHint: 'اختر «حفظ بصيغة PDF» من نافذة الطباعة لتحصل على ملف.',
+    subtitle: 'أرقام المكتب — على الشاشة، أو إلى Excel، أو مطبوعة.',
     run: 'تشغيل التقرير',
     period: 'الفترة',
     dateFrom: 'من تاريخ',

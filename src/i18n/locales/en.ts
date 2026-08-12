@@ -1156,7 +1156,17 @@ const en = {
 
   reports: {
     title: 'Reports',
-    subtitle: 'Operational and financial reporting',
+    pick: 'Choose a report and a period',
+    pickHint: 'The columns come from the report itself, so what you see here is what is exported and printed.',
+    report: 'Report',
+    rows: '{count} rows',
+    excel: 'Download Excel',
+    print: 'Print / PDF',
+    emptyHint: 'Widen the dates, or choose another report.',
+    printedOn: 'Printed {date}',
+    printedPeriod: 'From {from} to {to}',
+    pdfHint: 'Choose "Save as PDF" in the print dialog to get a file.',
+    subtitle: "The office's figures — on screen, into Excel, or on paper.",
     run: 'Run report',
     period: 'Period',
     dateFrom: 'From date',

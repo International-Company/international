@@ -186,6 +186,14 @@ export const NAVIGATION: NavSection[] = [
         shortcut: 'g t',
       },
       {
+        href: '/manage/reports',
+        labelKey: 'nav.reports',
+        icon: 'ledger',
+        // Every report carries its own; this is the weakest that can open the
+        // screen at all, and the screen then shows only what the person holds.
+        permissions: ['ledger.view', 'exchange.transaction.viewAll', 'exchange.drawer.view'],
+      },
+      {
         href: '/manage/audit',
         labelKey: 'nav.audit',
         icon: 'audit',

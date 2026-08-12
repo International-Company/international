@@ -162,6 +162,13 @@ jobs:
           npx tsx prisma/seed.ts > /dev/null
           npm run verify:shift-report
 
+      - name: Export the books, end to end
+        # Its own database so the row counts it asserts are its own.
+        run: |
+          npx prisma db push --skip-generate --force-reset > /dev/null
+          npx tsx prisma/seed.ts > /dev/null
+          npm run verify:reports
+
       - name: Take a permission away, end to end
         # Last, because it narrows what the teller may do and lowers his
         # ceiling — everything before it should run against a counter that is
