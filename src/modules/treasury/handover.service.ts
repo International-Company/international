@@ -138,6 +138,45 @@ export async function create(
       );
     }
 
+    /*
+     * Nobody declares what they are not holding.
+     *
+     * Checked here rather than at the count, and the difference is two people
+     * standing at a counter. Declared without it, the shortfall surfaces only
+     * when the teller has already counted the bag and pressed confirm — the
+     * whole handover is refused, correctly, but the discovery happens at the
+     * worst moment and lands on the person who did nothing wrong.
+     *
+     * Only the counted lines. An allocated one is an acknowledgement of a
+     * balance that is not moving, so there is nothing to be short of.
+     */
+    const sender = input.direction === 'TO_TELLER' ? drawers.TREASURY : drawers.tellerOwner(input.tellerId);
+
+    for (const line of input.lines) {
+      if ((line.nature ?? 'COUNTED') !== 'COUNTED') continue;
+
+      const held = await tx.drawer.findUnique({
+        where: {
+          ownerKey_currencyCode_kind: {
+            ownerKey: sender,
+            currencyCode: line.currency,
+            kind: line.kind ?? 'CASH',
+          },
+        },
+        select: { balance: true, allowNegative: true },
+      });
+
+      const balance = held?.balance ?? 0n;
+      if (!held?.allowNegative && balance < line.amount) {
+        throw errors.insufficientFunds(
+          line.currency,
+          line.kind ?? 'CASH',
+          toDecimalString(balance, 2),
+          toDecimalString(line.amount, 2),
+        );
+      }
+    }
+
     const day = await currentOpenDay(branchId, tx);
     const reference = await nextReference('HND', tx);
 

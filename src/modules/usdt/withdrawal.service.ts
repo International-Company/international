@@ -246,9 +246,10 @@ export async function record(input: RecordInput, actor: Actor, db: DbClient = pr
   const held = await drawers.canPay(TOKEN, total, 'CASH', db, await cashOwnerFor(actor.id, db));
   if (!held.ok) {
     throw errors.insufficientFunds(
-      `The ${TOKEN} balance`,
-      `${toDecimalString(held.balance, 2)} ${TOKEN}`,
-      `${toDecimalString(total, 2)} ${TOKEN}`,
+      TOKEN,
+      'CASH',
+      toDecimalString(held.balance, 2),
+      toDecimalString(total, 2),
     );
   }
 

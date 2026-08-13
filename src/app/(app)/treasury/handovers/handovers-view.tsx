@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { ArrowLeftRight, Check, Plus, TriangleAlert, X } from 'lucide-react';
 import { useLocale } from '@/i18n/provider';
 import { api, ApiError } from '@/lib/api-client';
+import { describeFailure } from '@/lib/failure';
 import { normalizeDigits } from '@/core/money/money';
 import { Alert, Badge, Button, Card, CardBody, CardHeader, EmptyState } from '@/ui/primitives';
 import { ConfirmDialog, Dialog, useToast } from '@/ui/overlay';
@@ -103,13 +104,11 @@ export function HandoversView({
     void load();
   }, [load]);
 
-  const fail = (caught: unknown) =>
-    toast.error(
-      t('errors.title'),
-      caught instanceof ApiError
-        ? t(caught.messageKey as never, caught.params as Record<string, string>) || caught.message
-        : t('errors.generic'),
-    );
+  const fail = (caught: unknown) => {
+    // A refusal is headed as one; only a real fault gets the apology.
+    const { title, body } = describeFailure(caught, t as never);
+    toast.error(title, body);
+  };
 
   const declare = async () => {
     const lines = currencies

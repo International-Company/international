@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 import { useLocale } from '@/i18n/provider';
 import { normalizeDigits } from '@/core/money/money';
+import { describeFailure } from '@/lib/failure';
 import { api, ApiError, queryString } from '@/lib/api-client';
 import { Button } from '@/ui/primitives';
 import { Dialog, DropdownMenu, useToast } from '@/ui/overlay';
@@ -502,12 +503,8 @@ export function MachineView({
       void loadRecent();
       router.refresh();
     } catch (cause) {
-      toast.error(
-        t('errors.title'),
-        cause instanceof ApiError
-          ? t(cause.messageKey as never, cause.params as Record<string, string>) || cause.message
-          : t('errors.generic'),
-      );
+      const failure = describeFailure(cause, t as never);
+      toast.error(failure.title, failure.body);
     } finally {
       setPosting(false);
     }
@@ -1443,12 +1440,8 @@ function PriceException({
       setReason('');
       await poll();
     } catch (cause) {
-      toast.error(
-        t('errors.title'),
-        cause instanceof ApiError
-          ? t(cause.messageKey as never, cause.params as Record<string, string>) || cause.message
-          : t('errors.generic'),
-      );
+      const failure = describeFailure(cause, t as never);
+      toast.error(failure.title, failure.body);
     } finally {
       setBusy(false);
     }

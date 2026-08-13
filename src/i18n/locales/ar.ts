@@ -1502,6 +1502,7 @@ const ar: Dictionary = {
   },
 
   errors: {
+    refusedTitle: 'لم يتم',
     noteEmpty: 'اكتب شيئاً.',
     noteToSelf: 'الملاحظة تُكتب لغيرك، لا لنفسك.',
     transferChannelRequired: 'حدّد جهة التحويل',
@@ -1543,7 +1544,9 @@ const ar: Dictionary = {
     notFound: 'السجل المطلوب غير موجود',
     conflict: 'هذا الإجراء يتعارض مع الحالة الحالية للسجل',
     preconditionFailed: 'هذا الإجراء غير مسموح في الوقت الحالي',
-    insufficientFunds: '{account} فيه {available}، والمطلوب {required}',
+    insufficientCash: 'صندوق {currency} فيه {available} فقط، والمطلوب {required}.',
+    insufficientBroker: 'رصيد {currency} لدى الوسيط فيه {available} فقط، والمطلوب {required}.',
+    insufficientCorrespondent: 'رصيد {currency} لدى المراسل فيه {available} فقط، والمطلوب {required}.',
     unbalancedEntry: 'القيد غير متوازن ({difference})',
     rateUnavailable: 'لا يوجد سعر صرف منشور للزوج {pair}',
     dayClosed: 'يوم العمل {date} مغلق',

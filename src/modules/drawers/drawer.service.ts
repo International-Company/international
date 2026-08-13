@@ -287,9 +287,10 @@ async function applyMovement(tx: Tx, movement: Movement, actor: Actor): Promise<
   if (updated.balance < 0n && !drawer.allowNegative) {
     // Rolls the whole enclosing transaction back, so nothing is half-applied.
     throw errors.insufficientFunds(
-      describe(movement.currency, kind),
-      `${toDecimalString(drawer.balance, 2)} ${movement.currency}`,
-      `${toDecimalString(movement.amount, 2)} ${movement.currency}`,
+      movement.currency,
+      kind,
+      toDecimalString(drawer.balance, 2),
+      toDecimalString(movement.amount, 2),
     );
   }
 

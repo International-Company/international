@@ -136,10 +136,33 @@ export const errors = {
   precondition: (message: string, messageKey?: string, params?: Record<string, string | number>) =>
     new AppError('PRECONDITION_FAILED', message, { messageKey, params }),
 
-  insufficientFunds: (account: string, available: string, required: string) =>
-    new AppError('INSUFFICIENT_FUNDS', `${account} holds ${available}, needs ${required}`, {
-      params: { account, available, required },
-    }),
+  /**
+   * Not enough in a balance to pay what is being asked of it.
+   *
+   * The balance is named by **currency and kind** rather than by a sentence
+   * built here, because a sentence built here is built in one language. This
+   * used to hand the screen "The JOD drawer" and let an Arabic message wrap
+   * itself around it, which read exactly as badly as it sounds.
+   */
+  insufficientFunds: (
+    currency: string,
+    kind: 'CASH' | 'BROKER' | 'CORRESPONDENT' | string,
+    available: string,
+    required: string,
+  ) =>
+    new AppError(
+      'INSUFFICIENT_FUNDS',
+      `The ${currency} ${kind.toLowerCase()} balance holds ${available}, needs ${required}`,
+      {
+        messageKey:
+          kind === 'BROKER'
+            ? 'errors.insufficientBroker'
+            : kind === 'CORRESPONDENT'
+              ? 'errors.insufficientCorrespondent'
+              : 'errors.insufficientCash',
+        params: { currency, available, required },
+      },
+    ),
 
   unbalanced: (difference: string) =>
     new AppError('UNBALANCED_ENTRY', `Journal entry does not balance, difference ${difference}`, {

@@ -418,11 +418,10 @@ async function post(input: MachineRecordInput, actor: Actor, db: DbClient) {
     );
     if (!held.ok) {
       throw errors.insufficientFunds(
-        kind === 'BROKER'
-          ? `The ${input.toCurrency} broker balance`
-          : `The ${input.toCurrency} drawer`,
-        `${toDecimalString(held.balance, 2)} ${input.toCurrency}`,
-        `${toDecimalString(amount, 2)} ${input.toCurrency}`,
+        input.toCurrency,
+        kind,
+        toDecimalString(held.balance, 2),
+        toDecimalString(amount, 2),
       );
     }
   }

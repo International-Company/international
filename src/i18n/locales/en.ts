@@ -1504,6 +1504,7 @@ const en = {
   },
 
   errors: {
+    refusedTitle: 'Not done',
     noteEmpty: 'Write something.',
     noteToSelf: 'A note is written to somebody else, not to yourself.',
     transferChannelRequired: 'Say where the transfer is going',
@@ -1545,7 +1546,9 @@ const en = {
     notFound: 'The requested record was not found',
     conflict: 'This action conflicts with the current state of the record',
     preconditionFailed: 'This action is not allowed right now',
-    insufficientFunds: '{account} holds {available}, and needs {required}',
+    insufficientCash: 'The {currency} drawer holds only {available}; {required} is needed.',
+    insufficientBroker: "The broker's {currency} balance holds only {available}; {required} is needed.",
+    insufficientCorrespondent: "The correspondent's {currency} balance holds only {available}; {required} is needed.",
     unbalancedEntry: 'The journal entry does not balance ({difference})',
     rateUnavailable: 'No exchange rate is published for {pair}',
     dayClosed: 'The business day {date} is closed',
