@@ -900,8 +900,8 @@ const ar: Dictionary = {
     hoursAgo: 'قبل {count} ساعة',
     nothing: 'لا يوجد ما يُعرض — راجع الأزواج، أو أن المصادر لا تستجيب.',
     missing: 'أزواج لم تستطع أي جهة تسعيرها: {pairs}',
-    title: 'السوق',
-    stale: 'السوق — قديم',
+    title: 'البورصة',
+    stale: 'البورصة — قديم',
     asOf: 'آخر تحديث',
   },
   handover: {
