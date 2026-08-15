@@ -1011,22 +1011,16 @@ const en = {
   },
 
   receive: {
+    logTitle: 'Arrivals log',
+    logBody: 'Everything that reached a counter address and has not been paid out, newest first.',
+    logEmpty: 'Nothing has arrived yet.',
+    openExplorer: 'Open on TronScan',
+    from: 'From',
+    recordTitle: 'Record a receipt',
     addressTitle: 'The address',
     addressBody: 'Turn the screen to the customer. Nothing is reserved and no clock starts — they scan and send.',
-    verifyTitle: 'What arrived',
-    verifyBody: 'Type the amount the customer sent, and check the chain before paying.',
-    amountArrived: 'Amount that arrived',
-    verify: 'Check the chain',
     record: 'Record the transaction',
     recorded: 'Transaction recorded',
-    notYetTitle: 'Not there yet',
-    notYetBody: 'No transfer for that amount on this address. Check the figure with the customer, or wait a moment and try again.',
-    settlingTitle: 'Arrived, not yet final',
-    settlingBody: 'The transfer is on the chain at {confirmations} of {required} confirmations. Do not pay before it completes.',
-    ambiguousBody: 'Two transfers for the same amount on this address. Pick this customer’s by its time or its hash — the system will not guess.',
-    foundTitle: 'Arrived and confirmed',
-    seenAt: 'Seen at',
-    confirmations: 'Confirmations',
   },
 
   counter: {

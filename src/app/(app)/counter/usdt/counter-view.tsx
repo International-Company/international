@@ -21,7 +21,6 @@ import { say } from '@/lib/failure';
 import { QrCode } from '@/core/qr/qr-code';
 import { Alert, Badge, Button, Card, CardBody, CardHeader } from '@/ui/primitives';
 import { ShareButton } from '@/ui/share';
-import { ArrivalsTray } from './arrivals-tray';
 import { ReceiveFlow } from './receive-flow';
 import { ConfirmDialog, useToast } from '@/ui/overlay';
 import { Textarea } from '@/ui/form';
@@ -200,12 +199,6 @@ export function CounterView({
 
   return (
     <div className="space-y-4">
-      {/*
-        Money already at the door, above money that might arrive. It renders
-        nothing at all when there is none, which is most of the day.
-      */}
-      <ArrivalsTray currencies={currencies} permissions={permissions} />
-
       {/*
         The window, in the order it actually works: the address is on the screen
         the moment it is chosen, the customer sends, and the teller types what
