@@ -1147,3 +1147,177 @@ export async function settleArrival(
 
   return created;
 }
+
+/**
+ * Looking for the money the customer says they sent.
+ *
+ * ## Why this replaced opening a request first
+ *
+ * The request flow asked the office to declare a transfer before it existed —
+ * pick an address, name a figure, reserve it, start a clock — and only then
+ * turn the screen round. Customers do not wait for that. They scan the code and
+ * send, often before the teller has finished typing, and everything declared in
+ * advance then has to be reconciled against what actually happened.
+ *
+ * So the order is inverted to the one the counter already works in: the address
+ * is on the screen from the moment it is chosen, the customer sends, and the
+ * teller types **what arrived** and asks the chain to confirm it. Nothing is
+ * promised in advance because nothing needs to be. There is no clock to run
+ * out, no reserved figure for the customer to mistype, and no request left open
+ * when somebody walks away.
+ *
+ * ## What is given up, and what replaces it
+ *
+ * The reserved amount used to tell two customers sending the same figure apart.
+ * Without a request there is nothing to reserve — so the same question is asked
+ * later instead, at the moment it actually matters: if two unclaimed transfers
+ * for that figure are sitting on the address, this refuses to choose and hands
+ * the teller both, with the sender, the time and the hash. That is the same
+ * discipline the rest of this module keeps. It is not the same protection, and
+ * it is worth knowing which one you have.
+ */
+export type ArrivalSearch =
+  /** Nothing for that figure. Either it has not landed or it never will. */
+  | { state: 'NONE' }
+  /** On the chain, not yet final. Real, but not yet payable. */
+  | { state: 'UNCONFIRMED'; confirmations: number; required: number; txHash: string }
+  | {
+      state: 'FOUND';
+      arrival: {
+        id: string;
+        txHash: string;
+        amount: string;
+        confirmations: number;
+        firstSeenAt: Date;
+        fromAddress: string | null;
+      };
+      /** What the customer is owed, at the board right now. */
+      quote: { toAmount: string; rate: string; payoutCurrency: string };
+    }
+  /** Two transfers for the same figure. The teller chooses; this will not. */
+  | {
+      state: 'AMBIGUOUS';
+      candidates: {
+        id: string;
+        txHash: string;
+        amount: string;
+        firstSeenAt: Date;
+        fromAddress: string | null;
+      }[];
+    };
+
+/**
+ * Asks the chain, then the table, for an unclaimed transfer of exactly `amount`.
+ *
+ * Exactly. A figure that is merely close is a different customer until somebody
+ * proves otherwise — the teller can retype what the customer actually shows
+ * them, which takes a second and is the only honest way to resolve it.
+ */
+export async function findArrival(
+  input: { walletId: string; amount: bigint; payoutCurrency: string },
+  db: DbClient = prisma,
+): Promise<ArrivalSearch> {
+  if (!(await settings.getBoolean('usdt.counterEnabled', db))) {
+    throw errors.precondition('The USDT counter is switched off', 'errors.counterDisabled');
+  }
+  if (input.amount <= 0n) {
+    throw errors.precondition('Amount must be greater than zero', 'errors.amountNotPositive');
+  }
+
+  const wallet = await db.wallet.findUnique({ where: { id: input.walletId } });
+  if (!wallet) throw errors.notFound('Wallet', input.walletId);
+  if (!wallet.isCounterAddress || !wallet.isActive) {
+    throw errors.precondition(
+      'That address is not available at the counter',
+      'errors.notACounterAddress',
+    );
+  }
+
+  // Asked of the chain first, because the teller is pressing this button with a
+  // customer in front of them saying they have already sent it.
+  if (providerFor(wallet.network).network !== 'MANUAL') {
+    await syncWallet(wallet.id, {}, db).catch((error) =>
+      log.warn('Verify sync failed; falling back to stored transfers', {
+        walletId: wallet.id,
+        error,
+      }),
+    );
+  }
+
+  const candidates = await db.chainTransaction.findMany({
+    where: {
+      walletId: wallet.id,
+      direction: 'IN',
+      amount: input.amount,
+      depositRequest: { is: null },
+      linkedTransactionId: null,
+    },
+    orderBy: { firstSeenAt: 'desc' },
+    take: 5,
+    select: {
+      id: true,
+      txHash: true,
+      amount: true,
+      status: true,
+      confirmations: true,
+      firstSeenAt: true,
+      fromAddress: true,
+    },
+  });
+
+  if (candidates.length === 0) return { state: 'NONE' };
+
+  const required = wallet.minConfirmations;
+  const ready = candidates.filter(
+    (candidate) => candidate.status === 'CONFIRMED' && candidate.confirmations >= required,
+  );
+
+  if (ready.length > 1) {
+    return {
+      state: 'AMBIGUOUS',
+      candidates: ready.map((candidate) => ({
+        id: candidate.id,
+        txHash: candidate.txHash,
+        amount: candidate.amount.toString(),
+        firstSeenAt: candidate.firstSeenAt,
+        fromAddress: candidate.fromAddress,
+      })),
+    };
+  }
+
+  if (ready.length === 0) {
+    const pending = candidates[0]!;
+    return {
+      state: 'UNCONFIRMED',
+      confirmations: pending.confirmations,
+      required,
+      txHash: pending.txHash,
+    };
+  }
+
+  const match = ready[0]!;
+  const quote = await quoteExchange(
+    wallet.tokenSymbol,
+    input.payoutCurrency.toUpperCase(),
+    match.amount,
+    'CASH',
+    db,
+  );
+
+  return {
+    state: 'FOUND',
+    arrival: {
+      id: match.id,
+      txHash: match.txHash,
+      amount: match.amount.toString(),
+      confirmations: match.confirmations,
+      firstSeenAt: match.firstSeenAt,
+      fromAddress: match.fromAddress,
+    },
+    quote: {
+      toAmount: quote.toAmount.toString(),
+      rate: quote.rate.toString(),
+      payoutCurrency: input.payoutCurrency.toUpperCase(),
+    },
+  };
+}

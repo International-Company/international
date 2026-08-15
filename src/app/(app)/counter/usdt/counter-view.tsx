@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
@@ -10,7 +10,6 @@ import {
   Clock,
   Copy,
   Loader2,
-  Plus,
   Printer,
   RefreshCw,
   Wallet,
@@ -23,10 +22,10 @@ import { QrCode } from '@/core/qr/qr-code';
 import { Alert, Badge, Button, Card, CardBody, CardHeader } from '@/ui/primitives';
 import { ShareButton } from '@/ui/share';
 import { ArrivalsTray } from './arrivals-tray';
+import { ReceiveFlow } from './receive-flow';
 import { ConfirmDialog, useToast } from '@/ui/overlay';
-import { Field, Input, MoneyInput, Select, Textarea } from '@/ui/form';
+import { Textarea } from '@/ui/form';
 import { DateText, Money } from '@/ui/display';
-import { CustomerPicker, type CustomerHit } from '@/ui/customer-picker';
 import { cn } from '@/ui/utils';
 
 /**
@@ -92,27 +91,16 @@ export function CounterView({
   addresses,
   openRequests,
   currencies,
-  windowMinutes,
   permissions,
 }: {
   addresses: CounterAddress[];
   openRequests: OpenRequest[];
   currencies: { code: string; nameEn: string; nameAr: string; decimals: number }[];
-  windowMinutes: number;
   permissions: string[];
 }) {
   const { t, ln } = useLocale();
   const router = useRouter();
   const toast = useToast();
-
-  const [walletId, setWalletId] = useState(addresses[0]?.id ?? '');
-  const [amount, setAmount] = useState('');
-  const [payoutCurrency, setPayoutCurrency] = useState(currencies[0]?.code ?? 'ILS');
-  const [customer, setCustomer] = useState<CustomerHit | null>(null);
-  const [counterpartyName, setCounterpartyName] = useState('');
-  const [notes, setNotes] = useState('');
-  const [detailsOpen, setDetailsOpen] = useState(false);
-  const [opening, setOpening] = useState(false);
 
   const [active, setActive] = useState<OpenRequest | null>(openRequests[0] ?? null);
   const [outcome, setOutcome] = useState<MatchOutcome | null>(null);
@@ -120,53 +108,6 @@ export function CounterView({
   const [settling, setSettling] = useState(false);
   const [cancelling, setCancelling] = useState(false);
   const [cancelReason, setCancelReason] = useState('');
-
-  const wallet = useMemo(
-    () => addresses.find((entry) => entry.id === (active?.id ? undefined : walletId)) ?? addresses.find((entry) => entry.address === active?.address) ?? addresses[0],
-    [addresses, walletId, active],
-  );
-
-  const open = async () => {
-    setOpening(true);
-    try {
-      const created = await api.post<OpenRequest>('/api/usdt/counter', {
-        walletId,
-        amount: amount.trim(),
-        payoutCurrency,
-        customerId: customer?.id ?? null,
-        counterpartyName: counterpartyName.trim() || null,
-        notes: notes.trim() || null,
-      });
-
-      setActive({
-        ...created,
-        createdAt: new Date().toISOString(),
-        wallet: {
-          label: wallet?.label ?? '',
-          labelAr: wallet?.labelAr ?? '',
-          network: created.network,
-        },
-        customer: customer
-          ? {
-              id: customer.id,
-              code: customer.code,
-              fullNameEn: customer.fullNameEn,
-              fullNameAr: customer.fullNameAr,
-            }
-          : null,
-        transaction: null,
-        matchedChainTransaction: null,
-        counterpartyName: counterpartyName.trim() || null,
-      });
-      setOutcome(null);
-      setAmount('');
-      router.refresh();
-    } catch (cause) {
-      toast.error(t('errors.title'), message(cause, t));
-    } finally {
-      setOpening(false);
-    }
-  };
 
   const check = async (silent = false) => {
     if (!active) return;
@@ -257,8 +198,6 @@ export function CounterView({
     }
   };
 
-  const selected = addresses.find((entry) => entry.id === walletId);
-
   return (
     <div className="space-y-4">
       {/*
@@ -267,139 +206,18 @@ export function CounterView({
       */}
       <ArrivalsTray currencies={currencies} permissions={permissions} />
 
+      {/*
+        The window, in the order it actually works: the address is on the screen
+        the moment it is chosen, the customer sends, and the teller types what
+        arrived and asks the chain. Nothing is declared before the money exists.
+      */}
+      <ReceiveFlow addresses={addresses} currencies={currencies} permissions={permissions} />
+
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-      {/* --- Teller: open a request -------------------------------------- */}
-      <Card>
-        <CardHeader title={t('counter.newRequest')} />
-        <CardBody className="space-y-3">
-          <Field label={t('counter.address')} required>
-            {(props) => (
-              <Select
-                {...props}
-                value={walletId}
-                onChange={(event) => setWalletId(event.target.value)}
-                disabled={Boolean(active && active.status !== 'COMPLETED')}
-                options={addresses.map((entry) => ({
-                  value: entry.id,
-                  label: `${ln(entry, 'label')} — ${entry.network}`,
-                }))}
-              />
-            )}
-          </Field>
-
-          {selected && !selected.drawerId && (
-            <Alert tone="warning">{t('counter.walletNotLinked')}</Alert>
-          )}
-          {selected && !selected.isAutomatic && (
-            <Alert tone="neutral">{t('counter.manualNetwork')}</Alert>
-          )}
-
-          <Field label={t('counter.amountExpected')} required>
-            {(props) => (
-              <MoneyInput
-                {...props}
-                value={amount}
-                onValueChange={setAmount}
-                currency="USDT"
-                disabled={Boolean(active && active.status !== 'COMPLETED')}
-              />
-            )}
-          </Field>
-
-          <Field label={t('counter.payoutCurrency')} required>
-            {(props) => (
-              <Select
-                {...props}
-                value={payoutCurrency}
-                onChange={(event) => setPayoutCurrency(event.target.value)}
-                disabled={Boolean(active && active.status !== 'COMPLETED')}
-                options={currencies.map((currency) => ({
-                  value: currency.code,
-                  label: `${ln(currency, 'name')} (${currency.code})`,
-                }))}
-              />
-            )}
-          </Field>
-
-          {/*
-            Who it is for, and anything worth noting — folded away.
-            Three fields none of which is required stood permanently between the
-            teller and the button they came to press. Opening a request needs an
-            address, an amount and a payout currency; the rest is for the
-            occasions that call for it, and says so by staying shut.
-          */}
-          {detailsOpen || customer ? (
-            <div className="space-y-3 rounded-[var(--radius-control)] bg-surface-sunken p-3">
-              <div className="flex items-center justify-between gap-2">
-                <p className="text-sm font-medium text-content">{t('counter.aboutCustomer')}</p>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setDetailsOpen(false);
-                    setCustomer(null);
-                    setCounterpartyName('');
-                    setNotes('');
-                  }}
-                  aria-label={t('common.close')}
-                  className="flex size-8 items-center justify-center rounded-full text-content-tertiary transition-colors hover:bg-surface-hover hover:text-content"
-                >
-                  <X className="size-4" />
-                </button>
-              </div>
-
-              <CustomerPicker value={customer} onChange={setCustomer} permissions={permissions} />
-
-              {!customer && (
-                <Field label={t('transactions.counterpartyName')}>
-                  {(props) => (
-                    <Input
-                      {...props}
-                      value={counterpartyName}
-                      onChange={(event) => setCounterpartyName(event.target.value)}
-                    />
-                  )}
-                </Field>
-              )}
-
-              <Field label={t('common.notes')}>
-                {(props) => (
-                  <Textarea
-                    {...props}
-                    rows={2}
-                    value={notes}
-                    onChange={(event) => setNotes(event.target.value)}
-                  />
-                )}
-              </Field>
-            </div>
-          ) : (
-            <button
-              type="button"
-              onClick={() => setDetailsOpen(true)}
-              className="flex h-11 w-full items-center justify-center gap-2 rounded-[var(--radius-control)] border border-dashed border-border-base text-sm text-content-tertiary transition-colors hover:border-primary hover:text-primary-text"
-            >
-              <Plus className="size-4" />
-              {t('counter.aboutCustomer')}
-            </button>
-          )}
-
-          <Button
-            variant="primary"
-            fullWidth
-            icon={<Wallet />}
-            loading={opening}
-            disabled={!walletId || !amount.trim() || Boolean(active && active.status !== 'COMPLETED')}
-            onClick={() => void open()}
-          >
-            {t('counter.open')}
-          </Button>
-
-          <p className="text-xs text-content-secondary">
-            {t('counter.windowHint', { minutes: String(windowMinutes) })}
-          </p>
-        </CardBody>
-      </Card>
-
+        {/*
+          Requests opened under the older order, so work already in progress can
+          still be finished. Nothing opens a new one.
+        */}
       {/* --- Customer: the address, and what to send ---------------------- */}
       {active ? (
         <div className="space-y-4">
@@ -531,14 +349,7 @@ export function CounterView({
             </CardBody>
           </Card>
         </div>
-      ) : (
-        <Card>
-          <CardBody className="flex min-h-64 flex-col items-center justify-center gap-2 text-center">
-            <Wallet className="h-8 w-8 text-content-tertiary" />
-            <p className="text-sm text-content-secondary">{t('counter.emptyBody')}</p>
-          </CardBody>
-        </Card>
-      )}
+      ) : null}
 
       {/* --- Requests still waiting --------------------------------------- */}
       {openRequests.length > 0 && (
