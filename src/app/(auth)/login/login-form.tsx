@@ -6,6 +6,7 @@ import { AlertTriangle, Fingerprint, LogIn } from 'lucide-react';
 import { BRAND } from '@/app/_shell/brand';
 import { useLocale } from '@/i18n/provider';
 import { api, ApiError } from '@/lib/api-client';
+import { say } from '@/lib/failure';
 import { Alert, Button } from '@/ui/primitives';
 import { Field, Input, PasswordInput } from '@/ui/form';
 
@@ -48,7 +49,7 @@ export function browserErrorName(caught: unknown): string | null {
 function describeBiometricFailure(caught: unknown, t: Translate): string {
   if (caught instanceof ApiError) {
     return (
-      t(caught.messageKey as never, caught.params) || caught.message || t('errors.generic')
+      say(t, caught.messageKey, caught.params) || caught.message || t('errors.generic')
     );
   }
 
@@ -262,8 +263,7 @@ export function LoginForm({ companyName }: { companyName: string }) {
     } catch (caught) {
       if (caught instanceof ApiError) {
         setError(
-          t(caught.messageKey as never, caught.params) ||
-            caught.message ||
+          say(t, caught.messageKey, caught.params) || caught.message ||
             t('errors.generic'),
         );
       } else {

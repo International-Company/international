@@ -16,6 +16,7 @@ import {
 import { useLocale } from '@/i18n/provider';
 import { formatRate } from '@/i18n/format';
 import { api, ApiError } from '@/lib/api-client';
+import { say } from '@/lib/failure';
 import { Alert, Badge, Button, Card, CardBody, CardHeader, DetailRow } from '@/ui/primitives';
 import { ConfirmDialog, Dialog, useToast } from '@/ui/overlay';
 import { Field, Input, MoneyInput, Textarea } from '@/ui/form';
@@ -156,7 +157,7 @@ export function TransactionDetail({
       toast.error(
         t('errors.title'),
         cause instanceof ApiError
-          ? t(cause.messageKey as never, cause.params as Record<string, string>) || cause.message
+          ? say(t, cause.messageKey, cause.params) || cause.message
           : t('errors.generic'),
       );
     } finally {
@@ -182,7 +183,7 @@ export function TransactionDetail({
       toast.error(
         t('errors.title'),
         cause instanceof ApiError
-          ? t(cause.messageKey as never, cause.params as Record<string, string>) || cause.message
+          ? say(t, cause.messageKey, cause.params) || cause.message
           : t('errors.generic'),
       );
     } finally {
@@ -204,7 +205,7 @@ export function TransactionDetail({
       toast.error(
         t('errors.title'),
         cause instanceof ApiError
-          ? t(cause.messageKey as never, cause.params as Record<string, string>) || cause.message
+          ? say(t, cause.messageKey, cause.params) || cause.message
           : t('errors.generic'),
       );
     } finally {
@@ -227,7 +228,7 @@ export function TransactionDetail({
       toast.error(
         t('errors.title'),
         cause instanceof ApiError
-          ? t(cause.messageKey as never, cause.params as Record<string, string>) || cause.message
+          ? say(t, cause.messageKey, cause.params) || cause.message
           : t('errors.generic'),
       );
     } finally {

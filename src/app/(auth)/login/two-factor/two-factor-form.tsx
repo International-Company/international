@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { AlertTriangle, ShieldCheck } from 'lucide-react';
 import { useLocale } from '@/i18n/provider';
 import { api, ApiError } from '@/lib/api-client';
+import { say } from '@/lib/failure';
 import { Alert, Button } from '@/ui/primitives';
 import { Field, Input } from '@/ui/form';
 import { normalizeDigits } from '@/core/money/money';
@@ -28,7 +29,7 @@ export function TwoFactorForm() {
     } catch (caught) {
       setError(
         caught instanceof ApiError
-          ? t(caught.messageKey as never, caught.params) || caught.message
+          ? say(t, caught.messageKey, caught.params) || caught.message
           : t('errors.generic'),
       );
       setSubmitting(false);

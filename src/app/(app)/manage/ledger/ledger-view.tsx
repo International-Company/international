@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { ArrowDownLeft, ArrowUpRight, Lock, Pencil, TrendingDown, TrendingUp } from 'lucide-react';
 import { useLocale } from '@/i18n/provider';
 import { api, ApiError } from '@/lib/api-client';
+import { say } from '@/lib/failure';
 import { normalizeDigits } from '@/core/money/money';
 import { Alert, Badge, Button, Card, CardBody, CardHeader, StatTile } from '@/ui/primitives';
 import { Dialog, useToast } from '@/ui/overlay';
@@ -136,7 +137,7 @@ export function LedgerView({
       toast.error(
         t('errors.title'),
         cause instanceof ApiError
-          ? t(cause.messageKey as never, cause.params as Record<string, string>) || cause.message
+          ? say(t, cause.messageKey, cause.params) || cause.message
           : t('errors.generic'),
       );
     } finally {

@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { Check, Power, TrendingUp, TriangleAlert, Vault } from 'lucide-react';
 import { useLocale } from '@/i18n/provider';
 import { api, ApiError } from '@/lib/api-client';
+import { say } from '@/lib/failure';
 import { Alert, Button, Card, CardBody, CardHeader, StatTile } from '@/ui/primitives';
 import { useToast } from '@/ui/overlay';
 import { Field, Input, MoneyInput, Switch } from '@/ui/form';
@@ -130,7 +131,7 @@ export function MachineControlView({
       toast.error(
         t('errors.title'),
         caught instanceof ApiError
-          ? t(caught.messageKey as never, caught.params as Record<string, string>) || caught.message
+          ? say(t, caught.messageKey, caught.params) || caught.message
           : t('errors.generic'),
       );
     } finally {

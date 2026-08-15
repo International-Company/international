@@ -6,6 +6,7 @@ import { Pencil, Plus, RefreshCw, Trash2, Wallet as WalletIcon } from 'lucide-re
 import { useLocale } from '@/i18n/provider';
 import type { TranslationKey } from '@/i18n/types';
 import { api, ApiError } from '@/lib/api-client';
+import { say } from '@/lib/failure';
 import { Alert, Badge, Button, Card, CardHeader, EmptyState, StatTile } from '@/ui/primitives';
 import { ConfirmDialog, Dialog, useToast } from '@/ui/overlay';
 import { Checkbox, Field, FormGrid, Input, NumberInput, Select, Switch } from '@/ui/form';
@@ -162,7 +163,7 @@ export function WalletsView({
     } catch (caught) {
       setError(
         caught instanceof ApiError
-          ? t(caught.messageKey as never, caught.params as Record<string, string>) || caught.message
+          ? say(t, caught.messageKey, caught.params) || caught.message
           : t('errors.generic'),
       );
     } finally {
@@ -184,7 +185,7 @@ export function WalletsView({
       toast.error(
         t('errors.title'),
         caught instanceof ApiError
-          ? t(caught.messageKey as never, caught.params as Record<string, string>) || caught.message
+          ? say(t, caught.messageKey, caught.params) || caught.message
           : t('errors.generic'),
       );
       setDeleting(null);
@@ -205,7 +206,7 @@ export function WalletsView({
     } catch (caught) {
       setError(
         caught instanceof ApiError
-          ? t(caught.messageKey as never, caught.params) || caught.message
+          ? say(t, caught.messageKey, caught.params) || caught.message
           : t('errors.generic'),
       );
     } finally {

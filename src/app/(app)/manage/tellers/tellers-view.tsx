@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { MessageSquare } from 'lucide-react';
 import { useLocale } from '@/i18n/provider';
 import { api, ApiError } from '@/lib/api-client';
+import { say } from '@/lib/failure';
 import { Alert, Badge, Button, Card, CardBody, CardHeader, EmptyState } from '@/ui/primitives';
 import { Dialog, useToast } from '@/ui/overlay';
 import { Field, Select, Textarea } from '@/ui/form';
@@ -144,7 +145,7 @@ export function TellersView({ base }: { base: string }) {
     } catch (error) {
       toast.error(
         error instanceof ApiError
-          ? t(error.messageKey as never, error.params as Record<string, string>) || error.message
+          ? say(t, error.messageKey, error.params) || error.message
           : String(error),
       );
     } finally {

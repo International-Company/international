@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Fingerprint, Trash2 } from 'lucide-react';
 import { useLocale } from '@/i18n/provider';
 import { api, ApiError, queryString } from '@/lib/api-client';
+import { say } from '@/lib/failure';
 import { Alert, Badge, Button, Card, CardBody, CardHeader } from '@/ui/primitives';
 import { ConfirmDialog, Dialog, useToast } from '@/ui/overlay';
 import { Field, Input } from '@/ui/form';
@@ -106,7 +107,7 @@ export function ProfileBiometrics() {
       toast.error(
         t('errors.title'),
         caught instanceof ApiError
-          ? t(caught.messageKey as never, caught.params) || caught.message
+          ? say(t, caught.messageKey, caught.params) || caught.message
           : t('auth.biometricFailed'),
       );
     } finally {

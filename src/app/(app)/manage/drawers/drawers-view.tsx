@@ -15,6 +15,7 @@ import {
 import { FUNDING_CATEGORIES, type FundingCategory } from '@/modules/drawers/funding-categories';
 import { useLocale } from '@/i18n/provider';
 import { api, ApiError, queryString } from '@/lib/api-client';
+import { say } from '@/lib/failure';
 import { Alert, Badge, Button, Card, CardBody, CardHeader } from '@/ui/primitives';
 import { ConfirmDialog, Dialog, useToast } from '@/ui/overlay';
 import { Field, Input, MoneyInput, Select, Switch } from '@/ui/form';
@@ -138,7 +139,7 @@ export function DrawersView({
       toast.error(
         t('errors.title'),
         cause instanceof ApiError
-          ? t(cause.messageKey as never, cause.params as Record<string, string>) || cause.message
+          ? say(t, cause.messageKey, cause.params) || cause.message
           : t('errors.generic'),
       );
     } finally {
@@ -181,7 +182,7 @@ export function DrawersView({
       toast.error(
         t('errors.title'),
         cause instanceof ApiError
-          ? t(cause.messageKey as never, cause.params as Record<string, string>) || cause.message
+          ? say(t, cause.messageKey, cause.params) || cause.message
           : t('errors.generic'),
       );
     } finally {
@@ -206,7 +207,7 @@ export function DrawersView({
       toast.error(
         t('errors.title'),
         cause instanceof ApiError
-          ? t(cause.messageKey as never, cause.params as Record<string, string>) || cause.message
+          ? say(t, cause.messageKey, cause.params) || cause.message
           : t('errors.generic'),
       );
     } finally {
@@ -238,7 +239,7 @@ export function DrawersView({
       toast.error(
         t('errors.title'),
         cause instanceof ApiError
-          ? t(cause.messageKey as never, cause.params as Record<string, string>) || cause.message
+          ? say(t, cause.messageKey, cause.params) || cause.message
           : t('errors.generic'),
       );
     } finally {

@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { AlertTriangle, ArrowRight, Check, Clock, Pencil, Plus, X } from 'lucide-react';
 import { useLocale } from '@/i18n/provider';
 import { api, ApiError } from '@/lib/api-client';
+import { say } from '@/lib/failure';
 import { Alert, Badge, Button, Card, CardBody, CardHeader, EmptyState } from '@/ui/primitives';
 import { Dialog, useToast } from '@/ui/overlay';
 import { Field, Input, MoneyInput, Select } from '@/ui/form';
@@ -138,7 +139,7 @@ export function RatesView({
     } catch (caught) {
       setError(
         caught instanceof ApiError
-          ? t(caught.messageKey as never, caught.params as Record<string, string>) || caught.message
+          ? say(t, caught.messageKey, caught.params) || caught.message
           : t('errors.generic'),
       );
     } finally {

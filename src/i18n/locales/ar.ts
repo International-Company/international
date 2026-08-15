@@ -1604,6 +1604,55 @@ const ar: Dictionary = {
     noBranch: 'لا يوجد فرع مهيأ',
     noSystemUser: 'لا يوجد مستخدم نظام مهيأ',
 
+    // --- ماكينة التصريف ---
+    machineDisabled: 'ماكينة التصريف مطفأة',
+    machineOverLimit: 'سقف الشباك {maximum} {currency}',
+    notAMachineCurrency: 'الماكينة تصرّف الشيكل والدولار والدينار فقط',
+    pairNotOffered: 'زوج {pair} غير مطروح على الشباك',
+    splitNeedsPayAmount:
+      'الدفع المزدوج يُسعَّر مما يدفعه العميل — اكتب المبلغ في خانة «العميل يدفع»',
+    splitShareOutOfRange: 'حصة البنك جزء من المبلغ، لا كلّه ولا صفر',
+
+    // --- كسر السعر ---
+    exceptionAlreadyUsed: 'هذه الموافقة استُعملت مسبقاً',
+    exceptionDecided: 'هذا الطلب تمّ البتّ فيه',
+    exceptionExpired: 'انتهت صلاحية هذه الموافقة',
+    exceptionNotAConcession: 'هذا السعر عند اللوح أو أفضل منه — لا يحتاج موافقة',
+    exceptionNotApproved: 'هذا السعر غير موافَق عليه',
+    exceptionNotYours: 'هذه الموافقة تخصّ تلراً آخر',
+    exceptionOverAmount: 'المبلغ يتجاوز ما تغطيه الموافقة',
+    exceptionSamePerson: 'من يطلب لا يوافق على طلبه',
+    exceptionWorseThanAsked: 'لا يمكن منح سعر أسوأ من المطلوب',
+    exceptionWrongChannel: 'هذه الموافقة كانت لطريقة دفع أخرى',
+    exceptionWrongPair: 'هذه الموافقة كانت لزوج عملات آخر',
+
+    // --- شباك USDT ---
+    counterDisabled: 'شباك USDT مطفأ',
+    counterAmountTooLarge: 'طلب الشباك لا يتجاوز {maximum} USDT',
+    notACounterAddress: 'هذا العنوان غير متاح على الشباك',
+    depositNotOpen: 'هذا الطلب لم يعد مفتوحاً',
+    depositSettled: 'هذا الطلب مسوّى مسبقاً',
+    depositNotMatched: 'لا يوجد تحويل مؤكد مربوط بهذا الطلب',
+    depositNotIncoming: 'هذا تحويل صادر لا وارد',
+    depositWrongAddress: 'هذا التحويل ذهب إلى عنوان آخر',
+    depositAlreadyClaimed: 'هذا التحويل يسدّد طلباً آخر',
+    depositAlreadyPosted: 'هذا التحويل مُرحَّل مسبقاً',
+    depositAmountMismatch: 'التحويل {found}، والمطلوب {expected}',
+    depositNoFreeAmount: 'طلبات كثيرة مفتوحة على هذا العنوان بنفس المبلغ',
+
+    // --- الصناديق والفروقات ---
+    drawerInactive: 'صندوق {currency} مُقفل',
+    differenceResolved: 'هذا الفرق تمّت تسويته',
+    moreThanOwed: 'المبلغ يتجاوز ما على هذا التلر',
+    surplusNotChargeable: 'الزيادة لا تُحمَّل على أحد — لا أحد يدين بمال وُجد',
+
+    // --- الموظفون والمحافظ ---
+    cannotDeleteSelf: 'لا يمكنك حذف حسابك',
+    lastManager: 'هذا آخر مدير — رقِّ غيره أولاً',
+    userHasWork: 'باسم «{username}» {count} سجلاً ولا يمكن حذفه — عطّل الحساب بدلاً من ذلك',
+    walletHasHistory:
+      'على «{label}» {transfers} تحويلاً و{requests} طلب شباك ولا يمكن حذفها — عطّلها بدلاً من ذلك',
+
     pageNotFound: 'الصفحة غير موجودة',
     pageNotFoundBody: 'الصفحة التي تبحث عنها غير موجودة أو تم نقلها.',
     goHome: 'العودة إلى لوحة المعلومات',

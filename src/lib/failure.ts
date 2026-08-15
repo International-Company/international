@@ -20,9 +20,30 @@ export function describeFailure(
     const refused = caught.status >= 400 && caught.status < 500 && caught.status !== 408;
     return {
       title: t((refused ? 'errors.refusedTitle' : 'errors.title') as never),
-      body: t(caught.messageKey as never, caught.params as Record<string, string>) || caught.message,
+      body: say(t, caught.messageKey, caught.params) || caught.message,
     };
   }
 
   return { title: t('errors.title' as never), body: t('errors.generic' as never) };
+}
+
+/**
+ * A translated sentence, or nothing at all.
+ *
+ * `translate` returns the key itself when it finds no entry, which is right for
+ * a label — an untranslated button reads as obviously unfinished rather than
+ * mysteriously blank. But it makes `t(key) || message` a fallback that can
+ * never fire: the key is a truthy string, so the sentence the server wrote is
+ * unreachable and the teller reads `errors.splitNeedsPayAmount` where a refusal
+ * should be. Returning nothing for a missing key is what puts the server's own
+ * words back within reach.
+ */
+export function say(
+  t: (key: never, params?: Record<string, string>) => string,
+  key: string | undefined | null,
+  params?: unknown,
+): string {
+  if (!key) return '';
+  const text = t(key as never, params as Record<string, string>);
+  return text === key ? '' : text;
 }

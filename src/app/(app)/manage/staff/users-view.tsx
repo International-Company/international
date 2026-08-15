@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { KeyRound, Pencil, Plus, ShieldOff, Search, Trash2, UserCheck } from 'lucide-react';
 import { useLocale } from '@/i18n/provider';
 import { api, ApiError, queryString } from '@/lib/api-client';
+import { say } from '@/lib/failure';
 import { Alert, Badge, Button, Card } from '@/ui/primitives';
 import { Checkbox, Field, FormGrid, Input, Select } from '@/ui/form';
 import { DataTable, type Column } from '@/ui/data-table';
@@ -140,7 +141,7 @@ export function UsersView({
     } catch (caught) {
       setError(
         caught instanceof ApiError
-          ? t(caught.messageKey as never, caught.params) || caught.message
+          ? say(t, caught.messageKey, caught.params) || caught.message
           : t('errors.generic'),
       );
     } finally {
@@ -218,7 +219,7 @@ export function UsersView({
     } catch (caught) {
       setError(
         caught instanceof ApiError
-          ? t(caught.messageKey as never, caught.params as Record<string, string>) || caught.message
+          ? say(t, caught.messageKey, caught.params) || caught.message
           : t('errors.generic'),
       );
     } finally {
@@ -241,7 +242,7 @@ export function UsersView({
       toast.error(
         t('errors.title'),
         caught instanceof ApiError
-          ? t(caught.messageKey as never, caught.params as Record<string, string>) || caught.message
+          ? say(t, caught.messageKey, caught.params) || caught.message
           : t('errors.generic'),
       );
       setDeleting(null);

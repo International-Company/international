@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { ShieldCheck, TriangleAlert } from 'lucide-react';
 import { useLocale } from '@/i18n/provider';
 import { api, ApiError } from '@/lib/api-client';
+import { say } from '@/lib/failure';
 import { Alert, Badge, Button, Card, CardBody, CardHeader, Separator } from '@/ui/primitives';
 import { useToast } from '@/ui/overlay';
 import { Field, MoneyInput } from '@/ui/form';
@@ -142,7 +143,7 @@ export function PermissionsView({
       toast.error(
         t('errors.title'),
         error instanceof ApiError
-          ? t(error.messageKey as never, error.params as Record<string, string>) || error.message
+          ? say(t, error.messageKey, error.params) || error.message
           : t('errors.generic'),
       );
     } finally {

@@ -23,7 +23,7 @@ import {
 } from 'lucide-react';
 import { useLocale } from '@/i18n/provider';
 import { normalizeDigits } from '@/core/money/money';
-import { describeFailure } from '@/lib/failure';
+import { describeFailure, say } from '@/lib/failure';
 import { api, ApiError, queryString } from '@/lib/api-client';
 import { Button } from '@/ui/primitives';
 import { Dialog, DropdownMenu, useToast } from '@/ui/overlay';
@@ -291,8 +291,7 @@ export function MachineView({
           setQuote(null);
           setError(
             cause instanceof ApiError
-              ? t(cause.messageKey as never, cause.params as Record<string, string>) ||
-                  cause.message
+              ? say(t, cause.messageKey, cause.params) || cause.message
               : t('errors.generic'),
           );
         })
@@ -651,7 +650,27 @@ export function MachineView({
                     onClick={() => {
                       setChannel(option);
                       setDone(null);
-                      if (option !== 'SPLIT') setBrokerShare('');
+                      if (option !== 'SPLIT') {
+                        setBrokerShare('');
+                      } else if (side !== 'pay') {
+                        /*
+                         * A split is priced from what the customer hands over —
+                         * what they take away is not known until both parts have
+                         * been priced, so it cannot be the thing divided.
+                         *
+                         * So choosing it moves the entry to that side, carrying
+                         * the figure the counter has already worked out. The
+                         * alternative was to leave the button offering a
+                         * combination the server refuses, which the teller only
+                         * discovers after pressing record in front of a customer.
+                         */
+                        setSide('pay');
+                        setAmount(
+                          legs.from > 0n
+                            ? formatPlain(legs.from.toString(), fromCurrency?.decimals ?? 2)
+                            : '',
+                        );
+                      }
                     }}
                     aria-pressed={channel === option}
                     className={cn(

@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { Check, KeyRound, X } from 'lucide-react';
 import { useLocale } from '@/i18n/provider';
 import { api, ApiError } from '@/lib/api-client';
+import { say } from '@/lib/failure';
 import { PASSWORD_RULES, passwordStrength } from '@/core/security/password-strength';
 import { Alert, Button } from '@/ui/primitives';
 import { Field, PasswordInput } from '@/ui/form';
@@ -42,7 +43,7 @@ export function ChangePasswordForm() {
     } catch (caught) {
       if (caught instanceof ApiError) {
         setFieldErrors(caught.fieldErrors());
-        setError(t(caught.messageKey as never, caught.params) || caught.message);
+        setError(say(t, caught.messageKey, caught.params) || caught.message);
       } else {
         setError(t('errors.generic'));
       }

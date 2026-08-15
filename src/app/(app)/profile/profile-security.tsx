@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { KeyRound, Monitor } from 'lucide-react';
 import { useLocale } from '@/i18n/provider';
 import { api, ApiError } from '@/lib/api-client';
+import { say } from '@/lib/failure';
 import { passwordStrength } from '@/core/security/password-strength';
 import { Alert, Badge, Button, Card, CardBody, CardHeader } from '@/ui/primitives';
 import { Field, PasswordInput } from '@/ui/form';
@@ -59,7 +60,7 @@ export function ProfileSecurity({
     } catch (caught) {
       if (caught instanceof ApiError) {
         setFieldErrors(caught.fieldErrors());
-        setError(t(caught.messageKey as never, caught.params) || caught.message);
+        setError(say(t, caught.messageKey, caught.params) || caught.message);
       } else {
         setError(t('errors.generic'));
       }

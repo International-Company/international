@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { Save } from 'lucide-react';
 import { useLocale } from '@/i18n/provider';
 import { api, ApiError } from '@/lib/api-client';
+import { say } from '@/lib/failure';
 import { Alert, Badge, Button, Card, CardBody, CardFooter, CardHeader } from '@/ui/primitives';
 import { Checkbox, Field, Input, MoneyInput, NumberInput, Select } from '@/ui/form';
 import { useToast } from '@/ui/overlay';
@@ -68,7 +69,7 @@ export function SettingsView({
     } catch (caught) {
       setError(
         caught instanceof ApiError
-          ? t(caught.messageKey as never, caught.params) || caught.message
+          ? say(t, caught.messageKey, caught.params) || caught.message
           : t('errors.generic'),
       );
     } finally {

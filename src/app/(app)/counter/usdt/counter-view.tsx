@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { useLocale } from '@/i18n/provider';
 import { api, ApiError } from '@/lib/api-client';
+import { say } from '@/lib/failure';
 import { QrCode } from '@/core/qr/qr-code';
 import { Alert, Badge, Button, Card, CardBody, CardHeader } from '@/ui/primitives';
 import { ConfirmDialog, useToast } from '@/ui/overlay';
@@ -689,6 +690,6 @@ function StatusPill({ status }: { status: string }) {
 
 function message(cause: unknown, t: (key: never, params?: Record<string, string>) => string): string {
   return cause instanceof ApiError
-    ? t(cause.messageKey as never, cause.params as Record<string, string>) || cause.message
+    ? say(t, cause.messageKey, cause.params) || cause.message
     : t('errors.generic' as never);
 }

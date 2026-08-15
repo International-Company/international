@@ -1606,6 +1606,56 @@ const en = {
     noBranch: 'No branch is configured',
     noSystemUser: 'No system user is configured',
 
+    // --- The exchange machine ---
+    machineDisabled: 'The exchange machine is switched off',
+    machineOverLimit: 'The counter limit is {maximum} {currency}',
+    notAMachineCurrency: 'The machine trades shekels, dollars and dinars only',
+    pairNotOffered: 'The {pair} pair is not offered at the counter',
+    splitNeedsPayAmount:
+      'A split is priced from what the customer hands over — put the amount in the "customer pays" field',
+    splitShareOutOfRange: 'The transferred share must be part of the amount, not all or none of it',
+
+    // --- Breaking the board price ---
+    exceptionAlreadyUsed: 'That approval has already been used',
+    exceptionDecided: 'This request has already been decided',
+    exceptionExpired: 'That approval has expired',
+    exceptionNotAConcession: 'That is at or better than the board — no approval is needed',
+    exceptionNotApproved: 'That price was not approved',
+    exceptionNotYours: 'That approval belongs to another teller',
+    exceptionOverAmount: 'That is more than the approval covers',
+    exceptionSamePerson: 'The person who asked cannot be the person who approves',
+    exceptionWorseThanAsked: 'Cannot grant a worse price than the one asked for',
+    exceptionWrongChannel: 'That approval was for a different way of paying',
+    exceptionWrongPair: 'That approval was for a different pair',
+
+    // --- The USDT counter ---
+    counterDisabled: 'The USDT counter is switched off',
+    counterAmountTooLarge: 'A counter request cannot exceed {maximum} USDT',
+    notACounterAddress: 'That address is not available at the counter',
+    depositNotOpen: 'This request is no longer open',
+    depositSettled: 'This request is already settled',
+    depositNotMatched: 'No confirmed transfer is attached to this request',
+    depositNotIncoming: 'That is an outgoing transfer',
+    depositWrongAddress: 'That transfer went to a different address',
+    depositAlreadyClaimed: 'That transfer already settles another request',
+    depositAlreadyPosted: 'That transfer is already posted',
+    depositAmountMismatch: 'That transfer is {found}, not {expected}',
+    depositNoFreeAmount: 'Too many requests are open on this address for the same amount',
+
+    // --- Drawers and differences ---
+    drawerInactive: 'The {currency} drawer is closed',
+    differenceResolved: 'This difference has already been settled',
+    moreThanOwed: 'That is more than this teller owes',
+    surplusNotChargeable: 'A surplus cannot be charged to anyone — nobody owes money that was found',
+
+    // --- Staff and wallets ---
+    cannotDeleteSelf: 'You cannot delete your own account',
+    lastManager: 'This is the only manager left — promote someone else first',
+    userHasWork:
+      '"{username}" has {count} record(s) against their name and cannot be deleted — disable the account instead',
+    walletHasHistory:
+      '"{label}" has {transfers} transfer(s) and {requests} counter request(s) on record and cannot be deleted — deactivate it instead',
+
     pageNotFound: 'Page not found',
     pageNotFoundBody: 'The page you are looking for does not exist or has moved.',
     goHome: 'Return to dashboard',

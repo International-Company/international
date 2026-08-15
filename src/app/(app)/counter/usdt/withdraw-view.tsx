@@ -6,6 +6,7 @@ import { Check, Loader2, Printer, RotateCcw, TriangleAlert, Wallet } from 'lucid
 import { useLocale } from '@/i18n/provider';
 import { normalizeDigits } from '@/core/money/money';
 import { api, ApiError, queryString } from '@/lib/api-client';
+import { say } from '@/lib/failure';
 import { Button } from '@/ui/primitives';
 import { useToast } from '@/ui/overlay';
 import { Field, Input } from '@/ui/form';
@@ -136,8 +137,7 @@ export function WithdrawView({
           setQuote(null);
           setError(
             cause instanceof ApiError
-              ? t(cause.messageKey as never, cause.params as Record<string, string>) ||
-                  cause.message
+              ? say(t, cause.messageKey, cause.params) || cause.message
               : t('errors.generic'),
           );
         })
@@ -269,7 +269,7 @@ export function WithdrawView({
       toast.error(
         t('errors.title'),
         cause instanceof ApiError
-          ? t(cause.messageKey as never, cause.params as Record<string, string>) || cause.message
+          ? say(t, cause.messageKey, cause.params) || cause.message
           : t('errors.generic'),
       );
     } finally {
