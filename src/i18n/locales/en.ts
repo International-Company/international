@@ -1011,6 +1011,9 @@ const en = {
   },
 
   receive: {
+    shareAddress: 'Send the address on WhatsApp',
+    shareHeading: 'Deposit address — {network} network only',
+    shareWarning: 'Send on the {network} network only. Sending on any other network destroys the money for good, and nobody can recover it.',
     logTitle: 'Arrivals log',
     logBody: 'Everything that reached a counter address and has not been paid out, newest first.',
     logEmpty: 'Nothing has arrived yet.',
@@ -1158,6 +1161,9 @@ const en = {
   },
 
   customers: {
+    fullName: 'Name',
+    created: 'Customer added',
+    quickHint: 'A name and a number are enough for now. The rest can be filled in from the customers screen whenever you like.',
     title: 'Customers',
     subtitle: 'Customer records, balances and compliance status',
     new: 'New customer',

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Check, Copy, ExternalLink, Inbox, Loader2, RefreshCw } from 'lucide-react';
+import { Check, Copy, ExternalLink, Inbox, Loader2, MessageCircle, RefreshCw } from 'lucide-react';
 import { useLocale } from '@/i18n/provider';
 import { api } from '@/lib/api-client';
 import { describeFailure } from '@/lib/failure';
@@ -75,10 +75,13 @@ const POLL_MS = 15_000;
 export function ReceiveFlow({
   addresses,
   currencies,
+  companyName,
   permissions,
 }: {
   addresses: CounterAddress[];
   currencies: { code: string; nameEn: string; nameAr: string; decimals: number }[];
+  /** Put at the head of an address sent out, so it does not arrive anonymous. */
+  companyName: string;
   permissions: string[];
 }) {
   const { t, ln } = useLocale();
@@ -211,6 +214,8 @@ export function ReceiveFlow({
 
                 <AddressBlock
                   address={wallet.address}
+                  network={wallet.network}
+                  companyName={companyName}
                   onCopy={() => toast.success(t('common.copied'))}
                 />
               </>
@@ -392,12 +397,49 @@ export function ReceiveFlow({
   );
 }
 
-/** The address, split so a human can actually verify it against a phone. */
-export function AddressBlock({ address, onCopy }: { address: string; onCopy: () => void }) {
+/**
+ * The address, split so a human can actually verify it against a phone — and
+ * two ways to get it into theirs.
+ *
+ * ## Why sending it matters more than copying it
+ *
+ * Copying works when the customer is holding the same device. They are not:
+ * they are looking at this screen and typing into their own phone, and a
+ * thirty-four character address typed by hand is the single easiest way to lose
+ * the money — one wrong character and it goes somewhere nobody can reach.
+ *
+ * The QR solves that for a customer whose wallet can scan. WhatsApp solves it
+ * for everybody else, and for the customer who is not in the room at all. The
+ * message carries the network warning with the address, because an address on
+ * its own in a chat window is exactly the thing that gets pasted into the wrong
+ * chain three days later.
+ */
+export function AddressBlock({
+  address,
+  network,
+  companyName,
+  onCopy,
+}: {
+  address: string;
+  network?: string;
+  companyName?: string;
+  onCopy: () => void;
+}) {
   const { t } = useLocale();
   const head = address.slice(0, 6);
   const tail = address.slice(-6);
   const middle = address.slice(6, -6);
+
+  const message = [
+    companyName,
+    '',
+    t('receive.shareHeading', { network: network ?? '' }),
+    address,
+    '',
+    t('receive.shareWarning', { network: network ?? '' }),
+  ]
+    .filter((line) => line !== undefined)
+    .join('\n');
 
   return (
     <div className="rounded-[var(--radius-control)] border border-border-base bg-surface p-3">
@@ -417,6 +459,18 @@ export function AddressBlock({ address, onCopy }: { address: string; onCopy: () 
         <Copy className="h-4 w-4" />
         {t('counter.copyAddress', { length: String(address.length) })}
       </button>
+
+      {network && (
+        <a
+          href={`https://wa.me/?text=${encodeURIComponent(message)}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="mt-2 flex min-h-11 w-full items-center justify-center gap-2 rounded-[var(--radius-control)] border border-border-base text-sm text-content-secondary transition-colors hover:border-success hover:text-success-text"
+        >
+          <MessageCircle className="h-4 w-4" />
+          {t('receive.shareAddress')}
+        </a>
+      )}
     </div>
   );
 }

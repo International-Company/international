@@ -1,11 +1,12 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { useRouter } from 'next/navigation';
 import { Search, UserPlus, X } from 'lucide-react';
 import { useLocale } from '@/i18n/provider';
 import { api, queryString } from '@/lib/api-client';
+import { describeFailure } from '@/lib/failure';
 import { Button } from './primitives';
+import { Dialog, useToast } from './overlay';
 import { Field, Input } from './form';
 
 /**
@@ -45,10 +46,65 @@ export function CustomerPicker({
   label?: string;
 }) {
   const { t, ln } = useLocale();
-  const router = useRouter();
+  const toast = useToast();
 
   const [query, setQuery] = useState('');
   const [hits, setHits] = useState<CustomerHit[]>([]);
+
+  /*
+   * Registering somebody without leaving the counter.
+   *
+   * This used to navigate to the customers screen, which threw away whatever
+   * the teller was in the middle of — an arrival they had just picked, a deal
+   * they had just priced — with a customer standing in front of them. The
+   * registration screen is the right place to record a passport and a credit
+   * limit; it is the wrong place to be sent to mid-transaction.
+   *
+   * So the counter asks for the two things a counter actually needs: a name and
+   * a number. Everything else the customer record can hold is left to the
+   * screen built for it, and can be filled in later without the queue waiting.
+   */
+  const [creating, setCreating] = useState(false);
+  const [name, setName] = useState('');
+  const [phone, setPhone] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const openCreate = () => {
+    // Whatever they searched for is almost always the name they are about to
+    // type, so it is already there.
+    setName(query.trim());
+    setPhone('');
+    setCreating(true);
+  };
+
+  const create = async () => {
+    const trimmed = name.trim();
+    if (trimmed.length < 2) return;
+    setSaving(true);
+    try {
+      const created = await api.post<CustomerHit>('/api/customers', {
+        /*
+         * One name, written once. The counter works in Arabic and a teller
+         * asked for the same name twice would type it twice or leave one blank;
+         * the record needs both fields, so the name given fills both until
+         * somebody edits it on the customers screen.
+         */
+        fullNameAr: trimmed,
+        fullNameEn: trimmed,
+        phone: phone.trim() || null,
+      });
+      onChange(created);
+      setCreating(false);
+      setQuery('');
+      setHits([]);
+      toast.success(t('customers.created'), created.code);
+    } catch (caught) {
+      const failure = describeFailure(caught, t as never);
+      toast.error(failure.title, failure.body);
+    } finally {
+      setSaving(false);
+    }
+  };
 
   // Debounced here rather than by the caller, so no screen can accidentally
   // search on every keystroke.
@@ -151,11 +207,59 @@ export function CustomerPicker({
           variant="ghost"
           size="sm"
           icon={<UserPlus />}
-          onClick={() => router.push('/customers?new=1')}
+          onClick={openCreate}
         >
           {t('customers.new')}
         </Button>
       )}
+
+      <Dialog
+        open={creating}
+        onClose={() => setCreating(false)}
+        title={t('customers.new')}
+        size="sm"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setCreating(false)}>
+              {t('common.cancel')}
+            </Button>
+            <Button
+              onClick={() => void create()}
+              loading={saving}
+              disabled={name.trim().length < 2}
+            >
+              {t('common.save')}
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-3">
+          <Field label={t('customers.fullName')} required>
+            {(props) => (
+              <Input
+                {...props}
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+                autoFocus
+              />
+            )}
+          </Field>
+
+          <Field label={t('customers.phone')}>
+            {(props) => (
+              <Input
+                {...props}
+                type="tel"
+                dir="ltr"
+                value={phone}
+                onChange={(event) => setPhone(event.target.value)}
+              />
+            )}
+          </Field>
+
+          <p className="text-xs text-content-secondary">{t('customers.quickHint')}</p>
+        </div>
+      </Dialog>
     </>
   );
 }

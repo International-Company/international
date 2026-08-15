@@ -4,7 +4,7 @@ import { requirePageAnyPermission } from '@/modules/auth/context';
 import { getTranslator } from '@/i18n/server';
 import { counterAddresses, listRequests } from '@/modules/usdt/counter.service';
 import { config as withdrawalConfig } from '@/modules/usdt/withdrawal.service';
-import { getBoolean } from '@/modules/settings/settings.service';
+import { getBoolean, getString } from '@/modules/settings/settings.service';
 import { toJsonSafe } from '@/core/http/json';
 import { PageHeader } from '@/ui/primitives';
 import { UsdtView, type Direction } from './usdt-view';
@@ -48,7 +48,7 @@ export default async function UsdtPage({
     canSend ? withdrawalConfig() : Promise.resolve(null),
   ]);
 
-  const [addresses, open, currencies] = await Promise.all([
+  const [addresses, open, currencies, companyName] = await Promise.all([
     canReceive && receiveOn ? counterAddresses() : Promise.resolve([]),
     canReceive && receiveOn
       ? listRequests({ status: ['OPEN', 'MATCHED'], pageSize: 20 }, actor)
@@ -60,6 +60,7 @@ export default async function UsdtPage({
           select: { code: true, nameEn: true, nameAr: true, decimals: true },
         })
       : Promise.resolve([]),
+    canReceive && receiveOn ? getString('company.name.ar') : Promise.resolve(''),
   ]);
 
   /*
@@ -86,6 +87,7 @@ export default async function UsdtPage({
                 addresses: toJsonSafe(addresses),
                 openRequests: toJsonSafe(open.rows),
                 currencies,
+                companyName,
                 permissions: session.user.permissions,
               }
             : null

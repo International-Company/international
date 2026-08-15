@@ -90,11 +90,14 @@ export function CounterView({
   addresses,
   openRequests,
   currencies,
+  companyName,
   permissions,
 }: {
   addresses: CounterAddress[];
   openRequests: OpenRequest[];
   currencies: { code: string; nameEn: string; nameAr: string; decimals: number }[];
+  /** Named at the head of an address sent to a customer, so it is not anonymous. */
+  companyName: string;
   permissions: string[];
 }) {
   const { t, ln } = useLocale();
@@ -204,7 +207,12 @@ export function CounterView({
         the moment it is chosen, the customer sends, and the teller types what
         arrived and asks the chain. Nothing is declared before the money exists.
       */}
-      <ReceiveFlow addresses={addresses} currencies={currencies} permissions={permissions} />
+      <ReceiveFlow
+        addresses={addresses}
+        currencies={currencies}
+        companyName={companyName}
+        permissions={permissions}
+      />
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         {/*
