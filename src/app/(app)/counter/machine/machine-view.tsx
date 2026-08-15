@@ -26,6 +26,7 @@ import { normalizeDigits } from '@/core/money/money';
 import { describeFailure, say } from '@/lib/failure';
 import { api, ApiError, queryString } from '@/lib/api-client';
 import { Button } from '@/ui/primitives';
+import { ShareButton } from '@/ui/share';
 import { Dialog, DropdownMenu, useToast } from '@/ui/overlay';
 import { Field, Input, MoneyInput, Textarea } from '@/ui/form';
 import { Money } from '@/ui/display';
@@ -849,9 +850,17 @@ export function MachineView({
                 <span className="font-mono ltr-content">{done.reference}</span>
               </span>
               {permissions.includes('exchange.receipt.print') && (
-                <Button size="sm" variant="ghost" icon={<Printer />} onClick={() => print(done.id)}>
-                  {t('transactions.printReceipt')}
-                </Button>
+                <span className="flex items-center gap-1">
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    icon={<Printer />}
+                    onClick={() => print(done.id)}
+                  >
+                    {t('transactions.printReceipt')}
+                  </Button>
+                  <ShareButton transactionId={done.id} />
+                </span>
               )}
             </div>
           )}
@@ -1003,6 +1012,9 @@ export function MachineView({
                         >
                           <Printer className="size-4" />
                         </button>
+                      )}
+                      {permissions.includes('exchange.receipt.print') && (
+                        <ShareButton transactionId={row.id} compact />
                       )}
                     </span>
                   </li>

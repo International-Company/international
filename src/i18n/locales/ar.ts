@@ -1450,6 +1450,17 @@ const ar: Dictionary = {
     },
   },
 
+  share: {
+    action: 'مشاركة',
+    system: 'مشاركة عبر التطبيقات',
+    whatsapp: 'إرسال بواتساب',
+    whatsappCustomer: 'إرسال للعميل بواتساب',
+    copy: 'نسخ النص',
+    copied: 'نُسخ النص',
+    copyFailedTitle: 'تعذّر النسخ',
+    copyFailedBody: 'المتصفح لم يسمح بالوصول إلى الحافظة. استخدم واتساب أو المشاركة.',
+  },
+
   receipt: {
     title: 'إيصال عملية',
     number: 'رقم الإيصال',
@@ -1605,6 +1616,7 @@ const ar: Dictionary = {
     backupCorrupt: 'فشل التحقق من سلامة ملف النسخة الاحتياطية',
     backupVersion: 'أُنشئت هذه النسخة بإصدار غير متوافق',
     noBranch: 'لا يوجد فرع مهيأ',
+    notShareable: 'لا تُشارَك إلا عملية مرحّلة',
     noSystemUser: 'لا يوجد مستخدم نظام مهيأ',
 
     // --- ماكينة التصريف ---

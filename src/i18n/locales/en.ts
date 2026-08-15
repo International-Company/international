@@ -1451,6 +1451,17 @@ const en = {
     },
   },
 
+  share: {
+    action: 'Share',
+    system: 'Share via apps',
+    whatsapp: 'Send on WhatsApp',
+    whatsappCustomer: 'Send to the customer on WhatsApp',
+    copy: 'Copy the text',
+    copied: 'Text copied',
+    copyFailedTitle: 'Could not copy',
+    copyFailedBody: 'The browser refused access to the clipboard. Use WhatsApp or Share instead.',
+  },
+
   receipt: {
     title: 'Transaction Receipt',
     number: 'Receipt no.',
@@ -1607,6 +1618,7 @@ const en = {
     backupCorrupt: 'The backup file failed its integrity check',
     backupVersion: 'This backup was made by an incompatible version',
     noBranch: 'No branch is configured',
+    notShareable: 'Only a posted transaction can be shared',
     noSystemUser: 'No system user is configured',
 
     // --- The exchange machine ---

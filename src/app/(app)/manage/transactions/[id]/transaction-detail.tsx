@@ -18,6 +18,7 @@ import { formatRate } from '@/i18n/format';
 import { api, ApiError } from '@/lib/api-client';
 import { say } from '@/lib/failure';
 import { Alert, Badge, Button, Card, CardBody, CardHeader, DetailRow } from '@/ui/primitives';
+import { ShareButton } from '@/ui/share';
 import { ConfirmDialog, Dialog, useToast } from '@/ui/overlay';
 import { Field, Input, MoneyInput, Textarea } from '@/ui/form';
 import { DateText, Money, Rate, StatusBadge } from '@/ui/display';
@@ -380,14 +381,22 @@ export function TransactionDetail({
             <CardHeader title={t('common.actions')} />
             <CardBody className="space-y-2">
               {permissions.includes('exchange.receipt.print') && (
-                <Button
-                  variant="secondary"
-                  fullWidth
-                  icon={<Printer />}
-                  onClick={() => window.open(`/print/receipt/${transaction.id}`, '_blank')}
-                >
-                  {t('transactions.printReceipt')}
-                </Button>
+                <>
+                  <Button
+                    variant="secondary"
+                    fullWidth
+                    icon={<Printer />}
+                    onClick={() => window.open(`/print/receipt/${transaction.id}`, '_blank')}
+                  >
+                    {t('transactions.printReceipt')}
+                  </Button>
+                  {/*
+                    Beside the reprint, because they answer the same question —
+                    somebody wants this transaction in their hand, and half the
+                    time they are not in the building.
+                  */}
+                  <ShareButton transactionId={transaction.id} variant="secondary" size="md" />
+                </>
               )}
               {canEdit && (
                 <Button variant="secondary" fullWidth icon={<Pencil />} onClick={openEditor}>

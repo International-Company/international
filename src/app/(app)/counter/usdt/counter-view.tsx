@@ -21,6 +21,7 @@ import { api, ApiError } from '@/lib/api-client';
 import { say } from '@/lib/failure';
 import { QrCode } from '@/core/qr/qr-code';
 import { Alert, Badge, Button, Card, CardBody, CardHeader } from '@/ui/primitives';
+import { ShareButton } from '@/ui/share';
 import { ConfirmDialog, useToast } from '@/ui/overlay';
 import { Field, Input, MoneyInput, Select, Textarea } from '@/ui/form';
 import { DateText, Money } from '@/ui/display';
@@ -472,15 +473,22 @@ export function CounterView({
                       {active.transaction.reference}
                     </Button>
                     {permissions.includes('exchange.receipt.print') && (
-                      <Button
-                        variant="secondary"
-                        icon={<Printer />}
-                        onClick={() =>
-                          window.open(`/print/receipt/${active.transaction!.id}`, '_blank')
-                        }
-                      >
-                        {t('transactions.printReceipt')}
-                      </Button>
+                      <>
+                        <Button
+                          variant="secondary"
+                          icon={<Printer />}
+                          onClick={() =>
+                            window.open(`/print/receipt/${active.transaction!.id}`, '_blank')
+                          }
+                        >
+                          {t('transactions.printReceipt')}
+                        </Button>
+                        <ShareButton
+                          transactionId={active.transaction.id}
+                          variant="secondary"
+                          size="md"
+                        />
+                      </>
                     )}
                   </>
                 )}
