@@ -108,13 +108,21 @@ export function TransactionsView({ permissions }: { permissions: string[] }) {
       hideOnMobile: true,
     },
     {
-      key: 'customer',
-      header: t('transactions.customer'),
-      cell: (row) => (
-        <span className="text-sm">
-          {row.customer ? ln(row.customer, 'fullName') : ln(row.createdBy, 'fullName')}
-        </span>
-      ),
+      /*
+       * Who recorded it.
+       *
+       * This column was headed "customer" and fell back to the staff member
+       * whenever no customer was attached — which at a counter is most of the
+       * time. So it read as the customer's name and was usually the teller's,
+       * which is the kind of small lie a manager only catches once it has cost
+       * him an argument.
+       *
+       * It is the staff member now, always, and says so. A customer, when one
+       * is attached, is on the transaction's own page and on the receipt.
+       */
+      key: 'staff',
+      header: t('transactions.staff'),
+      cell: (row) => <span className="text-sm">{ln(row.createdBy, 'fullName')}</span>,
       hideOnMobile: true,
     },
     {
