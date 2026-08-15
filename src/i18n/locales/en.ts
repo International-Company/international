@@ -998,7 +998,25 @@ const en = {
     noPriceBody: 'No {channel} price is published for {pair}. A manager publishes it under Rates.',
   },
 
+  arrivals: {
+    title: 'Arrived unasked',
+    subtitle: '{count} transfer(s) on counter addresses that nobody has claimed',
+    settle: 'Pay it out',
+    settleTitle: 'Settle an arrival',
+    settled: 'Settled',
+    arrived: 'Arrived',
+    payout: 'Paid to the customer',
+    pricedNow: "Priced at today's board — no rate was held for this transfer.",
+    confirming: 'Confirming {confirmations}/{required}',
+  },
+
   counter: {
+    nearTitle: 'A different amount arrived',
+    nearBody: 'One transfer reached this address inside the window, for a figure other than the one asked for. No other request is open here, so it cannot be anybody else’s.',
+    nearArrived: 'Arrived',
+    nearExpected: 'Asked for',
+    nearDifference: 'Difference',
+    settleAtArrived: 'Settle at what arrived',
     aboutCustomer: 'Customer and notes',
     title: 'Receive USDT',
     subtitle: 'Show a receiving address, watch the transfer land, pay the customer',
@@ -1655,6 +1673,7 @@ const en = {
     depositAlreadyClaimed: 'That transfer already settles another request',
     depositAlreadyPosted: 'That transfer is already posted',
     depositAmountMismatch: 'That transfer is {found}, not {expected}',
+    depositNotSole: 'Another request is open on this address — the amount is what tells them apart',
     depositNoFreeAmount: 'Too many requests are open on this address for the same amount',
 
     // --- Drawers and differences ---

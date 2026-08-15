@@ -997,7 +997,25 @@ const ar: Dictionary = {
     noPriceBody: 'لم يُنشَر سعر {channel} لزوج {pair}. يَنشره المدير من «أسعار الصرف».',
   },
 
+  arrivals: {
+    title: 'وصل ولم يُطلَب',
+    subtitle: '{count} تحويل على عناوين الشباك لم يطالب بها أحد بعد',
+    settle: 'اصرفها',
+    settleTitle: 'صرف تحويل واصل',
+    settled: 'تم الصرف',
+    arrived: 'الواصل',
+    payout: 'يُدفع للعميل',
+    pricedNow: 'يُسعَّر بسعر اللوح الآن — لا يوجد سعر مثبَّت سابقاً لهذا التحويل.',
+    confirming: 'قيد التأكيد {confirmations}/{required}',
+  },
+
   counter: {
+    nearTitle: 'وصل مبلغ مختلف',
+    nearBody: 'تحويل واحد وصل إلى هذا العنوان داخل النافذة، بمبلغ غير المطلوب. لا يوجد طلب آخر مفتوح هنا، فلا يمكن أن يكون لغير هذا الزبون.',
+    nearArrived: 'الواصل',
+    nearExpected: 'المطلوب',
+    nearDifference: 'الفرق',
+    settleAtArrived: 'سوِّ على ما وصل',
     aboutCustomer: 'العميل وملاحظات',
     title: 'استلام USDT',
     subtitle: 'اعرض عنوان الاستقبال، وتابع وصول التحويل، ثم ادفع للعميل',
@@ -1653,6 +1671,7 @@ const ar: Dictionary = {
     depositAlreadyClaimed: 'هذا التحويل يسدّد طلباً آخر',
     depositAlreadyPosted: 'هذا التحويل مُرحَّل مسبقاً',
     depositAmountMismatch: 'التحويل {found}، والمطلوب {expected}',
+    depositNotSole: 'يوجد طلب آخر مفتوح على هذا العنوان — والمبلغ هو ما يفرّق بينهما',
     depositNoFreeAmount: 'طلبات كثيرة مفتوحة على هذا العنوان بنفس المبلغ',
 
     // --- الصناديق والفروقات ---

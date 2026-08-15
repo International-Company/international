@@ -15,7 +15,16 @@ const bodySchema = z.discriminatedUnion('action', [
   /** Poll the chain and match if a confirmed transfer is waiting. */
   z.object({ action: z.literal('check') }),
   /** Take a transfer the teller identified — by hash, or from an ambiguous set. */
-  z.object({ action: z.literal('attach'), chainTransactionId: z.string().min(1) }),
+  z.object({
+    action: z.literal('attach'),
+    chainTransactionId: z.string().min(1),
+    /**
+     * Settle the figure that arrived rather than the one that was asked for.
+     * Sent only when the teller has been shown both and pressed the button
+     * that names the difference.
+     */
+    acceptDifference: z.boolean().optional(),
+  }),
   /** Pay the customer and post the movement. */
   z.object({ action: z.literal('complete') }),
   z.object({ action: z.literal('cancel'), reason: z.string().min(3).max(500) }),
@@ -37,7 +46,9 @@ export const POST = route<z.infer<typeof bodySchema>, unknown, z.infer<typeof pa
         return counter.checkRequest(params.id);
 
       case 'attach':
-        await counter.attachTransfer(params.id, body.chainTransactionId, actor);
+        await counter.attachTransfer(params.id, body.chainTransactionId, actor, {
+          acceptDifference: body.acceptDifference ?? false,
+        });
         return { status: 'MATCHED' };
 
       case 'complete': {

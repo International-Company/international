@@ -22,6 +22,7 @@ import { say } from '@/lib/failure';
 import { QrCode } from '@/core/qr/qr-code';
 import { Alert, Badge, Button, Card, CardBody, CardHeader } from '@/ui/primitives';
 import { ShareButton } from '@/ui/share';
+import { ArrivalsTray } from './arrivals-tray';
 import { ConfirmDialog, useToast } from '@/ui/overlay';
 import { Field, Input, MoneyInput, Select, Textarea } from '@/ui/form';
 import { DateText, Money } from '@/ui/display';
@@ -75,6 +76,16 @@ type MatchOutcome =
   | { state: 'WAITING'; confirmations: null }
   | { state: 'UNCONFIRMED'; confirmations: number; required: number; txHash: string }
   | { state: 'MATCHED'; chainTransactionId: string; txHash: string; confirmations: number }
+  /** Plainly this customer's transfer, for a different figure. */
+  | {
+      state: 'NEAR';
+      chainTransactionId: string;
+      txHash: string;
+      confirmations: number;
+      arrived: string;
+      expected: string;
+      difference: string;
+    }
   | { state: 'AMBIGUOUS'; candidates: { id: string; txHash: string; amount: string; seenAt: string }[] };
 
 export function CounterView({
@@ -196,10 +207,14 @@ export function CounterView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active?.id, active?.status]);
 
-  const attach = async (chainTransactionId: string) => {
+  const attach = async (chainTransactionId: string, acceptDifference = false) => {
     if (!active) return;
     try {
-      await api.post(`/api/usdt/counter/${active.id}`, { action: 'attach', chainTransactionId });
+      await api.post(`/api/usdt/counter/${active.id}`, {
+        action: 'attach',
+        chainTransactionId,
+        acceptDifference,
+      });
       toast.success(t('counter.attached'));
       await check();
     } catch (cause) {
@@ -245,7 +260,14 @@ export function CounterView({
   const selected = addresses.find((entry) => entry.id === walletId);
 
   return (
-    <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+    <div className="space-y-4">
+      {/*
+        Money already at the door, above money that might arrive. It renders
+        nothing at all when there is none, which is most of the day.
+      */}
+      <ArrivalsTray currencies={currencies} permissions={permissions} />
+
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
       {/* --- Teller: open a request -------------------------------------- */}
       <Card>
         <CardHeader title={t('counter.newRequest')} />
@@ -439,6 +461,7 @@ export function CounterView({
                 outcome={outcome}
                 status={active.status}
                 onAttach={(id) => void attach(id)}
+                onAcceptDifference={(id) => void attach(id, true)}
               />
 
               <div className="grid grid-cols-2 gap-2">
@@ -574,6 +597,7 @@ export function CounterView({
           required
         />
       </ConfirmDialog>
+      </div>
     </div>
   );
 }
@@ -617,10 +641,13 @@ function MatchState({
   outcome,
   status,
   onAttach,
+  onAcceptDifference,
 }: {
   outcome: MatchOutcome | null;
   status: string;
   onAttach: (chainTransactionId: string) => void;
+  /** Settle the figure that arrived instead of the figure that was asked for. */
+  onAcceptDifference: (chainTransactionId: string) => void;
 }) {
   const { t } = useLocale();
 
@@ -651,6 +678,48 @@ function MatchState({
       return (
         <Alert tone="success" icon={<Check />} title={t('counter.matchedTitle')}>
           <span className="break-all font-mono text-xs ltr-content">{outcome.txHash}</span>
+        </Alert>
+      );
+
+    /*
+      The commonest real outcome after "not yet": they sent a different number.
+      Both figures and the difference are named — nothing here is a tolerance
+      the system forgives on its own, so the teller is shown exactly what they
+      are agreeing to before the button says what it does.
+    */
+    case 'NEAR':
+      return (
+        <Alert tone="warning" icon={<AlertTriangle />} title={t('counter.nearTitle')}>
+          <p className="mb-2 text-sm">{t('counter.nearBody')}</p>
+
+          <dl className="mb-3 space-y-1 text-sm">
+            <div className="flex justify-between gap-4">
+              <dt className="text-content-secondary">{t('counter.nearArrived')}</dt>
+              <dd className="font-semibold tabular-nums">
+                <Money value={outcome.arrived} currency="USDT" />
+              </dd>
+            </div>
+            <div className="flex justify-between gap-4">
+              <dt className="text-content-secondary">{t('counter.nearExpected')}</dt>
+              <dd className="tabular-nums">
+                <Money value={outcome.expected} currency="USDT" />
+              </dd>
+            </div>
+            <div className="flex justify-between gap-4 border-t border-border-subtle pt-1">
+              <dt className="text-content-secondary">{t('counter.nearDifference')}</dt>
+              <dd className="font-semibold tabular-nums">
+                <Money value={outcome.difference} currency="USDT" signed colored />
+              </dd>
+            </div>
+          </dl>
+
+          <span className="mb-2 block break-all font-mono text-xs ltr-content">
+            {outcome.txHash}
+          </span>
+
+          <Button size="sm" onClick={() => onAcceptDifference(outcome.chainTransactionId)}>
+            {t('counter.settleAtArrived')}
+          </Button>
         </Alert>
       );
 
