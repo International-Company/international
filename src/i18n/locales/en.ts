@@ -993,6 +993,9 @@ const en = {
     cannotPayBody: '{account} holds {available}. Reduce the amount or restock the drawer before quoting.',
     overLimitTitle: 'Above the counter limit',
     overLimitBody: 'The machine handles up to {maximum}. A manager records anything larger.',
+    noChannelPrice: 'No {channel} price',
+    noPriceTitle: 'No price for this way of paying',
+    noPriceBody: 'No {channel} price is published for {pair}. A manager publishes it under Rates.',
   },
 
   counter: {

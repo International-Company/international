@@ -443,12 +443,26 @@ export function MachineView({
     );
   })();
 
+  /**
+   * The ways of paying the teller has chosen that carry no published price.
+   *
+   * Named rather than merely counted, because "there is no price" is a
+   * different sentence depending on which one is missing — and a split needs
+   * both, so it can be missing either or both of them.
+   */
+  const unpriced = quote
+    ? ([
+        (channel === 'CASH' || channel === 'SPLIT') && !quote.cash
+          ? t('machine.payoutCash')
+          : null,
+        (channel === 'BROKER' || channel === 'SPLIT') && !quote.broker
+          ? t('machine.payoutBank')
+          : null,
+      ].filter(Boolean) as string[])
+    : [];
+
   /** No price published for the way the teller has chosen to pay. */
-  const noPrice =
-    quote !== null &&
-    ((channel === 'CASH' && !quote.cash) ||
-      (channel === 'BROKER' && !quote.broker) ||
-      (channel === 'SPLIT' && (!quote.cash || !quote.broker)));
+  const noPrice = unpriced.length > 0;
 
   // Every reason the record button is unavailable, each of which the operator
   // has already been told about in words.
@@ -603,9 +617,23 @@ export function MachineView({
             />
           </section>
 
-          {/* The rate, as one line rather than a board. */}
+          {/*
+            The rate, as one line rather than a board.
+
+            Silent when the chosen way of paying carries no price of its own.
+            The line used to fall back to the board whenever the quote had
+            nothing — which meant choosing the broker, for a pair with no broker
+            price, replaced the figure with one taken from a different row
+            entirely, still wearing the live dot, above a payout of zero. A rate
+            that does not belong to what the teller is doing is worse than no
+            rate at all: he reads it aloud.
+          */}
           <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-sm">
-            {quote || boardRate ? (
+            {noPrice ? (
+              <span className="text-danger-text">
+                {t('machine.noChannelPrice', { channel: unpriced.join('، ') })}
+              </span>
+            ) : quote || boardRate ? (
               <span className="flex items-center gap-2 text-content-secondary">
                 <span className="size-1.5 animate-pulse rounded-full bg-success" aria-hidden />
                 <span className="ltr-content font-medium tabular-nums text-content">
@@ -766,6 +794,18 @@ export function MachineView({
 
           {/* --- Anything standing in the way --------------------------- */}
           {error && <Blocker tone="danger">{error}</Blocker>}
+
+          {/*
+            Every other blocker on this screen explains itself; this one used to
+            grey the button and say nothing, so a teller looking at a payout of
+            zero had no way to know the office had simply never published a
+            price for paying that way.
+          */}
+          {noPrice && (
+            <Blocker tone="danger" title={t('machine.noPriceTitle')}>
+              {t('machine.noPriceBody', { channel: unpriced.join('، '), pair: `${from}/${to}` })}
+            </Blocker>
+          )}
 
           {quote && shortLeg === 'BROKER' && (
             <Blocker tone="danger" title={t('machine.cannotPayTitle')}>

@@ -992,6 +992,9 @@ const ar: Dictionary = {
     cannotPayBody: 'رصيد {account} هو {available}. خفّض المبلغ أو عزّز الصندوق قبل تسعير العميل.',
     overLimitTitle: 'فوق حد الشباك',
     overLimitBody: 'الماكينة تتعامل حتى {maximum}. وما فوق ذلك يسجّله المدير.',
+    noChannelPrice: 'لا يوجد سعر {channel}',
+    noPriceTitle: 'لا سعر لهذه الطريقة',
+    noPriceBody: 'لم يُنشَر سعر {channel} لزوج {pair}. يَنشره المدير من «أسعار الصرف».',
   },
 
   counter: {
