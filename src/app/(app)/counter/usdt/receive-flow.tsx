@@ -12,6 +12,7 @@ import { Dialog, useToast } from '@/ui/overlay';
 import { Field, Input, Select } from '@/ui/form';
 import { DateText, Money } from '@/ui/display';
 import { CustomerPicker, type CustomerHit } from '@/ui/customer-picker';
+import { cn } from '@/ui/utils';
 
 /**
  * Taking USDT at the window: the address, then the log of what actually landed.
@@ -56,6 +57,17 @@ interface CounterAddress {
   isAutomatic: boolean;
 }
 
+/** How the customer is paid, and therefore which balance the money leaves. */
+type Mode = 'CASH' | 'BROKER' | 'SPLIT';
+
+/** One price per channel, because the office charges differently for each. */
+interface Priced {
+  amount: string;
+  payoutCurrency: string;
+  cash: { toAmount: string; rate: string } | null;
+  broker: { toAmount: string; rate: string } | null;
+}
+
 interface Arrival {
   id: string;
   txHash: string;
@@ -76,12 +88,15 @@ export function ReceiveFlow({
   addresses,
   currencies,
   companyName,
+  transferChannels,
   permissions,
 }: {
   addresses: CounterAddress[];
   currencies: { code: string; nameEn: string; nameAr: string; decimals: number }[];
   /** Put at the head of an address sent out, so it does not arrive anonymous. */
   companyName: string;
+  /** The broker's accounts a transfer may be instructed to. */
+  transferChannels: string[];
   permissions: string[];
 }) {
   const { t, ln } = useLocale();
@@ -96,11 +111,38 @@ export function ReceiveFlow({
   const [payoutCurrency, setPayoutCurrency] = useState(currencies[0]?.code ?? 'ILS');
   const [customer, setCustomer] = useState<CustomerHit | null>(null);
   const [counterpartyName, setCounterpartyName] = useState('');
-  const [quote, setQuote] = useState<{ toAmount: string } | null>(null);
+  const [quote, setQuote] = useState<Priced | null>(null);
+  const [mode, setMode] = useState<Mode>('CASH');
+  const [brokerShare, setBrokerShare] = useState('');
+  const [destination, setDestination] = useState(transferChannels[0] ?? '');
   const [recording, setRecording] = useState(false);
   const [done, setDone] = useState<{ reference: string } | null>(null);
 
   const wallet = addresses.find((entry) => entry.id === walletId);
+
+  /*
+   * What the customer walks away with, worked out from the two prices the
+   * server already sent rather than by asking again for every toggle.
+   *
+   * A split is priced per leg at that leg's own rate, which is what the server
+   * will do again before it posts — so the figure shown here is the figure
+   * recorded, and not an approximation of it.
+   */
+  const payout = (() => {
+    if (!quote) return null;
+    if (mode === 'CASH') return quote.cash ? BigInt(quote.cash.toAmount) : null;
+    if (mode === 'BROKER') return quote.broker ? BigInt(quote.broker.toAmount) : null;
+    if (!quote.cash || !quote.broker) return null;
+
+    const coins = BigInt(quote.amount);
+    const share = scaleCoins(brokerShare);
+    if (share <= 0n || share >= coins) return null;
+
+    return (
+      (BigInt(quote.cash.toAmount) * (coins - share)) / coins +
+      (BigInt(quote.broker.toAmount) * share) / coins
+    );
+  })();
 
   const load = useCallback(async (manual = false) => {
     if (manual) setRefreshing(true);
@@ -126,7 +168,7 @@ export function ReceiveFlow({
     let current = true;
     setQuote(null);
     void api
-      .get<{ toAmount: string }>(`/api/usdt/arrivals/${chosen.id}?payoutCurrency=${payoutCurrency}`)
+      .get<Priced>(`/api/usdt/arrivals/${chosen.id}?payoutCurrency=${payoutCurrency}`)
       .then((result) => {
         if (current) setQuote(result);
       })
@@ -146,6 +188,15 @@ export function ReceiveFlow({
         `/api/usdt/arrivals/${chosen.id}`,
         {
           payoutCurrency,
+          mode,
+          /*
+           * Only the broker's share of the coins travels. The till takes the
+           * rest and the server prices both legs from its own board — sending
+           * the totals would let a screen holding a stale price post figures
+           * that were never quoted.
+           */
+          brokerShare: mode === 'SPLIT' ? brokerShare.trim() : undefined,
+          payoutChannel: mode === 'CASH' ? null : destination,
           customerId: customer?.id ?? null,
           counterpartyName: counterpartyName.trim() || null,
         },
@@ -335,7 +386,7 @@ export function ReceiveFlow({
             <Button variant="secondary" onClick={() => setChosen(null)}>
               {t('common.cancel')}
             </Button>
-            <Button onClick={() => void record()} loading={recording} disabled={!quote}>
+            <Button onClick={() => void record()} loading={recording} disabled={payout === null}>
               {t('receive.record')}
             </Button>
           </>
@@ -366,14 +417,105 @@ export function ReceiveFlow({
               )}
             </Field>
 
+            {/*
+              How it is handed over — and therefore which balance it leaves.
+
+              The same three segments as the exchange machine, in the same
+              order, so a teller who has learned the control on one screen has
+              learned it on both. A bank payout is not the till's money under a
+              different name: the broker holds it and charges his own price for
+              moving it, which is why each segment carries its own figure.
+            */}
+            <div className="rounded-xl bg-surface p-2 ring-1 ring-border-subtle">
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-xs font-medium text-content-secondary">
+                  {t('machine.payoutTitle')}
+                </span>
+                <div dir="ltr" className="flex gap-1 rounded-full bg-surface-sunken p-1">
+                  {(['CASH', 'BROKER', 'SPLIT'] as const).map((option) => (
+                    <button
+                      key={option}
+                      type="button"
+                      onClick={() => {
+                        setMode(option);
+                        if (option !== 'SPLIT') setBrokerShare('');
+                      }}
+                      aria-pressed={mode === option}
+                      disabled={
+                        (option === 'BROKER' && !quote?.broker) ||
+                        (option === 'SPLIT' && (!quote?.cash || !quote?.broker))
+                      }
+                      className={cn(
+                        'h-8 rounded-full px-3 text-sm font-medium transition-colors',
+                        'disabled:opacity-40',
+                        mode === option
+                          ? 'bg-surface text-content shadow-[var(--shadow-sm)]'
+                          : 'text-content-tertiary hover:text-content-secondary',
+                      )}
+                    >
+                      {option === 'CASH'
+                        ? t('machine.payoutCash')
+                        : option === 'BROKER'
+                          ? t('machine.payoutBank')
+                          : t('machine.payoutSplit')}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/*
+                Where the transfer is instructed to. Only asked when something
+                is actually being transferred — and the server refuses a
+                transfer without it, so this is the convenient way to answer,
+                not the only one trusted.
+              */}
+              {mode !== 'CASH' && transferChannels.length > 0 && (
+                <label className="mt-2 block">
+                  <span className="text-xs text-content-tertiary">{t('machine.transferTo')}</span>
+                  <select
+                    value={destination}
+                    onChange={(event) => setDestination(event.target.value)}
+                    className="mt-1 h-11 w-full rounded-[var(--radius-control)] bg-surface-sunken px-3 text-sm font-medium text-content outline-none ring-1 ring-transparent focus:ring-primary"
+                  >
+                    {transferChannels.map((entry) => (
+                      <option key={entry} value={entry}>
+                        {entry}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+
+              {/*
+                A split divides the coins, not the cash: the two channels price
+                differently, so what the customer takes away is not known until
+                both parts have been priced and cannot be the thing divided.
+              */}
+              {mode === 'SPLIT' && (
+                <label className="mt-2 block">
+                  <span className="text-xs text-content-tertiary">
+                    {t('receive.brokerShare', { token: chosen.wallet.tokenSymbol })}
+                  </span>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    dir="ltr"
+                    value={brokerShare}
+                    onChange={(event) => setBrokerShare(event.target.value.replace(/[^\d.]/g, ''))}
+                    className="mt-1 h-11 w-full rounded-[var(--radius-control)] bg-surface-sunken px-3 text-sm font-medium tabular-nums text-content outline-none ring-1 ring-transparent focus:ring-primary"
+                  />
+                </label>
+              )}
+            </div>
+
             <div className="flex items-center justify-between rounded-xl bg-primary-subtle px-3 py-2">
               <span className="text-sm text-content-secondary">{t('arrivals.payout')}</span>
-              {quote ? (
-                <span className="text-lg font-bold tabular-nums">
-                  <Money value={quote.toAmount} currency={payoutCurrency} />
-                </span>
-              ) : (
+              {payout === null ? (
                 <Loader2 className="size-4 animate-spin text-content-tertiary" />
+              ) : (
+                <span className="text-lg font-bold tabular-nums">
+                  <Money value={payout.toString()} currency={payoutCurrency} />
+                </span>
               )}
             </div>
 
@@ -473,4 +615,11 @@ export function AddressBlock({
       )}
     </div>
   );
+}
+
+/** A typed USDT figure at the scale the rest of the system speaks. */
+function scaleCoins(value: string): bigint {
+  const [whole = '0', fraction = ''] = value.trim().split('.');
+  if (!/^\d*$/.test(whole) || !/^\d*$/.test(fraction)) return 0n;
+  return BigInt(whole || '0') * 100000000n + BigInt((fraction + '00000000').slice(0, 8));
 }

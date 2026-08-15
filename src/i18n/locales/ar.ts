@@ -1010,6 +1010,7 @@ const ar: Dictionary = {
   },
 
   receive: {
+    brokerShare: 'الحصة البنكية ({token})',
     shareAddress: 'أرسل العنوان بواتساب',
     shareHeading: 'عنوان الاستلام — شبكة {network} فقط',
     shareWarning: 'أرسل على شبكة {network} وحدها. الإرسال على أي شبكة أخرى يتلف المبلغ نهائياً ولا يستطيع أحد استرداده.',

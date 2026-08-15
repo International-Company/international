@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { route } from '@/core/http/route';
 import { errors } from '@/core/errors/app-error';
+import { parseMoney } from '@/core/money/money';
 import * as counter from '@/modules/usdt/counter.service';
 
 const paramsSchema = z.object({ id: z.string().min(1) });
@@ -22,6 +23,12 @@ export const GET = route<unknown, z.infer<typeof querySchema>, z.infer<typeof pa
 
 const bodySchema = z.object({
   payoutCurrency: z.string().min(2).max(8),
+  /** Which balance the money leaves from: the till, the broker, or part each. */
+  mode: z.enum(counter.PAYOUT_MODES).default('CASH'),
+  /** For a split: how much of the arrived USDT settles through the broker. */
+  brokerShare: z.string().optional(),
+  /** Which of the broker's accounts the transfer is instructed to. */
+  payoutChannel: z.string().max(80).nullish(),
   customerId: z.string().nullish(),
   counterpartyName: z.string().max(200).nullish(),
   counterpartyPhone: z.string().max(40).nullish(),
@@ -47,6 +54,9 @@ export const POST = route<z.infer<typeof bodySchema>, unknown, z.infer<typeof pa
       {
         branchId: actor.branchId,
         payoutCurrency: body.payoutCurrency.toUpperCase(),
+        mode: body.mode,
+        brokerShare: body.brokerShare !== undefined ? parseMoney(body.brokerShare) : undefined,
+        payoutChannel: body.payoutChannel ?? null,
         customerId: body.customerId ?? null,
         counterpartyName: body.counterpartyName ?? null,
         counterpartyPhone: body.counterpartyPhone ?? null,

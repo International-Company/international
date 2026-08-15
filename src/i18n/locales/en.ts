@@ -1011,6 +1011,7 @@ const en = {
   },
 
   receive: {
+    brokerShare: 'Share sent by bank ({token})',
     shareAddress: 'Send the address on WhatsApp',
     shareHeading: 'Deposit address — {network} network only',
     shareWarning: 'Send on the {network} network only. Sending on any other network destroys the money for good, and nobody can recover it.',

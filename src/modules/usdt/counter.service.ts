@@ -1,10 +1,11 @@
 import 'server-only';
 import { prisma, withTransaction, type DbClient } from '@/core/db/prisma';
 import { errors } from '@/core/errors/app-error';
-import { convert, toDecimalString } from '@/core/money/money';
+import { convert, MONEY_FACTOR, toDecimalString } from '@/core/money/money';
 import { createLogger } from '@/core/logger/logger';
 import { nextReference } from '@/modules/sequence/reference';
-import { quoteExchange } from '@/modules/exchange/rates.service';
+import { quoteExchange, type RateChannel } from '@/modules/exchange/rates.service';
+import { transferChannels } from '@/modules/exchange/machine.service';
 import * as transactions from '@/modules/exchange/transaction.service';
 import * as settings from '@/modules/settings/settings.service';
 import { ceilingFor } from '@/modules/users/counter-limit';
@@ -970,22 +971,41 @@ export async function unclaimedArrivals(
 }
 
 /**
- * What an arrival would pay, before anybody commits to it.
+ * What an arrival would pay, through each way of paying it.
+ *
+ * ## Why both prices come back together
+ *
+ * The office charges differently depending on which balance the money leaves
+ * from — notes out of the till are one price, a transfer the broker makes is
+ * another. So a payout does not have "a price"; it has one per channel, and
+ * asking the server twice would let the board move between the two answers and
+ * price a split at rates that were never simultaneously true. This is the same
+ * arrangement the exchange machine uses, for the same reason.
  *
  * Priced here rather than through the general quote endpoint because a teller
  * does not hold `exchange.rate.view` — deliberately, so the sidebar stays their
  * own tools. The counter has always priced inside `usdt.counter.use`, on the
- * server, and this is the same arrangement: the teller learns the figure they
- * are about to read aloud without being handed the board.
+ * server, and this is that.
  */
 export async function quoteArrival(
   chainTransactionId: string,
   payoutCurrency: string,
   db: DbClient = prisma,
-): Promise<{ amount: string; toAmount: string; rate: string; payoutCurrency: string }> {
+): Promise<{
+  amount: string;
+  payoutCurrency: string;
+  /** Priced through the till. Null when no cash rate is published. */
+  cash: { toAmount: string; rate: string } | null;
+  /** Priced through the broker. Null when no broker rate is published. */
+  broker: { toAmount: string; rate: string } | null;
+}> {
   const transfer = await db.chainTransaction.findUnique({
     where: { id: chainTransactionId },
-    select: { amount: true, direction: true, wallet: { select: { tokenSymbol: true, isCounterAddress: true } } },
+    select: {
+      amount: true,
+      direction: true,
+      wallet: { select: { tokenSymbol: true, isCounterAddress: true } },
+    },
   });
 
   if (!transfer) throw errors.notFound('Chain transaction', chainTransactionId);
@@ -999,25 +1019,61 @@ export async function quoteArrival(
     throw errors.precondition('That is an outgoing transfer', 'errors.depositNotIncoming');
   }
 
-  const quote = await quoteExchange(
-    transfer.wallet.tokenSymbol,
-    payoutCurrency.toUpperCase(),
-    transfer.amount,
-    'CASH',
-    db,
-  );
+  const currency = payoutCurrency.toUpperCase();
+  const price = async (channel: RateChannel) => {
+    try {
+      const quote = await quoteExchange(
+        transfer.wallet.tokenSymbol,
+        currency,
+        transfer.amount,
+        channel,
+        db,
+      );
+      return { toAmount: quote.toAmount.toString(), rate: quote.rate.toString() };
+    } catch {
+      // A pair priced for the till and not for the broker is an ordinary state,
+      // not an error — the teller is simply not offered that way of paying.
+      return null;
+    }
+  };
+
+  const [cash, broker] = await Promise.all([price('CASH'), price('BROKER')]);
 
   return {
     amount: transfer.amount.toString(),
-    toAmount: quote.toAmount.toString(),
-    rate: quote.rate.toString(),
-    payoutCurrency: payoutCurrency.toUpperCase(),
+    payoutCurrency: currency,
+    cash,
+    broker,
   };
 }
+
+/**
+ * How the customer is paid for the coins they sent.
+ *
+ * The same three the exchange machine offers, and the same meaning: `CASH` is
+ * notes out of the till, `BROKER` is a transfer the broker makes on the
+ * office's behalf, `SPLIT` is part each. A teller who has learned the control
+ * on one screen has learned it on both.
+ */
+export const PAYOUT_MODES = ['CASH', 'BROKER', 'SPLIT'] as const;
+export type PayoutMode = (typeof PAYOUT_MODES)[number];
 
 export interface SettleArrivalInput {
   branchId: string;
   payoutCurrency: string;
+  /** Which balance the money leaves from. Defaults to the till. */
+  mode?: PayoutMode;
+  /**
+   * For a split: how much of the **arrived USDT** settles through the broker.
+   *
+   * Expressed on the coins rather than on the cash for the reason the machine
+   * expresses it that way: the two channels price differently, so the amount
+   * handed over is not known until both parts have been priced and therefore
+   * cannot be the thing divided.
+   */
+  brokerShare?: bigint;
+  /** Which of the broker's accounts the transfer is instructed to. */
+  payoutChannel?: string | null;
   customerId?: string | null;
   counterpartyName?: string | null;
   counterpartyPhone?: string | null;
@@ -1099,13 +1155,75 @@ export async function settleArrival(
     }
   }
 
-  const quote = await quoteExchange(
-    transfer.wallet.tokenSymbol,
-    input.payoutCurrency,
-    transfer.amount,
-    'CASH',
-    db,
-  );
+  /*
+   * Each part priced through the balance it actually leaves from.
+   *
+   * A bank payout is not the till's money with a different label on it: the
+   * broker holds it, charges his own price for moving it, and the office's
+   * position with him is what changes. Paying every USDT receipt out of the
+   * till — which is what this did until now — quietly overstated the cash
+   * counted at close by every transfer the office had promised.
+   *
+   * A split is therefore two trades at two prices settled as one transaction,
+   * not one trade divided. Exactly what the exchange machine does.
+   */
+  const mode = input.mode ?? 'CASH';
+  const brokerShare =
+    mode === 'SPLIT' ? (input.brokerShare ?? 0n) : mode === 'BROKER' ? transfer.amount : 0n;
+
+  if (mode === 'SPLIT' && (brokerShare <= 0n || brokerShare >= transfer.amount)) {
+    throw errors.precondition(
+      'The transferred share must be part of the amount, not all or none of it',
+      'errors.splitShareOutOfRange',
+    );
+  }
+
+  const cashShare = transfer.amount - brokerShare;
+
+  const priced = await Promise.all([
+    cashShare > 0n
+      ? quoteExchange(transfer.wallet.tokenSymbol, input.payoutCurrency, cashShare, 'CASH', db)
+      : null,
+    brokerShare > 0n
+      ? quoteExchange(transfer.wallet.tokenSymbol, input.payoutCurrency, brokerShare, 'BROKER', db)
+      : null,
+  ]);
+  const [cashLeg, brokerLeg] = priced;
+
+  const toAmount = (cashLeg?.toAmount ?? 0n) + (brokerLeg?.toAmount ?? 0n);
+  const profit = (cashLeg?.profit ?? 0n) + (brokerLeg?.profit ?? 0n);
+
+  /*
+   * Where the transfer is instructed to, checked against the list the manager
+   * keeps. Required whenever the broker is paying any of it: the office keeps
+   * no ledger per account, but the instruction that leaves for the broker has
+   * to say which one, and this is where that is captured.
+   */
+  let account: string | null = null;
+  if (brokerLeg) {
+    const allowed = await transferChannels(db);
+    account = input.payoutChannel?.trim() ?? '';
+    if (!account) {
+      throw errors.precondition('Say where the transfer is going', 'errors.transferChannelRequired');
+    }
+    if (!allowed.includes(account)) {
+      throw errors.precondition(
+        `${account} is not a destination the counter offers`,
+        'errors.transferChannelUnknown',
+        { channel: account },
+      );
+    }
+  }
+
+  /*
+   * A split has no single rate. The blended one — what the customer actually
+   * got per coin — is what belongs on the receipt, because it is the only rate
+   * that describes the trade they made. `rateId` points at a published row only
+   * when exactly one was used.
+   */
+  const single = brokerLeg === null ? cashLeg : cashLeg === null ? brokerLeg : null;
+  const rate =
+    single?.rate ?? (transfer.amount > 0n ? (toAmount * MONEY_FACTOR) / transfer.amount : 0n);
 
   const created = await transactions.record(
     {
@@ -1115,10 +1233,12 @@ export async function settleArrival(
       fromCurrency: transfer.wallet.tokenSymbol,
       fromAmount: transfer.amount,
       toCurrency: input.payoutCurrency,
-      toAmount: quote.toAmount,
-      rate: quote.rate,
-      rateId: quote.rateId,
-      profitAmount: quote.profit,
+      toAmount,
+      payout: { cash: cashLeg?.toAmount ?? 0n, bank: brokerLeg?.toAmount ?? 0n },
+      payoutChannel: account,
+      rate,
+      rateId: single?.rateId ?? null,
+      profitAmount: profit,
       counterpartyName: input.counterpartyName ?? null,
       counterpartyPhone: input.counterpartyPhone ?? null,
       notes: input.notes ?? null,
@@ -1139,8 +1259,8 @@ export async function settleArrival(
     module: 'usdt',
     entityType: 'ChainTransaction',
     entityId: chainTransactionId,
-    summaryEn: `Settled arrival ${transfer.txHash} as ${created.reference}: ${toDecimalString(transfer.amount, 2)} ${transfer.wallet.tokenSymbol} paid out as ${toDecimalString(quote.toAmount, 2)} ${input.payoutCurrency}`,
-    summaryAr: `صرف تحويل واصل ${transfer.txHash} بالعملية ${created.reference}: ${toDecimalString(transfer.amount, 2)} ${transfer.wallet.tokenSymbol} مقابل ${toDecimalString(quote.toAmount, 2)} ${input.payoutCurrency}`,
+    summaryEn: `Settled arrival ${transfer.txHash} as ${created.reference}: ${toDecimalString(transfer.amount, 2)} ${transfer.wallet.tokenSymbol} paid out as ${toDecimalString(toAmount, 2)} ${input.payoutCurrency} via ${mode.toLowerCase()}${account ? ` to ${account}` : ''}`,
+    summaryAr: `صرف تحويل واصل ${transfer.txHash} بالعملية ${created.reference}: ${toDecimalString(transfer.amount, 2)} ${transfer.wallet.tokenSymbol} مقابل ${toDecimalString(toAmount, 2)} ${input.payoutCurrency}${account ? ` عبر ${account}` : ''}`,
     actor,
     after: { transactionReference: created.reference, transactionId: created.id },
   });

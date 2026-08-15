@@ -91,6 +91,7 @@ export function CounterView({
   openRequests,
   currencies,
   companyName,
+  transferChannels,
   permissions,
 }: {
   addresses: CounterAddress[];
@@ -98,6 +99,8 @@ export function CounterView({
   currencies: { code: string; nameEn: string; nameAr: string; decimals: number }[];
   /** Named at the head of an address sent to a customer, so it is not anonymous. */
   companyName: string;
+  /** The broker's accounts a transfer may be instructed to. */
+  transferChannels: string[];
   permissions: string[];
 }) {
   const { t, ln } = useLocale();
@@ -211,6 +214,7 @@ export function CounterView({
         addresses={addresses}
         currencies={currencies}
         companyName={companyName}
+        transferChannels={transferChannels}
         permissions={permissions}
       />
 
