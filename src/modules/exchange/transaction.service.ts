@@ -841,6 +841,20 @@ export async function confirmTransfer(
       );
     }
 
+    /*
+     * A send the manager has not released cannot be confirmed as sent.
+     *
+     * Checked here rather than only on the screen because this is the last
+     * place before the row claims the coins are gone, and a claim like that
+     * must never rest on which button somebody happened to find.
+     */
+    if (row.approvalState === 'PENDING') {
+      throw errors.precondition(
+        'A manager has not released this send yet',
+        'errors.withdrawalNotApproved',
+      );
+    }
+
     return tx.transaction.update({
       where: { id },
       data: {

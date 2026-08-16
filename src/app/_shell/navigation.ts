@@ -121,6 +121,12 @@ export const NAVIGATION: NavSection[] = [
         permissions: ['exchange.priceException.approve'],
       },
       {
+        href: '/manage/withdrawals',
+        labelKey: 'nav.releases',
+        icon: 'wallet',
+        permissions: ['usdt.withdrawal.approve'],
+      },
+      {
         href: '/manage/rates',
         labelKey: 'nav.rates',
         icon: 'rates',

@@ -223,6 +223,14 @@ export const SETTINGS: SettingDefinition[] = [
     descriptionAr: 'السماح للتلر بفتح طلبات استلام وعرض عنوان الاستقبال',
   },
   {
+    key: 'usdt.withdrawalRequiresApproval', category: 'usdt', type: 'boolean', defaultValue: true,
+    labelEn: 'A manager releases every USDT send', labelAr: 'المدير يُفرج عن كل سحب USDT',
+    descriptionEn:
+      'The customer pays and the coins are reserved as usual, but nobody may put the transfer on the chain until a manager approves it. A decline reverses the sale.',
+    descriptionAr:
+      'يدفع العميل وتُحجز العملة كالعادة، لكن لا يضع أحد التحويل على السلسلة حتى يوافق المدير. والرفض يعكس العملية.',
+  },
+  {
     key: 'usdt.withdrawalEnabled', category: 'usdt', type: 'boolean', defaultValue: true,
     labelEn: 'USDT withdrawals', labelAr: 'سحب USDT',
     descriptionEn: 'Let tellers sell USDT and send it to a customer wallet',

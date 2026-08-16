@@ -124,6 +124,7 @@ const ar: Dictionary = {
 
   nav: {
     broker: 'الوسيط',
+    releases: 'الإفراج عن السحب',
     machineControl: 'حالة الماكينة',
     counter: 'الشباك',
     manageUsdt: 'استلام USDT',
@@ -1010,6 +1011,21 @@ const ar: Dictionary = {
     confirming: 'قيد التأكيد {confirmations}/{required}',
   },
 
+  release: {
+    title: 'الإفراج عن السحب',
+    subtitle: 'عمليات بيع USDT سُجّلت ودُفع ثمنها، ولا تخرج العملة حتى تُفرج عنها',
+    empty: 'لا شيء بانتظارك.',
+    waiting: '{count} بانتظار الإفراج',
+    paidWith: 'دفع',
+    release: 'أفرج للإرسال',
+    released: 'أُفرج عنها',
+    refuse: 'رفض',
+    refused: 'رُفضت وعُكست',
+    refuseTitle: 'رفض الإفراج',
+    refuseBody: 'الرفض يعكس العملية: تعود العملة إلى الرصيد ويُعاد المال إلى العميل. اكتب السبب ليقوله التلر له.',
+    reasonPlaceholder: 'سبب الرفض',
+  },
+
   receive: {
     brokerShare: 'الحصة البنكية ({token})',
     shareAddress: 'أرسل العنوان بواتساب',
@@ -1656,6 +1672,10 @@ const ar: Dictionary = {
     backupVersion: 'أُنشئت هذه النسخة بإصدار غير متوافق',
     noBranch: 'لا يوجد فرع مهيأ',
     notShareable: 'لا تُشارَك إلا عملية مرحّلة',
+    notAWithdrawal: 'هذه ليست عملية بيع USDT',
+    withdrawalDecided: 'تم البتّ في هذا السحب مسبقاً',
+    withdrawalSamePerson: 'من سجّل العملية لا يُفرج عنها',
+    withdrawalNotApproved: 'لم يُفرج المدير عن هذا السحب بعد',
     noSystemUser: 'لا يوجد مستخدم نظام مهيأ',
 
     // --- ماكينة التصريف ---

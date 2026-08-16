@@ -120,6 +120,7 @@ model User {
 
   createdTransactions Transaction[]        @relation("TransactionCreatedBy")
   confirmedTransfers  Transaction[]        @relation("TransactionTransferConfirmedBy")
+  approvedWithdrawals Transaction[]        @relation("TransactionApprovedBy")
   openedDays          BusinessDay[]        @relation("DayOpenedBy")
   closedDays          BusinessDay[]        @relation("DayClosedBy")
   backups             Backup[]
@@ -1019,6 +1020,21 @@ model Transaction {
   transferConfirmedById String?
   transferConfirmedBy   User?     @relation("TransactionTransferConfirmedBy", fields: [transferConfirmedById], references: [id], onDelete: SetNull)
 
+  /// Whether a manager has released this for sending — and who, and when.
+  ///
+  /// Only USDT sales ask for it today, and only when the office has the
+  /// setting on. `PENDING` means the coins are reserved and the customer has
+  /// paid, but nobody may put the transfer on the chain yet: a send is the one
+  /// step in this system that no later entry can undo, so it is the one step
+  /// worth a second person's signature.
+  ///
+  /// Null on everything that never needed asking.
+  approvalState     String?   /// PENDING | APPROVED | DECLINED
+  approvalDecidedAt DateTime?
+  approvedById      String?
+  approvedBy        User?     @relation("TransactionApprovedBy", fields: [approvedById], references: [id], onDelete: SetNull)
+  approvalNote      String?
+
   // --- Who was at the window ----------------------------------------------
   counterpartyName  String?
   counterpartyPhone String?
@@ -1045,6 +1061,7 @@ model Transaction {
   depositRequest   UsdtDepositRequest?
 
   @@index([status, createdAt])
+  @@index([approvalState, createdAt])
   @@index([type, createdAt])
   @@index([createdById, createdAt])
   @@index([customerId])

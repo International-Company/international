@@ -122,6 +122,7 @@ const en = {
 
   nav: {
     broker: 'The Broker',
+    releases: 'Releasing sends',
     machineControl: 'Machine status',
     counter: 'The Counter',
     manageUsdt: 'USDT Intake',
@@ -1011,6 +1012,21 @@ const en = {
     confirming: 'Confirming {confirmations}/{required}',
   },
 
+  release: {
+    title: 'Releasing sends',
+    subtitle: 'USDT sales recorded and paid for. The coins do not leave until you release them',
+    empty: 'Nothing is waiting for you.',
+    waiting: '{count} waiting to be released',
+    paidWith: 'paid',
+    release: 'Release for sending',
+    released: 'Released',
+    refuse: 'Refuse',
+    refused: 'Refused and reversed',
+    refuseTitle: 'Refuse the send',
+    refuseBody: 'Refusing reverses the sale: the coins go back on the balance and the money goes back to the customer. Write the reason so the teller can tell them.',
+    reasonPlaceholder: 'Reason for refusing',
+  },
+
   receive: {
     brokerShare: 'Share sent by bank ({token})',
     shareAddress: 'Send the address on WhatsApp',
@@ -1658,6 +1674,10 @@ const en = {
     backupVersion: 'This backup was made by an incompatible version',
     noBranch: 'No branch is configured',
     notShareable: 'Only a posted transaction can be shared',
+    notAWithdrawal: 'That is not a USDT sale',
+    withdrawalDecided: 'This send has already been decided',
+    withdrawalSamePerson: 'The person who recorded it cannot release it',
+    withdrawalNotApproved: 'A manager has not released this send yet',
     noSystemUser: 'No system user is configured',
 
     // --- The exchange machine ---

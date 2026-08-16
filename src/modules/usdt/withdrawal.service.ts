@@ -10,7 +10,12 @@ import { ceilingFor } from '@/modules/users/counter-limit';
 import * as transactions from '@/modules/exchange/transaction.service';
 import type { Actor } from '@/modules/exchange/transaction.service';
 import * as settings from '@/modules/settings/settings.service';
+import * as audit from '@/modules/audit/audit.service';
+import * as notifications from '@/modules/notifications/notifications.service';
+import { createLogger } from '@/core/logger/logger';
 import { providerFor } from './providers';
+
+const log = createLogger('usdt:withdrawal');
 
 /**
  * Selling USDT at the window.
@@ -262,7 +267,9 @@ export async function record(input: RecordInput, actor: Actor, db: DbClient = pr
   const single =
     legs.cash.to === 0n ? legs.broker.quote : legs.broker.to === 0n ? legs.cash.quote : null;
 
-  return transactions.record(
+  const gated = await approvalRequired(db);
+
+  const created = await transactions.record(
     {
       type: 'USDT_SEND',
       branchId: input.branchId,
@@ -285,6 +292,47 @@ export async function record(input: RecordInput, actor: Actor, db: DbClient = pr
     actor,
     db,
   );
+
+  if (!gated) return created;
+
+  /*
+   * Stamped straight after the posting rather than inside it. `record` is the
+   * one path every kind of transaction goes through, and teaching it about a
+   * gate that belongs to one of them would put a USDT concern in everybody
+   * else's way.
+   */
+  await db.transaction.update({
+    where: { id: created.id },
+    data: { approvalState: 'PENDING' },
+  });
+
+  /*
+   * Everyone who may release it, in this branch, except whoever recorded it.
+   * A failed notice must not fail the sale: the money has moved, the row
+   * exists, and the queue of waiting sends is on the manager's screen whether
+   * or not this message arrived.
+   */
+  await notifications
+    .notify(
+      {
+        severity: 'WARNING',
+        eventKey: 'usdt.withdrawal.awaitingApproval',
+        module: 'usdt',
+        titleEn: 'A USDT send is waiting for you',
+        titleAr: 'سحب USDT بانتظار موافقتك',
+        bodyEn: `${created.reference}: ${toDecimalString(total, 2)} ${TOKEN} to ${address}. The coins cannot leave until you release it.`,
+        bodyAr: `${created.reference}: ${toDecimalString(total, 2)} ${TOKEN} إلى ${address}. لا تخرج العملة حتى تُفرج عنها.`,
+        entityType: 'Transaction',
+        entityId: created.id,
+        link: `/manage/withdrawals`,
+        createdById: actor.id,
+      },
+      { permission: APPROVE_PERMISSION, branchId: input.branchId, exceptUserId: actor.id },
+      db,
+    )
+    .catch((error) => log.warn('Approval notice failed', { id: created.id, error }));
+
+  return created;
 }
 
 /** The wallets a withdrawal may be sent from, in the order the manager set. */
@@ -319,4 +367,219 @@ export async function config(db: DbClient = prisma): Promise<WithdrawalConfig> {
   ]);
 
   return { enabled, wallets, currencies, transferChannels: channels, maxAmount: maxAmount.toString() };
+}
+
+// ---------------------------------------------------------------------------
+// A manager releases the send
+// ---------------------------------------------------------------------------
+
+/**
+ * The gate on the one step nothing can undo.
+ *
+ * ## Where it sits, and why there
+ *
+ * Not before the customer pays. A teller who had to fetch the manager before
+ * taking money would have the customer standing at the window through it, and
+ * two tellers could promise the same coins while nobody's balance had moved.
+ * The sale is recorded exactly as it always was — the customer pays, the coins
+ * come off the wallet balance, the row waits — and what the gate holds is the
+ * transfer itself.
+ *
+ * That is the right place for it because it is the only irreversible one. Cash
+ * can be handed back. A reversal can undo a posting. A transfer that has been
+ * broadcast is gone, and no entry in this system or any other brings it back.
+ *
+ * ## What each answer means
+ *
+ * **Approved** — the row becomes an ordinary promise awaiting its send, and
+ * whoever sends may send.
+ *
+ * **Declined** — the sale is reversed. The coins return to the wallet balance
+ * and the customer's money comes back out of the till, because they are owed
+ * it: they paid for a thing the office decided not to do. The teller hands it
+ * over. Nothing is left half-done.
+ *
+ * ## Nobody releases their own
+ *
+ * The whole control is that a second person looked at the address and the
+ * amount. A manager who also serves customers would otherwise release his own
+ * sends with one press, which is the same as having no gate.
+ */
+export const APPROVE_PERMISSION = 'usdt.withdrawal.approve';
+
+/** Whether the office is asking for a signature on sends at all. */
+export async function approvalRequired(db: DbClient = prisma): Promise<boolean> {
+  return settings.getBoolean('usdt.withdrawalRequiresApproval', db);
+}
+
+/**
+ * Sends waiting on a manager, oldest first.
+ *
+ * Oldest first because the customer attached to the oldest one has been
+ * waiting the longest, and a queue that shows the newest at the top quietly
+ * teaches everybody to serve the impatient before the patient.
+ */
+export async function awaitingApproval(branchId: string | null, db: DbClient = prisma) {
+  return db.transaction.findMany({
+    where: {
+      type: 'USDT_SEND',
+      approvalState: 'PENDING',
+      status: 'PENDING_TRANSFER',
+      ...(branchId ? { branchId } : {}),
+    },
+    orderBy: { createdAt: 'asc' },
+    select: {
+      id: true,
+      reference: true,
+      createdAt: true,
+      fromCurrency: true,
+      fromAmount: true,
+      toAmount: true,
+      payoutAddress: true,
+      counterpartyName: true,
+      createdBy: { select: { id: true, fullNameEn: true, fullNameAr: true } },
+      customer: { select: { fullNameEn: true, fullNameAr: true } },
+      payoutWallet: { select: { label: true, labelAr: true, network: true } },
+    },
+  });
+}
+
+export interface DecisionInput {
+  approve: boolean;
+  /** Required on a decline: the teller has to be able to tell the customer. */
+  note?: string | null;
+}
+
+export async function decide(
+  id: string,
+  input: DecisionInput,
+  actor: Actor,
+  db: DbClient = prisma,
+) {
+  if (!actor.permissions.includes(APPROVE_PERMISSION)) {
+    throw errors.forbidden(APPROVE_PERMISSION);
+  }
+
+  const row = await db.transaction.findUnique({
+    where: { id },
+    select: {
+      id: true,
+      reference: true,
+      type: true,
+      status: true,
+      approvalState: true,
+      createdById: true,
+      toAmount: true,
+      payoutAddress: true,
+    },
+  });
+
+  if (!row) throw errors.notFound('Transaction', id);
+  if (row.type !== 'USDT_SEND') {
+    throw errors.precondition('Only a USDT sale is released this way', 'errors.notAWithdrawal');
+  }
+  if (row.approvalState !== 'PENDING') {
+    throw errors.conflict('This send has already been decided', 'errors.withdrawalDecided');
+  }
+  if (row.createdById === actor.id) {
+    throw errors.precondition(
+      'The person who recorded it cannot be the person who releases it',
+      'errors.withdrawalSamePerson',
+    );
+  }
+
+  if (!input.approve) {
+    const reason = input.note?.trim();
+    if (!reason) {
+      throw errors.validation([{ path: 'note', message: 'A reason is required' }]);
+    }
+
+    /*
+     * Marked before the reversal, not after. The reversal is its own posting
+     * and emits its own events; a row that were reversed first would be
+     * observed by all of them still claiming to be waiting on a manager.
+     */
+    await db.transaction.update({
+      where: { id },
+      data: {
+        approvalState: 'DECLINED',
+        approvalDecidedAt: new Date(),
+        approvedById: actor.id,
+        approvalNote: reason,
+      },
+    });
+
+    await transactions.reverse(id, `رفض الإفراج: ${reason}`, actor, db);
+
+    await notifications
+      .notify(
+        {
+          severity: 'WARNING',
+          eventKey: 'usdt.withdrawal.declined',
+          module: 'usdt',
+          titleEn: 'A USDT send was declined',
+          titleAr: 'رُفض سحب USDT',
+          bodyEn: `${row.reference} was reversed: ${reason}`,
+          bodyAr: `${row.reference} عُكست: ${reason}`,
+          entityType: 'Transaction',
+          entityId: row.id,
+          link: `/manage/transactions/${row.id}`,
+          createdById: actor.id,
+        },
+        { userIds: [row.createdById] },
+        db,
+      )
+      .catch((error) => log.warn('Decline notice failed', { id, error }));
+
+    log.info('USDT send declined', { reference: row.reference, by: actor.id });
+    return { id: row.id, reference: row.reference, approvalState: 'DECLINED' as const };
+  }
+
+  const approved = await db.transaction.update({
+    where: { id },
+    data: {
+      approvalState: 'APPROVED',
+      approvalDecidedAt: new Date(),
+      approvedById: actor.id,
+      approvalNote: input.note?.trim() || null,
+    },
+    select: { id: true, reference: true },
+  });
+
+  await audit.record(
+    {
+      action: 'UPDATE',
+      module: 'usdt',
+      entityType: 'Transaction',
+      entityId: approved.id,
+      summaryEn: `Released ${approved.reference} for sending: ${toDecimalString(row.toAmount, 2)} ${TOKEN} to ${row.payoutAddress ?? '—'}`,
+      summaryAr: `الإفراج عن ${approved.reference} للإرسال: ${toDecimalString(row.toAmount, 2)} ${TOKEN} إلى ${row.payoutAddress ?? '—'}`,
+      actor,
+      after: { approvalState: 'APPROVED' },
+    },
+    db,
+  );
+
+  await notifications
+    .notify(
+      {
+        severity: 'SUCCESS',
+        eventKey: 'usdt.withdrawal.approved',
+        module: 'usdt',
+        titleEn: 'A USDT send was released',
+        titleAr: 'أُفرج عن سحب USDT',
+        bodyEn: `${approved.reference} may now be sent.`,
+        bodyAr: `${approved.reference} صار بالإمكان إرساله.`,
+        entityType: 'Transaction',
+        entityId: approved.id,
+        link: `/manage/transactions/${approved.id}`,
+        createdById: actor.id,
+      },
+      { userIds: [row.createdById] },
+      db,
+    )
+    .catch((error) => log.warn('Approval notice failed', { id, error }));
+
+  log.info('USDT send released', { reference: approved.reference, by: actor.id });
+  return { id: approved.id, reference: approved.reference, approvalState: 'APPROVED' as const };
 }
