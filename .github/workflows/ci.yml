@@ -169,6 +169,21 @@ jobs:
           npx tsx prisma/seed.ts > /dev/null
           npm run verify:reports
 
+      - name: Take USDT at the window, end to end
+        # Its own database: it counts what is sitting unclaimed on the counter
+        # address, and a run that inherited another test's arrivals would be
+        # counting somebody else's money.
+        run: |
+          npx prisma db push --skip-generate --force-reset > /dev/null
+          npx tsx prisma/seed.ts > /dev/null
+          npm run verify:usdt-counter
+
+      - name: Hold a USDT send for a manager, end to end
+        # On the same database as the counter above, on purpose: the gate has
+        # to hold on a wallet that has already been traded through rather than
+        # only on a freshly seeded one.
+        run: npm run verify:withdrawal-approval
+
       - name: Take a permission away, end to end
         # Last, because it narrows what the teller may do and lowers his
         # ceiling — everything before it should run against a counter that is

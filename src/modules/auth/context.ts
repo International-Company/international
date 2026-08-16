@@ -20,13 +20,35 @@ export interface RequestMeta {
 export const getRequestMeta = cache(async (): Promise<RequestMeta> => {
   const headerList = await headers();
 
-  // Trust the left-most entry of X-Forwarded-For only; behind a reverse proxy
-  // this is the client. Direct deployments fall back to the socket header.
-  const forwarded = headerList.get('x-forwarded-for');
-  const ip =
-    forwarded?.split(',')[0]?.trim() ||
-    headerList.get('x-real-ip') ||
-    null;
+  /*
+   * The right-most entry of X-Forwarded-For, not the left-most.
+   *
+   * Each proxy *appends* the address it received the request from, so the
+   * chain reads `client, proxy1, proxy2` and the left-most looks like the
+   * client. It is not — it is the first thing in the header, and the header
+   * arrives from the client. Anyone can send
+   *
+   *     X-Forwarded-For: 10.0.0.1
+   *
+   * and our one real proxy appends the true address after it, leaving a chain
+   * whose left-most entry is whatever the caller felt like typing. Reading
+   * that put an attacker-chosen value into the audit log's actor IP and made
+   * every rate limit keyed on the address escapable by changing one header per
+   * request.
+   *
+   * The right-most entry is the one *our* proxy wrote, about the hop it
+   * actually spoke to, and is the only entry no caller can forge. This
+   * deployment sits behind exactly one proxy; a second layer in front would
+   * mean counting one further in from the right rather than taking the last.
+   */
+  const chain =
+    headerList
+      .get('x-forwarded-for')
+      ?.split(',')
+      .map((entry) => entry.trim())
+      .filter(Boolean) ?? [];
+
+  const ip = chain.at(-1) || headerList.get('x-real-ip') || null;
 
   return { ip, userAgent: headerList.get('user-agent') };
 });
