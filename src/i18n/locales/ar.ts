@@ -124,7 +124,7 @@ const ar: Dictionary = {
 
   nav: {
     broker: 'الوسيط',
-    releases: 'الإفراج عن السحب',
+    releases: 'تأكيد سحب USDT',
     machineControl: 'حالة الماكينة',
     counter: 'الشباك',
     manageUsdt: 'استلام USDT',
@@ -1012,7 +1012,7 @@ const ar: Dictionary = {
   },
 
   release: {
-    title: 'الإفراج عن السحب',
+    title: 'تأكيد سحب USDT',
     subtitle: 'عمليات بيع USDT سُجّلت ودُفع ثمنها، ولا تخرج العملة حتى تُفرج عنها',
     empty: 'لا شيء بانتظارك.',
     waiting: '{count} بانتظار الإفراج',

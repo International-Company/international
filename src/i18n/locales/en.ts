@@ -122,7 +122,7 @@ const en = {
 
   nav: {
     broker: 'The Broker',
-    releases: 'Releasing sends',
+    releases: 'Confirming USDT sends',
     machineControl: 'Machine status',
     counter: 'The Counter',
     manageUsdt: 'USDT Intake',
@@ -1013,7 +1013,7 @@ const en = {
   },
 
   release: {
-    title: 'Releasing sends',
+    title: 'Confirming USDT sends',
     subtitle: 'USDT sales recorded and paid for. The coins do not leave until you release them',
     empty: 'Nothing is waiting for you.',
     waiting: '{count} waiting to be released',

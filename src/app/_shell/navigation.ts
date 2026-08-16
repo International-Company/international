@@ -100,6 +100,12 @@ export const NAVIGATION: NavSection[] = [
         permissions: ['usdt.wallet.view'],
         matchPrefix: true,
       },
+      {
+        href: '/manage/withdrawals',
+        labelKey: 'nav.releases',
+        icon: 'transfer',
+        permissions: ['usdt.withdrawal.approve'],
+      },
     ],
   },
 
@@ -119,12 +125,6 @@ export const NAVIGATION: NavSection[] = [
         labelKey: 'nav.exceptions',
         icon: 'rates',
         permissions: ['exchange.priceException.approve'],
-      },
-      {
-        href: '/manage/withdrawals',
-        labelKey: 'nav.releases',
-        icon: 'wallet',
-        permissions: ['usdt.withdrawal.approve'],
       },
       {
         href: '/manage/rates',
