@@ -206,32 +206,68 @@ export async function updateWallet(
 }
 
 /**
- * Removes a wallet entirely.
+ * Removes a wallet.
  *
- * Only one that has never seen anything. Once transfers have been detected
- * against an address, those rows are the evidence behind money that was paid
- * out, and deleting the wallet would leave them pointing at nothing. Whoever
- * later asks "which address did this arrive at" would have no answer.
+ * ## What used to stop this, and why it was too much
  *
- * Deactivating is the answer for an address that is simply finished with: it
- * stops being offered and stops being polled, and everything it explains stays
- * readable. The screen offers both, plainly, because they are different acts.
+ * Any history at all refused the delete. That is the safe rule and it was the
+ * wrong one: an address the office tried once, or a test address, or one the
+ * chain happened to send dust to, collects rows that explain nothing — and the
+ * screen then refused to let go of an address nobody wanted, forever.
+ *
+ * ## What stops it now
+ *
+ * Only history that explains money. A transfer linked to a posting is the
+ * evidence behind cash that was paid out or coins that were sent, and a
+ * settled counter request is the same. Delete the wallet and those rows go
+ * with it — the relation cascades — and whoever later asks "which address did
+ * this arrive at" has no answer for a receipt the office already handed over.
+ *
+ * Everything else goes. Unclaimed arrivals, requests nobody finished, dust:
+ * none of it is behind a posting, so none of it is evidence.
+ *
+ * Deactivating remains for the address that *is* behind money and is simply
+ * finished with: it stops being offered and stops being polled, and everything
+ * it explains stays readable. The two are different acts and the screen says so.
  */
 export async function deleteWallet(id: string, actor: Actor, db: DbClient = prisma): Promise<void> {
   await withTransaction(async (tx) => {
     const wallet = await tx.wallet.findUnique({ where: { id } });
     if (!wallet) throw errors.notFound('Wallet', id);
 
-    const [transfers, requests] = await Promise.all([
+    /*
+     * Counted as "behind a posting", not as "exists". A transfer with no
+     * `linkedTransactionId` was never paid out against; a request that never
+     * completed settled nothing.
+     */
+    const [posted, settled, transfers, requests] = await Promise.all([
+      tx.chainTransaction.count({ where: { walletId: id, linkedTransactionId: { not: null } } }),
+      tx.usdtDepositRequest.count({ where: { walletId: id, status: 'COMPLETED' } }),
       tx.chainTransaction.count({ where: { walletId: id } }),
       tx.usdtDepositRequest.count({ where: { walletId: id } }),
     ]);
 
-    if (transfers + requests > 0) {
+    if (posted + settled > 0) {
       throw errors.conflict(
-        `"${wallet.label}" has ${transfers} transfer(s) and ${requests} counter request(s) on record and cannot be deleted — deactivate it instead`,
+        `"${wallet.label}" is the address behind ${posted} settled transfer(s) and ${settled} completed request(s), so deleting it would erase the evidence for money that moved — deactivate it instead`,
         'errors.walletHasHistory',
-        { label: wallet.label, transfers, requests },
+        { label: wallet.label, transfers: posted, requests: settled },
+      );
+    }
+
+    /*
+     * A sale still waiting to be sent from this address would be left pointing
+     * at a wallet that no longer exists — and it is a promise the office has
+     * already taken money for. Finish or reverse it first.
+     */
+    const promised = await tx.transaction.count({
+      where: { payoutWalletId: id, status: 'PENDING_TRANSFER' },
+    });
+    if (promised > 0) {
+      throw errors.conflict(
+        `"${wallet.label}" has ${promised} sale(s) still waiting to be sent from it`,
+        'errors.walletHasPending',
+        { label: wallet.label, count: promised },
       );
     }
 
@@ -241,8 +277,8 @@ export async function deleteWallet(id: string, actor: Actor, db: DbClient = pris
         module: 'usdt',
         entityType: 'Wallet',
         entityId: id,
-        summaryEn: `Deleted wallet "${wallet.label}" (${wallet.network} ${maskAddress(wallet.address)})`,
-        summaryAr: `حذف المحفظة "${wallet.labelAr}" (${wallet.network} ${maskAddress(wallet.address)})`,
+        summaryEn: `Deleted wallet "${wallet.label}" (${wallet.network} ${maskAddress(wallet.address)}) with ${transfers} unposted transfer(s) and ${requests} unfinished request(s)`,
+        summaryAr: `حذف المحفظة "${wallet.labelAr}" (${wallet.network} ${maskAddress(wallet.address)}) ومعها ${transfers} تحويلاً غير مرحّل و${requests} طلباً غير منتهٍ`,
         actor,
         before: { label: wallet.label, network: wallet.network, address: wallet.address },
       },

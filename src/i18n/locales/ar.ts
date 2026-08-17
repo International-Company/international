@@ -1685,6 +1685,7 @@ const ar: Dictionary = {
     withdrawalDecided: 'تم البتّ في هذا السحب مسبقاً',
     withdrawalNotApproved: 'لم يُفرج المدير عن هذا السحب بعد',
     invalidAddress: 'عنوان المحفظة غير صالح',
+    walletHasPending: 'على «{label}» {count} عملية بيع لم تُرسَل بعد — أنهها أو اعكسها أولاً',
     noHotWallet: 'لا توجد محفظة إرسال مهيأة على الخادم',
     autoSendDisabled: 'الإرسال الآلي مطفأ',
     autoSendOverTransfer: 'الإرسال الآلي يقف عند {maximum} في التحويل الواحد',
@@ -1744,7 +1745,7 @@ const ar: Dictionary = {
     lastManager: 'هذا آخر مدير — رقِّ غيره أولاً',
     userHasWork: 'باسم «{username}» {count} سجلاً ولا يمكن حذفه — عطّل الحساب بدلاً من ذلك',
     walletHasHistory:
-      'على «{label}» {transfers} تحويلاً و{requests} طلب شباك ولا يمكن حذفها — عطّلها بدلاً من ذلك',
+      '«{label}» هي العنوان خلف {transfers} تحويلاً مرحّلاً و{requests} طلباً مكتملاً، وحذفها يمحو دليل مالٍ تحرّك — عطّلها بدلاً من ذلك',
 
     pageNotFound: 'الصفحة غير موجودة',
     pageNotFoundBody: 'الصفحة التي تبحث عنها غير موجودة أو تم نقلها.',

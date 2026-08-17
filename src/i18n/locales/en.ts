@@ -1687,6 +1687,7 @@ const en = {
     withdrawalDecided: 'This send has already been decided',
     withdrawalNotApproved: 'A manager has not released this send yet',
     invalidAddress: 'That wallet address is not usable',
+    walletHasPending: '"{label}" has {count} sale(s) still waiting to be sent — finish or reverse them first',
     noHotWallet: 'No sending wallet is configured on the server',
     autoSendDisabled: 'Automatic sending is switched off',
     autoSendOverTransfer: 'Automatic sending stops at {maximum} in one transfer',
@@ -1747,7 +1748,7 @@ const en = {
     userHasWork:
       '"{username}" has {count} record(s) against their name and cannot be deleted — disable the account instead',
     walletHasHistory:
-      '"{label}" has {transfers} transfer(s) and {requests} counter request(s) on record and cannot be deleted — deactivate it instead',
+      '"{label}" is the address behind {transfers} settled transfer(s) and {requests} completed request(s), so deleting it would erase the evidence for money that moved — deactivate it instead',
 
     pageNotFound: 'Page not found',
     pageNotFoundBody: 'The page you are looking for does not exist or has moved.',

@@ -184,6 +184,11 @@ jobs:
         # only on a freshly seeded one.
         run: npm run verify:withdrawal-approval
 
+      - name: Let go of an address, end to end
+        # After the counter and the approval steps, so the database holds both
+        # a posting and a promise for the two refusals to stand on.
+        run: npm run verify:wallet-removal
+
       - name: Refuse to send without a key, end to end
         # No TRON_HOT_WALLET_KEY: the safe default, and the state a deployment
         # is in until somebody deliberately changes it.
