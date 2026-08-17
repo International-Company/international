@@ -1678,6 +1678,16 @@ const en = {
     withdrawalDecided: 'This send has already been decided',
     withdrawalSamePerson: 'The person who recorded it cannot release it',
     withdrawalNotApproved: 'A manager has not released this send yet',
+    invalidAddress: 'That wallet address is not usable',
+    noHotWallet: 'No sending wallet is configured on the server',
+    autoSendDisabled: 'Automatic sending is switched off',
+    autoSendOverTransfer: 'Automatic sending stops at {maximum} in one transfer',
+    autoSendOverDay: 'Automatic sending stops at {maximum} a day, and {already} has gone already',
+    alreadyBroadcast: 'This sale has already been sent',
+    notTheHotWallet: 'That sale leaves a wallet this program cannot sign for',
+    notTron: 'Only TRON transfers can be sent automatically',
+    hotWalletKeyInvalid: 'The wallet key must be 64 hexadecimal characters',
+    chainRefused: 'The network refused the transfer',
     noSystemUser: 'No system user is configured',
 
     // --- The exchange machine ---

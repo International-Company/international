@@ -1676,6 +1676,16 @@ const ar: Dictionary = {
     withdrawalDecided: 'تم البتّ في هذا السحب مسبقاً',
     withdrawalSamePerson: 'من سجّل العملية لا يُفرج عنها',
     withdrawalNotApproved: 'لم يُفرج المدير عن هذا السحب بعد',
+    invalidAddress: 'عنوان المحفظة غير صالح',
+    noHotWallet: 'لا توجد محفظة إرسال مهيأة على الخادم',
+    autoSendDisabled: 'الإرسال الآلي مطفأ',
+    autoSendOverTransfer: 'الإرسال الآلي يقف عند {maximum} في التحويل الواحد',
+    autoSendOverDay: 'الإرسال الآلي يقف عند {maximum} في اليوم، وقد خرج منها {already}',
+    alreadyBroadcast: 'هذه العملية أُرسلت مسبقاً',
+    notTheHotWallet: 'هذه العملية تخرج من محفظة لا يملك البرنامج مفتاحها',
+    notTron: 'الإرسال الآلي على شبكة ترون فقط',
+    hotWalletKeyInvalid: 'مفتاح المحفظة يجب أن يكون ٦٤ حرفاً ست عشرياً',
+    chainRefused: 'رفضت الشبكة التحويل',
     noSystemUser: 'لا يوجد مستخدم نظام مهيأ',
 
     // --- ماكينة التصريف ---

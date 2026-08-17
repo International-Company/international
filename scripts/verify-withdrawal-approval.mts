@@ -63,11 +63,13 @@ const clerk = {
   permissions: ['usdt.withdrawal.use', 'exchange.transaction.create'],
 };
 
-/** A posting is keyed to the calendar date it happens on. */
-const openDay = await prisma.businessDay.findFirst({
-  where: { branchId: branch.id, status: { in: ['OPEN', 'REOPENED'] } },
+/*
+ * Today's day, specifically. A posting is keyed to the calendar date it
+ * happens on, so an open day left over from yesterday does not admit one.
+ */
+await day.openDay(branch.id, manager).catch(() => {
+  /* already open, which is the other acceptable state */
 });
-if (!openDay) await day.openDay(branch.id, manager);
 
 await settings.set('usdt.withdrawalEnabled', true, manager);
 await settings.set('usdt.withdrawalRequiresApproval', true, manager);

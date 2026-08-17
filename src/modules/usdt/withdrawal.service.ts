@@ -13,6 +13,7 @@ import * as settings from '@/modules/settings/settings.service';
 import * as audit from '@/modules/audit/audit.service';
 import * as notifications from '@/modules/notifications/notifications.service';
 import { createLogger } from '@/core/logger/logger';
+import * as broadcast from './broadcast.service';
 import { providerFor } from './providers';
 
 const log = createLogger('usdt:withdrawal');
@@ -581,5 +582,34 @@ export async function decide(
     .catch((error) => log.warn('Approval notice failed', { id, error }));
 
   log.info('USDT send released', { reference: approved.reference, by: actor.id });
-  return { id: approved.id, reference: approved.reference, approvalState: 'APPROVED' as const };
+
+  /*
+   * And, if the office has asked for it, the coins go now.
+   *
+   * Attempted rather than required: a send that the ceilings refuse, or that
+   * the network will not take, leaves the sale released and waiting for
+   * somebody to send it by hand — which is exactly where it stood a moment ago
+   * and is a state the office already knows how to work in. Failing the
+   * release because the broadcast failed would be worse: the manager's
+   * decision is a fact whether or not the network was reachable when he made
+   * it.
+   */
+  let sent: { txHash: string } | null = null;
+  try {
+    const ready = await broadcast.readiness(db);
+    if (ready.ready) sent = await broadcast.send(approved.id, actor, db);
+  } catch (error) {
+    log.warn('Automatic send did not go; it waits to be sent by hand', {
+      reference: approved.reference,
+      error,
+    });
+  }
+
+  return {
+    id: approved.id,
+    reference: approved.reference,
+    approvalState: 'APPROVED' as const,
+    /** The hash when the program sent it, null when a person still must. */
+    txHash: sent?.txHash ?? null,
+  };
 }

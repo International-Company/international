@@ -59,10 +59,13 @@ const actor = {
   ],
 };
 
-const openDay = await prisma.businessDay.findFirst({
-  where: { branchId: branch.id, status: { in: ['OPEN', 'REOPENED'] } },
+/*
+ * Today's day, specifically. A posting is keyed to the calendar date it
+ * happens on, so an open day left over from yesterday does not admit one.
+ */
+await day.openDay(branch.id, actor).catch(() => {
+  /* already open, which is the other acceptable state */
 });
-if (!openDay) await day.openDay(branch.id, actor);
 
 await settings.set('usdt.counterEnabled', true, actor);
 

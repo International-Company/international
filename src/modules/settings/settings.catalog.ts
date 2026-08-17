@@ -223,6 +223,30 @@ export const SETTINGS: SettingDefinition[] = [
     descriptionAr: 'السماح للتلر بفتح طلبات استلام وعرض عنوان الاستقبال',
   },
   {
+    key: 'usdt.autoSendEnabled', category: 'usdt', type: 'boolean', defaultValue: false,
+    labelEn: 'The program sends the coins itself', labelAr: 'البرنامج يرسل العملة بنفسه',
+    descriptionEn:
+      'After a manager releases a sale, put the transfer on the chain automatically instead of somebody opening a wallet. It needs a hot wallet key in the server environment; without one this does nothing.',
+    descriptionAr:
+      'بعد إفراج المدير، يضع التحويل على السلسلة تلقائياً بدل أن يفتح أحدهم محفظته. يحتاج مفتاح محفظة ساخنة في بيئة الخادم، وبدونه لا يفعل شيئاً.',
+  },
+  {
+    key: 'usdt.autoSendMaxPerTransfer', category: 'usdt', type: 'money', defaultValue: '500',
+    labelEn: 'Most the program sends at once', labelAr: 'أكبر ما يرسله البرنامج دفعة واحدة',
+    descriptionEn:
+      'Above this the sale waits for somebody to send it by hand. Zero removes the ceiling, which is not advised while a key sits on the server.',
+    descriptionAr:
+      'ما فوقه ينتظر من يرسله بيده. والصفر يلغي السقف، وهو غير محبّذ ومفتاحٌ على الخادم.',
+  },
+  {
+    key: 'usdt.autoSendMaxPerDay', category: 'usdt', type: 'money', defaultValue: '2000',
+    labelEn: 'Most the program sends in a day', labelAr: 'أكبر ما يرسله البرنامج في يوم',
+    descriptionEn:
+      'Counted across every automatic send since midnight. It is what a stolen key is worth in a day, so keep it near what the counter actually needs.',
+    descriptionAr:
+      'يُحسب على كل ما أُرسل آلياً منذ منتصف الليل. وهو ما يساويه مفتاحٌ مسروق في يوم، فاجعله قريباً مما يحتاجه الشباك فعلاً.',
+  },
+  {
     key: 'usdt.withdrawalRequiresApproval', category: 'usdt', type: 'boolean', defaultValue: true,
     labelEn: 'A manager releases every USDT send', labelAr: 'المدير يُفرج عن كل سحب USDT',
     descriptionEn:

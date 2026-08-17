@@ -61,6 +61,20 @@ const schema = z.object({
   TRON_API_KEY: z.string().default(''),
   TRON_USDT_CONTRACT: z.string().default('TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'),
 
+  /*
+   * The key that lets the program send coins on its own.
+   *
+   * Here and nowhere else: not in the database, not in a settings row, not in
+   * this repository. An empty value — the default — means the program cannot
+   * send at all, and the office keeps doing it by hand. That is the safe
+   * state, so it is the one you get by doing nothing.
+   *
+   * Give it the key of a hot wallet holding a small float, never the office's
+   * main holdings: whoever gets the server gets this key, and a key is the
+   * coins.
+   */
+  TRON_HOT_WALLET_KEY: z.string().default(''),
+
   ETH_API_BASE: z.string().default('https://api.etherscan.io/api'),
   ETH_API_KEY: z.string().default(''),
   ETH_USDT_CONTRACT: z.string().default('0xdAC17F958D2ee523a2206206994597C13D831ec7'),

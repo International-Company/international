@@ -184,6 +184,20 @@ jobs:
         # only on a freshly seeded one.
         run: npm run verify:withdrawal-approval
 
+      - name: Refuse to send without a key, end to end
+        # No TRON_HOT_WALLET_KEY: the safe default, and the state a deployment
+        # is in until somebody deliberately changes it.
+        run: npm run verify:auto-send
+
+      - name: Hold the ceilings on a key that opens nothing, end to end
+        # A published throwaway key — private key 1, an address nobody has ever
+        # funded — so the ceilings are reached and refuse for their own reasons
+        # rather than for the absence of a key. Nothing is broadcast: every
+        # assertion here is a refusal that happens before the network.
+        env:
+          TRON_HOT_WALLET_KEY: '0000000000000000000000000000000000000000000000000000000000000001'
+        run: npm run verify:auto-send
+
       - name: Take a permission away, end to end
         # Last, because it narrows what the teller may do and lowers his
         # ceiling — everything before it should run against a counter that is
