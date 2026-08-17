@@ -482,12 +482,22 @@ export async function decide(
   if (row.approvalState !== 'PENDING') {
     throw errors.conflict('This send has already been decided', 'errors.withdrawalDecided');
   }
-  if (row.createdById === actor.id) {
-    throw errors.precondition(
-      'The person who recorded it cannot be the person who releases it',
-      'errors.withdrawalSamePerson',
-    );
-  }
+  /*
+   * A manager may release a sale he recorded himself.
+   *
+   * This used to be refused, on the reasoning that the control is a second
+   * pair of eyes. In an office where the manager also serves customers that
+   * reasoning breaks the counter instead of protecting it: he records the sale
+   * because there is nobody else at the window, and then cannot finish it.
+   *
+   * So the control is the permission, not the pairing. A teller does not hold
+   * `usdt.withdrawal.approve` and therefore cannot release anything — his own
+   * least of all — and a manager holds it and may finish his own work. What is
+   * given up is the case of a dishonest manager, which no permission was ever
+   * going to catch; what remains against it is the ceilings on automatic
+   * sending, the audit line naming who released what, and the fact that a
+   * released sale is a posting somebody else can read.
+   */
 
   if (!input.approve) {
     const reason = input.note?.trim();

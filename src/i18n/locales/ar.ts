@@ -1674,7 +1674,6 @@ const ar: Dictionary = {
     notShareable: 'لا تُشارَك إلا عملية مرحّلة',
     notAWithdrawal: 'هذه ليست عملية بيع USDT',
     withdrawalDecided: 'تم البتّ في هذا السحب مسبقاً',
-    withdrawalSamePerson: 'من سجّل العملية لا يُفرج عنها',
     withdrawalNotApproved: 'لم يُفرج المدير عن هذا السحب بعد',
     invalidAddress: 'عنوان المحفظة غير صالح',
     noHotWallet: 'لا توجد محفظة إرسال مهيأة على الخادم',

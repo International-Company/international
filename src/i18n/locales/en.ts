@@ -1676,7 +1676,6 @@ const en = {
     notShareable: 'Only a posted transaction can be shared',
     notAWithdrawal: 'That is not a USDT sale',
     withdrawalDecided: 'This send has already been decided',
-    withdrawalSamePerson: 'The person who recorded it cannot release it',
     withdrawalNotApproved: 'A manager has not released this send yet',
     invalidAddress: 'That wallet address is not usable',
     noHotWallet: 'No sending wallet is configured on the server',

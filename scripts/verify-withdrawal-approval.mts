@@ -166,18 +166,7 @@ await refused(
 );
 
 await refused(
-  'the person who recorded it cannot release it',
-  () =>
-    withdrawal.decide(
-      sale.id,
-      { approve: true },
-      { ...clerk, permissions: [withdrawal.APPROVE_PERMISSION] },
-    ),
-  'errors.withdrawalSamePerson',
-);
-
-await refused(
-  'and somebody without the permission cannot either',
+  'a teller cannot release, his own least of all',
   () => withdrawal.decide(sale.id, { approve: true }, clerk),
   'errors.forbidden',
 );
@@ -251,6 +240,42 @@ ok(
   'and every coin comes back',
   afterRefusal === beforeRefusal + reserved,
   `${money(beforeRefusal)} + ${money(reserved)} = ${money(afterRefusal)}`,
+);
+
+// ---------------------------------------------------------------------------
+console.log('\n— a manager alone at the window finishes his own work —');
+
+/*
+ * The counter is not always two people. A manager who records a sale because
+ * there is nobody else at the window must be able to release it, or the gate
+ * stops the office rather than protecting it. What still stops a teller is the
+ * permission, which he does not hold.
+ */
+const own = await withdrawal.record(
+  {
+    branchId: branch.id,
+    walletId: wallet.id,
+    address: CUSTOMER_WALLET,
+    mode: 'CASH',
+    payCurrency: 'ILS',
+    payAmount: 300n * unit,
+    counterpartyName: 'زبون المدير',
+  },
+  { ...manager, permissions: [...manager.permissions, 'usdt.withdrawal.use', 'exchange.transaction.create'] },
+);
+
+const ownRow = await prisma.transaction.findUniqueOrThrow({
+  where: { id: own.id },
+  select: { createdById: true, approvalState: true },
+});
+ok('he recorded it himself', ownRow.createdById === manager.id);
+ok('and it still waits on a release', ownRow.approvalState === 'PENDING', String(ownRow.approvalState));
+
+const ownReleased = await withdrawal.decide(own.id, { approve: true }, manager);
+ok('which he may give', ownReleased.approvalState === 'APPROVED', ownReleased.approvalState);
+ok(
+  'and it can then be reported as sent',
+  (await transactions.confirmTransfer(own.id, manager)).status === 'POSTED',
 );
 
 // ---------------------------------------------------------------------------
