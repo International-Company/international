@@ -605,12 +605,28 @@ export async function decide(
    * it.
    */
   let sent: { txHash: string } | null = null;
+  /**
+   * Why the coins did not go, when they did not.
+   *
+   * Returned rather than only logged. The first version swallowed this, so a
+   * manager pressed release, read "released", and had no way to tell a
+   * transfer that went from one that never did — which is exactly the question
+   * he pressed the button to answer.
+   */
+  let issue: string | null = null;
+
   try {
     const ready = await broadcast.readiness(db);
-    if (ready.ready) sent = await broadcast.send(approved.id, actor, db);
+    if (ready.ready) {
+      sent = await broadcast.send(approved.id, actor, db);
+    } else {
+      issue = broadcast.hotWallet() ? 'errors.autoSendDisabled' : 'errors.noHotWallet';
+    }
   } catch (error) {
+    issue = (error as { messageKey?: string }).messageKey ?? 'errors.chainRefused';
     log.warn('Automatic send did not go; it waits to be sent by hand', {
       reference: approved.reference,
+      issue,
       error,
     });
   }
@@ -621,5 +637,7 @@ export async function decide(
     approvalState: 'APPROVED' as const,
     /** The hash when the program sent it, null when a person still must. */
     txHash: sent?.txHash ?? null,
+    /** Null when it went; otherwise the reason, in a key the screen can read. */
+    sendIssue: issue,
   };
 }

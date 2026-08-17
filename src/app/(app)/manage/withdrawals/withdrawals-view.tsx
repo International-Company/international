@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { Check, Inbox, Loader2, RefreshCw, X } from 'lucide-react';
 import { useLocale } from '@/i18n/provider';
 import { api } from '@/lib/api-client';
-import { describeFailure } from '@/lib/failure';
+import { describeFailure, say } from '@/lib/failure';
 import { Alert, Button, Card, CardBody } from '@/ui/primitives';
 import { Dialog, useToast } from '@/ui/overlay';
 import { Textarea } from '@/ui/form';
@@ -49,7 +49,21 @@ interface Waiting {
   payoutWallet: { label: string; labelAr: string; network: string } | null;
 }
 
+/** What the program will do when the button is pressed. */
+interface Sending {
+  ready: boolean;
+  address: string | null;
+  perTransfer: string;
+  perDay: string;
+  sentToday: string;
+}
+
 const POLL_MS = 20_000;
+
+/** A scaled figure as a plain two-decimal number, for a sentence. */
+function plain(scaled: string): string {
+  return (Number(BigInt(scaled)) / 1e8).toFixed(2);
+}
 
 export function WithdrawalsView() {
   const { t, ln } = useLocale();
@@ -57,13 +71,16 @@ export function WithdrawalsView() {
   const toast = useToast();
 
   const [rows, setRows] = useState<Waiting[] | null>(null);
+  const [sending, setSending] = useState<Sending | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [refusing, setRefusing] = useState<Waiting | null>(null);
   const [reason, setReason] = useState('');
 
   const load = useCallback(async () => {
     try {
-      setRows(await api.get<Waiting[]>('/api/usdt/withdrawals'));
+      const data = await api.get<{ rows: Waiting[]; sending: Sending }>('/api/usdt/withdrawals');
+      setRows(data.rows);
+      setSending(data.sending);
     } catch {
       setRows((current) => current ?? []);
     }
@@ -78,8 +95,29 @@ export function WithdrawalsView() {
   const decide = async (row: Waiting, approve: boolean, note?: string) => {
     setBusy(row.id);
     try {
-      await api.post(`/api/usdt/withdrawals/${row.id}`, { approve, note: note ?? null });
-      toast.success(approve ? t('release.released') : t('release.refused'), row.reference);
+      const outcome = await api.post<{ txHash: string | null; sendIssue: string | null }>(
+        `/api/usdt/withdrawals/${row.id}`,
+        { approve, note: note ?? null },
+      );
+
+      /*
+       * Three different things can have happened and they must not share one
+       * message: refused, released and sent, or released and still waiting for
+       * a person. The last one used to read exactly like the middle one.
+       */
+      if (!approve) {
+        toast.success(t('release.refused'), row.reference);
+      } else if (outcome.txHash) {
+        toast.success(t('release.sent'), outcome.txHash);
+      } else {
+        // A warning rather than a success: the release worked, but the thing
+        // the manager was watching for — the coins leaving — did not happen.
+        toast.toast({
+          tone: 'warning',
+          title: t('release.releasedNotSent'),
+          description: say(t, outcome.sendIssue, undefined) || t('release.sendByHand'),
+        });
+      }
       setRefusing(null);
       setReason('');
       await load();
@@ -123,6 +161,28 @@ export function WithdrawalsView() {
           {t('common.refresh')}
         </Button>
       </div>
+
+      {/*
+        What pressing the button will actually do, said before it is pressed.
+        Without this a manager releases a sale, reads "released", and has no
+        way of knowing whether the coins moved — which is the question he
+        pressed it to settle.
+      */}
+      {sending &&
+        (sending.ready ? (
+          <Alert tone="success" title={t('release.autoOn')}>
+            {t('release.autoOnBody', {
+              address: sending.address ?? '',
+              perTransfer: plain(sending.perTransfer),
+              perDay: plain(sending.perDay),
+              sentToday: plain(sending.sentToday),
+            })}
+          </Alert>
+        ) : (
+          <Alert tone="warning" title={t('release.autoOff')}>
+            {t('release.autoOffBody')}
+          </Alert>
+        ))}
 
       <div className="flex flex-col gap-3">
         {rows.map((row) => (

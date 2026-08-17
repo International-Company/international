@@ -1022,6 +1022,15 @@ const en = {
     released: 'Released',
     refuse: 'Refuse',
     refused: 'Refused and reversed',
+    sent: 'The coins were sent',
+    releasedNotSent: 'Released — not sent yet',
+    sendByHand: 'Send it from the wallet by hand, then confirm that it left.',
+    autoOn: 'Automatic sending is ready',
+    autoOnBody:
+      'Releasing sends the coins straight away from {address}. Up to {perTransfer} a transfer and {perDay} a day, with {sentToday} gone today.',
+    autoOff: 'Automatic sending is not ready',
+    autoOffBody:
+      'Releasing does not send the coins — it only opens the way, and somebody sends them by hand. To switch it on: put the wallet key in the server environment, then turn on "The program sends the coins itself" in settings.',
     refuseTitle: 'Refuse the send',
     refuseBody: 'Refusing reverses the sale: the coins go back on the balance and the money goes back to the customer. Write the reason so the teller can tell them.',
     reasonPlaceholder: 'Reason for refusing',
