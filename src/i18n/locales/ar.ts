@@ -1707,6 +1707,7 @@ const ar: Dictionary = {
     pairNotOffered: 'زوج {pair} غير مطروح على الشباك',
     splitNeedsPayAmount:
       'الدفع المزدوج يُسعَّر مما يدفعه العميل — اكتب المبلغ في خانة «العميل يدفع»',
+    splitOverPay: 'قيمة التحويل أكبر مما يدفعه العميل',
     splitShareOutOfRange: 'حصة البنك جزء من المبلغ، لا كلّه ولا صفر',
 
     // --- كسر السعر ---

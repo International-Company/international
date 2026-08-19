@@ -294,11 +294,16 @@ export interface MachineRecordInput {
   /** What the customer takes away — single channel only. */
   toAmount?: bigint;
   /**
-   * For a split: how much of what the customer hands over settles through the
-   * broker. The till takes the rest, so the two can never be sent in
-   * disagreeing with each other or with a total priced from a stale board.
+   * For a split: how much the customer wants **transferred**, in the currency
+   * they are taking away.
+   *
+   * Named on the payout side because that is the side the customer names. They
+   * say "put two hundred shekels in my account" — the figure that will appear
+   * on their statement — not "seventy dollars of what I am handing you". The
+   * transfer instruction is therefore exact, and the notes counted out are
+   * whatever the rest of their money buys at the till's own price.
    */
-  brokerShare?: bigint;
+  brokerPayout?: bigint;
   /** Which of the broker's accounts the transfer is instructed to. */
   payoutChannel?: string | null;
   branchId: string;
@@ -506,9 +511,26 @@ async function claimForDeal(
         'errors.splitNeedsPayAmount',
       );
     }
-    const brokerShare = input.brokerShare ?? 0n;
+    /*
+     * The approval's cap is checked against what the leg costs at the board.
+     * Priced here purely to have a figure to check against; the deal itself is
+     * priced again, at the granted rate, when the legs are built.
+     */
+    const brokerFrom =
+      input.brokerPayout && input.brokerPayout > 0n
+        ? (
+            await quoteReverse(
+              input.fromCurrency,
+              input.toCurrency,
+              input.brokerPayout,
+              'BROKER',
+              db,
+            )
+          ).fromAmount
+        : 0n;
+
     channel = approvedFor;
-    covered = approvedFor === 'BROKER' ? brokerShare : input.fromAmount - brokerShare;
+    covered = approvedFor === 'BROKER' ? brokerFrom : input.fromAmount - brokerFrom;
   } else {
     channel = input.mode === 'BROKER' ? 'BROKER' : 'CASH';
     covered =
@@ -621,18 +643,55 @@ async function priceLegs(
     );
   }
 
-  const brokerShare = input.brokerShare ?? 0n;
-  if (brokerShare <= 0n || brokerShare >= input.fromAmount) {
+  const wanted = input.brokerPayout ?? 0n;
+  if (wanted <= 0n) {
     throw errors.precondition(
       'The transferred share must be part of the amount, not all or none of it',
       'errors.splitShareOutOfRange',
     );
   }
 
-  const [cash, broker] = await Promise.all([
-    price(input.fromAmount - brokerShare, 'CASH'),
-    price(brokerShare, 'BROKER'),
-  ]);
+  /*
+   * The transfer is sized backwards from the figure the customer named, so it
+   * lands on their statement as exactly that. What it costs them is whatever
+   * the broker's price makes it, and the till takes the remainder.
+   */
+  const brokerLeg = await quoteReverse(
+    input.fromCurrency,
+    input.toCurrency,
+    wanted,
+    'BROKER',
+    db,
+    rateFor('BROKER'),
+  );
+
+  const cashFrom = input.fromAmount - brokerLeg.fromAmount;
+  if (cashFrom <= 0n) {
+    throw errors.precondition(
+      'That transfer costs more than the customer is handing over',
+      'errors.splitOverPay',
+    );
+  }
+
+  const cash = await price(cashFrom, 'CASH');
+
+  /*
+   * The transfer pays out exactly what was named, not what the rounded cost
+   * re-multiplies to.
+   *
+   * Sizing 200.00 backwards through 2.85 costs 70.175…, which the dollar can
+   * only express as 70.18 — and 70.18 back through 2.85 is 200.01. Posting
+   * that would put a figure on the customer's statement that nobody asked for
+   * and nobody can explain. So the office absorbs the fraction of a piastre,
+   * which is what it already does on every rounding in this system, and the
+   * instruction that leaves for the broker says the figure the customer named.
+   */
+  const broker: Leg = {
+    from: brokerLeg.fromAmount,
+    to: wanted,
+    profit: brokerLeg.profit,
+    quote: brokerLeg,
+  };
 
   return { cash, broker };
 }

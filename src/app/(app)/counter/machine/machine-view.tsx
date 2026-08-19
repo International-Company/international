@@ -395,13 +395,33 @@ export function MachineView({
 
     if (!quote.cash || !quote.broker) return none;
 
+    /*
+     * The customer names the transfer, in the money they are taking away:
+     * "put two hundred shekels in my account". So that leg is exact, and what
+     * it *costs* is worked backwards through the broker's own price. The till
+     * then counts out whatever the rest of their money buys at its price —
+     * which is why the total moves a little as the transfer is typed.
+     */
     const paid = BigInt(quote.cash.fromAmount);
-    const typed = scaleAmount(brokerShare);
-    const viaBroker = typed > paid ? paid : typed;
+    const wanted = scaleAmount(brokerShare);
+    if (wanted <= 0n) return { cash: 0n, broker: 0n, from: paid };
+
+    const brokerRate = BigInt(quote.broker.rate);
+    if (brokerRate <= 0n) return none;
+
+    /*
+     * What that transfer costs the customer, at the broker's price — rounded to
+     * what their currency can actually express, which is what the server does
+     * when it prices the same leg. Truncating instead left the screen a
+     * hundredth above the figure that would be posted, and a teller reading out
+     * a total the receipt then contradicts is an argument at the counter.
+     */
+    const costsFrom = roundTo((wanted * 100000000n) / brokerRate, fromCurrency?.decimals ?? 2);
+    if (costsFrom >= paid) return { cash: 0n, broker: 0n, from: paid };
 
     return {
-      cash: applyRate(paid - viaBroker, quote.cash.rate, toCurrency?.decimals ?? 2),
-      broker: applyRate(viaBroker, quote.broker.rate, toCurrency?.decimals ?? 2),
+      cash: applyRate(paid - costsFrom, quote.cash.rate, toCurrency?.decimals ?? 2),
+      broker: wanted,
       from: paid,
     };
   })();
@@ -434,13 +454,15 @@ export function MachineView({
     if (channel === 'CASH') return quote.cash ? BigInt(quote.cash.profit ?? '0') : null;
     if (channel === 'BROKER') return quote.broker ? BigInt(quote.broker.profit ?? '0') : null;
 
-    // A split earns each channel's margin in proportion to the share it paid.
+    // Each channel's margin in proportion to the money that went through it.
     if (!quote.cash?.profit || !quote.broker?.profit || legs.from === 0n) return null;
-    const typed = scaleAmount(brokerShare);
-    const viaBroker = typed > legs.from ? legs.from : typed;
+    const brokerRate = BigInt(quote.broker.rate);
+    if (brokerRate <= 0n) return null;
+    const costsFrom = (legs.broker * 100000000n) / brokerRate;
+    if (costsFrom <= 0n || costsFrom >= legs.from) return null;
     return (
-      (BigInt(quote.cash.profit) * (legs.from - viaBroker)) / legs.from +
-      (BigInt(quote.broker.profit) * viaBroker) / legs.from
+      (BigInt(quote.cash.profit) * (legs.from - costsFrom)) / legs.from +
+      (BigInt(quote.broker.profit) * costsFrom) / legs.from
     );
   })();
 
@@ -492,7 +514,7 @@ export function MachineView({
            * own board — sending the totals would let a screen holding a stale
            * price post figures that were never quoted.
            */
-          brokerShare: channel === 'SPLIT' ? unscale(scaleAmount(brokerShare)) : undefined,
+          brokerPayout: channel === 'SPLIT' ? unscale(scaleAmount(brokerShare)) : undefined,
           payoutChannel: legs.broker > 0n ? destination : null,
           /*
            * The id, never the price. The server reads the rate off the approval,
@@ -744,10 +766,20 @@ export function MachineView({
               </label>
             )}
 
+            {/*
+              Both halves in the money the customer takes away, because that is
+              the money they are talking about: "put two hundred in my account
+              and give me the rest." The transfer is exact — it is the figure
+              that will appear on their statement — and the cash is whatever
+              the remainder of their money buys at the till's own price, which
+              is why it moves as the transfer is typed.
+            */}
             {channel === 'SPLIT' && (
               <div className="mt-3 grid grid-cols-2 gap-3">
                 <label className="block">
-                  <span className="text-xs text-content-tertiary">{t('machine.payoutBankLeg')}</span>
+                  <span className="text-xs text-content-tertiary">
+                    {t('machine.payoutBankLeg')} ({to})
+                  </span>
                   <input
                     type="text"
                     dir="ltr"
@@ -755,24 +787,10 @@ export function MachineView({
                     autoComplete="off"
                     data-zoom-safe=""
                     value={brokerShare}
-                    placeholder={(0).toFixed(fromCurrency?.decimals ?? 2)}
+                    placeholder={(0).toFixed(toCurrency?.decimals ?? 2)}
                     onChange={(event) => {
                       setDone(null);
-                      const decimals = fromCurrency?.decimals ?? 2;
-                      const typed = sanitiseAmount(event.target.value, decimals);
-
-                      /*
-                       * Held at the total. More than the payout cannot be
-                       * transferred, and letting the field show a figure larger
-                       * than the one that will actually move would be a display
-                       * disagreeing with what it is about to do.
-                       */
-                      const paid = quote?.cash ? BigInt(quote.cash.fromAmount) : 0n;
-                      setBrokerShare(
-                        paid > 0n && scaleAmount(typed) > paid
-                          ? formatPlain(paid.toString(), decimals)
-                          : typed,
-                      );
+                      setBrokerShare(sanitiseAmount(event.target.value, toCurrency?.decimals ?? 2));
                     }}
                     className="mt-1 h-12 w-full rounded-xl bg-surface-sunken px-3 text-end text-xl font-semibold tabular-nums text-content outline-none ring-1 ring-transparent focus:ring-primary"
                   />
@@ -780,13 +798,10 @@ export function MachineView({
 
                 <div className="block">
                   <span className="text-xs text-content-tertiary">
-                    {t('machine.payoutCashLeg')}
+                    {t('machine.payoutCashLeg')} ({to})
                   </span>
                   <p className="mt-1 flex h-12 items-center justify-end rounded-xl bg-surface-sunken px-3 text-xl font-semibold tabular-nums text-content-secondary ltr-content">
-                    {formatScaled(
-                      (legs.from - (scaleAmount(brokerShare) > legs.from ? legs.from : scaleAmount(brokerShare))).toString(),
-                      fromCurrency?.decimals ?? 2,
-                    )}
+                    {formatScaled(legs.cash.toString(), toCurrency?.decimals ?? 2)}
                   </p>
                 </div>
               </div>
@@ -1325,6 +1340,13 @@ function sanitiseAmount(raw: string, limit: number): string {
  * out is the figure that gets posted rather than one that rounds differently on
  * the way through.
  */
+/** A scaled figure cut to what a currency can express, rounding half up. */
+function roundTo(amount: bigint, decimals: number): bigint {
+  const step = 10n ** BigInt(8 - decimals);
+  if (step <= 1n) return amount;
+  return ((amount + step / 2n) / step) * step;
+}
+
 function applyRate(amount: bigint, rate: string, decimals: number): bigint {
   const product = amount * BigInt(rate);
   const step = 10n ** BigInt(16 - decimals);

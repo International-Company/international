@@ -75,10 +75,11 @@ const bodySchema = z.object({
   pay: z.string().optional(),
   receive: z.string().optional(),
   /**
-   * For a split: how much of what the customer hands over settles through the
-   * broker. The till takes the rest, and each part is priced at its own rate.
+   * For a split: how much the customer wants transferred, in the currency they
+   * take away. It is the figure that lands on their statement, so it is exact;
+   * the till counts out whatever the rest of their money buys.
    */
-  brokerShare: z.string().optional(),
+  brokerPayout: z.string().optional(),
   /** Which of the broker's accounts the transfer is instructed to. */
   payoutChannel: z.string().max(80).nullish(),
   /**
@@ -106,7 +107,7 @@ export const POST = route<z.infer<typeof bodySchema>>({
         mode: body.mode,
         fromAmount: body.pay !== undefined ? parseMoney(body.pay) : undefined,
         toAmount: body.receive !== undefined ? parseMoney(body.receive) : undefined,
-        brokerShare: body.brokerShare !== undefined ? parseMoney(body.brokerShare) : undefined,
+        brokerPayout: body.brokerPayout !== undefined ? parseMoney(body.brokerPayout) : undefined,
         payoutChannel: body.payoutChannel ?? null,
         priceExceptionId: body.priceExceptionId ?? null,
         branchId: actor.branchId,

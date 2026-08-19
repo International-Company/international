@@ -184,6 +184,9 @@ jobs:
         # only on a freshly seeded one.
         run: npm run verify:withdrawal-approval
 
+      - name: Split a trade two ways, end to end
+        run: npm run verify:machine-split
+
       - name: Let go of an address, end to end
         # After the counter and the approval steps, so the database holds both
         # a posting and a promise for the two refusals to stand on.

@@ -31,7 +31,8 @@
     "verify:usdt-counter": "tsx --conditions=react-server scripts/verify-usdt-counter.mts",
     "verify:auto-send": "tsx --conditions=react-server scripts/verify-auto-send.mts",
     "wallet:new": "tsx --conditions=react-server scripts/new-hot-wallet.mts",
-    "verify:wallet-removal": "tsx --conditions=react-server scripts/verify-wallet-removal.mts"
+    "verify:wallet-removal": "tsx --conditions=react-server scripts/verify-wallet-removal.mts",
+    "verify:machine-split": "tsx --conditions=react-server scripts/verify-machine-split.mts"
   },
   "//dependencies": "Anything `next build`, `prisma generate` or the deploy start command needs at build time lives here, NOT in devDependencies. Platforms that set NODE_ENV=production during the build (Railway, Heroku, Nixpacks) make npm skip devDependencies entirely, so a build-time package placed there is simply absent when the build runs.",
   "dependencies": {

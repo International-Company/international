@@ -1709,6 +1709,7 @@ const en = {
     pairNotOffered: 'The {pair} pair is not offered at the counter',
     splitNeedsPayAmount:
       'A split is priced from what the customer hands over — put the amount in the "customer pays" field',
+    splitOverPay: 'That transfer costs more than the customer is handing over',
     splitShareOutOfRange: 'The transferred share must be part of the amount, not all or none of it',
 
     // --- Breaking the board price ---
