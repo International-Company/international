@@ -23,6 +23,7 @@ import { Badge, Button } from '@/ui/primitives';
 import { DropdownMenu, MenuItem, MenuLabel, MenuSeparator } from '@/ui/overlay';
 import { cn, initials } from '@/ui/utils';
 import { BRAND } from './brand';
+import { DayChip } from './day-chip';
 import { isActiveRoute, visibleNavigation, type NavItem } from './navigation';
 import { NAV_ICONS } from './icons';
 import { CommandPalette } from './command-palette';
@@ -176,6 +177,13 @@ export function AppShell({
             <X className="size-4" />
           </button>
         </div>
+
+        {/*
+          Under the brand, where the eye lands first: the counter has to be
+          opened before any tool in the building will record anything, and this
+          is the only place every person passes on the way to their work.
+        */}
+        <DayChip collapsed={collapsed} />
 
         <nav className="flex-1 space-y-4 overflow-y-auto px-2 py-3" aria-label={t('nav.operations')}>
           {sections.map((section) => (

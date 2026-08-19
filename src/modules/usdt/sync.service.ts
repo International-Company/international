@@ -127,7 +127,25 @@ export async function syncWallet(
   }
 }
 
-type IngestOutcome = 'CREATED' | 'UPDATED' | 'UNCHANGED';
+type IngestOutcome = 'CREATED' | 'UPDATED' | 'UNCHANGED' | 'REJECTED';
+
+/**
+ * The largest amount a transfer row can hold.
+ *
+ * The column is a signed 64-bit integer, and the scaled figures this system
+ * speaks are eight decimal places wide — so anything at or above this cannot be
+ * stored at all.
+ *
+ * Real transfers never come near it. What does is the scam airdrop: a worthless
+ * token sent to thousands of addresses carrying the largest number the standard
+ * allows, precisely so that software which trusts it breaks. And it worked —
+ * one of them stopped a wallet's sync outright, and a counter whose sync has
+ * stopped is blind to every genuine arrival after it.
+ *
+ * So a transfer that cannot be stored is skipped, loudly, and the poll carries
+ * on to the ones that can.
+ */
+const LARGEST_STORABLE = 2n ** 63n - 1n;
 
 /**
  * Records one on-chain transfer. Idempotent on (wallet, hash, direction), so
@@ -149,6 +167,20 @@ async function ingestTransfer(
   // each row is scoped to its own wallet, so both are correct.
   if (!isIncoming && !isOutgoing) return 'UNCHANGED';
   const direction = isIncoming ? 'IN' : 'OUT';
+
+  /*
+   * Checked before anything is written. The amount arrives already scaled by
+   * the provider, so this is the figure the column would have to take.
+   */
+  if (transfer.amount > LARGEST_STORABLE || transfer.amount < 0n) {
+    log.warn('Skipped a transfer whose amount cannot be stored', {
+      walletId,
+      txHash: transfer.txHash,
+      tokenSymbol: transfer.tokenSymbol,
+      contractAddress: transfer.contractAddress,
+    });
+    return 'REJECTED';
+  }
 
   const confirmed = transfer.confirmations >= wallet.minConfirmations;
   const status = transfer.status === 'FAILED' ? 'FAILED' : confirmed ? 'CONFIRMED' : 'PENDING';

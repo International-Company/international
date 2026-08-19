@@ -509,6 +509,9 @@ const en = {
   },
 
   day: {
+    start: 'Start the day',
+    started: 'The day has started',
+    startedBody: 'The counter is open — the teller can record now.',
     title: 'The Counter Day',
     subtitle: 'Open the counter so the teller can work, and close it to draw a line',
     title2: 'The Day',
