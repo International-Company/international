@@ -1,10 +1,11 @@
 'use client';
 
 import { useCallback, useState } from 'react';
-import { Copy, MessageCircle, Send, Share2 } from 'lucide-react';
+import { Copy, FileText, MessageCircle, Send, Share2 } from 'lucide-react';
 import { useLocale } from '@/i18n/provider';
 import { api } from '@/lib/api-client';
 import { describeFailure } from '@/lib/failure';
+import { receiptPdf } from '@/lib/receipt-pdf';
 import { Button } from '@/ui/primitives';
 import { DropdownMenu, MenuItem, useToast } from '@/ui/overlay';
 import { cn } from '@/ui/utils';
@@ -116,6 +117,50 @@ export function ShareButton({
     note('WHATSAPP');
   };
 
+  /**
+   * The receipt as a file.
+   *
+   * Handed to the operating system's own sheet when it will take files, which
+   * on a phone puts the PDF straight into WhatsApp as an attachment — the thing
+   * a link cannot do, because `wa.me` carries text and nothing else. Everywhere
+   * else it saves, and the person attaches it themselves.
+   */
+  const viaPdf = async (data: Shareable) => {
+    setLoading(true);
+    try {
+      const blob = await receiptPdf({
+        // The letterhead is the first line the server composed; the drawing
+        // reads the rest, so the file and the message carry one set of facts.
+        companyName: data.text.split('\n')[0] ?? '',
+        reference: data.reference,
+        text: data.text,
+      });
+      const file = new File([blob], `${data.reference}.pdf`, { type: 'application/pdf' });
+
+      if (typeof navigator.canShare === 'function' && navigator.canShare({ files: [file] })) {
+        await navigator.share({ files: [file], title: data.reference });
+        note('SYSTEM');
+        return;
+      }
+
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = file.name;
+      link.click();
+      URL.revokeObjectURL(url);
+      toast.success(t('share.pdfSaved'), file.name);
+      note('COPY');
+    } catch (caught) {
+      // Dismissing the system's sheet is a decision, not a failure.
+      if ((caught as { name?: string }).name === 'AbortError') return;
+      const failure = describeFailure(caught, t as never);
+      toast.error(failure.title, failure.body);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const viaClipboard = async (data: Shareable) => {
     try {
       await navigator.clipboard.writeText(data.text);
@@ -199,6 +244,10 @@ export function ShareButton({
               onClick={act((data) => viaWhatsApp(data, false))}
             >
               {t('share.whatsapp')}
+            </MenuItem>
+
+            <MenuItem icon={<FileText />} disabled={!payload} onClick={act(viaPdf)}>
+              {t('share.pdf')}
             </MenuItem>
 
             <MenuItem icon={<Copy />} disabled={!payload} onClick={act(viaClipboard)}>

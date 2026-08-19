@@ -1523,6 +1523,8 @@ const ar: Dictionary = {
     system: 'مشاركة عبر التطبيقات',
     whatsapp: 'إرسال بواتساب',
     whatsappCustomer: 'إرسال للعميل بواتساب',
+    pdf: 'إرسال PDF',
+    pdfSaved: 'حُفظ الملف',
     copy: 'نسخ النص',
     copied: 'نُسخ النص',
     copyFailedTitle: 'تعذّر النسخ',

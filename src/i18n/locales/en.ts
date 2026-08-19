@@ -1524,6 +1524,8 @@ const en = {
     system: 'Share via apps',
     whatsapp: 'Send on WhatsApp',
     whatsappCustomer: 'Send to the customer on WhatsApp',
+    pdf: 'Send a PDF',
+    pdfSaved: 'The file was saved',
     copy: 'Copy the text',
     copied: 'Text copied',
     copyFailedTitle: 'Could not copy',
