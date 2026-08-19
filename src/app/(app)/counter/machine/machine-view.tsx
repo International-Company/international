@@ -170,6 +170,7 @@ export function MachineView({
   const [approval, setApproval] = useState<Approval | null>(null);
   const [done, setDone] = useState<{ id: string; reference: string } | null>(null);
   const [counterpartyName, setCounterpartyName] = useState('');
+  const [counterpartyPhone, setCounterpartyPhone] = useState('');
   const [customer, setCustomer] = useState<CustomerHit | null>(null);
   const [customerOpen, setCustomerOpen] = useState(false);
   const [recent, setRecent] = useState<RecentRow[]>([]);
@@ -353,6 +354,7 @@ export function MachineView({
   const reset = () => {
     clearEntry();
     setCounterpartyName('');
+    setCounterpartyPhone('');
     setCustomer(null);
     setCustomerOpen(false);
     setChannel('CASH');
@@ -484,6 +486,20 @@ export function MachineView({
       ].filter(Boolean) as string[])
     : [];
 
+  /*
+   * Money going through a bank belongs to a person who can be reached.
+   *
+   * Cash across a counter is anonymous by its nature; a transfer leaves a trail
+   * with the broker's name on it, and the office is the only party who knows
+   * whose money it was. The server refuses either way — this is so the teller
+   * learns it while the customer is still in front of him rather than after
+   * pressing record.
+   */
+  const throughBank = channel === 'BROKER' || (channel === 'SPLIT' && legs.broker > 0n);
+  const named = Boolean(customer) || counterpartyName.trim().length > 0;
+  const reachable = Boolean(customer?.phone?.trim()) || counterpartyPhone.trim().length > 0;
+  const needsContact = throughBank && (!named || !reachable);
+
   /** No price published for the way the teller has chosen to pay. */
   const noPrice = unpriced.length > 0;
 
@@ -495,7 +511,8 @@ export function MachineView({
     received <= 0n ||
     quote.overLimit ||
     shortLeg !== null ||
-    (quote.requiresCustomer && !customer);
+    (quote.requiresCustomer && !customer) ||
+    needsContact;
 
   const submit = async () => {
     if (!quote || blocked) return;
@@ -523,6 +540,7 @@ export function MachineView({
           priceExceptionId: approval?.id ?? null,
           customerId: customer?.id ?? null,
           counterpartyName: counterpartyName.trim() || null,
+          counterpartyPhone: counterpartyPhone.trim() || null,
         },
       );
 
@@ -943,15 +961,17 @@ export function MachineView({
 
         {/* ============ Folded away until needed ============ */}
         <div className="space-y-3">
-          {customerOpen || customer || quote?.requiresCustomer ? (
+          {customerOpen || customer || quote?.requiresCustomer || throughBank ? (
             <div className="rounded-2xl bg-surface p-4 ring-1 ring-border-subtle">
               <div className="mb-3 flex items-center justify-between gap-2">
                 <p className="text-sm font-medium text-content">
-                  {quote?.requiresCustomer
-                    ? t('machine.customerRequiredTitle')
-                    : t('machine.customerOptional')}
+                  {throughBank
+                    ? t('machine.transferNeedsContact')
+                    : quote?.requiresCustomer
+                      ? t('machine.customerRequiredTitle')
+                      : t('machine.customerOptional')}
                 </p>
-                {!quote?.requiresCustomer && (
+                {!quote?.requiresCustomer && !throughBank && (
                   <button
                     type="button"
                     onClick={() => {
@@ -972,15 +992,33 @@ export function MachineView({
                   value={customer}
                   onChange={setCustomer}
                   permissions={permissions}
-                  required={quote?.requiresCustomer}
+                  required={quote?.requiresCustomer || throughBank}
                 />
                 {!customer && (
-                  <Field label={t('transactions.counterpartyName')}>
+                  <Field label={t('transactions.counterpartyName')} required={throughBank}>
                     {(props) => (
                       <Input
                         {...props}
                         value={counterpartyName}
                         onChange={(event) => setCounterpartyName(event.target.value)}
+                      />
+                    )}
+                  </Field>
+                )}
+                {/*
+                  A registered customer carries his own number; anybody else has
+                  to leave one, because a transfer the office cannot trace to a
+                  person is the one it will be asked about.
+                */}
+                {!customer?.phone && (
+                  <Field label={t('transactions.counterpartyPhone')} required={throughBank}>
+                    {(props) => (
+                      <Input
+                        {...props}
+                        type="tel"
+                        dir="ltr"
+                        value={counterpartyPhone}
+                        onChange={(event) => setCounterpartyPhone(event.target.value)}
                       />
                     )}
                   </Field>

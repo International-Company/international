@@ -992,6 +992,7 @@ const en = {
     record: 'Record',
     recorded: 'Recorded',
     customerOptional: 'Customer (optional)',
+    transferNeedsContact: 'A transfer needs the name and number of the person it is for',
     customerRequiredTitle: 'A customer is required',
     customerRequiredBody: 'This amount must be attached to a registered customer before it can be recorded.',
     cannotPayTitle: 'The drawer cannot cover this',
@@ -1700,6 +1701,8 @@ const en = {
     notTron: 'Only TRON transfers can be sent automatically',
     hotWalletKeyInvalid: 'The wallet key must be 64 hexadecimal characters',
     chainRefused: 'The network refused the transfer',
+    transferNeedsCustomer: 'A transfer needs the name of the person it is for',
+    transferNeedsPhone: 'A transfer needs a telephone number for the person it is for',
     noSystemUser: 'No system user is configured',
 
     // --- The exchange machine ---

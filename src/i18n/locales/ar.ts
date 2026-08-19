@@ -991,6 +991,7 @@ const ar: Dictionary = {
     record: 'تسجيل',
     recorded: 'تم التسجيل',
     customerOptional: 'العميل (اختياري)',
+    transferNeedsContact: 'الحوالة تحتاج اسم صاحبها ورقمه',
     customerRequiredTitle: 'يلزم عميل مسجّل',
     customerRequiredBody: 'يجب ربط هذا المبلغ بعميل مسجّل قبل تسجيل العملية.',
     cannotPayTitle: 'الصندوق لا يغطي المبلغ',
@@ -1698,6 +1699,8 @@ const ar: Dictionary = {
     notTron: 'الإرسال الآلي على شبكة ترون فقط',
     hotWalletKeyInvalid: 'مفتاح المحفظة يجب أن يكون ٦٤ حرفاً ست عشرياً',
     chainRefused: 'رفضت الشبكة التحويل',
+    transferNeedsCustomer: 'الحوالة تحتاج اسم الشخص الذي هي له',
+    transferNeedsPhone: 'الحوالة تحتاج رقم هاتف الشخص الذي هي له',
     noSystemUser: 'لا يوجد مستخدم نظام مهيأ',
 
     // --- ماكينة التصريف ---

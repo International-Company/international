@@ -159,12 +159,51 @@ export async function record(
     }
   }
 
+  /*
+   * Money that goes through a bank belongs to a person who can be reached.
+   *
+   * A transfer leaves a trail with somebody else's name on it — the broker's —
+   * and the office is the only party that knows whose money it was. Cash across
+   * a counter is anonymous by its nature and always has been; a transfer is
+   * not, and an office that cannot say who a transfer was for has a problem it
+   * will only discover when somebody asks.
+   *
+   * So a leg through the broker, on either side, requires a name *and* a
+   * number: a registered customer carrying a phone, or a name and phone typed
+   * at the counter. Checked here rather than on each screen because there are
+   * four ways to reach a broker leg — the machine, a split, the USDT counter
+   * and a USDT sale — and a rule enforced in four places is a rule with three
+   * places left to forget it.
+   */
+  const throughBroker = payout.broker > 0n || intake.broker > 0n;
+
   const recorded = await withTransaction(async (tx) => {
+    let customerPhone: string | null = null;
+
     if (input.customerId) {
       const customer = await tx.customer.findUnique({ where: { id: input.customerId } });
       if (!customer) throw errors.notFound('Customer', input.customerId);
       if (customer.isBlocked) {
         throw errors.precondition(`Customer ${customer.code} is blocked`, 'errors.customerBlocked');
+      }
+      customerPhone = customer.phone;
+    }
+
+    if (throughBroker) {
+      const named = input.customerId ?? input.counterpartyName?.trim();
+      const reachable = customerPhone?.trim() || input.counterpartyPhone?.trim();
+
+      if (!named) {
+        throw errors.precondition(
+          'A transfer needs the name of the person it is for',
+          'errors.transferNeedsCustomer',
+        );
+      }
+      if (!reachable) {
+        throw errors.precondition(
+          'A transfer needs a telephone number for the person it is for',
+          'errors.transferNeedsPhone',
+        );
       }
     }
 
@@ -298,8 +337,16 @@ export async function record(
         module: 'exchange',
         entityType: 'Transaction',
         entityId: row.id,
-        summaryEn: `${meta.nameEn} ${reference}: ${toDecimalString(input.fromAmount, 2)} ${input.fromCurrency} for ${toDecimalString(input.toAmount, 2)} ${input.toCurrency}`,
-        summaryAr: `${meta.nameAr} ${reference}: ${toDecimalString(input.fromAmount, 2)} ${input.fromCurrency} مقابل ${toDecimalString(input.toAmount, 2)} ${input.toCurrency}`,
+        /*
+         * A transfer is spelled out rather than folded into a total. Somebody
+         * reading this line back — a manager, an auditor, the office itself a
+         * year later — needs to see that part of it left through a bank, how
+         * much, to which account, and for whom, without opening anything else.
+         * A split that reads only as one figure hides exactly the half that is
+         * worth asking about.
+         */
+        summaryEn: `${meta.nameEn} ${reference}: ${toDecimalString(input.fromAmount, 2)} ${input.fromCurrency} for ${toDecimalString(input.toAmount, 2)} ${input.toCurrency}${describeBroker(payout, intake, input, 'en')}`,
+        summaryAr: `${meta.nameAr} ${reference}: ${toDecimalString(input.fromAmount, 2)} ${input.fromCurrency} مقابل ${toDecimalString(input.toAmount, 2)} ${input.toCurrency}${describeBroker(payout, intake, input, 'ar')}`,
         actor,
         after: {
           reference,
@@ -309,6 +356,28 @@ export async function record(
           toAmount: input.toAmount.toString(),
           toCurrency: input.toCurrency,
           rate: input.rate.toString(),
+          // The bank half, named on its own so a search can find it.
+          ...(payout.broker > 0n
+            ? {
+                payoutBankAmount: payout.broker.toString(),
+                payoutCashAmount: payout.cash.toString(),
+                payoutBankChannel: input.payoutChannel ?? null,
+              }
+            : {}),
+          ...(intake.broker > 0n
+            ? {
+                intakeBrokerAmount: intake.broker.toString(),
+                intakeCashAmount: intake.cash.toString(),
+                intakeBankChannel: input.intakeChannel ?? null,
+              }
+            : {}),
+          ...(payout.broker > 0n || intake.broker > 0n
+            ? {
+                counterpartyName: input.counterpartyName ?? null,
+                counterpartyPhone: input.counterpartyPhone ?? null,
+                customerId: input.customerId ?? null,
+              }
+            : {}),
         },
       },
       tx,
@@ -995,4 +1064,48 @@ export async function requireBranch(actor: Actor): Promise<string> {
   const branch = await prisma.branch.findFirst({ where: { isActive: true }, orderBy: { code: 'asc' } });
   if (!branch) throw errors.precondition('No branch is configured', 'errors.noBranch');
   return branch.id;
+}
+
+/**
+ * The bank half of a posting, in words, for the audit line.
+ *
+ * Empty when nothing went through the broker, so an ordinary cash trade reads
+ * exactly as it always did and the sentence only grows where there is
+ * something to say.
+ */
+function describeBroker(
+  payout: { cash: bigint; broker: bigint },
+  intake: { cash: bigint; broker: bigint },
+  input: RecordInput,
+  locale: 'en' | 'ar',
+): string {
+  const parts: string[] = [];
+
+  if (payout.broker > 0n) {
+    const amount = `${toDecimalString(payout.broker, 2)} ${input.toCurrency}`;
+    const where = input.payoutChannel ? ` → ${input.payoutChannel}` : '';
+    parts.push(
+      locale === 'en'
+        ? `${amount} of it by transfer${where}`
+        : `منها ${amount} حوالة${where}`,
+    );
+  }
+
+  if (intake.broker > 0n) {
+    const amount = `${toDecimalString(intake.broker, 2)} ${input.fromCurrency}`;
+    const where = input.intakeChannel ? ` ← ${input.intakeChannel}` : '';
+    parts.push(
+      locale === 'en'
+        ? `${amount} of it paid by transfer${where}`
+        : `ودفع منها ${amount} حوالة${where}`,
+    );
+  }
+
+  if (parts.length === 0) return '';
+
+  const who = input.counterpartyName?.trim();
+  const phone = input.counterpartyPhone?.trim();
+  if (who) parts.push(locale === 'en' ? `for ${who}${phone ? ` (${phone})` : ''}` : `لـ${who}${phone ? ` (${phone})` : ''}`);
+
+  return ` — ${parts.join(locale === 'en' ? ', ' : '، ')}`;
 }

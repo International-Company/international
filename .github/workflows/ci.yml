@@ -184,6 +184,9 @@ jobs:
         # only on a freshly seeded one.
         run: npm run verify:withdrawal-approval
 
+      - name: Name the person a transfer is for, end to end
+        run: npm run verify:transfer-contact
+
       - name: Split a trade two ways, end to end
         run: npm run verify:machine-split
 
