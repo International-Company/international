@@ -215,6 +215,23 @@ jobs:
         # still whole.
         run: npm run verify:permissions
 
+      - name: Delegate a drawer, end to end
+        # After everything, and on a database of its own. It resets, so it has
+        # to come last: every check above builds on the counter the one before
+        # it left behind, and a reset in the middle would leave them proving
+        # nothing against an empty branch.
+        run: |
+          npx prisma db push --skip-generate --force-reset > /dev/null
+          npx tsx prisma/seed.ts > /dev/null
+          npm run verify:drawer-grants
+
+      - name: Move money between drawers, end to end
+        # Reuses the freshly seeded database the delegation check just built
+        # rather than resetting again. It clears the teller's grants itself, so
+        # it does not depend on what that check left behind — only on there
+        # being a seeded branch with drawers in it.
+        run: npm run verify:transfers
+
   image:
     runs-on: ubuntu-latest
     name: production image

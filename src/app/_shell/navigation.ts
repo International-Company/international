@@ -140,6 +140,15 @@ export const NAVIGATION: NavSection[] = [
         permissions: ['exchange.drawer.view'],
       },
       {
+        href: '/manage/transfers',
+        labelKey: 'nav.transfers',
+        icon: 'drawers',
+        // Not `drawer.view`: a delegate who may move money between two named
+        // drawers is given this and nothing else, so the rest of the manager's
+        // sidebar stays out of his way.
+        permissions: ['exchange.transfer.use'],
+      },
+      {
         href: '/manage/broker',
         labelKey: 'nav.broker',
         icon: 'drawers',

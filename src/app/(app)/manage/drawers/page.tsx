@@ -61,7 +61,10 @@ export default async function DrawersPage() {
   const openable = currencies.flatMap((currency) =>
     // Every kind the system knows, so a kind added later is offered here without
     // this list having to be remembered and edited a second time.
-    DRAWER_KINDS.filter((kind) => !taken.has(`${currency.code}:${kind}`))
+    // `IN_TRANSIT` is left out on purpose: transfers open it when money first
+    // stops in the middle, and a drawer somebody could open or close by hand
+    // would be a lever on that machinery rather than a part of it.
+    DRAWER_KINDS.filter((kind) => kind !== 'IN_TRANSIT' && !taken.has(`${currency.code}:${kind}`))
       .map((kind) => ({
         currency: currency.code,
         kind,

@@ -21,6 +21,7 @@ import { ConfirmDialog, Dialog, useToast } from '@/ui/overlay';
 import { Field, Input, MoneyInput, Select, Switch } from '@/ui/form';
 import { DateText, Money } from '@/ui/display';
 import { cn } from '@/ui/utils';
+import { AccessButton } from './access-dialog';
 
 /**
  * What the branch holds, and how it came to hold it.
@@ -251,11 +252,19 @@ export function DrawersView({
 
   return (
     <div className="space-y-4">
-      {canManage && openable.length > 0 && (
-        <div className="flex justify-end">
-          <Button variant="secondary" icon={<Plus />} onClick={openAdd}>
-            {t('drawers.open')}
-          </Button>
+      {canManage && (
+        <div className="flex flex-wrap justify-end gap-2">
+          {/*
+            Beside the button that opens a drawer, because they are the two
+            halves of the same decision: what the branch keeps money in, and who
+            is allowed near it.
+          */}
+          <AccessButton />
+          {openable.length > 0 && (
+            <Button variant="secondary" icon={<Plus />} onClick={openAdd}>
+              {t('drawers.open')}
+            </Button>
+          )}
         </div>
       )}
 

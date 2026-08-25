@@ -108,6 +108,12 @@ model User {
   sessions        Session[]
   passkeys        Passkey[]
   heldDrawers     Drawer[]                @relation("DrawerHeldBy")
+  drawerGrants    DrawerGrant[]           @relation("DrawerGrantHolder")
+  drawerGrantsMade DrawerGrant[]          @relation("DrawerGrantGrantedBy")
+  transfersMade      Transfer[]           @relation("TransferCreatedBy")
+  transfersApproved  Transfer[]           @relation("TransferApprovedBy")
+  transfersConfirmed Transfer[]           @relation("TransferConfirmedBy")
+  transfersReversed  Transfer[]           @relation("TransferReversedBy")
   handovers       Handover[]              @relation("HandoverTeller")
   shifts          Shift[]                 @relation("ShiftTeller")
   discrepancies   Discrepancy[]           @relation("DiscrepancyTeller")
@@ -779,11 +785,155 @@ model Drawer {
   movements DrawerMovement[]
   wallets   Wallet[]
   positions DayPosition[]
+  grants    DrawerGrant[]
+  transfersOut Transfer[] @relation("TransferFrom")
+  transfersIn  Transfer[] @relation("TransferTo")
 
   @@unique([ownerKey, currencyCode, kind])
   @@index([isActive, sortOrder])
   @@index([tellerId])
   @@map("drawers")
+}
+
+/// Money moved from one of the branch's balances to another.
+///
+/// ## Why this is a record and not two funding movements
+///
+/// Because it already was two funding movements, and that is the bug. The
+/// broker settles in cash, so somebody takes it off his balance and puts it in
+/// the till — two separate acts, and the second one can simply not happen. When
+/// it does not, the branch is poorer by the whole amount and the day's result
+/// has no line that explains it: not profit, not loss, not an expense. Money
+/// that vanished in the recording rather than in the counting, and days spent
+/// looking for a miscount that never happened.
+///
+/// So the two sides became one thing with one reference, written in one
+/// transaction and reversed as one act. A half transfer is not a state this can
+/// be in.
+///
+/// ## Why the money can stop in the middle
+///
+/// Because it does. Cash carried to the bank leaves the till today and appears
+/// in the account tomorrow, and a system that books both sides at once claims a
+/// bank balance the branch cannot yet draw on — which is not a bookkeeping
+/// blemish but a cheque that bounces. `PENDING_ARRIVAL` is that gap made
+/// visible, and `IN_TRANSIT` is where the money sits while it lasts.
+///
+/// The manager alone ends it. Whoever can say "it arrived" can say so of money
+/// that never did, which closes the second half onto nothing at all.
+model Transfer {
+  id String @id @default(cuid())
+
+  /// Human reference, on both movements and on the screen.
+  reference String @unique
+
+  fromDrawerId String
+  fromDrawer   Drawer @relation("TransferFrom", fields: [fromDrawerId], references: [id])
+  toDrawerId   String
+  toDrawer     Drawer @relation("TransferTo", fields: [toDrawerId], references: [id])
+
+  /// What leaves the source, commission included. Scaled 1e8.
+  amount BigInt
+
+  /// What the other side keeps for moving it — nothing, usually.
+  ///
+  /// Recorded as an expense of its own rather than shaved off the amount,
+  /// because it is one: the branch is poorer by it, and a transfer that quietly
+  /// arrived smaller than it left would report that loss as nothing at all.
+  commission BigInt @default(0)
+
+  /// PENDING_APPROVAL | PENDING_ARRIVAL | COMPLETED | REVERSED | REJECTED
+  status String @default("COMPLETED")
+
+  /// Which of the broker's accounts it went through, when one side is his.
+  account String?
+  note    String?
+
+  /// What the sender came back with — the screenshot's reference, usually.
+  /// The office already works this way in its group chat; this is where the
+  /// evidence lands so the record carries it rather than the phone.
+  proof String?
+
+  businessDayId String
+  businessDay   BusinessDay @relation(fields: [businessDayId], references: [id])
+
+  createdById String
+  createdBy   User   @relation("TransferCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+
+  approvedById String?
+  approvedBy   User?     @relation("TransferApprovedBy", fields: [approvedById], references: [id], onDelete: SetNull)
+  approvedAt   DateTime?
+
+  confirmedById String?
+  confirmedBy   User?     @relation("TransferConfirmedBy", fields: [confirmedById], references: [id], onDelete: SetNull)
+  confirmedAt   DateTime?
+
+  reversedById String?
+  reversedBy   User?     @relation("TransferReversedBy", fields: [reversedById], references: [id], onDelete: SetNull)
+  reversedAt   DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status, createdAt])
+  @@index([businessDayId])
+  @@index([fromDrawerId])
+  @@index([toDrawerId])
+  @@map("transfers")
+}
+
+/// What one person may do with one drawer.
+///
+/// Until this existed, the drawers were all-or-nothing: `exchange.drawer.manage`
+/// opened every one of them, in every currency, to whoever held it. That is the
+/// right shape for the manager and the wrong shape for anyone he wants to
+/// delegate to — "move money between these two drawers and nothing else" had no
+/// way to be said.
+///
+/// The row itself is the visibility. Somebody with no grant on a drawer does not
+/// see it; the three flags say what he may do with the one he can. This is why
+/// there is no `canView` column: a grant that permitted nothing would be a row
+/// that means "he can look at it", which is exactly what an empty grant already
+/// means.
+///
+/// Grants only ever ADD. Holding `exchange.drawer.manage` is unrestricted by
+/// design — a manager who could be locked out of his own treasury by a row in a
+/// table is a support call waiting to happen, and there is nobody above him to
+/// undo it.
+model DrawerGrant {
+  id String @id @default(cuid())
+
+  userId String
+  user   User   @relation("DrawerGrantHolder", fields: [userId], references: [id], onDelete: Cascade)
+
+  drawerId String
+  drawer   Drawer @relation(fields: [drawerId], references: [id], onDelete: Cascade)
+
+  /// Money in. The half of funding that cannot take anything out — a person who
+  /// collects from customers all day has no business withdrawing what he
+  /// collected, and this is how that is said.
+  canDeposit Boolean @default(false)
+
+  /// Money out.
+  canWithdraw Boolean @default(false)
+
+  /// Moving money to another drawer. Separate from the two above because it is
+  /// the one that never changes what the branch is worth, and may reasonably be
+  /// given to somebody trusted with neither of the others.
+  canTransfer Boolean @default(false)
+
+  /// Who granted it. Kept because a permission nobody remembers granting is one
+  /// nobody thinks to revoke.
+  grantedById String?
+  grantedBy   User?   @relation("DrawerGrantGrantedBy", fields: [grantedById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, drawerId])
+  @@index([userId])
+  @@index([drawerId])
+  @@map("drawer_grants")
 }
 
 /// Every change to a drawer, append-only.
@@ -803,7 +953,13 @@ model DrawerMovement {
   /// The drawer balance immediately after this movement was applied.
   balanceAfter BigInt
 
-  /// TRANSACTION | FUNDING | REVERSAL
+  /// TRANSACTION | FUNDING | HANDOVER | TRANSFER | REVERSAL
+  ///
+  /// `TRANSFER` is its own reason rather than funding with a category, and that
+  /// distinction is what keeps the day honest: the result is measured from
+  /// funding rows, and money moved between the branch's own balances changes
+  /// what it is worth by nothing. Filed as funding it would have to be
+  /// explained away; filed as itself it never enters the sum.
   reason String
 
   /// Why a funding movement happened, which the daily result cannot be measured
@@ -1268,6 +1424,7 @@ model BusinessDay {
   positions     DayPosition[]
   movements     DrawerMovement[]
   handovers     Handover[]
+  transfers     Transfer[]
   shifts        Shift[]
   discrepancies Discrepancy[]
 
