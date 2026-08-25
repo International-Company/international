@@ -117,10 +117,26 @@ export const errors = {
       messageKey: 'errors.invalidCredentials',
     }),
 
-  forbidden: (permission?: string) =>
-    new AppError('FORBIDDEN', `Missing permission${permission ? `: ${permission}` : ''}`, {
-      params: permission ? { permission } : {},
-    }),
+  /**
+   * `detail` is for a refusal that has something to say beyond the permission
+   * name. Most do not: "missing permission" is the honest answer when somebody
+   * reached a page they were never given. But a person who was granted *almost*
+   * enough — one drawer, one right short — is helped enormously by being told
+   * which half is missing, and that message has to be translatable like any
+   * other, so it arrives as a key rather than a sentence built here.
+   */
+  forbidden: (
+    permission?: string,
+    detail?: { message: string; messageKey: string; params?: Record<string, string | number> },
+  ) =>
+    new AppError(
+      'FORBIDDEN',
+      detail?.message ?? `Missing permission${permission ? `: ${permission}` : ''}`,
+      {
+        messageKey: detail?.messageKey,
+        params: { ...(permission ? { permission } : {}), ...(detail?.params ?? {}) },
+      },
+    ),
 
   notFound: (entity: string, id?: string) =>
     new AppError('NOT_FOUND', `${entity}${id ? ` "${id}"` : ''} not found`, {

@@ -97,6 +97,9 @@ export const PERMISSIONS: PermissionDefinition[] = [
   def('exchange.drawer.manage', 'exchange', 'manage', 'Fund drawers', 'تمويل الصناديق',
     'Put money into a drawer or take it out', 'إيداع المال في صندوق أو سحبه منه', true),
 
+  def('exchange.transfer.use', 'exchange', 'use', 'Move money between drawers', 'التحويل بين الصناديق',
+    'Record a transfer between the branch’s own balances', 'تسجيل تحويل بين أرصدة المكتب'),
+
   // --- The counter day --------------------------------------------
   def('exchange.day.view', 'exchange', 'view', 'View business day', 'عرض يوم العمل',
     'See whether the counter is open', 'معرفة ما إذا كان الشباك مفتوحاً'),

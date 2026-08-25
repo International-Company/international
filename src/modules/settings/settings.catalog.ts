@@ -107,6 +107,30 @@ export const SETTINGS: SettingDefinition[] = [
       'مفصولة بفواصل. الجهات التي يجوز إرسال التسليم البنكي إليها — يختار التلر واحدة وتُثبَّت على العملية. حذف اسم يمنع عرضه دون أن يمسّ حوالات أُرسلت عبره.',
   },
   {
+    key: 'transfers.commissionRates', category: 'machine', type: 'string', defaultValue: '',
+    labelEn: 'Commission per account', labelAr: 'عمولة كل حساب',
+    descriptionEn:
+      'Comma-separated name:percent pairs, such as "Akasha:0.5". What each account keeps for moving money, applied automatically when a transfer names it. Set once here rather than typed on every transfer, so the month’s cost of moving money can be totalled honestly.',
+    descriptionAr:
+      'أزواج الاسم:النسبة مفصولة بفواصل، مثل «عكاشة:0.5». ما يحتفظ به كل حساب مقابل تحريك المال، يُحسب تلقائياً حين يُسمّى الحساب في التحويل. يُضبط مرة هنا لا في كل حركة، حتى يمكن جمع كلفة نقل المال في الشهر بصدق.',
+  },
+  {
+    key: 'transfers.approvalAbove', category: 'machine', type: 'string', defaultValue: '',
+    labelEn: 'Transfer needing approval above', labelAr: 'سقف التحويل بلا موافقة',
+    descriptionEn:
+      'A delegated employee moving more than this waits for the manager. Empty means no ceiling. Never applies to the manager, who has nobody above him to ask.',
+    descriptionAr:
+      'الموظف المفوّض الذي ينقل أكثر من هذا ينتظر موافقة المدير. والفراغ يعني بلا سقف. لا يسري على المدير، إذ لا أحد فوقه ليسأله.',
+  },
+  {
+    key: 'transfers.standingDays', category: 'machine', type: 'number', defaultValue: '2',
+    labelEn: 'Days before a transfer is chased', labelAr: 'أيام قبل التنبيه على تحويل واقف',
+    descriptionEn:
+      'How long money may sit in transit before the screen marks it as standing. Money that left one balance and never reached the next is the failure this whole feature exists to prevent, so it is not left to memory.',
+    descriptionAr:
+      'كم يبقى المال في الطريق قبل أن تعلّمه الشاشة كواقف. المال الذي خرج من رصيد ولم يصل إلى التالي هو الخلل الذي بُنيت هذه الميزة لمنعه، فلا يُترك للذاكرة.',
+  },
+  {
     key: 'remittance.destinations', category: 'machine', type: 'string', defaultValue: '',
     labelEn: 'Remittance destinations', labelAr: 'وجهات الحوالات',
     descriptionEn:

@@ -6,6 +6,7 @@ import { toDecimalString } from '@/core/money/money';
 import { createLogger } from '@/core/logger/logger';
 import * as audit from '@/modules/audit/audit.service';
 import { currentOpenDay } from '@/modules/exchange/business-day.service';
+import * as grants from './grant.service';
 
 /**
  * The drawers.
@@ -90,6 +91,7 @@ export type MovementReason =
   | 'FUNDING'
   | 'REVERSAL'
   | 'HANDOVER'
+  | 'TRANSFER'
   | 'DIFFERENCE';
 
 /*
@@ -147,10 +149,10 @@ function describe(currency: string, kind: DrawerKind): string {
  * would make it vanish with no way back. That screen asks for all of them.
  */
 export async function listDrawers(
-  options: { includeInactive?: boolean } = {},
+  options: { includeInactive?: boolean; forActor?: Actor } = {},
   db: DbClient = prisma,
 ) {
-  return db.drawer.findMany({
+  const rows = await db.drawer.findMany({
     where: options.includeInactive ? {} : { isActive: true },
     // The treasury's first, then each teller's, so the office's own money is
     // never buried among the drawers it lent out.
@@ -160,6 +162,21 @@ export async function listDrawers(
       teller: { select: { fullNameEn: true, fullNameAr: true } },
     },
   });
+
+  if (!options.forActor) return rows;
+
+  /*
+   * Narrowed to what this person was actually given.
+   *
+   * Two things stay visible: the drawers he holds a grant on, and his own — a
+   * teller does not need permission to see the bag in front of him, and taking
+   * it away would hide his own float from him while the money sat in his hands.
+   */
+  const visible = await grants.visibleDrawerIds(options.forActor, db);
+  if (visible === null) return rows;
+
+  const own = tellerOwner(options.forActor.id);
+  return rows.filter((drawer) => visible.has(drawer.id) || drawer.ownerKey === own);
 }
 
 export async function getDrawer(
@@ -376,12 +393,29 @@ export async function fund(
   actor: Actor,
   db: DbClient = prisma,
 ): Promise<bigint> {
-  // Checked here and not only at the route. Every other way money moves has a
-  // customer on the other side and a receipt to match; this one has neither, so
-  // it is the last thing that should depend on a single caller remembering to
-  // guard it.
-  if (!actor.permissions?.includes('exchange.drawer.manage')) {
-    throw errors.forbidden('exchange.drawer.manage');
+  /*
+   * Checked here and not only at the route. Every other way money moves has a
+   * customer on the other side and a receipt to match; this one has neither, so
+   * it is the last thing that should depend on a single caller remembering to
+   * guard it.
+   *
+   * Two ways to be allowed, and the order matters. `exchange.drawer.manage` is
+   * the manager's, and it opens every drawer. Failing that, the person needs a
+   * grant on *this* drawer carrying *this* direction — which is how somebody
+   * can be trusted to put the day's collection in without being able to take
+   * anything back out.
+   */
+  if (!grants.unrestricted(actor)) {
+    const kind = input.kind ?? 'CASH';
+    const drawer = await db.drawer.findUnique({
+      where: {
+        ownerKey_currencyCode_kind: { ownerKey: TREASURY, currencyCode: input.currency, kind },
+      },
+      select: { id: true, nameAr: true, nameEn: true },
+    });
+    if (!drawer) throw errors.notFound('Drawer', `${input.currency} ${kind}`);
+
+    await grants.assertRight(actor, drawer, input.direction === 'IN' ? 'DEPOSIT' : 'WITHDRAW', db);
   }
 
   /*
