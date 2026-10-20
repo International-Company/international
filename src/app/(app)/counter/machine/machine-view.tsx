@@ -549,6 +549,7 @@ export function MachineView({
       setAmount('');
       setQuote(null);
       setCounterpartyName('');
+      setCounterpartyPhone('');
       setCustomer(null);
       setCustomerOpen(false);
       // Spent. Leaving it on screen would invite a second press at a price that
