@@ -210,7 +210,9 @@ export function CommandPalette({
                 {groupResults.map((result) => {
                   renderedIndex += 1;
                   const index = renderedIndex;
-                  const Icon = NAV_ICONS[result.icon];
+                  // The server names the icon, so a name this screen has never
+                  // heard of must not take the whole page down with it.
+                  const Icon = NAV_ICONS[result.icon] ?? Search;
                   const active = index === activeIndex;
 
                   return (

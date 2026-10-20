@@ -45,6 +45,7 @@ export type IconName =
   | 'wallet'
   | 'ledger'
   | 'transactions'
+  | 'customers'
   | 'audit'
   | 'staff'
   | 'settings';

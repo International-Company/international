@@ -36,7 +36,13 @@ interface ListResponse {
   pageCount: number;
 }
 
-export function TransactionsView({ permissions }: { permissions: string[] }) {
+export function TransactionsView({
+  permissions,
+  initialSearch = '',
+}: {
+  permissions: string[];
+  initialSearch?: string;
+}) {
   const { t, ln } = useLocale();
   const router = useRouter();
   const toast = useToast();
@@ -46,7 +52,7 @@ export function TransactionsView({ permissions }: { permissions: string[] }) {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
   const [sort, setSort] = useState<SortState>({ field: 'createdAt', order: 'desc' });
-  const [search, setSearch] = useState('');
+  const [search, setSearch] = useState(initialSearch);
   const [status, setStatus] = useState('');
   const [type, setType] = useState('');
 
