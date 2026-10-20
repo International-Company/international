@@ -354,6 +354,17 @@ export function TransactionDetail({
                   {transaction.counterpartyName}
                 </DetailRow>
               )}
+              {transaction.counterpartyPhone && (
+                <DetailRow label={t('transactions.counterpartyPhone')}>
+                  <a
+                    href={`tel:${transaction.counterpartyPhone}`}
+                    dir="ltr"
+                    className="font-mono underline ltr-content"
+                  >
+                    {transaction.counterpartyPhone}
+                  </a>
+                </DetailRow>
+              )}
             </dl>
 
             {transaction.notes && (
