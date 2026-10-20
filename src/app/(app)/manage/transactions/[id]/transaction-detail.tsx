@@ -7,20 +7,18 @@ import {
   AlertTriangle,
   ArrowDownLeft,
   ArrowUpRight,
-  Calculator,
   Check,
   Pencil,
   Printer,
   Undo2,
 } from 'lucide-react';
 import { useLocale } from '@/i18n/provider';
-import { formatRate } from '@/i18n/format';
 import { api, ApiError } from '@/lib/api-client';
 import { say } from '@/lib/failure';
 import { Alert, Badge, Button, Card, CardBody, CardHeader, DetailRow } from '@/ui/primitives';
 import { ShareButton } from '@/ui/share';
 import { ConfirmDialog, Dialog, useToast } from '@/ui/overlay';
-import { Field, Input, MoneyInput, Textarea } from '@/ui/form';
+import { Field, Input, Textarea } from '@/ui/form';
 import { DateText, Money, Rate, StatusBadge } from '@/ui/display';
 import { cn } from '@/ui/utils';
 
@@ -107,28 +105,12 @@ export function TransactionDetail({
     permissions.includes('exchange.transaction.reverse');
 
   /*
-   * Editing covers only what never moved money. Correcting an amount is a
-   * different act — it reverses and reposts — so it sits behind the same
-   * permission but is offered as its own button, with its own dialog, rather
-   * than hidden inside a form that looks like it is just changing a field.
+   * Editing covers only what never moved money. There is no way to change an
+   * amount here: a wrong figure is reversed and the trade recorded again, so a
+   * drawer only ever moves by a whole transaction somebody can point to.
    */
   const canEdit =
     !transaction.reversalOf && permissions.includes('exchange.transaction.edit');
-
-  /*
-   * A remittance is not corrected this way, so the button is not offered.
-   *
-   * Correction re-runs the original conversion at the original rate: give one
-   * figure and the other follows. A remittance has no conversion — what the
-   * customer settled and what the correspondent charged are two independent
-   * numbers — so it is reversed and recorded again instead. The service refuses
-   * it either way; this is so nobody is invited to try.
-   */
-  const canCorrect =
-    canEdit &&
-    canReverse &&
-    transaction.type !== 'REMITTANCE_OUT' &&
-    transaction.type !== 'REMITTANCE_IN';
 
   const [editing, setEditing] = useState(false);
   const [details, setDetails] = useState({ counterpartyName: '', counterpartyPhone: '', notes: '' });
@@ -153,32 +135,6 @@ export function TransactionDetail({
       });
       toast.success(t('common.saved'), transaction.reference);
       setEditing(false);
-      router.refresh();
-    } catch (cause) {
-      toast.error(
-        t('errors.title'),
-        cause instanceof ApiError
-          ? say(t, cause.messageKey, cause.params) || cause.message
-          : t('errors.generic'),
-      );
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const [correcting, setCorrecting] = useState(false);
-  const [correctAmount, setCorrectAmount] = useState('');
-  const [correctReason, setCorrectReason] = useState('');
-
-  const correct = async () => {
-    setBusy(true);
-    try {
-      const result = await api.post<{ reference: string }>(
-        `/api/manage/transactions/${transaction.id}`,
-        { action: 'correct', fromAmount: correctAmount.trim(), reason: correctReason.trim() },
-      );
-      toast.success(t('transactions.corrected'), result.reference);
-      setCorrecting(false);
       router.refresh();
     } catch (cause) {
       toast.error(
@@ -414,20 +370,6 @@ export function TransactionDetail({
                   {t('transactions.editDetails')}
                 </Button>
               )}
-              {canCorrect && (
-                <Button
-                  variant="secondary"
-                  fullWidth
-                  icon={<Calculator />}
-                  onClick={() => {
-                    setCorrectAmount(plainAmount(transaction.fromAmount));
-                    setCorrectReason('');
-                    setCorrecting(true);
-                  }}
-                >
-                  {t('transactions.correct')}
-                </Button>
-              )}
               {canReverse && (
                 <Button
                   variant="danger"
@@ -583,67 +525,6 @@ export function TransactionDetail({
           </Field>
         </div>
       </Dialog>
-
-      {/* --- Correcting an amount: reverse and repost, together ----------- */}
-      <Dialog
-        open={correcting}
-        onClose={() => setCorrecting(false)}
-        title={t('transactions.correct')}
-        description={t('transactions.correctHint')}
-        footer={
-          <>
-            <Button variant="secondary" onClick={() => setCorrecting(false)} disabled={busy}>
-              {t('common.cancel')}
-            </Button>
-            <Button
-              variant="primary"
-              loading={busy}
-              disabled={correctReason.trim().length < 3 || !correctAmount.trim()}
-              onClick={() => void correct()}
-            >
-              {t('transactions.correct')}
-            </Button>
-          </>
-        }
-      >
-        <div className="space-y-3">
-          <Alert tone="neutral">
-            {t('transactions.correctKeepsRate', {
-              rate: `1 ${transaction.fromCurrency} = ${formatRate(transaction.rate)} ${transaction.toCurrency}`,
-            })}
-          </Alert>
-
-          <Field label={t('machine.customerPays')} required>
-            {(props) => (
-              <MoneyInput
-                {...props}
-                value={correctAmount}
-                onValueChange={setCorrectAmount}
-                currency={transaction.fromCurrency}
-              />
-            )}
-          </Field>
-
-          <Field label={t('common.reason')} required>
-            {(props) => (
-              <Textarea
-                {...props}
-                rows={2}
-                value={correctReason}
-                onChange={(event) => setCorrectReason(event.target.value)}
-              />
-            )}
-          </Field>
-        </div>
-      </Dialog>
     </div>
   );
-}
-
-/** A 1e8-scaled amount as something a money field can hold. */
-function plainAmount(scaled: string): string {
-  const value = BigInt(scaled || '0');
-  const digits = value.toString().padStart(9, '0');
-  const fraction = digits.slice(-8).replace(/0+$/, '');
-  return fraction ? `${digits.slice(0, -8)}.${fraction}` : digits.slice(0, -8);
 }

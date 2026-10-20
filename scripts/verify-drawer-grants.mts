@@ -12,7 +12,8 @@ import * as day from '../src/modules/exchange/business-day.service';
  * database rather than reasoned about:
  *
  *  - **nothing by default** — a person with no grant is refused, and sees none
- *  - **exactly what was ticked** — deposit alone does not buy withdraw
+ *  - **transfer and nothing more** — putting money in or taking it out by hand
+ *    is the manager's alone, and no grant buys it, even one that asks
  *  - **and it goes away** — unticking the last box removes the drawer from his
  *    screen, not merely his ability to use it
  *
@@ -105,16 +106,21 @@ await refused(
       { currency: given.currencyCode, kind: given.kind as drawers.DrawerKind, direction: 'IN', amount: 100_000_000n, category: 'OWNER_IN' },
       delegate,
     ),
-  'errors.drawerRight.DEPOSIT',
+  'errors.forbidden',
 );
 
-// --- Exactly what was ticked -----------------------------------------------
+// --- Transfer is all a grant carries ---------------------------------------
 
-console.log('\nGranted deposit, and deposit only');
+console.log('\nGranted transfer, and asked for deposit and withdraw too');
 
-await grants.setGrant(
-  { userId: teller.id, drawerId: given.id, canDeposit: true },
+const stored = await grants.setGrant(
+  { userId: teller.id, drawerId: given.id, canDeposit: true, canWithdraw: true, canTransfer: true },
   manager,
+);
+ok(
+  'only transfer is stored',
+  stored?.canTransfer === true && !stored.canDeposit && !stored.canWithdraw,
+  JSON.stringify(stored),
 );
 
 const seen = await drawers.listDrawers({ forActor: delegate });
@@ -129,38 +135,37 @@ ok(
 
 const opening = (await prisma.drawer.findUniqueOrThrow({ where: { id: given.id } })).balance;
 
-// The permitted direction FIRST. A refusal is only evidence when the same call
-// is known to work for somebody who was allowed it.
+// The manager FIRST, on the same drawer. A refusal is only evidence when the
+// same call is known to work for somebody who was allowed it.
 await drawers.fund(
   { currency: given.currencyCode, kind: given.kind as drawers.DrawerKind, direction: 'IN', amount: 100_000_000n, category: 'OWNER_IN' },
-  delegate,
+  manager,
 );
-
 const afterDeposit = (await prisma.drawer.findUniqueOrThrow({ where: { id: given.id } })).balance;
 ok(
-  'the deposit he was granted goes through',
+  'the manager puts money in',
   afterDeposit === opening + 100_000_000n,
   `${opening} → ${afterDeposit}`,
 );
 
 await refused(
-  'but the withdrawal he was not is refused',
+  'the delegate cannot put money in, grant or no grant',
+  () =>
+    drawers.fund(
+      { currency: given.currencyCode, kind: given.kind as drawers.DrawerKind, direction: 'IN', amount: 100_000_000n, category: 'OWNER_IN' },
+      delegate,
+    ),
+  'errors.forbidden',
+);
+
+await refused(
+  'nor take it out',
   () =>
     drawers.fund(
       { currency: given.currencyCode, kind: given.kind as drawers.DrawerKind, direction: 'OUT', amount: 100_000_000n, category: 'OWNER_OUT' },
       delegate,
     ),
-  'errors.drawerRight.WITHDRAW',
-);
-
-await refused(
-  'and the drawer he was never given stays shut',
-  () =>
-    drawers.fund(
-      { currency: withheld.currencyCode, kind: withheld.kind as drawers.DrawerKind, direction: 'IN', amount: 100_000_000n, category: 'OWNER_IN' },
-      delegate,
-    ),
-  'errors.drawerRight.DEPOSIT',
+  'errors.forbidden',
 );
 
 const held = (await prisma.drawer.findUniqueOrThrow({ where: { id: given.id } })).balance;
@@ -169,6 +174,13 @@ ok('and nothing moved on either refusal', held === afterDeposit, String(held));
 // --- The manager is untouched ----------------------------------------------
 
 console.log('\nThe manager, meanwhile');
+
+await drawers.fund(
+  { currency: given.currencyCode, kind: given.kind as drawers.DrawerKind, direction: 'OUT', amount: 100_000_000n, category: 'OWNER_OUT' },
+  manager,
+);
+const restored = (await prisma.drawer.findUniqueOrThrow({ where: { id: given.id } })).balance;
+ok('takes it back out', restored === opening, `back to ${restored}`);
 
 await drawers.fund(
   { currency: withheld.currencyCode, kind: withheld.kind as drawers.DrawerKind, direction: 'IN', amount: 50_000_000n, category: 'OWNER_IN' },
@@ -181,27 +193,6 @@ ok(
   'and sees every drawer',
   managerSees.length >= treasury.length,
   `${managerSees.length} visible`,
-);
-
-// --- Rights are separate ---------------------------------------------------
-
-console.log('\nAdding withdraw to the same drawer');
-
-await grants.setGrant(
-  { userId: teller.id, drawerId: given.id, canDeposit: true, canWithdraw: true },
-  manager,
-);
-
-await drawers.fund(
-  { currency: given.currencyCode, kind: given.kind as drawers.DrawerKind, direction: 'OUT', amount: 100_000_000n, category: 'OWNER_OUT' },
-  delegate,
-);
-
-const restored = (await prisma.drawer.findUniqueOrThrow({ where: { id: given.id } })).balance;
-ok(
-  'the same withdrawal now goes through',
-  restored === opening,
-  `back to ${restored}`,
 );
 
 // --- Refusals that protect the model ---------------------------------------
@@ -271,7 +262,7 @@ await refused(
       { currency: given.currencyCode, kind: given.kind as drawers.DrawerKind, direction: 'IN', amount: 100_000_000n, category: 'OWNER_IN' },
       delegate,
     ),
-  'errors.drawerRight.DEPOSIT',
+  'errors.forbidden',
 );
 
 // --- Revoking the lot ------------------------------------------------------

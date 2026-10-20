@@ -308,9 +308,14 @@ export async function setGrant(
     );
   }
 
+  /*
+   * Only transfer is delegable. Putting money into a drawer or taking it out by
+   * hand is the manager's alone (`fund` refuses everyone else), so a grant
+   * that said otherwise would promise something the server will not do.
+   */
   const flags: GrantFlags = {
-    canDeposit: input.canDeposit ?? false,
-    canWithdraw: input.canWithdraw ?? false,
+    canDeposit: false,
+    canWithdraw: false,
     canTransfer: input.canTransfer ?? false,
   };
 

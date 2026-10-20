@@ -399,23 +399,12 @@ export async function fund(
    * it is the last thing that should depend on a single caller remembering to
    * guard it.
    *
-   * Two ways to be allowed, and the order matters. `exchange.drawer.manage` is
-   * the manager's, and it opens every drawer. Failing that, the person needs a
-   * grant on *this* drawer carrying *this* direction — which is how somebody
-   * can be trusted to put the day's collection in without being able to take
-   * anything back out.
+   * The manager's alone. A drawer changes by a transaction, a transfer between
+   * drawers or a handover; money put in or taken out by hand is the one change
+   * nobody else can explain, so no grant reaches it.
    */
   if (!grants.unrestricted(actor)) {
-    const kind = input.kind ?? 'CASH';
-    const drawer = await db.drawer.findUnique({
-      where: {
-        ownerKey_currencyCode_kind: { ownerKey: TREASURY, currencyCode: input.currency, kind },
-      },
-      select: { id: true, nameAr: true, nameEn: true },
-    });
-    if (!drawer) throw errors.notFound('Drawer', `${input.currency} ${kind}`);
-
-    await grants.assertRight(actor, drawer, input.direction === 'IN' ? 'DEPOSIT' : 'WITHDRAW', db);
+    throw errors.forbidden('exchange.drawer.manage');
   }
 
   /*

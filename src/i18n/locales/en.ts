@@ -532,7 +532,7 @@ const en = {
   drawerAccess: {
     title: 'Drawer access',
     explainer:
-      'Whoever you delegate to sees only the drawers you open for him, and does only what you tick. Turn all three off and the drawer disappears from his screen entirely.',
+      'Whoever you delegate to sees only the drawers you open for him, and may only move money between them. Putting money in or taking it out by hand stays with the manager. Turn transfer off and the drawer disappears from his screen entirely.',
     person: 'Employee',
     choose: 'Choose an employee',
     noStaff: 'Nobody here can be delegated to. Anyone who can fund drawers already opens all of them.',

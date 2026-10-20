@@ -148,7 +148,9 @@ export function AccessDialog({ open, onClose }: { open: boolean; onClose: () => 
 
   const toggle = async (drawer: DrawerRow, key: keyof Flags, value: boolean) => {
     const current = granted[drawer.id] ?? NONE;
-    const next: Flags = { ...current, [key]: value };
+    // Deposit and withdraw are always sent off: any left over from before they
+    // stopped being delegable are cleared by the first toggle on the row.
+    const next: Flags = { ...current, canDeposit: false, canWithdraw: false, [key]: value };
 
     setBusy(drawer.id);
     try {
@@ -234,12 +236,8 @@ export function AccessDialog({ open, onClose }: { open: boolean; onClose: () => 
                 <thead>
                   <tr className="border-b border-border text-content-tertiary">
                     <th className="py-2 text-start font-medium">{t('drawerAccess.drawer')}</th>
-                    <th className="px-2 py-2 text-center font-medium">
-                      {t('drawerAccess.deposit')}
-                    </th>
-                    <th className="px-2 py-2 text-center font-medium">
-                      {t('drawerAccess.withdraw')}
-                    </th>
+                    {/* Transfer only. Putting money in or taking it out by hand
+                        is the manager's alone, so it is not his to hand out. */}
                     <th className="px-2 py-2 text-center font-medium">
                       {t('drawerAccess.transfer')}
                     </th>
@@ -259,15 +257,13 @@ export function AccessDialog({ open, onClose }: { open: boolean; onClose: () => 
                             {drawer.currencyCode} · {t(kindLabel(drawer.kind))}
                           </div>
                         </td>
-                        {(['canDeposit', 'canWithdraw', 'canTransfer'] as const).map((key) => (
-                          <td key={key} className="px-2 py-2 text-center">
-                            <Switch
-                              checked={flags[key]}
-                              disabled={working}
-                              onCheckedChange={(value) => void toggle(drawer, key, value)}
-                            />
-                          </td>
-                        ))}
+                        <td className="px-2 py-2 text-center">
+                          <Switch
+                            checked={flags.canTransfer}
+                            disabled={working}
+                            onCheckedChange={(value) => void toggle(drawer, 'canTransfer', value)}
+                          />
+                        </td>
                       </tr>
                     );
                   })}
