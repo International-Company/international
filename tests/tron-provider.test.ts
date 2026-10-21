@@ -26,7 +26,9 @@ afterEach(() => {
 });
 
 /** Records every request so the presence of the auth header can be asserted. */
-function stubFetch(handler: (url: string, key: string | null) => { status: number; body?: unknown }) {
+function stubFetch(
+  handler: (url: string, key: string | null) => { status: number; body?: unknown },
+) {
   const calls: { url: string; key: string | null }[] = [];
 
   globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
@@ -123,5 +125,87 @@ describe('TronProvider fallback when a key is refused', () => {
     await assert.rejects(() => provider.fetchBalance('TNaRAoLUyYEV2uF7GUrzSjRQTU8v5ZJ5VR'));
     assert.equal(calls.length, 1, 'a server error is not a credential problem');
     assert.equal(provider.credentials(), 'KEYED', 'the key must not be blamed for a 500');
+  });
+});
+
+/**
+ * Reading what is new.
+ *
+ * The cursor used to be TronGrid's fingerprint, which continues to the next
+ * *older* page — so every poll walked further back into history and a transfer
+ * that had just landed waited minutes to be seen. These hold the fix: every
+ * poll starts from the newest, and the cursor only says how far down to stop.
+ */
+describe('TronProvider reading new transfers', () => {
+  const ADDRESS = 'TNaRAoLUyYEV2uF7GUrzSjRQTU8v5ZJ5VR';
+  const transfer = (ms: number, id = `tx${ms}`) => ({
+    transaction_id: id,
+    from: 'TJqwA7SoZnERE4zW5uDEiPkbz4B66h9TFj',
+    to: ADDRESS,
+    value: '1000000',
+    block_timestamp: ms,
+    token_info: { symbol: 'USDT', decimals: 6 },
+  });
+  const params = (url: string) => new URL(url).searchParams;
+
+  it('reads from the top on a first poll and remembers the newest time', async () => {
+    const calls = stubFetch(() => ({
+      status: 200,
+      body: { data: [transfer(2_000), transfer(1_000)], meta: { fingerprint: 'older-page' } },
+    }));
+
+    const page = await new TronProvider({ apiKey: '' }).fetchTransfers(ADDRESS, null);
+
+    assert.equal(calls.length, 1, 'one page, and no detour for the block height');
+    assert.equal(params(calls[0]!.url).get('order_by'), 'block_timestamp,desc');
+    assert.equal(params(calls[0]!.url).get('fingerprint'), null);
+    assert.equal(params(calls[0]!.url).get('min_timestamp'), null);
+    assert.equal(page.cursor, '2000', 'the cursor is a time, never a fingerprint');
+  });
+
+  it('starts from the top again on the next poll, down to half an hour before', async () => {
+    const since = 10_000_000;
+    const calls = stubFetch(() => ({ status: 200, body: { data: [transfer(since + 5_000)] } }));
+
+    const page = await new TronProvider({ apiKey: '' }).fetchTransfers(ADDRESS, null, {
+      cursor: String(since),
+    });
+
+    const first = params(calls[0]!.url);
+    assert.equal(first.get('fingerprint'), null, 'never resumes into older history');
+    assert.equal(first.get('min_timestamp'), String(since - 30 * 60 * 1000));
+    assert.equal(page.cursor, String(since + 5_000));
+  });
+
+  it('follows pages inside the window, and stops', async () => {
+    let served = 0;
+    const calls = stubFetch(() => {
+      served += 1;
+      return {
+        status: 200,
+        body: { data: [transfer(9_000_000 + served)], meta: { fingerprint: `p${served}` } },
+      };
+    });
+
+    const page = await new TronProvider({ apiKey: '' }).fetchTransfers(ADDRESS, null, {
+      cursor: '9000000',
+    });
+
+    assert.equal(calls.length, 4, 'a bounded number of pages, not the whole history');
+    assert.equal(params(calls[1]!.url).get('fingerprint'), 'p1');
+    assert.equal(page.transfers.length, 4);
+    assert.equal(page.hasMore, true);
+  });
+
+  it('ignores a fingerprint left behind by the old cursor', async () => {
+    const calls = stubFetch(() => ({ status: 200, body: { data: [transfer(3_000)] } }));
+
+    await new TronProvider({ apiKey: '' }).fetchTransfers(ADDRESS, null, {
+      cursor: '3QiLdD2x8kNfFq-old-fingerprint',
+    });
+
+    assert.equal(calls.length, 1);
+    assert.equal(params(calls[0]!.url).get('fingerprint'), null);
+    assert.equal(params(calls[0]!.url).get('min_timestamp'), null);
   });
 });
