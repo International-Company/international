@@ -2,8 +2,6 @@ import 'server-only';
 import { prisma, type DbClient } from '@/core/db/prisma';
 import { errors } from '@/core/errors/app-error';
 import { toDecimalString } from '@/core/money/money';
-import { formatDateTime } from '@/i18n/format';
-import { getDictionary } from '@/i18n/translate';
 import type { Locale } from '@/i18n/config';
 import * as settings from '@/modules/settings/settings.service';
 import * as audit from '@/modules/audit/audit.service';
@@ -41,14 +39,27 @@ import type { Actor } from './transaction.service';
  *
  * ## Plain text, deliberately
  *
- * It is going into WhatsApp. No markdown, no table alignment that survives one
- * font and not another — a blank line between blocks and a colon after each
- * label, which is what every message in that application already looks like.
+ * It is going into WhatsApp. No markdown, no labels — the number, the amount,
+ * the channel and the name, a blank line between each, which is how the office
+ * already writes these by hand.
  */
+
+/**
+ * The currency as the office says it. The catalogue's "شيكل إسرائيلي" is right
+ * on a report and wrong in a message, where it is only ever "شيكل".
+ */
+const SHORT_AR: Record<string, string> = {
+  ILS: 'شيكل',
+  USD: 'دولار',
+  JOD: 'دينار',
+  USDT: 'USDT',
+};
 
 /** What the button needs: the words, and who to send them to. */
 export interface Shareable {
   reference: string;
+  /** The letterhead of the PDF. Not in the message: the message is the deal. */
+  companyName: string;
   text: string;
   /** The customer's number, when the transaction carries one. */
   phone: string | null;
@@ -73,16 +84,13 @@ export async function shareable(
       reference: true,
       type: true,
       status: true,
-      createdAt: true,
-      fromCurrency: true,
-      fromAmount: true,
       toCurrency: true,
       toAmount: true,
-      rate: true,
+      payoutBankAmount: true,
+      payoutBankChannel: true,
       payoutAddress: true,
       counterpartyName: true,
       counterpartyPhone: true,
-      branch: { select: { nameAr: true, nameEn: true } },
       customer: { select: { fullNameAr: true, fullNameEn: true, phone: true } },
       payoutWallet: { select: { network: true } },
     },
@@ -96,83 +104,64 @@ export async function shareable(
     );
   }
 
-  const t = getDictionary(locale);
-  const say = (key: string): string => {
-    const value = key
-      .split('.')
-      .reduce<unknown>((node, part) => (node as Record<string, unknown>)?.[part], t);
-    return typeof value === 'string' ? value : key;
-  };
   const name = <T extends Record<string, unknown>>(row: T | null, field: string): string =>
     String(row?.[locale === 'ar' ? `${field}Ar` : `${field}En`] ?? '');
 
-  const company = await settings.getString(
-    locale === 'ar' ? 'company.name.ar' : 'company.name.en',
-    db,
-  );
+  const [company, currency] = await Promise.all([
+    settings.getString(locale === 'ar' ? 'company.name.ar' : 'company.name.en', db),
+    db.currency.findUnique({
+      where: { code: transaction.toCurrency },
+      select: { nameAr: true, nameEn: true },
+    }),
+  ]);
 
-  const lines: string[] = [];
-  const put = (label: string, value: string) => lines.push(`${label}: ${value}`);
-
-  if (company) lines.push(company, '');
-
-  lines.push(say(`transactions.type.${transaction.type}`));
-  put(say('transactions.reference'), transaction.reference);
-
-  // A promise is marked as one. The customer has paid and the coins or the
-  // transfer have not left yet, and a message that hid that would be the office
-  // claiming to have finished something it has not.
-  if (transaction.status === 'PENDING_TRANSFER') {
-    lines.push(say('machine.pendingTransfer'));
-  }
-
-  lines.push('');
-
-  put(
-    say('receipt.received'),
-    `${toDecimalString(transaction.fromAmount, 2)} ${transaction.fromCurrency}`,
-  );
-
-  // An exchange has two sides and a price between them; a remittance in one
-  // currency has one amount, and saying "1 USD = 1.0000 USD" underneath it
-  // would be arithmetic nobody asked for.
-  if (transaction.toCurrency !== transaction.fromCurrency) {
-    put(
-      say('receipt.rate'),
-      `1 ${transaction.fromCurrency} = ${toDecimalString(transaction.rate, 4)} ${transaction.toCurrency}`,
-    );
-    put(
-      say('receipt.delivered'),
-      `${toDecimalString(transaction.toAmount, 2)} ${transaction.toCurrency}`,
-    );
-  }
-
-  // The one part of a withdrawal nobody can correct afterwards. It is on the
-  // receipt for that reason and it belongs here for the same one — a customer
-  // who reads it back to you before the coins move has saved you both.
-  if (transaction.payoutAddress) {
-    lines.push('');
-    put(
-      say('withdraw.address'),
-      transaction.payoutWallet
-        ? `${transaction.payoutAddress} (${transaction.payoutWallet.network})`
-        : transaction.payoutAddress,
-    );
-  }
-
-  lines.push('');
-  put(say('receipt.date'), formatDateTime(transaction.createdAt, locale));
-  put(say('common.branch'), name(transaction.branch, 'name'));
-
+  const phone = transaction.customer?.phone ?? transaction.counterpartyPhone ?? null;
   const who = transaction.customer
     ? name(transaction.customer, 'fullName')
     : transaction.counterpartyName;
-  if (who) put(say('receipt.customer'), who);
+
+  /*
+   * What the person on the other end is paid, and nothing else.
+   *
+   * When part of it went by bank, that part is what reaches him through the
+   * channel named underneath; the cash the customer took at the counter is not
+   * his business. Whole amounts lose their ".00" — "320 شيكل" is how the office
+   * writes it.
+   */
+  const paid =
+    transaction.payoutBankAmount > 0n ? transaction.payoutBankAmount : transaction.toAmount;
+  const amount = toDecimalString(paid, 2).replace(/\.00$/, '');
+
+  /*
+   * Four lines, the way the office already writes them by hand: the number,
+   * the amount, the channel it goes through, and the name. Each only when the
+   * transaction has it — a blank line where a field is missing would read as
+   * something left out.
+   *
+   * The address of a USDT withdrawal stays: it is the one part nobody can
+   * correct afterwards, and a customer who reads it back has saved you both.
+   */
+  const unit =
+    (locale === 'ar' ? SHORT_AR[transaction.toCurrency] : undefined) ??
+    (currency ? name(currency, 'name') : transaction.toCurrency);
+
+  const lines = [
+    phone,
+    `${amount} ${unit}`,
+    transaction.payoutBankChannel,
+    transaction.payoutAddress
+      ? transaction.payoutWallet
+        ? `${transaction.payoutAddress} (${transaction.payoutWallet.network})`
+        : transaction.payoutAddress
+      : null,
+    who,
+  ].filter((line): line is string => Boolean(line?.trim()));
 
   return {
     reference: transaction.reference,
-    text: lines.join('\n'),
-    phone: transaction.customer?.phone ?? transaction.counterpartyPhone ?? null,
+    companyName: company ?? '',
+    text: lines.join('\n\n'),
+    phone,
   };
 }
 

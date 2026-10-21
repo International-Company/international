@@ -44,6 +44,7 @@ import { cn } from '@/ui/utils';
 
 interface Shareable {
   reference: string;
+  companyName: string;
   text: string;
   phone: string | null;
 }
@@ -129,9 +130,9 @@ export function ShareButton({
     setLoading(true);
     try {
       const blob = await receiptPdf({
-        // The letterhead is the first line the server composed; the drawing
-        // reads the rest, so the file and the message carry one set of facts.
-        companyName: data.text.split('\n')[0] ?? '',
+        // The letterhead comes apart from the message, which no longer opens
+        // with it; the body is the same text, so both carry one set of facts.
+        companyName: data.companyName,
         reference: data.reference,
         text: data.text,
       });
