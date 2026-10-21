@@ -870,6 +870,9 @@ export interface Arrival {
   wallet: { id: string; label: string; labelAr: string; network: string; tokenSymbol: string };
 }
 
+/** An address read from the chain this recently is read from the table instead. */
+const RESYNC_AFTER_MS = 5_000;
+
 /**
  * What is waiting, newest first.
  *
@@ -883,7 +886,7 @@ export async function unclaimedArrivals(
 ): Promise<Arrival[]> {
   const wallets = await db.wallet.findMany({
     where: { isCounterAddress: true, isActive: true },
-    select: { id: true, network: true },
+    select: { id: true, network: true, lastSyncedAt: true },
   });
 
   /*
@@ -891,13 +894,19 @@ export async function unclaimedArrivals(
    * the tray because the customer says "I sent it" sees it appear rather than
    * being told to wait for a scheduled sync. A provider having a bad minute
    * must not empty the tray, so a failure falls through to what is stored.
+   *
+   * Transfers only, and not an address read a moment ago: every screen open on
+   * this log asks on its own timer, and the public tier throttles the whole
+   * office once those add up. The balance is the scheduled sync's business.
    */
   if (options.sync !== false) {
+    const fresh = Date.now() - RESYNC_AFTER_MS;
     await Promise.all(
       wallets
         .filter((wallet) => providerFor(wallet.network).network !== 'MANUAL')
+        .filter((wallet) => !wallet.lastSyncedAt || wallet.lastSyncedAt.getTime() < fresh)
         .map((wallet) =>
-          syncWallet(wallet.id, {}, db).catch((error) =>
+          syncWallet(wallet.id, { skipBalance: true }, db).catch((error) =>
             log.warn('Arrivals sync failed; showing what is already stored', {
               walletId: wallet.id,
               error,

@@ -36,7 +36,12 @@ export interface SyncResult {
 
 export async function syncWallet(
   walletId: string,
-  options: { actorId?: string; deep?: boolean } = {},
+  options: {
+    actorId?: string;
+    deep?: boolean;
+    /** Transfers only — for the counter's log, which waits on every request. */
+    skipBalance?: boolean;
+  } = {},
   db: DbClient = prisma,
 ): Promise<SyncResult> {
   const wallet = await db.wallet.findUnique({ where: { id: walletId } });
@@ -60,7 +65,7 @@ export async function syncWallet(
   try {
     // --- Balance ----------------------------------------------------------
     // Manual wallets report 0 by design; never overwrite an operator-set value.
-    if (provider.network !== 'MANUAL') {
+    if (provider.network !== 'MANUAL' && !options.skipBalance) {
       balance = await provider.fetchBalance(wallet.address, wallet.contractAddress);
 
       if (balance !== wallet.balance) {

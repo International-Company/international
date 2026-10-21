@@ -21,6 +21,12 @@ import {
 
 const log = createLogger('usdt:tron');
 
+/** How far behind the newest transfer seen each poll reads again. */
+const REREAD_MS = 30 * 60 * 1000;
+
+/** Pages followed inside that window before leaving the rest to the next poll. */
+const MAX_PAGES = 4;
+
 /** Base58 TRON mainnet addresses always start with `T` and are 34 chars. */
 const ADDRESS_PATTERN = /^T[1-9A-HJ-NP-Za-km-z]{33}$/;
 
@@ -190,25 +196,49 @@ export class TronProvider implements ChainProvider {
     const contract = contractAddress ?? env.TRON_USDT_CONTRACT;
     const limit = Math.min(200, options.limit ?? 50);
 
-    const response = await this.request<TronListResponse<TronTrc20Transfer>>(
-      `/v1/accounts/${address}/transactions/trc20`,
-      {
-        limit: String(limit),
-        contract_address: contract,
-        order_by: 'block_timestamp,desc',
-        ...(options.cursor ? { fingerprint: options.cursor } : {}),
-      },
-    );
+    /*
+     * The cursor is the newest block time already seen, and every poll reads
+     * from the top down to a little before it.
+     *
+     * Not TronGrid's fingerprint. A fingerprint continues to the next *older*
+     * page, so storing it made every poll walk further back into history while
+     * a transfer that had just landed sat unread until the walk ran out and
+     * started over — minutes, on an address with any past. The margin re-reads
+     * the last half hour on purpose: a transfer is seen first with too few
+     * confirmations, and has to be read again to be seen as settled.
+     */
+    const since = options.cursor && /^\d+$/.test(options.cursor) ? Number(options.cursor) : null;
+    const minTimestamp = since !== null ? String(since - REREAD_MS) : '';
 
-    if (response.success === false) {
-      throw errors.external(`TronGrid: ${response.error ?? 'unknown error'}`);
+    const items: TronTrc20Transfer[] = [];
+    let fingerprint = '';
+    // A few pages at most, and only inside the window: more than that many
+    // arrivals in half an hour is not a counter, and the next poll picks up
+    // where this one stopped.
+    for (let page = 0; page < (since !== null ? MAX_PAGES : 1); page++) {
+      const response = await this.request<TronListResponse<TronTrc20Transfer>>(
+        `/v1/accounts/${address}/transactions/trc20`,
+        {
+          limit: String(limit),
+          contract_address: contract,
+          order_by: 'block_timestamp,desc',
+          min_timestamp: minTimestamp,
+          fingerprint,
+        },
+      );
+
+      if (response.success === false) {
+        throw errors.external(`TronGrid: ${response.error ?? 'unknown error'}`);
+      }
+
+      items.push(...(response.data ?? []));
+      fingerprint = response.meta?.fingerprint ?? '';
+      if (!fingerprint) break;
     }
 
-    // Confirmations are derived from block height; TronGrid does not report
-    // them per transfer on this endpoint.
-    const head = await this.currentBlock();
+    const newest = items.reduce((max, item) => Math.max(max, item.block_timestamp ?? 0), since ?? 0);
 
-    const transfers: ChainTransfer[] = (response.data ?? []).map((item) => {
+    const transfers: ChainTransfer[] = items.map((item) => {
       const decimals = item.token_info?.decimals ?? USDT_DECIMALS;
       const timestamp = item.block_timestamp ? new Date(item.block_timestamp) : null;
 
@@ -230,12 +260,10 @@ export class TronProvider implements ChainProvider {
       };
     });
 
-    void head;
-
     return {
       transfers,
-      cursor: response.meta?.fingerprint ?? null,
-      hasMore: Boolean(response.meta?.fingerprint) && transfers.length === limit,
+      cursor: newest > 0 ? String(newest) : null,
+      hasMore: Boolean(fingerprint),
     };
   }
 }

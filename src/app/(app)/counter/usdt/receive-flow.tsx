@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Check, Copy, ExternalLink, Inbox, Loader2, MessageCircle, RefreshCw } from 'lucide-react';
 import { useLocale } from '@/i18n/provider';
@@ -82,7 +82,7 @@ interface Arrival {
 }
 
 /** How often the log refreshes itself while a customer is waiting. */
-const POLL_MS = 15_000;
+const POLL_MS = 10_000;
 
 export function ReceiveFlow({
   addresses,
@@ -144,7 +144,13 @@ export function ReceiveFlow({
     );
   })();
 
+  // One read of the chain at a time. A slow provider would otherwise have the
+  // timer stack a second request on the first, and a third on both.
+  const inFlight = useRef(false);
+
   const load = useCallback(async (manual = false) => {
+    if (inFlight.current) return;
+    inFlight.current = true;
     if (manual) setRefreshing(true);
     try {
       setArrivals(await api.get<Arrival[]>('/api/usdt/arrivals'));
@@ -152,12 +158,27 @@ export function ReceiveFlow({
       // A log that shouts about a provider outage would shout all day.
       setArrivals((current) => current ?? []);
     } finally {
+      inFlight.current = false;
       if (manual) setRefreshing(false);
     }
   }, []);
 
   useEffect(() => {
-    void load();
+    /*
+     * What is already stored first, so the log is on screen at once rather than
+     * after the chain answers; the chain is asked straight after. Never left
+     * behind it: a stored read that lands late must not overwrite a fresher one.
+     */
+    let asked = false;
+    void api
+      .get<Arrival[]>('/api/usdt/arrivals?sync=false')
+      .then((stored) => {
+        if (!asked) setArrivals((current) => current ?? stored);
+      })
+      .catch(() => {});
+    void load().finally(() => {
+      asked = true;
+    });
     const timer = setInterval(() => void load(), POLL_MS);
     return () => clearInterval(timer);
   }, [load]);
