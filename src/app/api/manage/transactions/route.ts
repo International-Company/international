@@ -1,11 +1,17 @@
 import { z } from 'zod';
 import { route } from '@/core/http/route';
 import * as transactions from '@/modules/exchange/transaction.service';
-import { isTransactionStatus, isTransactionType } from '@/modules/exchange/transaction-types';
+import {
+  isCategory,
+  isTransactionStatus,
+  isTransactionType,
+} from '@/modules/exchange/transaction-types';
 
 const querySchema = z.object({
   status: z.string().optional(),
   type: z.string().optional(),
+  /** EXCHANGE, REMITTANCE or USDT — the three words the office uses. */
+  category: z.string().optional(),
   createdById: z.string().optional(),
   search: z.string().optional(),
   from: z.string().optional(),
@@ -29,6 +35,7 @@ export const GET = route<unknown, z.infer<typeof querySchema>>({
       {
         status: query.status && isTransactionStatus(query.status) ? query.status : undefined,
         type: query.type && isTransactionType(query.type) ? query.type : undefined,
+        category: query.category && isCategory(query.category) ? query.category : undefined,
         createdById: query.createdById,
         search: query.search,
         from: query.from ? new Date(query.from) : undefined,

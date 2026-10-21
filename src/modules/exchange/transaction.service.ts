@@ -12,9 +12,11 @@ import * as drawers from '@/modules/drawers/drawer.service';
 import { requireOpenDay } from './business-day.service';
 import { cashOwnerFor } from '@/modules/treasury/shift.service';
 import {
+  CATEGORIES,
   TRANSACTION_TYPE_META,
   balancesFor,
   type BalanceSide,
+  type Category,
   type TransactionStatus,
   type TransactionType,
 } from './transaction-types';
@@ -609,6 +611,8 @@ export async function reverse(
 export interface TransactionFilter {
   status?: TransactionStatus;
   type?: TransactionType;
+  /** صرافة، حوالات، USDT — narrower than all, wider than one type. */
+  category?: Category;
   createdById?: string;
   from?: Date;
   to?: Date;
@@ -629,6 +633,7 @@ function buildWhere(filter: TransactionFilter, actor: Actor): Prisma.Transaction
 
   if (filter.status) where.status = filter.status;
   if (filter.type) where.type = filter.type;
+  else if (filter.category) where.type = { in: [...CATEGORIES[filter.category]] };
 
   if (filter.from || filter.to) {
     where.createdAt = {

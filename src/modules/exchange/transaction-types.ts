@@ -74,6 +74,31 @@ export function balancesFor(type: TransactionType): {
   return { intake: 'CASH', payout: null };
 }
 
+/**
+ * The three words the office uses for its work — صرافة، حوالات، USDT — and the
+ * types under each. A manager asks about a teller's day in these, so the
+ * screens that answer him group by them.
+ */
+export const CATEGORIES = {
+  EXCHANGE: ['EXCHANGE'],
+  REMITTANCE: ['REMITTANCE_OUT', 'REMITTANCE_IN'],
+  USDT: ['USDT_RECEIVE', 'USDT_SEND'],
+} as const satisfies Record<string, readonly TransactionType[]>;
+
+export type Category = keyof typeof CATEGORIES;
+export const CATEGORY_KEYS = Object.keys(CATEGORIES) as Category[];
+
+export function categoryOf(type: string): Category | null {
+  for (const key of CATEGORY_KEYS) {
+    if ((CATEGORIES[key] as readonly string[]).includes(type)) return key;
+  }
+  return null;
+}
+
+export function isCategory(value: string): value is Category {
+  return (CATEGORY_KEYS as string[]).includes(value);
+}
+
 export function isTransactionType(value: string): value is TransactionType {
   return (TRANSACTION_TYPES as readonly string[]).includes(value);
 }

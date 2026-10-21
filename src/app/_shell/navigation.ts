@@ -46,6 +46,7 @@ export type IconName =
   | 'ledger'
   | 'transactions'
   | 'customers'
+  | 'activity'
   | 'audit'
   | 'staff'
   | 'settings';
@@ -85,6 +86,14 @@ export const NAVIGATION: NavSection[] = [
         icon: 'transfer',
         permissions: ['exchange.remittance.use'],
         shortcut: 'g h',
+      },
+      {
+        // His own work, beside the tools that did it. Anyone who may see a
+        // transaction may see his own, so nothing new is granted for this.
+        href: '/counter/report',
+        labelKey: 'nav.myReport',
+        icon: 'activity',
+        permissions: ['exchange.transaction.view'],
       },
     ],
   },
@@ -175,6 +184,12 @@ export const NAVIGATION: NavSection[] = [
         labelKey: 'nav.tellers',
         icon: 'staff',
         permissions: ['ledger.view'],
+      },
+      {
+        href: '/manage/activity',
+        labelKey: 'nav.activity',
+        icon: 'activity',
+        permissions: ['exchange.transaction.viewAll'],
       },
       {
         href: '/treasury/differences',

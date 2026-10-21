@@ -1,0 +1,350 @@
+import 'server-only';
+import type { Prisma } from '@prisma/client';
+import { prisma, type DbClient } from '@/core/db/prisma';
+import { errors } from '@/core/errors/app-error';
+import type { Actor } from './transaction.service';
+import {
+  categoryOf,
+  TRANSACTION_TYPES,
+  type Category,
+  type TransactionType,
+} from './transaction-types';
+
+/**
+ * What each person at the counter did, by kind of work.
+ *
+ * ## Three kinds, not five types
+ *
+ * The office talks about its work in three words — صرافة، حوالات، USDT — and a
+ * manager reading a teller's day asks about those three. The five types stay
+ * underneath, because "sent" and "received" are different promises, but the
+ * screen groups them the way the question is asked.
+ *
+ * ## Totals per currency, never across them
+ *
+ * A teller who took 500 dollars and 2,000 shekels did not handle "2,500" of
+ * anything. Converting to one figure would need a rate, and the rate would be
+ * an opinion about a day that is already over. So every total is kept in its
+ * own currency and shown that way; the one place this office values everything
+ * in one currency is the ledger, which says which rates it used.
+ *
+ * ## What counts
+ *
+ * What stands: posted, and promised (a transfer not yet confirmed is still
+ * money the teller took). A reversed deal is counted separately and kept out of
+ * every total — it happened, and the manager should see how often, but it did
+ * not move money. The reversal row itself is nobody's trading and is left out
+ * entirely, as `tellerResults` does.
+ */
+
+/** An amount in one currency. Scaled by 1e8, as everywhere else. */
+export interface Amount {
+  currency: string;
+  amount: bigint;
+}
+
+export interface TypeTotals {
+  type: TransactionType;
+  /** Deals that stand: posted, or promised and not yet confirmed. */
+  count: number;
+  /** Of those, still waiting on a transfer or a send. */
+  pending: number;
+  /** Struck and later reversed. Not in any total. */
+  reversed: number;
+  /** What the customers handed over, per currency. */
+  received: Amount[];
+  /** What the office paid out, per currency. */
+  paid: Amount[];
+  /** The margin, per currency — only for someone allowed to see it. */
+  margin: Amount[] | null;
+}
+
+export interface TellerSummary {
+  tellerId: string;
+  fullNameEn: string;
+  fullNameAr: string;
+  counts: Record<Category, number>;
+  total: number;
+  reversed: number;
+  /** The last thing he recorded in the window. */
+  lastAt: Date | null;
+}
+
+export interface Activity {
+  from: string;
+  to: string;
+  /** Everyone who recorded something in the window, busiest first. */
+  tellers: TellerSummary[];
+  /** The breakdown — for one teller when one is chosen, for the office otherwise. */
+  types: TypeTotals[];
+  canSeeMargin: boolean;
+}
+
+export async function activity(
+  input: {
+    from: Date;
+    to: Date;
+    tellerId?: string | null;
+    /**
+     * The caller's own work, and nobody else's — the teller's report on
+     * himself. Asked for explicitly rather than inferred from a missing
+     * permission, so a manager opening his own report gets his own and not,
+     * silently, the whole office's.
+     */
+    own?: boolean;
+  },
+  actor: Actor,
+  db: DbClient = prisma,
+): Promise<Activity> {
+  if (input.own) {
+    // Anyone who may see a transaction may see his own.
+    if (!actor.permissions.includes('exchange.transaction.view')) {
+      throw errors.forbidden('exchange.transaction.view');
+    }
+  } else if (!actor.permissions.includes('exchange.transaction.viewAll')) {
+    // Everybody's work is the manager's view.
+    throw errors.forbidden('exchange.transaction.viewAll');
+  }
+  if (input.from > input.to) {
+    throw errors.validation([{ path: 'from', message: 'The period starts after it ends' }]);
+  }
+
+  const canSeeMargin = actor.permissions.includes('exchange.margin.view');
+  const tellerId = input.own ? actor.id : input.tellerId;
+
+  const where: Prisma.TransactionWhereInput = {
+    createdAt: { gte: input.from, lte: input.to },
+    reversalOfId: null,
+    ...(actor.branchId ? { branchId: actor.branchId } : {}),
+    // Narrowed in the query, not after it: his report must not read other
+    // people's rows only to throw them away.
+    ...(input.own ? { createdById: actor.id } : {}),
+  };
+
+  /*
+   * Read once, folded here.
+   *
+   * Two `groupBy`s would do the sums in the database, but a window of a month
+   * at one branch is thousands of rows, not millions, and one plain read keeps
+   * the counting rules in one readable loop instead of split across two
+   * aggregate shapes that each have to remember to exclude the reversed.
+   */
+  const rows = await db.transaction.findMany({
+    where,
+    select: {
+      createdById: true,
+      type: true,
+      status: true,
+      fromCurrency: true,
+      fromAmount: true,
+      toCurrency: true,
+      toAmount: true,
+      profitAmount: true,
+      createdAt: true,
+    },
+  });
+
+  const people = await db.user.findMany({
+    where: { id: { in: [...new Set(rows.map((row) => row.createdById))] } },
+    select: { id: true, fullNameEn: true, fullNameAr: true },
+  });
+  const named = new Map(people.map((person) => [person.id, person]));
+
+  // --- Who did what ---------------------------------------------------------
+  const tellers = new Map<string, TellerSummary>();
+  for (const row of rows) {
+    let summary = tellers.get(row.createdById);
+    if (!summary) {
+      const person = named.get(row.createdById);
+      summary = {
+        tellerId: row.createdById,
+        fullNameEn: person?.fullNameEn ?? row.createdById,
+        fullNameAr: person?.fullNameAr ?? row.createdById,
+        counts: { EXCHANGE: 0, REMITTANCE: 0, USDT: 0 },
+        total: 0,
+        reversed: 0,
+        lastAt: null,
+      };
+      tellers.set(row.createdById, summary);
+    }
+
+    if (!summary.lastAt || row.createdAt > summary.lastAt) summary.lastAt = row.createdAt;
+
+    if (row.status === 'REVERSED') {
+      summary.reversed += 1;
+      continue;
+    }
+    const category = categoryOf(row.type);
+    if (category) summary.counts[category] += 1;
+    summary.total += 1;
+  }
+
+  // --- How much, by type ----------------------------------------------------
+  const chosen = tellerId ? rows.filter((row) => row.createdById === tellerId) : rows;
+
+  const byType = new Map<
+    TransactionType,
+    TypeTotals & {
+      sums: Record<'received' | 'paid' | 'margin', Map<string, bigint>>;
+    }
+  >();
+  for (const type of TRANSACTION_TYPES) {
+    byType.set(type, {
+      type,
+      count: 0,
+      pending: 0,
+      reversed: 0,
+      received: [],
+      paid: [],
+      margin: null,
+      sums: { received: new Map(), paid: new Map(), margin: new Map() },
+    });
+  }
+
+  const add = (into: Map<string, bigint>, currency: string, amount: bigint) =>
+    into.set(currency, (into.get(currency) ?? 0n) + amount);
+
+  for (const row of chosen) {
+    const totals = byType.get(row.type as TransactionType);
+    if (!totals) continue;
+
+    if (row.status === 'REVERSED') {
+      totals.reversed += 1;
+      continue;
+    }
+
+    totals.count += 1;
+    if (row.status === 'PENDING_TRANSFER') totals.pending += 1;
+    add(totals.sums.received, row.fromCurrency, row.fromAmount);
+    add(totals.sums.paid, row.toCurrency, row.toAmount);
+    // The margin is written in the currency paid out, as `tellerResults` reads it.
+    add(totals.sums.margin, row.toCurrency, row.profitAmount);
+  }
+
+  const list = (sums: Map<string, bigint>): Amount[] =>
+    [...sums.entries()]
+      .map(([currency, amount]) => ({ currency, amount }))
+      .sort((a, b) => a.currency.localeCompare(b.currency));
+
+  const types = [...byType.values()].map(({ sums, ...totals }) => ({
+    ...totals,
+    received: list(sums.received),
+    paid: list(sums.paid),
+    margin: canSeeMargin ? list(sums.margin) : null,
+  }));
+
+  return {
+    from: input.from.toISOString(),
+    to: input.to.toISOString(),
+    tellers: [...tellers.values()].sort((a, b) => b.total - a.total || b.reversed - a.reversed),
+    types,
+    canSeeMargin,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// What his work did to the balances in his hands
+// ---------------------------------------------------------------------------
+
+/**
+ * One balance a teller holds, and how it moved in a window.
+ *
+ * Split by why, because the four reasons mean different things to him: money
+ * the treasury handed him is not money he earned, and money he gave back is not
+ * money he lost. Only the trading lines are his work; the handovers are the
+ * frame it happened in.
+ */
+export interface BalanceFlow {
+  currency: string;
+  kind: string;
+  decimals: number;
+  /** Handed to him by the treasury. */
+  handedIn: bigint;
+  /** Taken in from customers — and what reversals gave back. */
+  tradeIn: bigint;
+  /** Paid out to customers — and what reversals took back. */
+  tradeOut: bigint;
+  /** Returned to the treasury. */
+  handedBack: bigint;
+  /** Anything else: a count difference settled, a transfer. Signed. */
+  other: bigint;
+  /** What the balance holds now. */
+  balance: bigint;
+}
+
+const TRADING = new Set(['TRANSACTION', 'REVERSAL']);
+
+export async function balanceFlow(
+  input: { from: Date; to: Date },
+  actor: Actor,
+  db: DbClient = prisma,
+): Promise<BalanceFlow[]> {
+  /*
+   * His own drawers and nobody else's, whoever is asking — there is no
+   * parameter here naming whose, so there is nothing to get wrong. Closed ones
+   * too: a drawer retired this afternoon still moved this morning.
+   */
+  const drawers = await db.drawer.findMany({
+    where: { ownerKey: `teller:${actor.id}` },
+    orderBy: { sortOrder: 'asc' },
+    select: {
+      id: true,
+      currencyCode: true,
+      kind: true,
+      balance: true,
+      isActive: true,
+      currency: { select: { decimals: true } },
+    },
+  });
+  if (drawers.length === 0) return [];
+
+  const movements = await db.drawerMovement.findMany({
+    where: {
+      drawerId: { in: drawers.map((drawer) => drawer.id) },
+      createdAt: { gte: input.from, lte: input.to },
+    },
+    select: { drawerId: true, direction: true, amount: true, reason: true },
+  });
+
+  const flows = new Map<string, BalanceFlow>(
+    drawers.map((drawer) => [
+      drawer.id,
+      {
+        currency: drawer.currencyCode,
+        kind: drawer.kind,
+        decimals: drawer.currency.decimals,
+        handedIn: 0n,
+        tradeIn: 0n,
+        tradeOut: 0n,
+        handedBack: 0n,
+        other: 0n,
+        balance: drawer.balance,
+      },
+    ]),
+  );
+
+  for (const movement of movements) {
+    const flow = flows.get(movement.drawerId);
+    if (!flow) continue;
+    const incoming = movement.direction === 'IN';
+
+    if (movement.reason === 'HANDOVER') {
+      if (incoming) flow.handedIn += movement.amount;
+      else flow.handedBack += movement.amount;
+    } else if (TRADING.has(movement.reason)) {
+      if (incoming) flow.tradeIn += movement.amount;
+      else flow.tradeOut += movement.amount;
+    } else {
+      flow.other += incoming ? movement.amount : -movement.amount;
+    }
+  }
+
+  // A closed drawer that did nothing in the window is history, not a balance.
+  return drawers
+    .filter((drawer) => {
+      const flow = flows.get(drawer.id)!;
+      const moved = flow.handedIn || flow.tradeIn || flow.tradeOut || flow.handedBack || flow.other;
+      return drawer.isActive || moved !== 0n || flow.balance !== 0n;
+    })
+    .map((drawer) => flows.get(drawer.id)!);
+}

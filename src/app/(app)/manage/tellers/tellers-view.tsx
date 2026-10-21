@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import Link from 'next/link';
 import { MessageSquare } from 'lucide-react';
 import { useLocale } from '@/i18n/provider';
 import { api, ApiError } from '@/lib/api-client';
@@ -234,7 +235,14 @@ export function TellersView({ base }: { base: string }) {
                       <td className="px-3 py-2 text-end font-bold">
                         <Money value={row.net} decimals={2} colored />
                       </td>
-                      <td className="px-3 py-2 text-end">
+                      <td className="px-3 py-2 text-end whitespace-nowrap">
+                        {/* What he did, beside what it was worth. */}
+                        <Link
+                          href={`/manage/activity?teller=${encodeURIComponent(row.tellerId)}`}
+                          className="text-primary-text me-1 inline-flex h-8 items-center rounded-md px-3 text-sm hover:underline"
+                        >
+                          {t('nav.activity')}
+                        </Link>
                         <Button
                           size="sm"
                           variant="ghost"
