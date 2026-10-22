@@ -10,8 +10,10 @@ import * as transactions from '@/modules/exchange/transaction.service';
 import * as settings from '@/modules/settings/settings.service';
 import { ceilingFor } from '@/modules/users/counter-limit';
 import * as audit from '@/modules/audit/audit.service';
+import { createCustomer } from '@/modules/customers/customers.service';
 import { syncWallet } from './sync.service';
 import { providerFor } from './providers';
+import * as recognition from './recognition.service';
 
 /**
  * The USDT counter.
@@ -868,6 +870,11 @@ export interface Arrival {
    */
   explorerUrl: string;
   wallet: { id: string; label: string; labelAr: string; network: string; tokenSymbol: string };
+  /**
+   * Who this sender is, when the counter has settled one from the address
+   * before — or that the address is shared and must not be guessed at.
+   */
+  recognised: recognition.Recognition | null;
 }
 
 /** An address read from the chain this recently is read from the table instead. */
@@ -959,6 +966,12 @@ export async function unclaimedArrivals(
     },
   });
 
+  // One read for every sender on the page, not one per row.
+  const known = await recognition.recognise(
+    rows.map((row) => ({ network: row.wallet.network, address: row.fromAddress })),
+    db,
+  );
+
   return rows.map((row) => ({
     id: row.id,
     txHash: row.txHash,
@@ -976,6 +989,9 @@ export async function unclaimedArrivals(
       network: row.wallet.network,
       tokenSymbol: row.wallet.tokenSymbol,
     },
+    recognised: row.fromAddress
+      ? (known.get(recognition.recognitionKey(row.wallet.network, row.fromAddress)) ?? null)
+      : null,
   }));
 }
 
@@ -1083,9 +1099,17 @@ export interface SettleArrivalInput {
   brokerShare?: bigint;
   /** Which of the broker's accounts the transfer is instructed to. */
   payoutChannel?: string | null;
+  /** The account on that channel the customer is paid to. Required for a transfer. */
+  payoutAccount?: string | null;
   customerId?: string | null;
   counterpartyName?: string | null;
   counterpartyPhone?: string | null;
+  /**
+   * With no customer chosen, make one from the name and phone given — so the
+   * next transfer from this address is recognised. A customer already holding
+   * that phone is used rather than duplicated.
+   */
+  saveCustomer?: boolean;
   notes?: string | null;
 }
 
@@ -1156,9 +1180,33 @@ export async function settleArrival(
     );
   }
 
-  if (input.customerId) {
-    const customer = await db.customer.findUnique({ where: { id: input.customerId } });
-    if (!customer) throw errors.notFound('Customer', input.customerId);
+  /*
+   * Who this is for.
+   *
+   * A walk-in with a name and a phone becomes a customer when the teller asks
+   * for it, because that is what lets the next transfer from this address be
+   * recognised. The phone is the identity here: a customer already holding it
+   * is the same person, and a second record for them would split their
+   * history and make every later address ambiguous.
+   */
+  let customerId = input.customerId ?? null;
+  const name = input.counterpartyName?.trim() ?? '';
+  const phone = input.counterpartyPhone?.trim() ?? '';
+  // Only an existing customer is looked up here. A new one is made last, once
+  // every check has passed, so a refused settlement leaves no stray record.
+  let createNew = false;
+  if (!customerId && input.saveCustomer && name && phone) {
+    if (!actor.permissions.includes('customers.create')) {
+      throw errors.forbidden('customers.create');
+    }
+    const existing = await db.customer.findFirst({ where: { phone }, select: { id: true } });
+    if (existing) customerId = existing.id;
+    else createNew = true;
+  }
+
+  if (customerId) {
+    const customer = await db.customer.findUnique({ where: { id: customerId } });
+    if (!customer) throw errors.notFound('Customer', customerId);
     if (customer.isBlocked) {
       throw errors.precondition(`Customer ${customer.code} is blocked`, 'errors.customerBlocked');
     }
@@ -1225,6 +1273,19 @@ export async function settleArrival(
   }
 
   /*
+   * And the account on it. A channel without one is an instruction nobody can
+   * carry out — "send 320 through PalPay" says nothing about to whom — so a
+   * transfer is refused without it rather than recorded and asked about later.
+   */
+  const payoutAccount = brokerLeg ? (input.payoutAccount?.trim() ?? '') : '';
+  if (brokerLeg && !payoutAccount) {
+    throw errors.precondition(
+      'Say which account the transfer goes to',
+      'errors.transferAccountRequired',
+    );
+  }
+
+  /*
    * A split has no single rate. The blended one — what the customer actually
    * got per coin — is what belongs on the receipt, because it is the only rate
    * that describes the trade they made. `rateId` points at a published row only
@@ -1234,17 +1295,28 @@ export async function settleArrival(
   const rate =
     single?.rate ?? (transfer.amount > 0n ? (toAmount * MONEY_FACTOR) / transfer.amount : 0n);
 
+  if (createNew) {
+    customerId = (
+      await createCustomer(
+        { fullNameEn: name, fullNameAr: name, phone, branchId: input.branchId },
+        actor,
+        db,
+      )
+    ).id;
+  }
+
   const created = await transactions.record(
     {
       type: 'USDT_RECEIVE',
       branchId: input.branchId,
-      customerId: input.customerId ?? null,
+      customerId,
       fromCurrency: transfer.wallet.tokenSymbol,
       fromAmount: transfer.amount,
       toCurrency: input.payoutCurrency,
       toAmount,
       payout: { cash: cashLeg?.toAmount ?? 0n, bank: brokerLeg?.toAmount ?? 0n },
       payoutChannel: account,
+      payoutAccount: payoutAccount || null,
       rate,
       rateId: single?.rateId ?? null,
       profitAmount: profit,
@@ -1262,6 +1334,30 @@ export async function settleArrival(
     where: { id: chainTransactionId },
     data: { linkedTransactionId: created.id, isReconciled: true, processedAt: new Date() },
   });
+
+  /*
+   * What this settlement taught, for the next one: the address is this
+   * customer's, and — if paid by transfer — this is where they are paid.
+   *
+   * After the posting and outside it. Forgetting is an inconvenience for the
+   * next transfer; failing a settlement the customer has already been paid for
+   * because the memory could not be written would be a real problem.
+   */
+  if (customerId) {
+    try {
+      await recognition.remember(
+        {
+          customerId,
+          network: transfer.network,
+          address: transfer.fromAddress || null,
+          payout: account && payoutAccount ? { channel: account, account: payoutAccount } : null,
+        },
+        db,
+      );
+    } catch (error) {
+      log.warn('Could not remember the sender for next time', { txHash: transfer.txHash, error });
+    }
+  }
 
   await audit.record({
     action: 'POST',

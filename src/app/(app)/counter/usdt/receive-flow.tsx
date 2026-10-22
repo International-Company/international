@@ -2,7 +2,16 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Check, Copy, ExternalLink, Inbox, Loader2, MessageCircle, RefreshCw } from 'lucide-react';
+import {
+  Check,
+  Copy,
+  ExternalLink,
+  Inbox,
+  Loader2,
+  MessageCircle,
+  RefreshCw,
+  UserCheck,
+} from 'lucide-react';
 import { useLocale } from '@/i18n/provider';
 import { api } from '@/lib/api-client';
 import { describeFailure } from '@/lib/failure';
@@ -79,7 +88,33 @@ interface Arrival {
   fromAddress: string | null;
   explorerUrl: string;
   wallet: { id: string; label: string; labelAr: string; network: string; tokenSymbol: string };
+  recognised: Recognised | null;
 }
+
+interface SavedPayout {
+  id: string;
+  channel: string;
+  account: string;
+  isDefault: boolean;
+  timesUsed: number;
+}
+
+/** What the server knows about the address a transfer came from. */
+type Recognised =
+  | {
+      status: 'KNOWN';
+      customer: {
+        id: string;
+        code: string;
+        fullNameEn: string;
+        fullNameAr: string;
+        phone: string | null;
+        isBlocked: boolean;
+      };
+      timesSeen: number;
+      payout: SavedPayout | null;
+    }
+  | { status: 'SHARED'; customers: number };
 
 /** How often the log refreshes itself while a customer is waiting. */
 const POLL_MS = 10_000;
@@ -115,6 +150,10 @@ export function ReceiveFlow({
   const [mode, setMode] = useState<Mode>('CASH');
   const [brokerShare, setBrokerShare] = useState('');
   const [destination, setDestination] = useState(transferChannels[0] ?? '');
+  const [counterpartyPhone, setCounterpartyPhone] = useState('');
+  const [payoutAccount, setPayoutAccount] = useState('');
+  const [saveCustomer, setSaveCustomer] = useState(true);
+  const [savedPayouts, setSavedPayouts] = useState<SavedPayout[]>([]);
   const [recording, setRecording] = useState(false);
   const [done, setDone] = useState<{ reference: string } | null>(null);
 
@@ -183,6 +222,70 @@ export function ReceiveFlow({
     return () => clearInterval(timer);
   }, [load]);
 
+  /*
+   * Opening an arrival, already filled in when the sender is known.
+   *
+   * A known address brings its customer and, if they were paid by transfer
+   * last time, the channel and account — the teller checks and records. A
+   * shared address brings nothing: it has sent for more than one person, and
+   * filling it in would be a guess about whose money this is.
+   */
+  const open = (arrival: Arrival) => {
+    setDone(null);
+    setCounterpartyName('');
+    setCounterpartyPhone('');
+    setSaveCustomer(true);
+    setBrokerShare('');
+    setSavedPayouts([]);
+
+    const known = arrival.recognised?.status === 'KNOWN' ? arrival.recognised : null;
+    setCustomer(
+      known && !known.customer.isBlocked
+        ? {
+            id: known.customer.id,
+            code: known.customer.code,
+            fullNameEn: known.customer.fullNameEn,
+            fullNameAr: known.customer.fullNameAr,
+            phone: known.customer.phone,
+          }
+        : null,
+    );
+
+    const payout = known?.payout;
+    if (payout && transferChannels.includes(payout.channel)) {
+      setMode('BROKER');
+      setDestination(payout.channel);
+      setPayoutAccount(payout.account);
+    } else {
+      setMode('CASH');
+      setDestination(transferChannels[0] ?? '');
+      setPayoutAccount('');
+    }
+
+    setChosen(arrival);
+  };
+
+  // A chosen customer's saved accounts, offered under the account field.
+  useEffect(() => {
+    if (!customer) {
+      setSavedPayouts([]);
+      return;
+    }
+    let current = true;
+    void api
+      .get<{ payouts: SavedPayout[] }>(`/api/usdt/customers/${customer.id}/payouts`)
+      .then(({ payouts }) => {
+        if (!current) return;
+        setSavedPayouts(payouts.filter((entry) => transferChannels.includes(entry.channel)));
+      })
+      .catch(() => {
+        if (current) setSavedPayouts([]);
+      });
+    return () => {
+      current = false;
+    };
+  }, [customer, transferChannels]);
+
   // Priced when a row is chosen, and again if the currency changes under it.
   useEffect(() => {
     if (!chosen) return;
@@ -201,6 +304,23 @@ export function ReceiveFlow({
     };
   }, [chosen, payoutCurrency]);
 
+  // A remembered transfer with no broker price published today falls back to
+  // cash, rather than leaving a payout of nothing and a button that stays grey.
+  useEffect(() => {
+    if (quote && !quote.broker && mode !== 'CASH') setMode('CASH');
+  }, [quote, mode]);
+
+  /*
+   * What the server will refuse, refused here first: a transfer needs an
+   * account to go to and, with no customer chosen, a name and a phone for the
+   * person it is for.
+   */
+  const transferring = mode !== 'CASH';
+  const missingForTransfer =
+    transferring &&
+    (!payoutAccount.trim() ||
+      (!customer && (!counterpartyName.trim() || !counterpartyPhone.trim())));
+
   const record = async () => {
     if (!chosen) return;
     setRecording(true);
@@ -218,8 +338,11 @@ export function ReceiveFlow({
            */
           brokerShare: mode === 'SPLIT' ? brokerShare.trim() : undefined,
           payoutChannel: mode === 'CASH' ? null : destination,
+          payoutAccount: mode === 'CASH' ? null : payoutAccount.trim() || null,
           customerId: customer?.id ?? null,
-          counterpartyName: counterpartyName.trim() || null,
+          counterpartyName: customer ? null : counterpartyName.trim() || null,
+          counterpartyPhone: customer ? null : counterpartyPhone.trim() || null,
+          saveCustomer: !customer && saveCustomer,
         },
       );
       toast.success(t('receive.recorded'), created.reference);
@@ -227,6 +350,8 @@ export function ReceiveFlow({
       setChosen(null);
       setCustomer(null);
       setCounterpartyName('');
+      setCounterpartyPhone('');
+      setPayoutAccount('');
       await load();
       router.refresh();
     } catch (caught) {
@@ -363,6 +488,18 @@ export function ReceiveFlow({
                       </p>
                     )}
 
+                    {/* Who it is, before the row is even opened. */}
+                    {arrival.recognised?.status === 'KNOWN' && (
+                      <Badge tone="success">
+                        <UserCheck className="me-1 inline size-3.5" />
+                        {ln(arrival.recognised.customer, 'fullName')}
+                        {arrival.recognised.payout ? ` · ${arrival.recognised.payout.channel}` : ''}
+                      </Badge>
+                    )}
+                    {arrival.recognised?.status === 'SHARED' && (
+                      <Badge tone="warning">{t('receive.sharedBadge')}</Badge>
+                    )}
+
                     <p className="break-all font-mono text-[11px] text-content-tertiary ltr-content">
                       {arrival.txHash}
                     </p>
@@ -384,7 +521,7 @@ export function ReceiveFlow({
                       </a>
 
                       {arrival.ready && (
-                        <Button size="sm" onClick={() => setChosen(arrival)} className="ms-auto">
+                        <Button size="sm" onClick={() => open(arrival)} className="ms-auto">
                           {t('receive.record')}
                         </Button>
                       )}
@@ -407,14 +544,44 @@ export function ReceiveFlow({
             <Button variant="secondary" onClick={() => setChosen(null)}>
               {t('common.cancel')}
             </Button>
-            <Button onClick={() => void record()} loading={recording} disabled={payout === null}>
+            <Button
+              type="submit"
+              form="settle-arrival"
+              loading={recording}
+              disabled={payout === null || missingForTransfer}
+            >
               {t('receive.record')}
             </Button>
           </>
         }
       >
         {chosen && (
-          <div className="space-y-3">
+          /*
+           * A form, so Enter records: for a known sender the teller's whole job
+           * is to look, and press Enter.
+           */
+          <form
+            id="settle-arrival"
+            className="space-y-3"
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (payout !== null && !missingForTransfer && !recording) void record();
+            }}
+          >
+            {chosen.recognised?.status === 'KNOWN' && (
+              <Alert tone="success" icon={<UserCheck />}>
+                {t('receive.known', {
+                  name: ln(chosen.recognised.customer, 'fullName'),
+                  count: chosen.recognised.timesSeen,
+                })}
+              </Alert>
+            )}
+            {chosen.recognised?.status === 'SHARED' && (
+              <Alert tone="warning">
+                {t('receive.shared', { count: chosen.recognised.customers })}
+              </Alert>
+            )}
+
             <Alert tone="neutral">{t('arrivals.pricedNow')}</Alert>
 
             <div className="flex items-center justify-between rounded-xl bg-surface-sunken px-3 py-2">
@@ -508,6 +675,65 @@ export function ReceiveFlow({
               )}
 
               {/*
+                The account on that channel — without it, "send through PalPay"
+                is an instruction nobody can carry out. A customer's earlier
+                accounts are one tap away, and a phone given above is offered as
+                the likeliest wallet number.
+              */}
+              {transferring && (
+                <div className="mt-2">
+                  <label className="block">
+                    <span className="text-xs text-content-tertiary">{t('receive.account')}</span>
+                    <input
+                      type="text"
+                      dir="ltr"
+                      inputMode="text"
+                      autoComplete="off"
+                      value={payoutAccount}
+                      onChange={(event) => setPayoutAccount(event.target.value)}
+                      placeholder={customer?.phone ?? (counterpartyPhone || undefined)}
+                      required
+                      className="mt-1 h-11 w-full rounded-[var(--radius-control)] bg-surface-sunken px-3 font-mono text-sm font-medium text-content outline-none ring-1 ring-transparent focus:ring-primary"
+                    />
+                  </label>
+                  <p className="mt-1 text-xs text-content-tertiary">{t('receive.accountHint')}</p>
+
+                  {savedPayouts.length > 0 && (
+                    <div className="mt-2">
+                      <p className="mb-1 text-xs text-content-tertiary">
+                        {t('receive.savedPayouts')}
+                      </p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {savedPayouts.map((saved) => {
+                          const active =
+                            saved.channel === destination && saved.account === payoutAccount.trim();
+                          return (
+                            <button
+                              key={saved.id}
+                              type="button"
+                              onClick={() => {
+                                setDestination(saved.channel);
+                                setPayoutAccount(saved.account);
+                              }}
+                              className={cn(
+                                'rounded-full px-3 py-1 text-xs transition-colors',
+                                active
+                                  ? 'bg-primary text-content-inverse'
+                                  : 'bg-surface-sunken text-content-secondary hover:text-content',
+                              )}
+                            >
+                              {saved.channel} ·{' '}
+                              <span className="font-mono ltr-content">{saved.account}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/*
                 A split divides the coins, not the cash: the two channels price
                 differently, so what the customer takes away is not known until
                 both parts have been priced and cannot be the thing divided.
@@ -540,20 +766,64 @@ export function ReceiveFlow({
               )}
             </div>
 
-            <CustomerPicker value={customer} onChange={setCustomer} permissions={permissions} />
+            {/*
+              Enter inside the search is a search, not a settlement. Without
+              this, typing half a name and pressing Enter would record the
+              transfer for nobody.
+            */}
+            <div
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') event.preventDefault();
+              }}
+            >
+              <CustomerPicker value={customer} onChange={setCustomer} permissions={permissions} />
+            </div>
 
             {!customer && (
-              <Field label={t('transactions.counterpartyName')}>
-                {(props) => (
-                  <Input
-                    {...props}
-                    value={counterpartyName}
-                    onChange={(event) => setCounterpartyName(event.target.value)}
-                  />
+              <>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <Field label={t('transactions.counterpartyName')} required={transferring}>
+                    {(props) => (
+                      <Input
+                        {...props}
+                        value={counterpartyName}
+                        onChange={(event) => setCounterpartyName(event.target.value)}
+                      />
+                    )}
+                  </Field>
+                  <Field label={t('receive.phone')} required={transferring}>
+                    {(props) => (
+                      <Input
+                        {...props}
+                        type="tel"
+                        dir="ltr"
+                        value={counterpartyPhone}
+                        onChange={(event) => setCounterpartyPhone(event.target.value)}
+                      />
+                    )}
+                  </Field>
+                </div>
+
+                {/*
+                  On by default: a walk-in who sends once usually sends again,
+                  and saving him is what makes the second visit a single Enter.
+                  Only offered with both a name and a phone — the phone is how a
+                  second record for the same person is avoided.
+                */}
+                {counterpartyName.trim() && counterpartyPhone.trim() && (
+                  <label className="flex cursor-pointer items-start gap-2 text-sm text-content-secondary">
+                    <input
+                      type="checkbox"
+                      className="mt-0.5 size-4 shrink-0 accent-[var(--primary)]"
+                      checked={saveCustomer}
+                      onChange={(event) => setSaveCustomer(event.target.checked)}
+                    />
+                    {t('receive.saveCustomer')}
+                  </label>
                 )}
-              </Field>
+              </>
             )}
-          </div>
+          </form>
         )}
       </Dialog>
     </>

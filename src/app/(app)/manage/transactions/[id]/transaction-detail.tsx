@@ -59,6 +59,7 @@ interface TransactionData {
   counterpartyPhone: string | null;
   intakeBankChannel: string | null;
   payoutBankChannel: string | null;
+  payoutAccount: string | null;
   payoutAddress: string | null;
   payoutWallet: { id: string; label: string; labelAr: string; network: string } | null;
   reverseReason: string | null;
@@ -267,6 +268,11 @@ export function TransactionDetail({
               {transaction.payoutBankChannel && (
                 <DetailRow label={t('transactions.transferredTo')}>
                   {transaction.payoutBankChannel}
+                </DetailRow>
+              )}
+              {transaction.payoutAccount && (
+                <DetailRow label={t('receive.account')}>
+                  <span className="font-mono ltr-content">{transaction.payoutAccount}</span>
                 </DetailRow>
               )}
               {transaction.intakeBankChannel && (

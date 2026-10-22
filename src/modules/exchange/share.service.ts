@@ -88,6 +88,7 @@ export async function shareable(
       toAmount: true,
       payoutBankAmount: true,
       payoutBankChannel: true,
+      payoutAccount: true,
       payoutAddress: true,
       counterpartyName: true,
       counterpartyPhone: true,
@@ -149,6 +150,9 @@ export async function shareable(
     phone,
     `${amount} ${unit}`,
     transaction.payoutBankChannel,
+    // The account on the channel, when one was recorded: the line the person
+    // making the transfer actually needs.
+    transaction.payoutAccount,
     transaction.payoutAddress
       ? transaction.payoutWallet
         ? `${transaction.payoutAddress} (${transaction.payoutWallet.network})`

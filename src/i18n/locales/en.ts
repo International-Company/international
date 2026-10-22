@@ -1209,6 +1209,15 @@ const en = {
   },
 
   receive: {
+    known: 'Known customer: {name} — {count} earlier transfer(s) from this address',
+    knownBadge: '{name}',
+    shared: 'This address has sent for {count} different customers — usually an exchange’s wallet. Nothing was filled in: confirm who this is.',
+    sharedBadge: 'Shared address',
+    phone: 'Customer phone',
+    account: 'Account / wallet number',
+    accountHint: 'Where the transfer goes — a wallet number, a phone, or an IBAN.',
+    savedPayouts: 'Paid before to',
+    saveCustomer: 'Save as a customer, so this address is recognised next time',
     brokerShare: 'Share sent by bank ({token})',
     shareAddress: 'Send the address on WhatsApp',
     shareHeading: 'Deposit address — {network} network only',
@@ -1778,6 +1787,7 @@ const en = {
     noteEmpty: 'Write something.',
     noteToSelf: 'A note is written to somebody else, not to yourself.',
     transferChannelRequired: 'Say where the transfer is going',
+    transferAccountRequired: 'Enter the account or wallet number the transfer goes to',
     transferChannelUnknown: '{channel} is not a destination the counter offers',
     cannotEditReversal: 'A reversal carries the reason it was made; it is not edited',
     nothingToCorrect: 'That is the amount already recorded',

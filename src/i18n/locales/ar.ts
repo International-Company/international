@@ -1208,6 +1208,15 @@ const ar: Dictionary = {
   },
 
   receive: {
+    known: 'عميل معروف: {name} — {count} تحويل سابق من هذا العنوان',
+    knownBadge: '{name}',
+    shared: 'هذا العنوان أرسل لـ{count} عملاء مختلفين — غالباً محفظة منصّة. لم يُملأ شيء: تأكّد من هوية العميل.',
+    sharedBadge: 'عنوان مشترك',
+    phone: 'هاتف العميل',
+    account: 'رقم الحساب / المحفظة',
+    accountHint: 'الرقم الذي يُحوَّل إليه — رقم المحفظة أو الهاتف أو IBAN.',
+    savedPayouts: 'حُوِّل له سابقاً إلى',
+    saveCustomer: 'احفظه كعميل — يتعرّف عليه النظام من عنوانه في المرة القادمة',
     brokerShare: 'الحصة البنكية ({token})',
     shareAddress: 'أرسل العنوان بواتساب',
     shareHeading: 'عنوان الاستلام — شبكة {network} فقط',
@@ -1776,6 +1785,7 @@ const ar: Dictionary = {
     noteEmpty: 'اكتب شيئاً.',
     noteToSelf: 'الملاحظة تُكتب لغيرك، لا لنفسك.',
     transferChannelRequired: 'حدّد جهة التحويل',
+    transferAccountRequired: 'أدخل رقم الحساب أو المحفظة التي يُحوَّل إليها',
     transferChannelUnknown: '{channel} ليست جهة يعرضها الشباك',
     cannotEditReversal: 'العملية العكسية تحمل سبب عكسها، ولا تُعدَّل',
     nothingToCorrect: 'هذا هو المبلغ المسجّل أصلاً',

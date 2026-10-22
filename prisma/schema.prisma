@@ -1053,12 +1053,62 @@ model Customer {
   transactions    Transaction[]
   documents       CustomerDocument[]
   depositRequests UsdtDepositRequest[]
+  wallets         CustomerWallet[]
+  payouts         CustomerPayout[]
 
   @@index([fullNameEn])
   @@index([fullNameAr])
   @@index([phone])
   @@index([kycStatus])
   @@map("customers")
+}
+
+/// A wallet address a customer has sent USDT from.
+///
+/// Learned from the arrivals the counter settles, so the next transfer from the
+/// same address arrives already knowing whose it is. Keyed per customer rather
+/// than per address on purpose: an exchange's hot wallet sends for thousands of
+/// people, and the second customer seen on one is what marks it as shared —
+/// the counter then refuses to guess.
+model CustomerWallet {
+  id         String   @id @default(cuid())
+  customerId String
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  network String
+  address String
+
+  timesSeen   Int      @default(1)
+  firstSeenAt DateTime @default(now())
+  lastSeenAt  DateTime @default(now())
+
+  @@unique([network, address, customerId])
+  @@index([network, address])
+  @@map("customer_wallets")
+}
+
+/// Where a customer is paid when it is not in cash: a channel from the list
+/// the manager keeps, and the account on it.
+///
+/// The one marked default is what the counter offers first; it follows the
+/// customer's last choice, because the account a person used last time is the
+/// best guess at the one they want this time.
+model CustomerPayout {
+  id         String   @id @default(cuid())
+  customerId String
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  channel   String
+  account   String
+  isDefault Boolean @default(false)
+
+  timesUsed  Int      @default(1)
+  lastUsedAt DateTime @default(now())
+  createdAt  DateTime @default(now())
+
+  @@unique([customerId, channel, account])
+  @@index([customerId])
+  @@map("customer_payouts")
 }
 
 model CustomerDocument {
@@ -1156,6 +1206,13 @@ model Transaction {
   /// removing a destination later must not rewrite what was recorded at the
   /// time. Null whenever there was no bank leg.
   payoutBankChannel String?
+
+  /// The account on that channel the transfer went to — a wallet number, a
+  /// phone number, an IBAN. Recorded as given, for the same reason the channel
+  /// is: the instruction that left for the broker has to be checkable later
+  /// against what he says he paid. Null when there was no bank leg, and on
+  /// transfers recorded before the field existed.
+  payoutAccount String?
 
   /// Where the USDT was sent, for a withdrawal. Recorded as typed: the address
   /// is a fact about a transfer that already happened, and it belongs to the

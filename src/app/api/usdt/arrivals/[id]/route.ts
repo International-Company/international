@@ -29,9 +29,13 @@ const bodySchema = z.object({
   brokerShare: z.string().optional(),
   /** Which of the broker's accounts the transfer is instructed to. */
   payoutChannel: z.string().max(80).nullish(),
+  /** The account on that channel — a wallet number, a phone, an IBAN. */
+  payoutAccount: z.string().max(80).nullish(),
   customerId: z.string().nullish(),
   counterpartyName: z.string().max(200).nullish(),
   counterpartyPhone: z.string().max(40).nullish(),
+  /** With no customer chosen, make one from the name and phone, so the sender is known next time. */
+  saveCustomer: z.boolean().default(false),
   notes: z.string().max(1000).nullish(),
 });
 
@@ -57,9 +61,11 @@ export const POST = route<z.infer<typeof bodySchema>, unknown, z.infer<typeof pa
         mode: body.mode,
         brokerShare: body.brokerShare !== undefined ? parseMoney(body.brokerShare) : undefined,
         payoutChannel: body.payoutChannel ?? null,
+        payoutAccount: body.payoutAccount ?? null,
         customerId: body.customerId ?? null,
         counterpartyName: body.counterpartyName ?? null,
         counterpartyPhone: body.counterpartyPhone ?? null,
+        saveCustomer: body.saveCustomer,
         notes: body.notes ?? null,
       },
       actor,

@@ -68,6 +68,8 @@ export interface RecordInput {
   payout?: { cash: bigint; bank: bigint };
   /** Where the transfer went. Recorded as given; see the schema for why. */
   payoutChannel?: string | null;
+  /** The account on that channel — a wallet number, a phone, an IBAN. */
+  payoutAccount?: string | null;
   /** Where the USDT was sent, for a withdrawal, and from which wallet. */
   payoutAddress?: string | null;
   payoutWalletId?: string | null;
@@ -243,6 +245,7 @@ export async function record(
         payoutCashAmount: payout.cash,
         payoutBankAmount: payout.broker,
         payoutBankChannel: payout.broker > 0n ? (input.payoutChannel ?? null) : null,
+        payoutAccount: payout.broker > 0n ? input.payoutAccount?.trim() || null : null,
         payoutAddress: input.payoutAddress ?? null,
         payoutWalletId: input.payoutWalletId ?? null,
         rate: input.rate,
