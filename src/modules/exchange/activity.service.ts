@@ -348,3 +348,135 @@ export async function balanceFlow(
     })
     .map((drawer) => flows.get(drawer.id)!);
 }
+
+// ---------------------------------------------------------------------------
+// The machine's own running total, for the teller standing at it
+// ---------------------------------------------------------------------------
+
+/** What one bank channel carried today, and how much of it is still owed. */
+export interface ChannelTotal {
+  channel: string;
+  currency: string;
+  /** Recorded as paid by transfer, not yet confirmed as sent. */
+  pending: bigint;
+  pendingCount: number;
+  /** Confirmed as sent. */
+  sent: bigint;
+  sentCount: number;
+}
+
+export interface MachineToday {
+  /** False when no day is open — there is no "today" to total. */
+  dayOpen: boolean;
+  count: number;
+  /** What the customers handed over, per currency. */
+  received: Amount[];
+  /** Paid out across the counter, per currency. */
+  paidCash: Amount[];
+  /** Paid out by transfer, per currency — sent or not. */
+  paidBank: Amount[];
+  /** The transfers, by the channel they go through. */
+  bank: ChannelTotal[];
+}
+
+/**
+ * What this teller has exchanged on the machine today, and what of it the
+ * office still owes by transfer.
+ *
+ * "Today" is the open business day rather than the calendar date: a day is
+ * opened and closed by hand, and a trade belongs to the day it was recorded in
+ * whatever the clock says — the same rule the ledger reads by. His own trades
+ * only, whoever is asking; reversed ones and the reversals themselves are left
+ * out, because neither moved money that is still out.
+ */
+export async function machineToday(actor: Actor, db: DbClient = prisma): Promise<MachineToday> {
+  const empty: MachineToday = {
+    dayOpen: false,
+    count: 0,
+    received: [],
+    paidCash: [],
+    paidBank: [],
+    bank: [],
+  };
+  if (!actor.branchId) return empty;
+
+  const day = await db.businessDay.findFirst({
+    where: { branchId: actor.branchId, status: { in: ['OPEN', 'REOPENED'] } },
+    orderBy: { date: 'desc' },
+    select: { id: true },
+  });
+  if (!day) return empty;
+
+  const rows = await db.transaction.findMany({
+    where: {
+      type: 'EXCHANGE',
+      createdById: actor.id,
+      businessDayId: day.id,
+      reversalOfId: null,
+      status: { in: ['POSTED', 'PENDING_TRANSFER'] },
+    },
+    select: {
+      status: true,
+      fromCurrency: true,
+      fromAmount: true,
+      toCurrency: true,
+      payoutCashAmount: true,
+      payoutBankAmount: true,
+      payoutBankChannel: true,
+    },
+  });
+
+  const received = new Map<string, bigint>();
+  const paidCash = new Map<string, bigint>();
+  const paidBank = new Map<string, bigint>();
+  const channels = new Map<string, ChannelTotal>();
+  const add = (into: Map<string, bigint>, currency: string, amount: bigint) => {
+    if (amount !== 0n) into.set(currency, (into.get(currency) ?? 0n) + amount);
+  };
+
+  for (const row of rows) {
+    add(received, row.fromCurrency, row.fromAmount);
+    add(paidCash, row.toCurrency, row.payoutCashAmount);
+    add(paidBank, row.toCurrency, row.payoutBankAmount);
+
+    if (row.payoutBankAmount > 0n) {
+      // A transfer recorded before the channel was asked for has none; it is
+      // still money owed, so it is counted under a name that says so.
+      const channel = row.payoutBankChannel?.trim() || '—';
+      const key = `${channel}\u0000${row.toCurrency}`;
+      const total = channels.get(key) ?? {
+        channel,
+        currency: row.toCurrency,
+        pending: 0n,
+        pendingCount: 0,
+        sent: 0n,
+        sentCount: 0,
+      };
+      if (row.status === 'PENDING_TRANSFER') {
+        total.pending += row.payoutBankAmount;
+        total.pendingCount += 1;
+      } else {
+        total.sent += row.payoutBankAmount;
+        total.sentCount += 1;
+      }
+      channels.set(key, total);
+    }
+  }
+
+  const list = (sums: Map<string, bigint>): Amount[] =>
+    [...sums.entries()]
+      .map(([currency, amount]) => ({ currency, amount }))
+      .sort((a, b) => a.currency.localeCompare(b.currency));
+
+  return {
+    dayOpen: true,
+    count: rows.length,
+    received: list(received),
+    paidCash: list(paidCash),
+    paidBank: list(paidBank),
+    // The most owed first: that is the line the teller is asked about.
+    bank: [...channels.values()].sort((a, b) =>
+      a.pending === b.pending ? a.channel.localeCompare(b.channel) : a.pending > b.pending ? -1 : 1,
+    ),
+  };
+}

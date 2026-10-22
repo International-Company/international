@@ -32,6 +32,7 @@ import { Field, Input, MoneyInput, Textarea } from '@/ui/form';
 import { Money } from '@/ui/display';
 import { CustomerPicker, type CustomerHit } from '@/ui/customer-picker';
 import { cn } from '@/ui/utils';
+import { TodaySummary } from './today-summary';
 
 /**
  * The exchange tool.
@@ -1076,6 +1077,12 @@ export function MachineView({
               </ul>
             </div>
           )}
+
+          {/* What today came to, refreshed the moment a trade is recorded. */}
+          <TodaySummary
+            refreshKey={done?.id ?? null}
+            decimalsOf={(code) => byCode.get(code)?.decimals ?? 2}
+          />
         </div>
       </div>
     </form>
