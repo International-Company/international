@@ -1,0 +1,44 @@
+name: Image
+
+# Builds the production image on GitHub's runners and publishes it to the
+# GitHub container registry, so the host can run a finished image instead of
+# building one itself.
+#
+# Written during Railway's October 2026 incident, when its build queue held
+# deployments for hours while running an existing image did not need it. The
+# image is the same one the CI `image` job proves boots: the Dockerfile in the
+# repository root, nothing more. It carries no secrets — every credential is
+# supplied by the host's variables at runtime.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    name: build and publish
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Sign in to the registry
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Build
+        # The registry wants a lowercase name; the organisation's is not.
+        run: |
+          IMAGE="ghcr.io/$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')"
+          echo "IMAGE=$IMAGE" >> "$GITHUB_ENV"
+          docker build -t "$IMAGE:${{ github.sha }}" -t "$IMAGE:latest" .
+
+      - name: Publish
+        run: |
+          docker push "$IMAGE:${{ github.sha }}"
+          docker push "$IMAGE:latest"
+          echo "Published $IMAGE:${{ github.sha }} (also :latest)"
