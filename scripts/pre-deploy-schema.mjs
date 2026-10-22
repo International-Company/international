@@ -195,10 +195,19 @@ const STEPS = [
         -- Held in an array rather than a temp table: a temp table's lifetime is
         -- the session's, and a pooled connection could hand the next run one
         -- that already exists.
+        -- Named, never "anything not in today's list". This runs on every
+        -- deploy, and the negative form deleted every remittance, every USDT
+        -- send and every transfer awaiting confirmation on each one, from the
+        -- day those were added (10 August) — because they were not in the list
+        -- of the day this was written. Only the vocabulary that was actually
+        -- retired in 6c64b60 is removed, so nothing added later can match.
         SELECT array_agg("id") INTO doomed
           FROM "transactions"
-         WHERE "type" NOT IN ('EXCHANGE', 'USDT_RECEIVE')
-            OR "status" NOT IN ('POSTED', 'REVERSED');
+         WHERE "type" IN (
+                 'CASH_IN', 'CASH_OUT', 'TRANSFER_IN', 'TRANSFER_OUT',
+                 'DEPOSIT', 'WITHDRAWAL', 'USDT_IN', 'USDT_OUT', 'ADJUSTMENT'
+               )
+            OR "status" IN ('DRAFT', 'PENDING_APPROVAL', 'APPROVED', 'REJECTED', 'CANCELLED');
 
         IF doomed IS NULL THEN RETURN; END IF;
 
