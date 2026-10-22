@@ -3,16 +3,17 @@ import './support/test-env.ts';
 
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { zeroAll } from '../src/modules/drawers/drawer.service.ts';
+import { zeroAll, zeroLocks } from '../src/modules/drawers/drawer.service.ts';
 
 /**
- * Resetting every drawer to zero.
+ * Resetting the drawers the manager chose to zero.
  *
- * The act touches every balance at once, so each of its refusals and each of
- * its promises is pinned: only the manager, never without a reason or an open
- * day, never under a shift or a handover still in flight — and when it does
- * run, every drawer ends at exactly zero with a movement saying so, booked as
- * the owner's money so the day's result does not move.
+ * The act can touch every balance at once, so each of its refusals and each of
+ * its promises is pinned: only the manager, never without a reason, a choice or
+ * an open day, never a drawer whose teller is mid-shift or mid-handover — and
+ * when it runs, every chosen drawer ends at exactly zero with a movement saying
+ * so, booked as the owner's money so the day's result does not move, while the
+ * drawers left unticked are not touched at all.
  */
 
 const UNIT = 100_000_000n;
@@ -27,24 +28,42 @@ interface FakeDrawer {
   allowNegative: boolean;
 }
 
+type Where = {
+  id?: { in: string[] };
+  ownerKey?: { in: string[] };
+  isActive?: boolean;
+  balance?: { not: bigint };
+};
+
 function fakeDb(
   drawers: FakeDrawer[],
-  options: { day?: boolean; openShifts?: number; pendingHandovers?: number } = {},
+  options: { day?: boolean; openShiftsFor?: string[]; pendingHandoversFor?: string[] } = {},
 ) {
   const movements: Record<string, unknown>[] = [];
   const audits: Record<string, unknown>[] = [];
+
+  const matches = (drawer: FakeDrawer, where: Where) =>
+    (!where.id || where.id.in.includes(drawer.id)) &&
+    (!where.ownerKey || where.ownerKey.in.includes(drawer.ownerKey)) &&
+    (where.isActive === undefined || drawer.isActive === where.isActive) &&
+    (!where.balance || drawer.balance !== where.balance.not);
 
   const db = {
     businessDay: {
       findFirst: async () => (options.day === false ? null : { id: 'day-1' }),
     },
-    shift: { count: async () => options.openShifts ?? 0 },
-    handover: { count: async () => options.pendingHandovers ?? 0 },
+    shift: {
+      findMany: async () => (options.openShiftsFor ?? []).map((tellerId) => ({ tellerId })),
+    },
+    handover: {
+      findMany: async () => (options.pendingHandoversFor ?? []).map((tellerId) => ({ tellerId })),
+    },
     drawer: {
-      findMany: async () =>
+      findMany: async (args: { where: Where }) =>
         drawers
-          .filter((drawer) => drawer.isActive && drawer.balance !== 0n)
-          .map(({ ownerKey, currencyCode, kind, balance }) => ({
+          .filter((drawer) => matches(drawer, args.where))
+          .map(({ id, ownerKey, currencyCode, kind, balance }) => ({
+            id,
             ownerKey,
             currencyCode,
             kind,
@@ -110,51 +129,60 @@ const manager = {
 const refusedWith = (key: string) => (error: { messageKey?: string; code?: string }) =>
   error.messageKey === key || error.code === key;
 
-describe('resetting every drawer', () => {
+const all = (list: FakeDrawer[]) => list.map((entry) => entry.id);
+
+describe('resetting the chosen drawers', () => {
   it('is the manager’s alone', async () => {
-    const { db, movements } = fakeDb([drawer({ balance: 100n * UNIT })]);
+    const list = [drawer({ balance: 100n * UNIT })];
+    const { db, movements } = fakeDb(list);
     await assert.rejects(
-      () => zeroAll({ reason: 'new start' }, { ...manager, permissions: [] }, db),
+      () =>
+        zeroAll({ reason: 'new start', drawerIds: all(list) }, { ...manager, permissions: [] }, db),
       refusedWith('FORBIDDEN'),
     );
     assert.equal(movements.length, 0);
   });
 
   it('needs a reason', async () => {
+    const list = [drawer({ balance: 100n * UNIT })];
+    const { db } = fakeDb(list);
+    await assert.rejects(
+      () => zeroAll({ reason: '  ', drawerIds: all(list) }, manager, db),
+      refusedWith('VALIDATION_ERROR'),
+    );
+  });
+
+  it('needs at least one drawer chosen', async () => {
     const { db } = fakeDb([drawer({ balance: 100n * UNIT })]);
     await assert.rejects(
-      () => zeroAll({ reason: '  ' }, manager, db),
+      () => zeroAll({ reason: 'new start', drawerIds: [] }, manager, db),
       refusedWith('VALIDATION_ERROR'),
     );
   });
 
   it('needs an open day', async () => {
-    const { db } = fakeDb([drawer({ balance: 100n * UNIT })], { day: false });
+    const list = [drawer({ balance: 100n * UNIT })];
+    const { db } = fakeDb(list, { day: false });
     await assert.rejects(
-      () => zeroAll({ reason: 'new start' }, manager, db),
+      () => zeroAll({ reason: 'new start', drawerIds: all(list) }, manager, db),
       refusedWith('errors.dayNotOpen'),
     );
   });
 
-  it('waits for every open shift to close', async () => {
-    const { db, movements } = fakeDb([drawer({ balance: 100n * UNIT })], { openShifts: 2 });
-    await assert.rejects(
-      () => zeroAll({ reason: 'new start' }, manager, db),
-      refusedWith('errors.zeroOpenShifts'),
-    );
-    assert.equal(movements.length, 0, 'nothing moved');
+  it('touches only the drawers that were ticked', async () => {
+    const kept = drawer({ currencyCode: 'USD', balance: 70n * UNIT });
+    const cleared = drawer({ currencyCode: 'ILS', balance: 500n * UNIT });
+    const { db, movements } = fakeDb([kept, cleared]);
+
+    await zeroAll({ reason: 'new start', drawerIds: [cleared.id] }, manager, db);
+
+    assert.equal(cleared.balance, 0n);
+    assert.equal(kept.balance, 70n * UNIT, 'an unticked drawer keeps every unit');
+    assert.equal(movements.length, 1);
   });
 
-  it('waits for every pending handover', async () => {
-    const { db } = fakeDb([drawer({ balance: 100n * UNIT })], { pendingHandovers: 1 });
-    await assert.rejects(
-      () => zeroAll({ reason: 'new start' }, manager, db),
-      refusedWith('errors.zeroPendingHandovers'),
-    );
-  });
-
-  it('takes every drawer to exactly zero, each with a movement on the record', async () => {
-    const { db, drawers, movements, audits } = fakeDb([
+  it('takes every chosen drawer to exactly zero, each with a movement on the record', async () => {
+    const list = [
       drawer({ currencyCode: 'ILS', balance: 1_250n * UNIT }),
       drawer({ currencyCode: 'USD', balance: 0n }),
       drawer({
@@ -164,9 +192,10 @@ describe('resetting every drawer', () => {
         allowNegative: true,
       }),
       drawer({ ownerKey: 'teller:ahmad', currencyCode: 'USD', balance: 40n * UNIT }),
-    ]);
+    ];
+    const { db, drawers, movements, audits } = fakeDb(list);
 
-    const { zeroed } = await zeroAll({ reason: 'new start' }, manager, db);
+    const { zeroed } = await zeroAll({ reason: 'new start', drawerIds: all(list) }, manager, db);
 
     assert.ok(
       drawers.every((entry) => entry.balance === 0n),
@@ -178,7 +207,7 @@ describe('resetting every drawer', () => {
   });
 
   it('books it as the owner’s money, so the day’s result does not move', async () => {
-    const { db, movements } = fakeDb([
+    const list = [
       drawer({ currencyCode: 'ILS', balance: 500n * UNIT }),
       drawer({
         currencyCode: 'ILS',
@@ -186,9 +215,10 @@ describe('resetting every drawer', () => {
         balance: -300n * UNIT,
         allowNegative: true,
       }),
-    ]);
+    ];
+    const { db, movements } = fakeDb(list);
 
-    await zeroAll({ reason: 'new start' }, manager, db);
+    await zeroAll({ reason: 'new start', drawerIds: all(list) }, manager, db);
 
     const held = movements.find((entry) => entry.direction === 'OUT')!;
     const owed = movements.find((entry) => entry.direction === 'IN')!;
@@ -206,12 +236,47 @@ describe('resetting every drawer', () => {
       assert.equal(entry.balanceAfter, 0n);
     }
   });
+});
 
-  it('includes the drawers in the tellers’ hands', async () => {
-    const { db, movements } = fakeDb([
-      drawer({ ownerKey: 'teller:ahmad', currencyCode: 'USD', balance: 40n * UNIT }),
-    ]);
-    await zeroAll({ reason: 'new start' }, manager, db);
-    assert.equal(movements.length, 1);
+describe('drawers whose money is in flight', () => {
+  const treasury = () => drawer({ currencyCode: 'ILS', balance: 900n * UNIT });
+  const ahmads = () =>
+    drawer({ ownerKey: 'teller:ahmad', currencyCode: 'USD', balance: 40n * UNIT });
+
+  it('names a mid-shift teller’s drawers, and only his', async () => {
+    const list = [treasury(), ahmads()];
+    const { db } = fakeDb(list, { openShiftsFor: ['ahmad'] });
+
+    const locks = await zeroLocks(db);
+
+    assert.equal(locks.get('teller:ahmad:USD:CASH'), 'OPEN_SHIFT');
+    assert.equal(locks.has('TREASURY:ILS:CASH'), false, 'the treasury is not his');
+  });
+
+  it('names a teller with a handover still pending', async () => {
+    const { db } = fakeDb([ahmads()], { pendingHandoversFor: ['ahmad'] });
+    assert.equal((await zeroLocks(db)).get('teller:ahmad:USD:CASH'), 'PENDING_HANDOVER');
+  });
+
+  it('refuses a locked drawer even when it is asked for', async () => {
+    const list = [treasury(), ahmads()];
+    const { db, movements } = fakeDb(list, { openShiftsFor: ['ahmad'] });
+
+    await assert.rejects(
+      () => zeroAll({ reason: 'new start', drawerIds: all(list) }, manager, db),
+      refusedWith('errors.zeroLocked'),
+    );
+    assert.equal(movements.length, 0, 'nothing moved — not even the drawers that were allowed');
+  });
+
+  it('still resets everything else while one teller is at the counter', async () => {
+    const office = treasury();
+    const his = ahmads();
+    const { db } = fakeDb([office, his], { openShiftsFor: ['ahmad'] });
+
+    await zeroAll({ reason: 'new start', drawerIds: [office.id] }, manager, db);
+
+    assert.equal(office.balance, 0n);
+    assert.equal(his.balance, 40n * UNIT, 'his float is exactly what he was handed');
   });
 });

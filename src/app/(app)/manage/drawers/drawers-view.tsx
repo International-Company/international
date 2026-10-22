@@ -253,13 +253,54 @@ export function DrawersView({
   const [zeroing, setZeroing] = useState(false);
   const [zeroReason, setZeroReason] = useState('');
   const [zeroTyped, setZeroTyped] = useState('');
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [locks, setLocks] = useState<Record<string, 'OPEN_SHIFT' | 'PENDING_HANDOVER'>>({});
   const holding = drawers.filter((drawer) => BigInt(drawer.balance) !== 0n);
+  const pickable = holding.filter((drawer) => !locks[drawer.id]);
+
+  /*
+   * Everything ticked to start with, except what cannot be zeroed now. The
+   * locks are asked for as the dialog opens, so a shift opened since the page
+   * loaded is already shown locked rather than refused after the press.
+   */
+  const openZeroing = async () => {
+    setZeroReason('');
+    setZeroTyped('');
+    setLocks({});
+    setPicked(new Set());
+    setZeroing(true);
+    try {
+      const { locked } = await api.get<{
+        locked: { drawerId: string; reason: 'OPEN_SHIFT' | 'PENDING_HANDOVER' }[];
+      }>('/api/manage/drawers/zero');
+      const byId = Object.fromEntries(locked.map((entry) => [entry.drawerId, entry.reason]));
+      setLocks(byId);
+      setPicked(new Set(holding.filter((drawer) => !byId[drawer.id]).map((drawer) => drawer.id)));
+    } catch (cause) {
+      toast.error(
+        t('errors.title'),
+        cause instanceof ApiError
+          ? say(t, cause.messageKey, cause.params) || cause.message
+          : t('errors.generic'),
+      );
+      setZeroing(false);
+    }
+  };
+
+  const togglePicked = (id: string, on: boolean) =>
+    setPicked((current) => {
+      const next = new Set(current);
+      if (on) next.add(id);
+      else next.delete(id);
+      return next;
+    });
 
   const zeroAll = async () => {
     setBusy(true);
     try {
       const result = await api.post<{ count: number }>('/api/manage/drawers/zero', {
         reason: zeroReason.trim(),
+        drawerIds: [...picked],
       });
       toast.success(t('drawers.zeroDone', { count: result.count }));
       setZeroing(false);
@@ -298,11 +339,7 @@ export function DrawersView({
           <Button
             variant="danger"
             icon={<RotateCcw />}
-            onClick={() => {
-              setZeroReason('');
-              setZeroTyped('');
-              setZeroing(true);
-            }}
+            onClick={() => void openZeroing()}
           >
             {t('drawers.zeroAll')}
           </Button>
@@ -732,7 +769,7 @@ export function DrawersView({
               variant="danger"
               loading={busy}
               disabled={
-                holding.length === 0 ||
+                picked.size === 0 ||
                 zeroReason.trim().length < 3 ||
                 zeroTyped.trim() !== t('drawers.zeroWord')
               }
@@ -752,20 +789,65 @@ export function DrawersView({
             <p className="text-sm text-content-secondary">{t('drawers.zeroNothing')}</p>
           ) : (
             <div>
-              <p className="mb-1 text-xs text-content-secondary">{t('drawers.zeroWillMove')}</p>
-              <ul className="max-h-48 divide-y divide-border-base overflow-y-auto rounded-[var(--radius-control)] border border-border-base text-sm">
-                {holding.map((drawer) => (
-                  <li key={drawer.id} className="flex items-center justify-between gap-3 px-3 py-1.5">
-                    <span className="min-w-0 truncate">{ln(drawer, 'name')}</span>
-                    <span className="shrink-0 font-mono ltr-content">
-                      <Money
-                        value={drawer.balance}
-                        currency={drawer.currencyCode}
-                        decimals={drawer.currency.decimals}
-                      />
-                    </span>
-                  </li>
-                ))}
+              <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+                <p className="text-xs text-content-secondary">{t('drawers.zeroWillMove')}</p>
+                <div className="flex items-center gap-2 text-xs">
+                  <span className="text-content-tertiary">
+                    {t('drawers.zeroSelected', { count: picked.size, total: pickable.length })}
+                  </span>
+                  <button
+                    type="button"
+                    className="text-primary-text hover:underline"
+                    onClick={() => setPicked(new Set(pickable.map((drawer) => drawer.id)))}
+                  >
+                    {t('drawers.zeroSelectAll')}
+                  </button>
+                  <button
+                    type="button"
+                    className="text-primary-text hover:underline"
+                    onClick={() => setPicked(new Set())}
+                  >
+                    {t('drawers.zeroSelectNone')}
+                  </button>
+                </div>
+              </div>
+              <ul className="max-h-64 divide-y divide-border-base overflow-y-auto rounded-[var(--radius-control)] border border-border-base text-sm">
+                {holding.map((drawer) => {
+                  const lock = locks[drawer.id];
+                  return (
+                    <li key={drawer.id}>
+                      <label
+                        className={cn(
+                          'flex items-center gap-3 px-3 py-1.5',
+                          lock ? 'cursor-not-allowed opacity-60' : 'cursor-pointer',
+                        )}
+                      >
+                        <input
+                          type="checkbox"
+                          className="size-4 shrink-0 accent-[var(--primary)]"
+                          checked={picked.has(drawer.id)}
+                          disabled={Boolean(lock)}
+                          onChange={(event) => togglePicked(drawer.id, event.target.checked)}
+                        />
+                        <span className="min-w-0 flex-1 truncate">
+                          {ln(drawer, 'name')}
+                          {lock && (
+                            <Badge tone="warning" className="ms-2">
+                              {t(`drawers.zeroLock.${lock}`)}
+                            </Badge>
+                          )}
+                        </span>
+                        <span className="shrink-0 font-mono ltr-content">
+                          <Money
+                            value={drawer.balance}
+                            currency={drawer.currencyCode}
+                            decimals={drawer.currency.decimals}
+                          />
+                        </span>
+                      </label>
+                    </li>
+                  );
+                })}
               </ul>
             </div>
           )}

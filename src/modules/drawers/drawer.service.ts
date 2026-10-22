@@ -473,8 +473,38 @@ export async function fund(
   return balance;
 }
 
+/** Why a drawer cannot be zeroed right now. */
+export type ZeroLock = 'OPEN_SHIFT' | 'PENDING_HANDOVER';
+
 /**
- * Brings every drawer back to zero, in one act, on the record.
+ * The drawers that must not be zeroed now, and why: every drawer of a teller
+ * whose shift is open or who has a handover not yet settled.
+ */
+export async function zeroLocks(db: DbClient = prisma): Promise<Map<string, ZeroLock>> {
+  const [shifts, handovers] = await Promise.all([
+    db.shift.findMany({ where: { status: 'OPEN' }, select: { tellerId: true } }),
+    db.handover.findMany({
+      where: { status: { in: ['PENDING', 'DISPUTED'] } },
+      select: { tellerId: true },
+    }),
+  ]);
+
+  const why = new Map<string, ZeroLock>();
+  // A pending handover first, so an open shift — the likelier, longer-lived
+  // reason — is the one written over it and shown.
+  for (const handover of handovers) why.set(tellerOwner(handover.tellerId), 'PENDING_HANDOVER');
+  for (const shift of shifts) why.set(tellerOwner(shift.tellerId), 'OPEN_SHIFT');
+  if (why.size === 0) return new Map();
+
+  const drawers = await db.drawer.findMany({
+    where: { ownerKey: { in: [...why.keys()] } },
+    select: { id: true, ownerKey: true },
+  });
+  return new Map(drawers.map((drawer) => [drawer.id, why.get(drawer.ownerKey)!]));
+}
+
+/**
+ * Brings the chosen drawers back to zero, in one act, on the record.
  *
  * ## Movements, not an overwrite
  *
@@ -491,18 +521,27 @@ export async function fund(
  * owner's money set aside, so a reset leaves it untouched. Filed as a
  * correction instead, the same act would read as the day's loss or gain.
  *
- * ## Not while money is in flight
+ * ## The manager chooses which
+ *
+ * The drawers to zero are named, by id, rather than "everything except": a
+ * drawer opened between the manager reading the list and pressing the button
+ * is not one he chose, and must not be emptied on his behalf.
+ *
+ * ## Not the ones whose money is in flight
  *
  * An open shift is counted against what its teller was handed, and a pending
- * handover moves money the moment it is confirmed. Zeroing under either would
- * break a count or put money back into a drawer just emptied, so both refuse it
- * and say what to finish first.
+ * handover moves money the moment it is confirmed. Zeroing a teller's drawer
+ * under either would break the count or put money back into a drawer just
+ * emptied. Those drawers are locked — `zeroLocks` names them, the screen shows
+ * them unselectable, and this refuses them if they are asked for anyway. The
+ * rest can still be reset; one teller still at the counter no longer holds the
+ * whole office's reset hostage.
  *
  * All or nothing: the drawers are read and emptied inside one database
  * transaction, and one that moved underneath it rolls the whole reset back.
  */
 export async function zeroAll(
-  input: { reason: string },
+  input: { reason: string; drawerIds: string[] },
   actor: Actor,
   db: DbClient = prisma,
 ): Promise<{ zeroed: { currency: string; kind: DrawerKind; owner: string; was: bigint }[] }> {
@@ -513,27 +552,22 @@ export async function zeroAll(
   if (reason.length < 3) {
     throw errors.validation([{ path: 'reason', message: 'Say why the drawers are being reset' }]);
   }
+  const chosen = [...new Set(input.drawerIds)];
+  if (chosen.length === 0) {
+    throw errors.validation([{ path: 'drawerIds', message: 'Choose at least one drawer' }]);
+  }
 
   const branchId = actor.branchId;
   if (!branchId) throw errors.precondition('No branch is assigned', 'errors.noBranch');
   const day = await currentOpenDay(branchId, db);
 
-  const [openShifts, pendingHandovers] = await Promise.all([
-    db.shift.count({ where: { status: 'OPEN' } }),
-    db.handover.count({ where: { status: { in: ['PENDING', 'DISPUTED'] } } }),
-  ]);
-  if (openShifts > 0) {
+  const locks = await zeroLocks(db);
+  const locked = chosen.filter((id) => locks.has(id));
+  if (locked.length > 0) {
     throw errors.precondition(
-      `${openShifts} shift(s) still open — close them before resetting the drawers`,
-      'errors.zeroOpenShifts',
-      { count: String(openShifts) },
-    );
-  }
-  if (pendingHandovers > 0) {
-    throw errors.precondition(
-      `${pendingHandovers} handover(s) still pending — confirm or cancel them first`,
-      'errors.zeroPendingHandovers',
-      { count: String(pendingHandovers) },
+      `${locked.length} of the chosen drawer(s) belong to a teller with an open shift or a pending handover`,
+      'errors.zeroLocked',
+      { count: String(locked.length) },
     );
   }
 
@@ -541,7 +575,7 @@ export async function zeroAll(
     // In a fixed order, for the same reason `move` sorts: two writers taking the
     // same rows in different orders can deadlock each other.
     const holding = await tx.drawer.findMany({
-      where: { isActive: true, balance: { not: 0n } },
+      where: { id: { in: chosen }, isActive: true, balance: { not: 0n } },
       orderBy: [{ ownerKey: 'asc' }, { currencyCode: 'asc' }, { kind: 'asc' }],
       select: { ownerKey: true, currencyCode: true, kind: true, balance: true },
     });
