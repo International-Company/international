@@ -474,6 +474,141 @@ export async function fund(
 }
 
 /**
+ * Brings every drawer back to zero, in one act, on the record.
+ *
+ * ## Movements, not an overwrite
+ *
+ * A balance is the sum of the movements beneath it. Setting it to zero
+ * directly would leave every drawer disagreeing with its own history, and
+ * `verifyBalances()` would report a discrepancy nobody could explain. So each
+ * drawer that holds something gets one movement taking it to exactly zero, and
+ * everything before it stays where it was.
+ *
+ * ## Booked as the owner's money
+ *
+ * What a drawer held leaves it as the owner taking it out, and what one owed
+ * is settled as the owner putting it in. The day's result is measured with the
+ * owner's money set aside, so a reset leaves it untouched. Filed as a
+ * correction instead, the same act would read as the day's loss or gain.
+ *
+ * ## Not while money is in flight
+ *
+ * An open shift is counted against what its teller was handed, and a pending
+ * handover moves money the moment it is confirmed. Zeroing under either would
+ * break a count or put money back into a drawer just emptied, so both refuse it
+ * and say what to finish first.
+ *
+ * All or nothing: the drawers are read and emptied inside one database
+ * transaction, and one that moved underneath it rolls the whole reset back.
+ */
+export async function zeroAll(
+  input: { reason: string },
+  actor: Actor,
+  db: DbClient = prisma,
+): Promise<{ zeroed: { currency: string; kind: DrawerKind; owner: string; was: bigint }[] }> {
+  // The manager's alone, like every other hand on the balances.
+  if (!grants.unrestricted(actor)) throw errors.forbidden('exchange.drawer.manage');
+
+  const reason = input.reason.trim();
+  if (reason.length < 3) {
+    throw errors.validation([{ path: 'reason', message: 'Say why the drawers are being reset' }]);
+  }
+
+  const branchId = actor.branchId;
+  if (!branchId) throw errors.precondition('No branch is assigned', 'errors.noBranch');
+  const day = await currentOpenDay(branchId, db);
+
+  const [openShifts, pendingHandovers] = await Promise.all([
+    db.shift.count({ where: { status: 'OPEN' } }),
+    db.handover.count({ where: { status: { in: ['PENDING', 'DISPUTED'] } } }),
+  ]);
+  if (openShifts > 0) {
+    throw errors.precondition(
+      `${openShifts} shift(s) still open — close them before resetting the drawers`,
+      'errors.zeroOpenShifts',
+      { count: String(openShifts) },
+    );
+  }
+  if (pendingHandovers > 0) {
+    throw errors.precondition(
+      `${pendingHandovers} handover(s) still pending — confirm or cancel them first`,
+      'errors.zeroPendingHandovers',
+      { count: String(pendingHandovers) },
+    );
+  }
+
+  const zeroed = await withTransaction(async (tx) => {
+    // In a fixed order, for the same reason `move` sorts: two writers taking the
+    // same rows in different orders can deadlock each other.
+    const holding = await tx.drawer.findMany({
+      where: { isActive: true, balance: { not: 0n } },
+      orderBy: [{ ownerKey: 'asc' }, { currencyCode: 'asc' }, { kind: 'asc' }],
+      select: { ownerKey: true, currencyCode: true, kind: true, balance: true },
+    });
+
+    const done: { currency: string; kind: DrawerKind; owner: string; was: bigint }[] = [];
+
+    for (const drawer of holding) {
+      const kind = drawer.kind as DrawerKind;
+      const positive = drawer.balance > 0n;
+      const after = await applyMovement(
+        tx,
+        {
+          currency: drawer.currencyCode,
+          kind,
+          owner: drawer.ownerKey,
+          direction: positive ? 'OUT' : 'IN',
+          amount: positive ? drawer.balance : -drawer.balance,
+          reason: 'FUNDING',
+          category: positive ? 'OWNER_OUT' : 'OWNER_IN',
+          businessDayId: day.id,
+          note: `تصفير الصناديق — ${reason}`,
+        },
+        actor,
+      );
+
+      // Somebody traded between the read and the write. Rolling back is better
+      // than a reset that left a drawer at a figure nobody chose.
+      if (after !== 0n) {
+        throw errors.conflict(
+          `${describe(drawer.currencyCode, kind)} moved during the reset — try again`,
+          'errors.zeroMoved',
+          { currency: drawer.currencyCode },
+        );
+      }
+
+      done.push({ currency: drawer.currencyCode, kind, owner: drawer.ownerKey, was: drawer.balance });
+    }
+
+    await audit.record(
+      {
+        action: 'UPDATE',
+        module: 'exchange',
+        entityType: 'Drawer',
+        entityId: 'ALL',
+        summaryEn: `Reset ${done.length} drawer(s) to zero — ${reason}`,
+        summaryAr: `تصفير ${done.length} صندوق — ${reason}`,
+        actor,
+        before: Object.fromEntries(
+          done.map((entry) => [
+            `${entry.owner}:${entry.currency}:${entry.kind}`,
+            entry.was.toString(),
+          ]),
+        ),
+        after: { reason, count: done.length },
+      },
+      tx,
+    );
+
+    return done;
+  }, db);
+
+  log.warn('Drawers reset to zero', { count: zeroed.length, actor: actor.id });
+
+  return { zeroed };
+}
+
+/**
  * Opens a drawer for a currency and kind that has none.
  *
  * One per pair is the whole model, so this fills a gap rather than adding a

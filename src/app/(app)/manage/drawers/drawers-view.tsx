@@ -9,6 +9,7 @@ import {
   Minus,
   Pencil,
   Plus,
+  RotateCcw,
   Trash2,
   Vault,
 } from 'lucide-react';
@@ -18,7 +19,7 @@ import { api, ApiError, queryString } from '@/lib/api-client';
 import { say } from '@/lib/failure';
 import { Alert, Badge, Button, Card, CardBody, CardHeader } from '@/ui/primitives';
 import { ConfirmDialog, Dialog, useToast } from '@/ui/overlay';
-import { Field, Input, MoneyInput, Select, Switch } from '@/ui/form';
+import { Field, Input, MoneyInput, Select, Switch, Textarea } from '@/ui/form';
 import { DateText, Money } from '@/ui/display';
 import { cn } from '@/ui/utils';
 import { AccessButton } from './access-dialog';
@@ -248,6 +249,35 @@ export function DrawersView({
     }
   };
 
+  // --- Resetting everything to zero ------------------------------------------
+  const [zeroing, setZeroing] = useState(false);
+  const [zeroReason, setZeroReason] = useState('');
+  const [zeroTyped, setZeroTyped] = useState('');
+  const holding = drawers.filter((drawer) => BigInt(drawer.balance) !== 0n);
+
+  const zeroAll = async () => {
+    setBusy(true);
+    try {
+      const result = await api.post<{ count: number }>('/api/manage/drawers/zero', {
+        reason: zeroReason.trim(),
+      });
+      toast.success(t('drawers.zeroDone', { count: result.count }));
+      setZeroing(false);
+      setZeroReason('');
+      setZeroTyped('');
+      router.refresh();
+    } catch (cause) {
+      toast.error(
+        t('errors.title'),
+        cause instanceof ApiError
+          ? say(t, cause.messageKey, cause.params) || cause.message
+          : t('errors.generic'),
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const shown = movements.find((group) => group.key === selected);
 
   return (
@@ -265,6 +295,17 @@ export function DrawersView({
               {t('drawers.open')}
             </Button>
           )}
+          <Button
+            variant="danger"
+            icon={<RotateCcw />}
+            onClick={() => {
+              setZeroReason('');
+              setZeroTyped('');
+              setZeroing(true);
+            }}
+          >
+            {t('drawers.zeroAll')}
+          </Button>
         </div>
       )}
 
@@ -671,6 +712,87 @@ export function DrawersView({
         tone="danger"
         loading={busy}
       />
+
+      {/*
+        --- Resetting everything ---------------------------------------------
+        The list of what will move is shown before anything moves, and the word
+        has to be typed: the button sits beside everyday ones, and a reset is
+        the one act on this screen that touches every balance at once.
+      */}
+      <Dialog
+        open={zeroing}
+        onClose={() => setZeroing(false)}
+        title={t('drawers.zeroTitle')}
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setZeroing(false)} disabled={busy}>
+              {t('common.cancel')}
+            </Button>
+            <Button
+              variant="danger"
+              loading={busy}
+              disabled={
+                holding.length === 0 ||
+                zeroReason.trim().length < 3 ||
+                zeroTyped.trim() !== t('drawers.zeroWord')
+              }
+              onClick={() => void zeroAll()}
+            >
+              {t('drawers.zeroAll')}
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-3">
+          <Alert tone="danger" icon={<AlertTriangle />}>
+            {t('drawers.zeroWarning')}
+          </Alert>
+
+          {holding.length === 0 ? (
+            <p className="text-sm text-content-secondary">{t('drawers.zeroNothing')}</p>
+          ) : (
+            <div>
+              <p className="mb-1 text-xs text-content-secondary">{t('drawers.zeroWillMove')}</p>
+              <ul className="max-h-48 divide-y divide-border-base overflow-y-auto rounded-[var(--radius-control)] border border-border-base text-sm">
+                {holding.map((drawer) => (
+                  <li key={drawer.id} className="flex items-center justify-between gap-3 px-3 py-1.5">
+                    <span className="min-w-0 truncate">{ln(drawer, 'name')}</span>
+                    <span className="shrink-0 font-mono ltr-content">
+                      <Money
+                        value={drawer.balance}
+                        currency={drawer.currencyCode}
+                        decimals={drawer.currency.decimals}
+                      />
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          <Field label={t('drawers.zeroReason')} required>
+            {(props) => (
+              <Textarea
+                {...props}
+                rows={2}
+                value={zeroReason}
+                onChange={(event) => setZeroReason(event.target.value)}
+              />
+            )}
+          </Field>
+
+          <Field label={t('drawers.zeroType', { word: t('drawers.zeroWord') })} required>
+            {(props) => (
+              <Input
+                {...props}
+                value={zeroTyped}
+                onChange={(event) => setZeroTyped(event.target.value)}
+                autoComplete="off"
+              />
+            )}
+          </Field>
+        </div>
+      </Dialog>
     </div>
   );
 }
