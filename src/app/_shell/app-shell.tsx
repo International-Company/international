@@ -401,7 +401,11 @@ export function AppShell({
         onClose={() => setPaletteOpen(false)}
         permissions={user.permissions}
       />
-      <ShortcutHelp open={helpOpen} onClose={() => setHelpOpen(false)} />
+      <ShortcutHelp
+        open={helpOpen}
+        onClose={() => setHelpOpen(false)}
+        permissions={user.permissions}
+      />
     </div>
   );
 }

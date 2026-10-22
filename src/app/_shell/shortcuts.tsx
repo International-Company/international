@@ -4,6 +4,7 @@ import { useEffect, useRef } from 'react';
 import { useLocale } from '@/i18n/provider';
 import { Dialog } from '@/ui/overlay';
 import type { TranslationKey } from '@/i18n/types';
+import { visibleNavigation } from './navigation';
 
 /**
  * Keyboard shortcuts.
@@ -25,14 +26,26 @@ export interface ShortcutHandlers {
   permissions: string[];
 }
 
-const NAV_SEQUENCES: { keys: string; href: string; permission?: string }[] = [
-  { keys: 't', href: '/exchange/transactions', permission: 'exchange.transaction.view' },
-  { keys: 'c', href: '/customers', permission: 'customers.view' },
-  { keys: 'r', href: '/exchange/rates', permission: 'exchange.rate.view' },
-  { keys: 'w', href: '/usdt/wallets', permission: 'usdt.wallet.view' },
-  { keys: 'n', href: '/notifications', permission: 'notifications.view' },
-  { keys: 'p', href: '/reports', permission: 'reports.view' },
-];
+/**
+ * The `g …` sequences, read from the sidebar itself.
+ *
+ * They used to be a list of their own here, pointing at screens that had since
+ * been removed — so `g t` opened a page that no longer existed while the
+ * sidebar went on advertising `g m`, `g u` and `g h`, which did nothing. One
+ * source now: an item that shows a shortcut is the item it opens, and only for
+ * someone who can see that item at all.
+ */
+function sequencesFor(permissions: string[]): { keys: string; href: string; labelKey: TranslationKey }[] {
+  return visibleNavigation(permissions)
+    .flatMap((section) => section.items)
+    .flatMap((item) => {
+      const match = item.shortcut?.match(/^g ([a-z])$/);
+      return match ? [{ keys: match[1]!, href: item.href, labelKey: item.labelKey }] : [];
+    });
+}
+
+/** Where `n` — a new transaction — goes: the exchange machine, for whoever has it. */
+const NEW_TRANSACTION = { href: '/counter/machine', permission: 'exchange.machine.use' };
 
 function isTypingTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
@@ -54,6 +67,7 @@ export function useShortcuts(handlers: ShortcutHandlers) {
 
   useEffect(() => {
     const granted = new Set(handlers.permissions);
+    const sequences = sequencesFor(handlers.permissions);
 
     const clearPending = () => {
       pending.current = null;
@@ -76,10 +90,10 @@ export function useShortcuts(handlers: ShortcutHandlers) {
 
       // Second key of a `g …` navigation sequence.
       if (pending.current === 'g') {
-        const match = NAV_SEQUENCES.find((sequence) => sequence.keys === key);
+        const match = sequences.find((sequence) => sequence.keys === key);
         clearPending();
 
-        if (match && (!match.permission || granted.has(match.permission))) {
+        if (match) {
           event.preventDefault();
           handlers.onNavigate(match.href);
         }
@@ -95,9 +109,9 @@ export function useShortcuts(handlers: ShortcutHandlers) {
           break;
 
         case 'n':
-          if (granted.has('exchange.transaction.create')) {
+          if (granted.has(NEW_TRANSACTION.permission)) {
             event.preventDefault();
-            handlers.onNavigate('/exchange/transactions/new');
+            handlers.onNavigate(NEW_TRANSACTION.href);
           }
           break;
 
@@ -139,24 +153,30 @@ interface ShortcutRow {
   labelKey: TranslationKey;
 }
 
-const GROUPS: { titleKey: TranslationKey; rows: ShortcutRow[] }[] = [
-  {
-    titleKey: 'shortcuts.navigation',
-    rows: [
-      { keys: ['G', 'D'], labelKey: 'shortcuts.dashboard' },
-      { keys: ['G', 'T'], labelKey: 'shortcuts.transactions' },
-      { keys: ['G', 'C'], labelKey: 'shortcuts.customers' },
-      { keys: ['G', 'R'], labelKey: 'shortcuts.rates' },
-      { keys: ['G', 'N'], labelKey: 'shortcuts.notifications' },
-    ],
-  },
-  {
-    titleKey: 'shortcuts.actions',
-    rows: [
-      { keys: ['N'], labelKey: 'shortcuts.newTransaction' },
-      { keys: ['Ctrl', 'K'], labelKey: 'shortcuts.search' },
-    ],
-  },
+/** The help, built from the same list the keys are — it cannot promise one that does not work. */
+function groupsFor(permissions: string[]): { titleKey: TranslationKey; rows: ShortcutRow[] }[] {
+  return [
+    {
+      titleKey: 'shortcuts.navigation',
+      rows: sequencesFor(permissions).map((sequence) => ({
+        keys: ['G', sequence.keys.toUpperCase()],
+        labelKey: sequence.labelKey,
+      })),
+    },
+    {
+      titleKey: 'shortcuts.actions',
+      rows: [
+        ...(permissions.includes(NEW_TRANSACTION.permission)
+          ? [{ keys: ['N'], labelKey: 'shortcuts.newTransaction' as TranslationKey }]
+          : []),
+        { keys: ['Ctrl', 'K'], labelKey: 'shortcuts.search' },
+      ],
+    },
+    ...GENERAL,
+  ];
+}
+
+const GENERAL: { titleKey: TranslationKey; rows: ShortcutRow[] }[] = [
   {
     titleKey: 'shortcuts.general',
     rows: [
@@ -168,13 +188,21 @@ const GROUPS: { titleKey: TranslationKey; rows: ShortcutRow[] }[] = [
   },
 ];
 
-export function ShortcutHelp({ open, onClose }: { open: boolean; onClose: () => void }) {
+export function ShortcutHelp({
+  open,
+  onClose,
+  permissions,
+}: {
+  open: boolean;
+  onClose: () => void;
+  permissions: string[];
+}) {
   const { t } = useLocale();
 
   return (
     <Dialog open={open} onClose={onClose} title={t('shortcuts.title')} size="md">
       <div className="grid gap-6 sm:grid-cols-2">
-        {GROUPS.map((group) => (
+        {groupsFor(permissions).filter((group) => group.rows.length > 0).map((group) => (
           <section key={group.titleKey}>
             <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-content-tertiary">
               {t(group.titleKey)}
