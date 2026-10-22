@@ -155,7 +155,7 @@ export async function request(input: RequestInput, actor: Actor, db: DbClient = 
 
   const [reference, day] = await Promise.all([
     nextReference('PEX', db),
-    currentOpenDay(actor.branchId, db),
+    currentOpenDay(actor.branchId, db, actor),
   ]);
 
   const row = await db.priceException.create({

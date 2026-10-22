@@ -177,7 +177,7 @@ export async function create(
       }
     }
 
-    const day = await currentOpenDay(branchId, tx);
+    const day = await currentOpenDay(branchId, tx, actor);
     const reference = await nextReference('HND', tx);
 
     const handover = await tx.handover.create({

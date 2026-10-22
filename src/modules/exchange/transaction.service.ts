@@ -213,7 +213,7 @@ export async function record(
 
     // Every transaction belongs to a day the manager opened, so a day can be
     // reviewed as a unit afterwards.
-    const day = await requireOpenDay(input.branchId, new Date(), tx);
+    const day = await requireOpenDay(input.branchId, new Date(), tx, actor);
 
     const reference = await nextReference('TXN', tx);
 
@@ -446,7 +446,7 @@ export async function reverse(
       throw errors.conflict('This transaction has already been reversed', 'errors.alreadyReversed');
     }
 
-    const day = await requireOpenDay(original.branchId, new Date(), tx);
+    const day = await requireOpenDay(original.branchId, new Date(), tx, actor);
     const reference = await nextReference('TXN', tx);
 
     /*

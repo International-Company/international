@@ -70,6 +70,18 @@ export const SETTINGS: SettingDefinition[] = [
 
   // --- Operations ----------------------------------------------------------
   {
+    // On by the office's decision: nobody opens the day by hand. The first act
+    // that needs a day opens it, and a day closed for review reopens itself
+    // when somebody records into it — both written to the audit log.
+    key: 'day.automatic', category: 'operations', type: 'boolean', defaultValue: true,
+    labelEn: 'Automatic business day',
+    labelAr: 'يوم العمل التلقائي',
+    descriptionEn:
+      'When on, the first operation of the day opens the business day, and recording into a closed day reopens it. Every automatic open or reopen is in the audit log. Off: the manager opens and reopens days by hand.',
+    descriptionAr:
+      'عند التفعيل، أول عملية في اليوم تفتح يوم العمل تلقائياً، والتسجيل في يوم مغلق يعيد فتحه. كل فتح أو إعادة فتح تلقائي يُسجَّل في سجل التدقيق. عند الإيقاف: المدير يفتح الأيام ويعيد فتحها بنفسه.',
+  },
+  {
     key: 'operations.receiptCopies', category: 'operations', type: 'number', defaultValue: 2, min: 1, max: 5,
     labelEn: 'Receipt copies', labelAr: 'عدد نسخ الإيصال',
     descriptionEn: 'Copies printed per transaction', descriptionAr: 'عدد النسخ المطبوعة لكل عملية',

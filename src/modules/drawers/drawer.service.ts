@@ -451,7 +451,7 @@ export async function fund(
   if (!branchId) {
     throw errors.precondition('No branch is assigned', 'errors.noBranch');
   }
-  const day = await currentOpenDay(branchId, db);
+  const day = await currentOpenDay(branchId, db, actor);
 
   const kind = input.kind ?? 'CASH';
   const movement: Movement = {
@@ -587,7 +587,7 @@ export async function zeroAll(
 
   const branchId = actor.branchId;
   if (!branchId) throw errors.precondition('No branch is assigned', 'errors.noBranch');
-  const day = await currentOpenDay(branchId, db);
+  const day = await currentOpenDay(branchId, db, actor);
 
   const locks = await zeroLocks(db);
   const locked = chosen.filter((id) => locks.has(id));

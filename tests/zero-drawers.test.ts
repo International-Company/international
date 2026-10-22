@@ -4,6 +4,7 @@ import './support/test-env.ts';
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { zeroAll, zeroLocks } from '../src/modules/drawers/drawer.service.ts';
+import { invalidateSettingsCache } from '../src/modules/settings/settings.service.ts';
 
 /**
  * Resetting the drawers the manager chose to zero.
@@ -51,6 +52,10 @@ function fakeDb(
   const db = {
     businessDay: {
       findFirst: async () => (options.day === false ? null : { id: 'day-1' }),
+    },
+    // The office runs its days by hand in these tests, so "no day" means no day.
+    systemSetting: {
+      findMany: async () => [{ key: 'day.automatic', value: 'false' }],
     },
     shift: {
       findMany: async () => (options.openShiftsFor ?? []).map((tellerId) => ({ tellerId })),
@@ -160,7 +165,8 @@ describe('resetting the chosen drawers', () => {
     );
   });
 
-  it('needs an open day', async () => {
+  it('needs an open day, when the office opens its days by hand', async () => {
+    invalidateSettingsCache();
     const list = [drawer({ balance: 100n * UNIT })];
     const { db } = fakeDb(list, { day: false });
     await assert.rejects(

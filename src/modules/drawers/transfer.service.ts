@@ -269,7 +269,7 @@ export async function create(input: CreateTransfer, actor: drawers.Actor, db: Db
   const { from, to } = await loadPair(input.fromDrawerId, input.toDrawerId, db);
   await guard(from, to, input, actor, db);
 
-  const day = await currentOpenDay(branchId, db);
+  const day = await currentOpenDay(branchId, db, actor);
 
   // The account's standing rate, unless the caller named a figure. A manager
   // settling something unusual can still say what was actually kept.

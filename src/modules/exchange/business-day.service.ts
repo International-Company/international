@@ -4,6 +4,7 @@ import { errors } from '@/core/errors/app-error';
 import { emitAsync } from '@/core/events/bus';
 import * as audit from '@/modules/audit/audit.service';
 import * as ledger from '@/modules/ledger/ledger.service';
+import * as settings from '@/modules/settings/settings.service';
 import { dayKey, formatDayKey, dayBounds } from '@/core/time/day-key';
 
 /**
@@ -48,8 +49,113 @@ export async function getCurrentDay(branchId: string, db: DbClient = prisma) {
   return getDay(branchId, new Date(), db);
 }
 
-/** Throws unless the branch's day for `date` is open. */
-export async function requireOpenDay(branchId: string, date: Date, db: DbClient = prisma) {
+// ---------------------------------------------------------------------------
+// The automatic day
+// ---------------------------------------------------------------------------
+
+/**
+ * Who an automatic open is credited to: the person whose act needed the day,
+ * or the system account when nobody is at hand. Never left blank — a day
+ * nobody opened is a day nobody can be asked about.
+ */
+async function openerId(actor: Actor | undefined, db: DbClient): Promise<string> {
+  if (actor?.id) return actor.id;
+  const system = await db.user.findFirst({ where: { isSystem: true }, select: { id: true } });
+  if (!system) throw errors.precondition('No system account to open the day', 'errors.dayNotOpen');
+  return system.id;
+}
+
+/**
+ * The day for `date`, open — opened or reopened if it has to be.
+ *
+ * Only under `day.automatic`. The office chose not to run the open/close cycle
+ * by hand, so recording is never stopped for want of a day: a missing day is
+ * opened, and one closed for review is reopened, each written to the audit log
+ * as the act it is. Closing stays available to the manager; it freezes the
+ * day's position, and a later posting reopening it is visible in the log.
+ *
+ * The upsert is what makes two tellers' first trades of the morning safe: the
+ * second finds the day the first opened instead of colliding with it.
+ */
+async function ensureDay(branchId: string, date: Date, actor: Actor | undefined, db: DbClient) {
+  const key = dayKey(date);
+  const existing = await db.businessDay.findUnique({
+    where: { branchId_date: { branchId, date: key } },
+  });
+
+  if (!existing) {
+    const day = await db.businessDay.upsert({
+      where: { branchId_date: { branchId, date: key } },
+      create: {
+        branchId,
+        date: key,
+        status: 'OPEN',
+        openedById: await openerId(actor, db),
+        notes: 'Opened automatically',
+      },
+      update: {},
+    });
+    await audit.record(
+      {
+        action: 'DAY_OPEN',
+        module: 'exchange',
+        entityType: 'BusinessDay',
+        entityId: day.id,
+        summaryEn: `Business day ${formatDayKey(key)} opened automatically by the first operation`,
+        summaryAr: `فُتح يوم العمل ${formatDayKey(key)} تلقائياً مع أول عملية`,
+        actor,
+      },
+      db,
+    );
+    return day;
+  }
+
+  if (existing.status === 'CLOSED') {
+    const day = await db.businessDay.update({
+      where: { id: existing.id },
+      data: { status: 'REOPENED', closedById: null, closedAt: null },
+    });
+    await audit.record(
+      {
+        action: 'DAY_REOPEN',
+        module: 'exchange',
+        entityType: 'BusinessDay',
+        entityId: day.id,
+        summaryEn: `Business day ${formatDayKey(key)} reopened automatically — an operation was recorded after it closed`,
+        summaryAr: `أُعيد فتح يوم العمل ${formatDayKey(key)} تلقائياً — سُجّلت عملية بعد إغلاقه`,
+        actor,
+      },
+      db,
+    );
+    return day;
+  }
+
+  return existing;
+}
+
+async function automatic(db: DbClient): Promise<boolean> {
+  return settings.getBoolean('day.automatic', db);
+}
+
+/** Throws unless the branch's day for `date` is open — or opens it, when the day is automatic. */
+export async function requireOpenDay(
+  branchId: string,
+  date: Date,
+  db: DbClient = prisma,
+  actor?: Actor,
+) {
+  if (await automatic(db)) {
+    const day = await ensureDay(branchId, date, actor, db);
+    // A close in progress is a moment, not a state to record into.
+    if (day.status === 'CLOSING') {
+      throw errors.precondition(
+        'The day is being closed — no further transactions can be posted',
+        'errors.dayClosing',
+      );
+    }
+    return day;
+  }
+
   const day = await db.businessDay.findUnique({
     where: { branchId_date: { branchId, date: dayKey(date) } },
   });
@@ -84,17 +190,17 @@ export async function requireOpenDay(branchId: string, date: Date, db: DbClient 
  * A transaction is different and deliberately so: it is keyed to the calendar
  * date it happened on, because that is what a customer's receipt says.
  */
-export async function currentOpenDay(branchId: string, db: DbClient = prisma) {
+export async function currentOpenDay(branchId: string, db: DbClient = prisma, actor?: Actor) {
   const day = await db.businessDay.findFirst({
     where: { branchId, status: { in: ['OPEN', 'REOPENED'] } },
     orderBy: { date: 'desc' },
   });
 
+  // With nothing open, an automatic office opens today rather than refusing.
+  if (!day && (await automatic(db))) return ensureDay(branchId, new Date(), actor, db);
+
   if (!day) {
-    throw errors.precondition(
-      'No business day is open — open the day first',
-      'errors.dayNotOpen',
-    );
+    throw errors.precondition('No business day is open — open the day first', 'errors.dayNotOpen');
   }
   return day;
 }
@@ -148,7 +254,6 @@ export async function openDay(
     return day;
   }, db);
 }
-
 
 /**
  * Closes the day.
