@@ -5,6 +5,7 @@ import { Banknote, Landmark } from 'lucide-react';
 import { useLocale } from '@/i18n/provider';
 import { api } from '@/lib/api-client';
 import { Money } from '@/ui/display';
+import { PendingTransfersButton } from '@/ui/pending-transfers';
 import { cn } from '@/ui/utils';
 
 /**
@@ -143,11 +144,13 @@ export function TodaySummary({
 
       {/* --- What is owed by transfer -------------------------------------- */}
       <section className="rounded-2xl bg-surface p-4 ring-1 ring-border-subtle">
-        <header className="mb-3 flex items-center gap-2">
+        <header className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <h3 className="flex items-center gap-2 text-sm font-semibold text-content">
             <Landmark className="size-4 text-primary-text" />
             {t('machine.today.bankDue')}
           </h3>
+          {/* Straight to the person who makes them, in the office's four lines. */}
+          {pending.length > 0 && <PendingTransfersButton variant="ghost" />}
         </header>
 
         {today.bank.length === 0 ? (

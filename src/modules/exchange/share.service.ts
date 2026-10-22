@@ -72,100 +72,173 @@ export interface Shareable {
  * is a fact that stopped being true — sending either would be the office
  * telling someone something it does not itself believe.
  */
-export async function shareable(
-  id: string,
+/** Everything a message is written from, and nothing it must not say. */
+const SHARE_SELECT = {
+  id: true,
+  reference: true,
+  type: true,
+  status: true,
+  toCurrency: true,
+  toAmount: true,
+  payoutBankAmount: true,
+  payoutBankChannel: true,
+  payoutAccount: true,
+  payoutAddress: true,
+  counterpartyName: true,
+  counterpartyPhone: true,
+  customer: { select: { fullNameAr: true, fullNameEn: true, phone: true } },
+  payoutWallet: { select: { network: true } },
+} as const;
+
+type ShareRow = {
+  toCurrency: string;
+  toAmount: bigint;
+  payoutBankAmount: bigint;
+  payoutBankChannel: string | null;
+  payoutAccount: string | null;
+  payoutAddress: string | null;
+  counterpartyName: string | null;
+  counterpartyPhone: string | null;
+  customer: { fullNameAr: string; fullNameEn: string; phone: string | null } | null;
+  payoutWallet: { network: string } | null;
+};
+
+/** The currency as the message says it, for each code the rows use. */
+async function unitsFor(
+  codes: string[],
   locale: Locale,
-  db: DbClient = prisma,
-): Promise<Shareable> {
-  const transaction = await db.transaction.findUnique({
-    where: { id },
-    select: {
-      id: true,
-      reference: true,
-      type: true,
-      status: true,
-      toCurrency: true,
-      toAmount: true,
-      payoutBankAmount: true,
-      payoutBankChannel: true,
-      payoutAccount: true,
-      payoutAddress: true,
-      counterpartyName: true,
-      counterpartyPhone: true,
-      customer: { select: { fullNameAr: true, fullNameEn: true, phone: true } },
-      payoutWallet: { select: { network: true } },
-    },
+  db: DbClient,
+): Promise<Map<string, string>> {
+  const rows = await db.currency.findMany({
+    where: { code: { in: [...new Set(codes)] } },
+    select: { code: true, nameAr: true, nameEn: true },
   });
+  const named = new Map(rows.map((row) => [row.code, locale === 'ar' ? row.nameAr : row.nameEn]));
+  return new Map(
+    [...new Set(codes)].map((code) => [
+      code,
+      (locale === 'ar' ? SHORT_AR[code] : undefined) ?? named.get(code) ?? code,
+    ]),
+  );
+}
 
-  if (!transaction) throw errors.notFound('Transaction', id);
-  if (transaction.status !== 'POSTED' && transaction.status !== 'PENDING_TRANSFER') {
-    throw errors.precondition(
-      'Only a posted transaction can be shared',
-      'errors.notShareable',
-    );
-  }
-
-  const name = <T extends Record<string, unknown>>(row: T | null, field: string): string =>
-    String(row?.[locale === 'ar' ? `${field}Ar` : `${field}En`] ?? '');
-
-  const [company, currency] = await Promise.all([
-    settings.getString(locale === 'ar' ? 'company.name.ar' : 'company.name.en', db),
-    db.currency.findUnique({
-      where: { code: transaction.toCurrency },
-      select: { nameAr: true, nameEn: true },
-    }),
-  ]);
-
+/**
+ * One transaction, the way the office writes it on WhatsApp:
+ *
+ *     الرقم
+ *     الاسم
+ *     اسم المحفظة أو البنك
+ *     المبلغ
+ *
+ * The number is the account the money goes to when one was recorded — the line
+ * the person making the transfer acts on — and the customer's phone otherwise.
+ * The amount is what reaches them: the transferred part of a split, since the
+ * cash taken at the counter is not the transfer's business; whole amounts lose
+ * their ".00", because "320 شيكل" is how the office writes it. Each line only
+ * when the transaction has it — a blank where a field is missing reads as
+ * something left out.
+ *
+ * The address of a USDT withdrawal follows, when there is one: it is the one
+ * part nobody can correct afterwards, and a customer who reads it back has
+ * saved everybody.
+ */
+function composeLines(transaction: ShareRow, locale: Locale, unit: string): string[] {
   const phone = transaction.customer?.phone ?? transaction.counterpartyPhone ?? null;
   const who = transaction.customer
-    ? name(transaction.customer, 'fullName')
+    ? locale === 'ar'
+      ? transaction.customer.fullNameAr
+      : transaction.customer.fullNameEn
     : transaction.counterpartyName;
 
-  /*
-   * What the person on the other end is paid, and nothing else.
-   *
-   * When part of it went by bank, that part is what reaches him through the
-   * channel named underneath; the cash the customer took at the counter is not
-   * his business. Whole amounts lose their ".00" — "320 شيكل" is how the office
-   * writes it.
-   */
   const paid =
     transaction.payoutBankAmount > 0n ? transaction.payoutBankAmount : transaction.toAmount;
   const amount = toDecimalString(paid, 2).replace(/\.00$/, '');
 
-  /*
-   * Four lines, the way the office already writes them by hand: the number,
-   * the amount, the channel it goes through, and the name. Each only when the
-   * transaction has it — a blank line where a field is missing would read as
-   * something left out.
-   *
-   * The address of a USDT withdrawal stays: it is the one part nobody can
-   * correct afterwards, and a customer who reads it back has saved you both.
-   */
-  const unit =
-    (locale === 'ar' ? SHORT_AR[transaction.toCurrency] : undefined) ??
-    (currency ? name(currency, 'name') : transaction.toCurrency);
-
-  const lines = [
-    phone,
-    `${amount} ${unit}`,
+  return [
+    transaction.payoutAccount?.trim() || phone,
+    who,
     transaction.payoutBankChannel,
-    // The account on the channel, when one was recorded: the line the person
-    // making the transfer actually needs.
-    transaction.payoutAccount,
+    `${amount} ${unit}`,
     transaction.payoutAddress
       ? transaction.payoutWallet
         ? `${transaction.payoutAddress} (${transaction.payoutWallet.network})`
         : transaction.payoutAddress
       : null,
-    who,
   ].filter((line): line is string => Boolean(line?.trim()));
+}
+
+export async function shareable(
+  id: string,
+  locale: Locale,
+  db: DbClient = prisma,
+): Promise<Shareable> {
+  const transaction = await db.transaction.findUnique({ where: { id }, select: SHARE_SELECT });
+
+  if (!transaction) throw errors.notFound('Transaction', id);
+  if (transaction.status !== 'POSTED' && transaction.status !== 'PENDING_TRANSFER') {
+    throw errors.precondition('Only a posted transaction can be shared', 'errors.notShareable');
+  }
+
+  const [company, units] = await Promise.all([
+    settings.getString(locale === 'ar' ? 'company.name.ar' : 'company.name.en', db),
+    unitsFor([transaction.toCurrency], locale, db),
+  ]);
+
+  const lines = composeLines(transaction, locale, units.get(transaction.toCurrency)!);
 
   return {
     reference: transaction.reference,
     companyName: company ?? '',
+    // A blank line between each, the way the office types them.
     text: lines.join('\n\n'),
-    phone,
+    phone: transaction.customer?.phone ?? transaction.counterpartyPhone ?? null,
+  };
+}
+
+/** Between two transfers in one message: a line WhatsApp shows as a divider. */
+const DIVIDER = '\n\n———\n\n';
+
+/**
+ * Every transfer still owed, as one message, oldest first.
+ *
+ * What the person who makes the transfers needs at the end of a run: each one
+ * in the same four lines as a single share, so it can be read and ticked off
+ * one block at a time. A teller gets their own; someone who sees everybody's
+ * transactions gets the office's.
+ */
+export async function pendingTransfers(
+  actor: Actor,
+  locale: Locale,
+  db: DbClient = prisma,
+): Promise<{ count: number; text: string }> {
+  const rows = await db.transaction.findMany({
+    where: {
+      status: 'PENDING_TRANSFER',
+      payoutBankAmount: { gt: 0n },
+      reversalOfId: null,
+      ...(actor.permissions.includes('exchange.transaction.viewAll')
+        ? {}
+        : { createdById: actor.id }),
+      ...(actor.branchId ? { branchId: actor.branchId } : {}),
+    },
+    orderBy: { createdAt: 'asc' },
+    take: 100,
+    select: SHARE_SELECT,
+  });
+
+  if (rows.length === 0) return { count: 0, text: '' };
+
+  const units = await unitsFor(
+    rows.map((row) => row.toCurrency),
+    locale,
+    db,
+  );
+
+  return {
+    count: rows.length,
+    text: rows
+      .map((row) => composeLines(row, locale, units.get(row.toCurrency)!).join('\n\n'))
+      .join(DIVIDER),
   };
 }
 

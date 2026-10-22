@@ -1707,6 +1707,10 @@ const en = {
     copied: 'Text copied',
     copyFailedTitle: 'Could not copy',
     copyFailedBody: 'The browser refused access to the clipboard. Use WhatsApp or Share instead.',
+    pending: 'Send pending transfers',
+    pendingTitle: '{count} transfer(s) waiting to be sent',
+    pendingHint: 'Each in the same order: number, name, wallet or bank, amount.',
+    pendingNone: 'No transfers are waiting.',
   },
 
   receipt: {

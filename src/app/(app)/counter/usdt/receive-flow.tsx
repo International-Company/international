@@ -21,6 +21,8 @@ import { Dialog, useToast } from '@/ui/overlay';
 import { Field, Input, Select } from '@/ui/form';
 import { DateText, Money } from '@/ui/display';
 import { CustomerPicker, type CustomerHit } from '@/ui/customer-picker';
+import { PendingTransfersButton } from '@/ui/pending-transfers';
+import { ShareButton } from '@/ui/share';
 import { cn } from '@/ui/utils';
 
 /**
@@ -155,7 +157,7 @@ export function ReceiveFlow({
   const [saveCustomer, setSaveCustomer] = useState(true);
   const [savedPayouts, setSavedPayouts] = useState<SavedPayout[]>([]);
   const [recording, setRecording] = useState(false);
-  const [done, setDone] = useState<{ reference: string } | null>(null);
+  const [done, setDone] = useState<{ id: string; reference: string } | null>(null);
 
   const wallet = addresses.find((entry) => entry.id === walletId);
 
@@ -426,20 +428,34 @@ export function ReceiveFlow({
             title={t('receive.logTitle')}
             description={t('receive.logBody')}
             actions={
-              <Button
-                size="sm"
-                variant="ghost"
-                icon={refreshing ? <Loader2 className="animate-spin" /> : <RefreshCw />}
-                onClick={() => void load(true)}
-              >
-                {t('common.refresh')}
-              </Button>
+              <div className="flex flex-wrap items-center gap-2">
+                {permissions.includes('exchange.receipt.print') && (
+                  <PendingTransfersButton variant="ghost" />
+                )}
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  icon={refreshing ? <Loader2 className="animate-spin" /> : <RefreshCw />}
+                  onClick={() => void load(true)}
+                >
+                  {t('common.refresh')}
+                </Button>
+              </div>
             }
           />
           <CardBody className="space-y-3">
             {done && (
               <Alert tone="success" icon={<Check />} title={t('receive.recorded')}>
-                <span className="font-mono ltr-content">{done.reference}</span>
+                {/*
+                  The message is one tap from the moment it is recorded —
+                  sending it is the next thing the teller does, every time.
+                */}
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-mono ltr-content">{done.reference}</span>
+                  {permissions.includes('exchange.receipt.print') && (
+                    <ShareButton transactionId={done.id} variant="secondary" />
+                  )}
+                </div>
               </Alert>
             )}
 
