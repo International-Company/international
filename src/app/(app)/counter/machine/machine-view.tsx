@@ -102,6 +102,8 @@ interface QuoteResponse {
   broker: ChannelPrice | null;
   availableCash: string;
   availableBroker: string;
+  /** The office lets a short drawer go below zero, so a shortfall is not a stop. */
+  overdraw: boolean;
   requiresCustomer: boolean;
   overLimit: boolean;
 }
@@ -432,7 +434,7 @@ export function MachineView({
   /** What the customer walks away with, across both channels. */
   const received = legs.cash + legs.broker;
 
-  const shortLeg = quote
+  const shortLeg = quote && !quote.overdraw
     ? legs.cash > BigInt(quote.availableCash)
       ? ('CASH' as const)
       : legs.broker > BigInt(quote.availableBroker)

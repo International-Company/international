@@ -77,6 +77,19 @@ export const SETTINGS: SettingDefinition[] = [
 
   // --- Exchange machine ----------------------------------------------------
   {
+    // On by the office's decision: a drawer that runs short goes negative
+    // rather than stopping the counter, and the balance shows it. Never for a
+    // crypto drawer — a wallet cannot send coins it does not hold, so allowing
+    // it would only move the refusal from this screen to the chain.
+    key: 'drawers.allowOverdraw', category: 'machine', type: 'boolean', defaultValue: true,
+    labelEn: 'Pay out despite a short balance',
+    labelAr: 'الصرف رغم نقص الرصيد',
+    descriptionEn:
+      'When on, a cash or bank drawer that does not hold enough is allowed to go negative instead of refusing the payout. Crypto drawers are never allowed below zero.',
+    descriptionAr:
+      'عند التفعيل، يُسمح للصندوق النقدي أو البنكي بأن يصبح سالباً بدل رفض الصرف عند نقص الرصيد. صناديق العملات الرقمية لا تنزل تحت الصفر أبداً.',
+  },
+  {
     key: 'machine.enabled', category: 'machine', type: 'boolean', defaultValue: true,
     labelEn: 'Exchange machine', labelAr: 'ماكينة التصريف',
     descriptionEn: 'Give tellers the fast counter screen for cash exchange',

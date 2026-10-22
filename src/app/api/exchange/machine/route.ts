@@ -61,6 +61,7 @@ export const GET = route<unknown, z.infer<typeof querySchema>>({
       broker: side(priced.broker),
       availableCash: priced.availableCash,
       availableBroker: priced.availableBroker,
+      overdraw: priced.overdraw,
       requiresCustomer: priced.requiresCustomer,
       overLimit: priced.overLimit,
     };

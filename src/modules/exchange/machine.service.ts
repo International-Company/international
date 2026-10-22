@@ -153,6 +153,8 @@ export interface MachineQuote {
   /** What each balance holds right now. */
   availableCash: bigint;
   availableBroker: bigint;
+  /** A short balance is allowed to go below zero, so it is not a reason to stop. */
+  overdraw: boolean;
   requiresCustomer: boolean;
   overLimit: boolean;
 }
@@ -232,7 +234,7 @@ export async function quote(
 
   const owner = input.actorId ? await cashOwnerFor(input.actorId, db) : drawers.TREASURY;
 
-  const [cash, broker, cashHeld, brokerHeld, maxAmount, requireCustomerAbove] = await Promise.all([
+  const [cash, broker, cashHeld, brokerHeld, maxAmount, requireCustomerAbove, overdraw] = await Promise.all([
     priceOrNull(input.fromCurrency, input.toCurrency, fromAmount, 'CASH', db),
     priceOrNull(input.fromCurrency, input.toCurrency, fromAmount, 'BROKER', db),
     drawers.canPay(input.toCurrency, 0n, 'CASH', db, owner),
@@ -243,6 +245,10 @@ export async function quote(
       ? ceilingFor(input.actorId, await settings.getMoney('machine.maxAmount', db), db)
       : settings.getMoney('machine.maxAmount', db),
     settings.getMoney('machine.requireCustomerAbove', db),
+    // Whether a short balance stops the payout at all. When the office allows
+    // going below zero, the screen must not warn about a shortfall the server
+    // will accept.
+    drawers.overdrawAllowed(input.toCurrency, db),
   ]);
 
   // Limits are read against what the customer hands over, which is the figure
@@ -254,6 +260,7 @@ export async function quote(
     broker,
     availableCash: cashHeld.balance,
     availableBroker: brokerHeld.balance,
+    overdraw,
     overLimit: maxAmount > 0n && fromAmount > maxAmount,
     requiresCustomer: requireCustomerAbove > 0n && fromAmount >= requireCustomerAbove,
   };

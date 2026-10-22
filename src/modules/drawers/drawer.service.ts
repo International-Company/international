@@ -6,6 +6,7 @@ import { toDecimalString } from '@/core/money/money';
 import { createLogger } from '@/core/logger/logger';
 import * as audit from '@/modules/audit/audit.service';
 import { currentOpenDay } from '@/modules/exchange/business-day.service';
+import * as settings from '@/modules/settings/settings.service';
 import * as grants from './grant.service';
 
 /**
@@ -193,6 +194,21 @@ export async function getDrawer(
   return drawer;
 }
 
+/**
+ * Whether a drawer in this currency may be paid out below zero.
+ *
+ * The office's switch, not the drawer's: `drawers.allowOverdraw` lets a short
+ * till or bank balance go negative rather than stop the counter. Never for a
+ * crypto currency — a wallet cannot send coins it does not hold, so letting
+ * the book go below zero would only move the refusal to the chain, after the
+ * customer has been told the money is coming.
+ */
+export async function overdrawAllowed(currency: string, db: DbClient = prisma): Promise<boolean> {
+  if (!(await settings.getBoolean('drawers.allowOverdraw', db))) return false;
+  const row = await db.currency.findUnique({ where: { code: currency }, select: { kind: true } });
+  return row?.kind !== 'CRYPTO';
+}
+
 /** True when the drawer can pay this out right now. */
 export async function canPay(
   currency: string,
@@ -204,8 +220,16 @@ export async function canPay(
   const drawer = await db.drawer.findUnique({
     where: { ownerKey_currencyCode_kind: { ownerKey: owner, currencyCode: currency, kind } },
   });
-  if (!drawer || !drawer.isActive) return { ok: false, balance: 0n };
-  return { ok: drawer.allowNegative || drawer.balance >= amount, balance: drawer.balance };
+  if (!drawer || !drawer.isActive) {
+    // A teller's drawer is opened by its first movement, so one that does not
+    // exist yet is not a refusal when the office allows going below zero.
+    const opensOnUse = owner !== TREASURY && (await overdrawAllowed(currency, db));
+    return { ok: !drawer && opensOnUse, balance: drawer?.balance ?? 0n };
+  }
+  if (drawer.allowNegative || drawer.balance >= amount) {
+    return { ok: true, balance: drawer.balance };
+  }
+  return { ok: await overdrawAllowed(currency, db), balance: drawer.balance };
 }
 
 // ---------------------------------------------------------------------------
@@ -301,7 +325,11 @@ async function applyMovement(tx: Tx, movement: Movement, actor: Actor): Promise<
     select: { balance: true },
   });
 
-  if (updated.balance < 0n && !drawer.allowNegative) {
+  if (
+    updated.balance < 0n &&
+    !drawer.allowNegative &&
+    !(await overdrawAllowed(movement.currency, tx))
+  ) {
     // Rolls the whole enclosing transaction back, so nothing is half-applied.
     throw errors.insufficientFunds(
       movement.currency,
