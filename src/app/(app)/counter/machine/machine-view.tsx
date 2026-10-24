@@ -661,6 +661,39 @@ export function MachineView({
     );
   })();
 
+  /*
+   * Buying or selling, said the way the office says it.
+   *
+   * Every pair is published once, as "1 base = n quote" with a buying and a
+   * selling price. When the customer hands over the base, the office is buying
+   * it; when he takes the base away, it is selling. The rate is always read in
+   * the base — "1 USD = 2.95 ILS" — never as its upside-down 0.339, because
+   * that is the figure on the board and the figure the customer asks about.
+   */
+  const base =
+    boardRate?.baseCode ?? (to === 'ILS' ? from : from === 'ILS' ? to : from);
+  const counter = base === from ? to : from;
+  const selling = to === base;
+  const baseCurrency = byCode.get(base);
+  /** A from→to rate, turned to read "1 base = n counter". */
+  const inBase = (rate: string) => {
+    if (!selling) return rate;
+    const value = BigInt(rate);
+    return value > 0n ? ((10n ** 16n + value / 2n) / value).toString() : '0';
+  };
+  /** The published price for this side, for when nothing has been quoted yet. */
+  const boardPrice = boardRate
+    ? boardRate.baseCode === base
+      ? selling
+        ? boardRate.sellRate
+        : boardRate.buyRate
+      : effectiveRate(boardRate, from)
+    : null;
+  const deal = (side: 'BUY' | 'SELL') => {
+    if ((side === 'SELL') === selling) return;
+    swap();
+  };
+
   const print = (id: string) => window.open(`/print/receipt/${id}`, '_blank');
 
   return (
@@ -685,6 +718,54 @@ export function MachineView({
         <div className="space-y-4">
           {/* ============ The card ============ */}
           <div className="space-y-4">
+            {/* Buying or selling the base — the first thing the customer says. */}
+            <div
+              role="radiogroup"
+              aria-label={t('machine.dealSide')}
+              className="grid grid-cols-2 gap-1 rounded-2xl bg-surface-sunken p-1 ring-1 ring-border-subtle"
+            >
+              {(['BUY', 'SELL'] as const).map((side) => {
+                const active = (side === 'SELL') === selling;
+                const possible = active || reversible;
+                return (
+                  <button
+                    key={side}
+                    type="button"
+                    role="radio"
+                    aria-checked={active}
+                    disabled={!possible}
+                    onClick={() => deal(side)}
+                    className={cn(
+                      'flex h-12 flex-col items-center justify-center rounded-xl text-sm font-semibold transition-all',
+                      active
+                        ? side === 'BUY'
+                          ? 'bg-success text-white shadow-[var(--shadow-sm)]'
+                          : 'bg-primary text-white shadow-[var(--shadow-sm)]'
+                        : 'text-content-secondary hover:bg-surface hover:text-content',
+                      !possible && 'opacity-40',
+                    )}
+                  >
+                    <span>
+                      {t(side === 'BUY' ? 'machine.buying' : 'machine.selling', {
+                        currency: baseCurrency ? ln(baseCurrency, 'name') : base,
+                      })}
+                    </span>
+                    <span
+                      className={cn(
+                        'text-[11px] font-medium',
+                        active ? 'text-white/80' : 'text-content-tertiary',
+                      )}
+                    >
+                      {t(side === 'BUY' ? 'machine.buyingHint' : 'machine.sellingHint', {
+                        base,
+                        counter,
+                      })}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+
             <section className="rounded-3xl bg-surface p-2 shadow-[var(--shadow-lg)] ring-1 ring-border-subtle">
               <AmountRow
                 label={t('machine.customerPays')}
@@ -791,7 +872,7 @@ export function MachineView({
                     >
                       <span className="text-xs">{t(`machine.${label}`)}</span>
                       <span className="ltr-content font-medium tabular-nums text-content">
-                        1 {from} = {rateText(rate)} {to}
+                        1 {base} = {rateText(inBase(rate))} {counter}
                       </span>
                     </span>
                   ))}
@@ -799,14 +880,22 @@ export function MachineView({
               ) : quote || boardRate ? (
                 <span className="flex items-center gap-2 text-content-secondary">
                   <span className="size-1.5 animate-pulse rounded-full bg-success" aria-hidden />
+                  <span className="text-xs">
+                    {t(selling ? 'machine.sellPrice' : 'machine.buyPrice')}
+                  </span>
                   <span className="ltr-content font-medium tabular-nums text-content">
-                    1 {from} ={' '}
+                    1 {base} ={' '}
                     {rateText(
-                      (channel === 'SPLIT'
-                        ? (quote?.cash?.rate ?? quote?.broker?.rate ?? null)
-                        : shownRate) ?? (boardRate ? effectiveRate(boardRate, from) : '0'),
+                      (() => {
+                        const quoted =
+                          channel === 'SPLIT'
+                            ? (quote?.cash?.rate ?? quote?.broker?.rate ?? null)
+                            : shownRate;
+                        if (quoted) return inBase(quoted);
+                        return boardPrice ?? '0';
+                      })(),
                     )}{' '}
-                    {to}
+                    {counter}
                   </span>
                 </span>
               ) : (
