@@ -430,7 +430,7 @@ export function ReceiveFlow({
             actions={
               <div className="flex flex-wrap items-center gap-2">
                 {permissions.includes('exchange.receipt.print') && (
-                  <PendingTransfersButton variant="ghost" />
+                  <PendingTransfersButton variant="ghost" kind="usdt" />
                 )}
                 <Button
                   size="sm"

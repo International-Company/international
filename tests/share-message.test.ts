@@ -177,6 +177,14 @@ describe('every pending transfer, as one message', () => {
     assert.equal(asked[0]!.where.createdById, undefined);
   });
 
+  it('asks only for its own kind — exchange apart from USDT', async () => {
+    const { db, asked } = fakeDb([]);
+    await pendingTransfers(teller, 'ar', db, 'exchange');
+    await pendingTransfers(teller, 'ar', db, 'usdt');
+    assert.deepEqual(asked[0]!.where.type, { in: ['EXCHANGE'] });
+    assert.deepEqual(asked[1]!.where.type, { in: ['USDT_RECEIVE', 'USDT_SEND'] });
+  });
+
   it('says there is nothing rather than sending an empty message', async () => {
     const { db } = fakeDb([]);
     assert.deepEqual(await pendingTransfers(teller, 'ar', db), { count: 0, text: '' });

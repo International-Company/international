@@ -53,7 +53,7 @@ function fakeDb(worked: Worked[], transfers: Transfer[]) {
       transaction: {
         findMany: async (args: { where: Record<string, unknown> }) => {
           asked.push(args.where);
-          return args.where.type === 'EXCHANGE' ? worked : transfers;
+          return args.where.payoutBankAmount ? transfers : worked;
         },
       },
     } as never,
@@ -150,6 +150,12 @@ describe('a teller’s days', () => {
     assert.deepEqual(todayRow!.paidBank, [{ currency: 'ILS', amount: 150n * UNIT }]);
     assert.equal(yesterdayRow!.count, 1);
     assert.deepEqual(yesterdayRow!.received, [{ currency: 'JOD', amount: 10n * UNIT }]);
+  });
+
+  it('keeps USDT deals out of the exchange account', async () => {
+    const { db, asked } = fakeDb([], []);
+    await dailyLedger({ days: 2 }, teller, db);
+    assert.ok(asked.every((where) => where.type === 'EXCHANGE'));
   });
 
   it('is a teller’s own, whoever he names', async () => {

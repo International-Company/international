@@ -26,9 +26,12 @@ import { Dialog, useToast } from '@/ui/overlay';
 export function PendingTransfersButton({
   size = 'sm',
   variant = 'secondary',
+  kind,
 }: {
   size?: 'sm' | 'md';
   variant?: 'secondary' | 'ghost';
+  /** Only the machine's exchanges, or only USDT deals — they are settled apart. */
+  kind?: 'exchange' | 'usdt';
 }) {
   const { t, locale } = useLocale();
   const toast = useToast();
@@ -39,7 +42,7 @@ export function PendingTransfersButton({
     setLoading(true);
     try {
       const result = await api.get<{ count: number; text: string }>(
-        `/api/transactions/pending-transfers?locale=${locale}`,
+        `/api/transactions/pending-transfers?locale=${locale}${kind ? `&kind=${kind}` : ''}`,
       );
       if (result.count === 0) toast.success(t('share.pendingNone'));
       else setMessage(result);

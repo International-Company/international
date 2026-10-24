@@ -3,7 +3,11 @@ import { route } from '@/core/http/route';
 import { LOCALES } from '@/i18n/config';
 import * as share from '@/modules/exchange/share.service';
 
-const querySchema = z.object({ locale: z.enum(LOCALES).optional() });
+const querySchema = z.object({
+  locale: z.enum(LOCALES).optional(),
+  /** Exchange and USDT are settled apart; each screen asks for its own. */
+  kind: z.enum(['exchange', 'usdt']).optional(),
+});
 
 /**
  * Every transfer still owed, written as one message — four lines each, in the
@@ -16,5 +20,5 @@ const querySchema = z.object({ locale: z.enum(LOCALES).optional() });
 export const GET = route<unknown, z.infer<typeof querySchema>>({
   permissions: ['exchange.receipt.print'],
   querySchema,
-  handler: async ({ query, actor }) => share.pendingTransfers(actor, query.locale ?? 'ar'),
+  handler: async ({ query, actor }) => share.pendingTransfers(actor, query.locale ?? 'ar', undefined, query.kind),
 });

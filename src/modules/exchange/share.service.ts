@@ -205,14 +205,26 @@ const DIVIDER = '\n\n———\n\n';
  * in the same four lines as a single share, so it can be read and ticked off
  * one block at a time. A teller gets their own; someone who sees everybody's
  * transactions gets the office's.
+ *
+ * Exchange and USDT are settled apart, so each screen asks for its own kind:
+ * the machine's exchanges, or the USDT counter's deals. Without a kind, all.
  */
+export type PendingKind = 'exchange' | 'usdt';
+
+const KIND_TYPES: Record<PendingKind, string[]> = {
+  exchange: ['EXCHANGE'],
+  usdt: ['USDT_RECEIVE', 'USDT_SEND'],
+};
+
 export async function pendingTransfers(
   actor: Actor,
   locale: Locale,
   db: DbClient = prisma,
+  kind?: PendingKind,
 ): Promise<{ count: number; text: string }> {
   const rows = await db.transaction.findMany({
     where: {
+      ...(kind ? { type: { in: KIND_TYPES[kind] } } : {}),
       status: 'PENDING_TRANSFER',
       payoutBankAmount: { gt: 0n },
       reversalOfId: null,

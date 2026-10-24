@@ -517,9 +517,9 @@ export interface LedgerDay {
  * was recorded and when it was confirmed, so last week's figure stays last
  * week's however much has been sent since.
  *
- * The exchanged totals are the machine's, as the screen it sits on. The owed
- * figure is every transfer he promised, from any screen: the bank does not
- * care which one he used.
+ * Both the exchanged totals and the owed figure are exchanges only. USDT
+ * deals are a separate account, settled apart, so a USDT payout by transfer
+ * never lands in the exchange day.
  *
  * A reversed deal is left out of both — it neither exchanged anything nor
  * promised anything that is still owed.
@@ -567,10 +567,12 @@ export async function dailyLedger(
         payoutBankAmount: true,
       },
     }),
-    // Every transfer promised on one of these days: unsent now, or sent only
-    // after the oldest of them began.
+    // Every exchange transfer promised on one of these days: unsent now, or
+    // sent only after the oldest of them began. USDT deals are settled apart
+    // and never enter the exchange account.
     db.transaction.findMany({
       where: {
+        type: 'EXCHANGE',
         createdById: tellerId,
         createdAt: { gte: oldest },
         reversalOfId: null,

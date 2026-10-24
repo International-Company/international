@@ -150,7 +150,7 @@ export function TodaySummary({
             {t('machine.today.bankDue')}
           </h3>
           {/* Straight to the person who makes them, in the office's four lines. */}
-          {pending.length > 0 && <PendingTransfersButton variant="ghost" />}
+          {pending.length > 0 && <PendingTransfersButton variant="ghost" kind="exchange" />}
         </header>
 
         {today.bank.length === 0 ? (
