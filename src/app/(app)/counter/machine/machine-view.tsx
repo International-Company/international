@@ -583,17 +583,16 @@ export function MachineView({
 
   return (
     /*
-     * A form, so Enter posts from any field — and a single centred column, so
-     * the phone gets the full width and the desk gets the same tool rather than
-     * a differently arranged one. There is nothing left to put in a second
-     * column now that the keypad is gone.
+     * A form, so Enter posts from any field. Phones and tablets get one centred
+     * column; a wide desk screen keeps that same column and sets the teller's
+     * days beside it, so the day's account is in view while he works.
      */
     <form
       onSubmit={(event) => {
         event.preventDefault();
         void submit();
       }}
-      className="mx-auto w-full max-w-xl"
+      className="mx-auto w-full max-w-xl xl:grid xl:max-w-6xl xl:grid-cols-[minmax(0,36rem)_minmax(0,1fr)] xl:items-start xl:gap-6"
     >
       <div className="space-y-4">
         {/* ============ The card ============ */}
@@ -1087,10 +1086,14 @@ export function MachineView({
             decimalsOf={(code) => byCode.get(code)?.decimals ?? 2}
           />
 
-          {/* And the days before it, each with what was owed when it ended. */}
-          <DailyLedger days={7} refreshKey={done?.id ?? null} />
         </div>
       </div>
+
+      {/* The days, each with what of its own was owed when it ended — beside
+          the machine on a wide screen, below it otherwise. */}
+      <aside className="mt-4 xl:sticky xl:top-[6.5rem] xl:mt-0">
+        <DailyLedger days={7} refreshKey={done?.id ?? null} />
+      </aside>
     </form>
   );
 }

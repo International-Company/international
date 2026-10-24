@@ -499,8 +499,8 @@ export interface LedgerDay {
   paidCash: Amount[];
   paidBank: Amount[];
   /**
-   * Every transfer of his still unsent when the day ended — that day's and any
-   * left over from before. What he owed the bank, as of that evening.
+   * That day's own transfers still unsent when it ended. Each day stands on
+   * its own — nothing is carried in from the days before it.
    */
   owedAtEnd: Amount[];
 }
@@ -509,14 +509,13 @@ export interface LedgerDay {
  * A teller's days, newest first: what each one came to, and what he still
  * owed the bank when it ended.
  *
- * ## Why the owed figure is "as of that evening"
+ * ## Why each day's owed figure is its own
  *
- * The question asked at the end of a day is "how much do I owe the bank now",
- * and a transfer left unsent yesterday is still owed today. So each day carries
- * everything of his that had been promised by transfer and not yet confirmed
- * as sent by its close — read from when each was recorded and when it was
- * confirmed, so last week's figure stays last week's however much has been
- * sent since.
+ * The office settles the bank day by day, so a day's figure is only what was
+ * promised by transfer on that day and not yet confirmed as sent by its close
+ * — nothing carried in from earlier days. It is read from when each transfer
+ * was recorded and when it was confirmed, so last week's figure stays last
+ * week's however much has been sent since.
  *
  * The exchanged totals are the machine's, as the screen it sits on. The owed
  * figure is every transfer he promised, from any screen: the bank does not
@@ -568,11 +567,12 @@ export async function dailyLedger(
         payoutBankAmount: true,
       },
     }),
-    // Every transfer that could still have been owed on any of these days:
-    // unsent now, or sent only after the oldest of them began.
+    // Every transfer promised on one of these days: unsent now, or sent only
+    // after the oldest of them began.
     db.transaction.findMany({
       where: {
         createdById: tellerId,
+        createdAt: { gte: oldest },
         reversalOfId: null,
         status: { not: 'REVERSED' },
         payoutBankAmount: { gt: 0n },
@@ -609,12 +609,12 @@ export async function dailyLedger(
       add(paidBank, row.toCurrency, row.payoutBankAmount);
     }
 
-    // The end of the day, or now for a day still running.
-    const { end } = dayBounds(day.date);
+    // Only this day's transfers, as they stood at its end (or now, while it runs).
+    const { start, end } = dayBounds(day.date);
     const cutoff = end > now ? now : end;
     const owed = new Map<string, bigint>();
     for (const transfer of transfers) {
-      if (transfer.createdAt > cutoff) continue;
+      if (transfer.createdAt < start || transfer.createdAt > cutoff) continue;
       const sentBy = transfer.transferConfirmedAt;
       // Confirmed by the cut-off means paid; a row no longer pending but with
       // no time recorded was settled some other way and is not owed.

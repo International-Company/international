@@ -9,10 +9,10 @@ import { dayKey } from '../src/core/time/day-key.ts';
 /**
  * A teller's days, and what he owed the bank at the end of each.
  *
- * The figure that matters is the debt as of each evening: a transfer left
- * unsent yesterday is still owed today, and one sent this morning was still
- * owed last night. Pinned here, because it is the number reconciled against
- * the bank and it must not drift as later transfers are sent.
+ * Each day's owed figure is that day's own: a transfer left unsent yesterday
+ * stays on yesterday and is not carried into today, and one sent this morning
+ * was still owed last night. Pinned here, because it is the number reconciled
+ * against the bank and it must not drift as later transfers are sent.
  */
 
 const UNIT = 100_000_000n;
@@ -84,7 +84,7 @@ describe('a teller’s days', () => {
     assert.deepEqual(todayRow!.owedAtEnd, [], 'and owes nothing for it once it is sent');
   });
 
-  it('carries yesterday’s unsent transfer into today, alongside today’s', async () => {
+  it('keeps yesterday’s unsent transfer on yesterday, not today', async () => {
     const { db } = fakeDb(
       [],
       [
@@ -108,7 +108,7 @@ describe('a teller’s days', () => {
     const [todayRow, yesterdayRow] = await dailyLedger({ days: 2 }, teller, db);
 
     assert.deepEqual(yesterdayRow!.owedAtEnd, [{ currency: 'ILS', amount: 100n * UNIT }]);
-    assert.deepEqual(todayRow!.owedAtEnd, [{ currency: 'ILS', amount: 150n * UNIT }]);
+    assert.deepEqual(todayRow!.owedAtEnd, [{ currency: 'ILS', amount: 50n * UNIT }]);
   });
 
   it('adds up each day’s exchanges on their own day', async () => {
