@@ -1,11 +1,11 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { ChevronDown, MessageCircle, Printer } from 'lucide-react';
 import { useLocale } from '@/i18n/provider';
 import { api, queryString } from '@/lib/api-client';
 import { formatDate } from '@/i18n/format';
-import { Badge, Card, CardBody, CardHeader, EmptyState } from '@/ui/primitives';
+import { Badge, Card, CardBody, CardHeader, EmptyState, LoadingRows } from '@/ui/primitives';
 import { Money } from '@/ui/display';
 import { cn } from '@/ui/utils';
 
@@ -68,6 +68,7 @@ export function DailyLedger({
   title,
   refreshKey,
   summary = true,
+  page = false,
 }: {
   days?: number;
   /** Another teller's days, for a manager. Omitted: the signed-in person's own. */
@@ -77,9 +78,16 @@ export function DailyLedger({
   refreshKey?: string | number | null;
   /** The owed-today band at the top; off where the page already shows it. */
   summary?: boolean;
+  /**
+   * The days as a screen of their own: a range to choose, the period's figures
+   * as tiles, and no card heading, because the page already carries the title.
+   */
+  page?: boolean;
 }) {
   const { t, locale } = useLocale();
   const [rows, setRows] = useState<LedgerDay[] | null>(null);
+  const [span, setSpan] = useState<number>(days);
+  const [showQuiet, setShowQuiet] = useState(false);
   /** The days opened to their exchanges. */
   const [opened, setOpened] = useState<Set<string>>(() => new Set());
   const toggle = (dayId: string) =>
@@ -93,13 +101,13 @@ export function DailyLedger({
   const load = useCallback(async () => {
     try {
       const result = await api.get<{ days: LedgerDay[] }>(
-        `/api/my/days${queryString({ days, tellerId })}`,
+        `/api/my/days${queryString({ days: span, tellerId })}`,
       );
       setRows(result.days);
     } catch {
       setRows((current) => current ?? []);
     }
-  }, [days, tellerId]);
+  }, [span, tellerId]);
 
   useEffect(() => {
     void load();
@@ -132,24 +140,158 @@ export function DailyLedger({
     ].join('\n');
 
   // The newest day is the one being worked: its own transfers still unsent.
-  const owedNow = (rows?.[0]?.owedAtEnd ?? []).filter((entry) => BigInt(entry.amount) !== 0n);
-  const periodCount = (rows ?? []).reduce((sum, day) => sum + day.count, 0);
+  const all = rows ?? [];
+  const owedNow = (all[0]?.owedAtEnd ?? []).filter((entry) => BigInt(entry.amount) !== 0n);
+  const periodCount = all.reduce((sum, day) => sum + day.count, 0);
+  const activeDays = all.filter((day) => day.count > 0).length;
+  const periodReceived = sumAll(all.map((day) => day.received));
+  const periodBank = sumAll(all.map((day) => day.paidBank));
 
-  return (
-    <Card className="overflow-hidden">
-      <CardHeader title={title ?? t('ledgerDays.title')} description={t('ledgerDays.hint')} />
-      {rows === null ? (
-        <CardBody>
-          <EmptyState title={t('common.loading')} />
-        </CardBody>
-      ) : rows.length === 0 ? (
-        <CardBody>
-          <EmptyState title={t('ledgerDays.none')} />
-        </CardBody>
-      ) : (
-        <div className="@container">
-          {/* The one figure the day is reconciled against, before any detail. */}
-          {summary && (
+  // A day with nothing exchanged and nothing owed says nothing; it waits behind
+  // one line instead of taking a row of its own.
+  const isQuiet = (day: LedgerDay) =>
+    day.count === 0 && !day.owedAtEnd.some((entry) => BigInt(entry.amount) !== 0n);
+  const quietCount = all.filter(isQuiet).length;
+  const shown = all.filter((day, index) => showQuiet || index === 0 || !isQuiet(day));
+
+  // Grouped by month, newest first, as a calendar is read.
+  const months: { key: string; label: string; days: LedgerDay[] }[] = [];
+  for (const day of shown) {
+    const key = day.date.slice(0, 7);
+    let group = months[months.length - 1];
+    if (!group || group.key !== key) {
+      group = {
+        key,
+        label: formatDate(new Date(`${day.date}T12:00:00`), locale, {
+          day: undefined,
+          month: 'long',
+          year: 'numeric',
+        }),
+        days: [],
+      };
+      months.push(group);
+    }
+    group.days.push(day);
+  }
+
+  const rangePicker = page && (
+    <div className="flex flex-wrap items-center justify-between gap-3">
+      <div
+        role="radiogroup"
+        aria-label={t('ledgerDays.range')}
+        className="inline-flex rounded-full bg-surface-sunken p-1 ring-1 ring-border-subtle"
+      >
+        {RANGES.map((option) => (
+          <button
+            key={option}
+            type="button"
+            role="radio"
+            aria-checked={span === option}
+            onClick={() => setSpan(option)}
+            className={cn(
+              'h-9 rounded-full px-4 text-sm font-medium transition-colors',
+              span === option
+                ? 'bg-surface text-content shadow-[var(--shadow-sm)]'
+                : 'text-content-tertiary hover:text-content-secondary',
+            )}
+          >
+            {daysPhrase(option, locale)}
+          </button>
+        ))}
+      </div>
+      {quietCount > 0 && (
+        <label className="flex cursor-pointer select-none items-center gap-2 text-sm text-content-secondary">
+          <input
+            type="checkbox"
+            checked={showQuiet}
+            onChange={(event) => setShowQuiet(event.target.checked)}
+            className="size-4 accent-[var(--color-primary)]"
+          />
+          {t('ledgerDays.showQuiet')}
+        </label>
+      )}
+    </div>
+  );
+
+  const tiles = page && rows && rows.length > 0 && (
+    <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <Tile
+        tone={owedNow.length > 0 ? 'warning' : 'success'}
+        label={owedNow.length > 0 ? t('ledgerDays.owedNow') : t('ledgerDays.settled')}
+        hint={owedNow.length > 0 ? t('ledgerDays.owedNowHint') : undefined}
+      >
+        {owedNow.length > 0 ? <Amounts list={owedNow} /> : '✓'}
+      </Tile>
+      <Tile
+        label={t('ledgerDays.periodOpsLabel')}
+        hint={t('ledgerDays.activeDays', { count: activeDays })}
+      >
+        <span className="tabular-nums">{periodCount}</span>
+      </Tile>
+      <Tile label={t('ledgerDays.periodReceived')}>
+        <Amounts list={periodReceived} />
+      </Tile>
+      <Tile label={t('ledgerDays.periodBank')}>
+        <Amounts list={periodBank} />
+      </Tile>
+    </div>
+  );
+
+  const list = (
+    <div className="@container">
+      {months.map((month) => (
+        <section key={month.key}>
+          <h3 className="sticky top-[5.5rem] z-[1] flex items-center justify-between border-b border-border-subtle bg-surface/95 px-4 py-2 text-xs font-semibold text-content-secondary backdrop-blur">
+            <span>{month.label}</span>
+            <span className="font-normal tabular-nums text-content-tertiary">
+              {month.days.reduce((sum, day) => sum + day.count, 0)}{' '}
+              {opsWord(month.days.reduce((sum, day) => sum + day.count, 0), locale)}
+            </span>
+          </h3>
+          <ol className="divide-y divide-border-subtle">
+            {month.days.map((day) => (
+              <DayRow
+                key={day.dayId}
+                day={day}
+                isToday={day === all[0] && (day.status === 'OPEN' || day.status === 'REOPENED')}
+                open={opened.has(day.dayId)}
+                onToggle={() => toggle(day.dayId)}
+                message={message(day)}
+                tellerId={tellerId}
+                refreshKey={refreshKey}
+              />
+            ))}
+          </ol>
+        </section>
+      ))}
+
+      {!page && quietCount > 0 && (
+        <button
+          type="button"
+          onClick={() => setShowQuiet((value) => !value)}
+          className="w-full border-t border-border-subtle px-4 py-2.5 text-xs font-medium text-primary-text transition-colors hover:bg-surface-sunken"
+        >
+          {showQuiet
+            ? t('ledgerDays.hideQuiet')
+            : t('ledgerDays.quietHidden', { days: daysPhrase(quietCount, locale) })}
+        </button>
+      )}
+    </div>
+  );
+
+  const body =
+    rows === null ? (
+      <CardBody>
+        <LoadingRows rows={4} columns={3} />
+      </CardBody>
+    ) : rows.length === 0 ? (
+      <CardBody>
+        <EmptyState title={t('ledgerDays.none')} />
+      </CardBody>
+    ) : (
+      <>
+        {/* The one figure the day is reconciled against, before any detail. */}
+        {summary && !page && (
           <div
             className={cn(
               'flex flex-wrap items-end justify-between gap-x-6 gap-y-2 border-b border-border-base px-4 py-4',
@@ -162,16 +304,8 @@ export function DailyLedger({
               </p>
               {owedNow.length > 0 ? (
                 <>
-                  <div className="mt-1 flex flex-wrap gap-x-5 gap-y-1">
-                    {owedNow.map((entry) => (
-                      <Money
-                        key={entry.currency}
-                        value={entry.amount}
-                        currency={entry.currency}
-                        decimals={decimalsOf(entry.currency)}
-                        className="text-2xl font-semibold tracking-tight text-warning-text"
-                      />
-                    ))}
+                  <div className="mt-1 text-2xl font-semibold tracking-tight text-warning-text">
+                    <Amounts list={owedNow} />
                   </div>
                   <p className="mt-1 text-[11px] text-content-tertiary">
                     {t('ledgerDays.owedNowHint')}
@@ -183,156 +317,262 @@ export function DailyLedger({
             </div>
             <p className="text-xs text-content-secondary">
               <span className="font-semibold tabular-nums text-content">{periodCount}</span>{' '}
-              {opsWord(periodCount, locale)} · {t('ledgerDays.period', { days: rows.length })}
+              {opsWord(periodCount, locale)} ·{' '}
+              {t('ledgerDays.period', { days: daysPhrase(all.length, locale) })}
             </p>
           </div>
+        )}
+        {list}
+      </>
+    );
+
+  if (page) {
+    return (
+      <div className="space-y-4">
+        {rangePicker}
+        {tiles}
+        <Card className="overflow-clip">{body}</Card>
+      </div>
+    );
+  }
+
+  return (
+    <Card className="overflow-clip">
+      <CardHeader title={title ?? t('ledgerDays.title')} description={t('ledgerDays.hint')} />
+      {body}
+    </Card>
+  );
+}
+
+const RANGES = [7, 30, 90] as const;
+
+/** Every day's amounts, added up per currency. */
+function sumAll(lists: Amount[][]): Amount[] {
+  const sums = new Map<string, bigint>();
+  for (const list of lists) {
+    for (const entry of list) {
+      sums.set(entry.currency, (sums.get(entry.currency) ?? 0n) + BigInt(entry.amount));
+    }
+  }
+  return [...sums]
+    .filter(([, amount]) => amount !== 0n)
+    .map(([currency, amount]) => ({ currency, amount: amount.toString() }))
+    .sort((a, b) => a.currency.localeCompare(b.currency));
+}
+
+/** «يوم واحد / يومان / ٣ أيام / ١١ يوماً» — the count of days as Arabic says it. */
+function daysPhrase(count: number, locale: string): string {
+  if (locale !== 'ar') return count === 1 ? '1 day' : `${count} days`;
+  const tail = count % 100;
+  if (count === 1) return 'يوم واحد';
+  if (count === 2) return 'يومان';
+  if (tail >= 3 && tail <= 10) return `${count} أيام`;
+  return `${count} يوماً`;
+}
+
+function Amounts({ list }: { list: Amount[] }) {
+  if (list.length === 0) return <span className="text-content-tertiary">—</span>;
+  return (
+    <span className="flex flex-col gap-0.5">
+      {list.map((entry) => (
+        <Money
+          key={entry.currency}
+          value={entry.amount}
+          currency={entry.currency}
+          decimals={decimalsOf(entry.currency)}
+        />
+      ))}
+    </span>
+  );
+}
+
+function Tile({
+  label,
+  hint,
+  tone,
+  children,
+}: {
+  label: string;
+  hint?: string;
+  tone?: 'warning' | 'success';
+  children: ReactNode;
+}) {
+  return (
+    <div
+      className={cn(
+        'rounded-2xl p-4 ring-1',
+        tone === 'warning'
+          ? 'bg-warning-subtle/60 ring-warning-border'
+          : tone === 'success'
+            ? 'bg-success-subtle/50 ring-success-border'
+            : 'bg-surface ring-border-subtle',
+      )}
+    >
+      <p className="text-xs font-medium text-content-secondary">{label}</p>
+      <div
+        className={cn(
+          'mt-1.5 text-xl font-semibold tracking-tight',
+          tone === 'warning'
+            ? 'text-warning-text'
+            : tone === 'success'
+              ? 'text-success-text'
+              : 'text-content',
+        )}
+      >
+        {children}
+      </div>
+      {hint && <p className="mt-1 text-[11px] text-content-tertiary">{hint}</p>}
+    </div>
+  );
+}
+
+/**
+ * One day: the whole row opens it, so there is no small target to aim at —
+ * only the WhatsApp report sits apart, because it does something else.
+ */
+function DayRow({
+  day,
+  isToday,
+  open,
+  onToggle,
+  message,
+  tellerId,
+  refreshKey,
+}: {
+  day: LedgerDay;
+  isToday: boolean;
+  open: boolean;
+  onToggle: () => void;
+  message: string;
+  tellerId?: string;
+  refreshKey?: string | number | null;
+}) {
+  const { t, locale } = useLocale();
+  const owed = day.owedAtEnd.filter((entry) => BigInt(entry.amount) !== 0n);
+  const quiet = day.count === 0;
+  // noon, so no time zone can move the calendar day
+  const when = new Date(`${day.date}T12:00:00`);
+  const part = (options: Intl.DateTimeFormatOptions) =>
+    formatDate(when, locale, { year: undefined, month: undefined, day: undefined, ...options });
+
+  return (
+    <li
+      className={cn(
+        'relative transition-colors',
+        isToday && 'bg-primary-subtle/25',
+        open && !isToday && 'bg-surface-sunken/40',
+      )}
+    >
+      {isToday && <span aria-hidden className="absolute inset-y-0 start-0 w-0.5 bg-primary" />}
+
+      <div className="flex items-stretch">
+        <button
+          type="button"
+          disabled={quiet}
+          onClick={onToggle}
+          aria-expanded={quiet ? undefined : open}
+          className={cn(
+            'flex min-w-0 flex-1 items-center gap-3 px-4 text-start outline-none',
+            'focus-visible:bg-surface-sunken disabled:cursor-default',
+            quiet ? 'py-2.5' : 'py-3 hover:bg-surface-sunken/60',
           )}
+        >
+          <span
+            className={cn(
+              'flex shrink-0 flex-col items-center justify-center rounded-xl border leading-none',
+              quiet ? 'size-10' : 'size-12',
+              isToday
+                ? 'border-primary-border bg-primary-subtle text-primary-text'
+                : 'border-border-base bg-surface text-content',
+              quiet && 'text-content-tertiary',
+            )}
+          >
+            <span className={cn('font-semibold tabular-nums', quiet ? 'text-sm' : 'text-lg')}>
+              {part({ day: 'numeric' })}
+            </span>
+            <span className="mt-0.5 text-[9px] text-content-tertiary">{part({ month: 'short' })}</span>
+          </span>
 
-          <ol className="divide-y divide-border-subtle">
-            {rows.map((day, index) => {
-              const isToday =
-                index === 0 && (day.status === 'OPEN' || day.status === 'REOPENED');
-              const owed = day.owedAtEnd.filter((entry) => BigInt(entry.amount) !== 0n);
-              const quiet = day.count === 0;
-              // noon, so no time zone can move the calendar day
-              const when = new Date(`${day.date}T12:00:00`);
-              const part = (options: Intl.DateTimeFormatOptions) =>
-                formatDate(when, locale, { year: undefined, month: undefined, day: undefined, ...options });
-              return (
-                <li
-                  key={day.dayId}
-                  className={cn(
-                    'relative px-4 transition-colors hover:bg-surface-sunken/60',
-                    quiet ? 'py-2' : 'py-3.5',
-                    isToday && 'bg-primary-subtle/30',
-                  )}
-                >
-                  {isToday && (
-                    <span aria-hidden className="absolute inset-y-0 start-0 w-0.5 bg-primary" />
-                  )}
-                  <div className="flex items-center justify-between gap-3">
-                    {/* the day — tapped, it opens to the exchanges behind it */}
-                    <button
-                      type="button"
-                      disabled={quiet}
-                      onClick={() => toggle(day.dayId)}
-                      aria-expanded={quiet ? undefined : opened.has(day.dayId)}
-                      className="flex min-w-0 flex-1 items-center gap-3 rounded-lg text-start outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-default"
-                    >
-                      <div
-                        className={cn(
-                          'flex shrink-0 flex-col items-center justify-center rounded-lg border leading-none',
-                          quiet ? 'size-9' : 'size-11',
-                          isToday
-                            ? 'border-primary-border bg-primary-subtle text-primary-text'
-                            : 'border-border-base bg-surface-sunken text-content',
-                          quiet && 'text-content-secondary',
-                        )}
-                      >
-                        <span className={cn('font-semibold tabular-nums', quiet ? 'text-sm' : 'text-base')}>
-                          {part({ day: 'numeric' })}
-                        </span>
-                        <span className="mt-0.5 text-[9px] text-content-tertiary">
-                          {part({ month: 'short' })}
-                        </span>
-                      </div>
-                      <div className="min-w-0">
-                        <p className="flex items-center gap-2">
-                          <span
-                            className={cn(
-                              'truncate text-sm font-medium',
-                              quiet ? 'text-content-secondary' : 'text-content',
-                            )}
-                          >
-                            {part({ weekday: 'long' })}
-                          </span>
-                          {isToday && (
-                            <Badge tone="primary" dot>
-                              {t('ledgerDays.today')}
-                            </Badge>
-                          )}
-                        </p>
-                        <p className="mt-0.5 text-xs text-content-tertiary">
-                          {quiet ? (
-                            t('ledgerDays.quiet')
-                          ) : (
-                            <>
-                              <span className="tabular-nums">{day.count}</span>{' '}
-                              {opsWord(day.count, locale)}
-                              <span className="ms-2 text-primary-text">
-                                {opened.has(day.dayId)
-                                  ? t('ledgerDays.hideDetail')
-                                  : t('ledgerDays.showDetail')}
-                              </span>
-                            </>
-                          )}
-                        </p>
-                      </div>
-                      {!quiet && (
-                        <ChevronDown
-                          aria-hidden
-                          className={cn(
-                            'ms-auto size-4 shrink-0 text-content-tertiary transition-transform duration-200',
-                            opened.has(day.dayId) && 'rotate-180',
-                          )}
-                        />
-                      )}
-                    </button>
+          <span className="min-w-0 flex-1">
+            <span className="flex items-center gap-2">
+              <span
+                className={cn(
+                  'truncate text-sm font-semibold',
+                  quiet ? 'text-content-tertiary' : 'text-content',
+                )}
+              >
+                {part({ weekday: 'long' })}
+              </span>
+              {isToday && (
+                <Badge tone="primary" dot>
+                  {t('ledgerDays.today')}
+                </Badge>
+              )}
+            </span>
+            <span className="mt-0.5 block text-xs text-content-tertiary">
+              {quiet ? (
+                t('ledgerDays.quiet')
+              ) : (
+                <>
+                  <span className="tabular-nums">{day.count}</span> {opsWord(day.count, locale)}
+                </>
+              )}
+            </span>
+          </span>
 
-                    {/* what was owed when it ended, then the report */}
-                    <div className="flex shrink-0 items-center gap-1">
-                      <div className="text-end">
-                        <p className="text-[10px] text-content-tertiary">{t('ledgerDays.owedShort')}</p>
-                        {owed.length === 0 ? (
-                          <p className="text-sm text-content-tertiary">—</p>
-                        ) : (
-                          owed.map((entry) => (
-                            <Money
-                              key={entry.currency}
-                              value={entry.amount}
-                              currency={entry.currency}
-                              decimals={decimalsOf(entry.currency)}
-                              className="block text-sm font-semibold text-warning-text"
-                            />
-                          ))
-                        )}
-                      </div>
-                      {quiet && owed.length === 0 ? (
-                        <span aria-hidden className="size-9" />
-                      ) : (
-                        <a
-                          href={`https://wa.me/?text=${encodeURIComponent(message(day))}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          title={t('ledgerDays.share')}
-                          aria-label={t('ledgerDays.share')}
-                          className="inline-flex size-9 items-center justify-center rounded-full text-content-tertiary transition-colors hover:bg-success-subtle hover:text-success-text"
-                        >
-                          <MessageCircle className="size-4" />
-                        </a>
-                      )}
-                    </div>
-                  </div>
+          <span className="shrink-0 text-end">
+            <span className="block text-[10px] text-content-tertiary">{t('ledgerDays.owedShort')}</span>
+            <span
+              className={cn(
+                'block text-sm',
+                owed.length > 0 ? 'font-semibold text-warning-text' : 'text-content-tertiary',
+              )}
+            >
+              <Amounts list={owed} />
+            </span>
+          </span>
 
-                  {/* the day's movement, only where there was some */}
-                  {!quiet && (
-                    <dl className="mt-3 grid grid-cols-1 gap-px overflow-hidden rounded-lg border border-border-subtle bg-border-subtle @sm:grid-cols-3">
-                      <Figure label={t('ledgerDays.received')} amounts={day.received} />
-                      <Figure label={t('ledgerDays.paidCash')} amounts={day.paidCash} />
-                      <Figure label={t('ledgerDays.paidBank')} amounts={day.paidBank} />
-                    </dl>
-                  )}
+          {!quiet && (
+            <ChevronDown
+              aria-hidden
+              className={cn(
+                'size-5 shrink-0 text-content-tertiary transition-transform duration-200',
+                open && 'rotate-180 text-primary-text',
+              )}
+            />
+          )}
+        </button>
 
-                  {!quiet && opened.has(day.dayId) && (
-                    <DayDetail dayId={day.dayId} tellerId={tellerId} refreshKey={refreshKey} />
-                  )}
-                </li>
-              );
-            })}
-          </ol>
+        <span className="flex shrink-0 items-center pe-2">
+          {quiet && owed.length === 0 ? (
+            <span aria-hidden className="size-9" />
+          ) : (
+            <a
+              href={`https://wa.me/?text=${encodeURIComponent(message)}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              title={t('ledgerDays.share')}
+              aria-label={t('ledgerDays.share')}
+              className="inline-flex size-9 items-center justify-center rounded-full text-content-tertiary transition-colors hover:bg-success-subtle hover:text-success-text"
+            >
+              <MessageCircle className="size-4" />
+            </a>
+          )}
+        </span>
+      </div>
+
+      {/* the day's movement, only where there was some */}
+      {!quiet && (
+        <div className="px-4 pb-3">
+          <dl className="grid grid-cols-1 gap-px overflow-hidden rounded-xl border border-border-subtle bg-border-subtle @sm:grid-cols-3">
+            <Figure label={t('ledgerDays.received')} amounts={day.received} />
+            <Figure label={t('ledgerDays.paidCash')} amounts={day.paidCash} />
+            <Figure label={t('ledgerDays.paidBank')} amounts={day.paidBank} />
+          </dl>
+          {open && <DayDetail dayId={day.dayId} tellerId={tellerId} refreshKey={refreshKey} />}
         </div>
       )}
-    </Card>
+    </li>
   );
 }
 

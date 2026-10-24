@@ -21,7 +21,7 @@ export default async function WorkDaysPage() {
   return (
     <div className="mx-auto w-full max-w-4xl space-y-4">
       <PageHeader title={t('ledgerDays.pageTitle')} description={t('ledgerDays.pageSubtitle')} />
-      <DailyLedger days={30} />
+      <DailyLedger days={30} page />
     </div>
   );
 }
