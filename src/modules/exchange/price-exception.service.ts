@@ -8,7 +8,7 @@ import * as audit from '@/modules/audit/audit.service';
 import * as notifications from '@/modules/notifications/notifications.service';
 import * as settings from '@/modules/settings/settings.service';
 import * as cutoff from '@/modules/ledger/cutoff.service';
-import { getActiveRate, quoteExchange, type RateChannel } from './rates.service';
+import { quoteExchange, type RateChannel } from './rates.service';
 import { currentOpenDay } from './business-day.service';
 
 /**
@@ -535,8 +535,12 @@ export async function boardRateFor(
   channel: RateChannel,
   db: DbClient = prisma,
 ): Promise<bigint | null> {
-  const direct = await getActiveRate(fromCurrency, toCurrency, channel, db);
-  if (!direct) return null;
-  const priced = await quoteExchange(fromCurrency, toCurrency, ONE, channel, db);
-  return priced.rate;
+  // Whichever way round the pair is published — the engine decides, as it
+  // does for the deal itself, so the manager compares against the real price.
+  try {
+    const priced = await quoteExchange(fromCurrency, toCurrency, ONE, channel, db);
+    return priced.rate;
+  } catch {
+    return null;
+  }
 }

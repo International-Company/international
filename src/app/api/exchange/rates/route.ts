@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { route } from '@/core/http/route';
 import { parseMoney } from '@/core/money/money';
-import { publishRate, rateBoard, rateHistory } from '@/modules/exchange/rates.service';
+import { publishRate, rateBoard, rateHistory, retireRate } from '@/modules/exchange/rates.service';
 
 const rate = z
   .string()
@@ -54,4 +54,13 @@ export const POST = route<z.infer<typeof publishSchema>>({
   permissions: ['exchange.rate.manage'],
   bodySchema: publishSchema,
   handler: async ({ body, actor }) => publishRate(body, actor),
+});
+
+const retireSchema = z.object({ id: z.string().min(1) });
+
+/** Takes one live rate off the board — for a price that should not be there. */
+export const DELETE = route<unknown, z.infer<typeof retireSchema>>({
+  permissions: ['exchange.rate.manage'],
+  querySchema: retireSchema,
+  handler: async ({ query, actor }) => retireRate(query.id, actor),
 });

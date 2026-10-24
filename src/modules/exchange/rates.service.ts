@@ -1,4 +1,5 @@
 import 'server-only';
+import { HOME_CURRENCY } from '@/lib/home-currency';
 import { prisma, withTransaction, type DbClient } from '@/core/db/prisma';
 import { errors } from '@/core/errors/app-error';
 import { convert, divideRounded, invertRate, MONEY_FACTOR } from '@/core/money/money';
@@ -124,6 +125,20 @@ export async function publishRate(
     );
   }
 
+  /*
+   * The shekel is never the base. "ILS/USD 2.90" is what a dollar price looks
+   * like typed into the wrong way round, and the engine would honour it: 100
+   * shekels for 290 dollars. The price belongs on USD/ILS, where 2.90 means
+   * what whoever typed it meant.
+   */
+  if (input.baseCode === HOME_CURRENCY) {
+    throw errors.precondition(
+      `${HOME_CURRENCY} is the home currency and is always the quote — publish ${input.quoteCode}/${HOME_CURRENCY}`,
+      'errors.homeCurrencyBase',
+      { pair: `${input.quoteCode}/${HOME_CURRENCY}` },
+    );
+  }
+
   const channel = input.channel ?? 'CASH';
 
   return withTransaction(async (tx) => {
@@ -155,6 +170,19 @@ export async function publishRate(
         data: { effectiveTo: now, isActive: false },
       });
     }
+
+    // One pair, one way round, per channel: publishing USD/JOD retires a live
+    // JOD/USD for the same channel, so the two can never disagree.
+    await tx.exchangeRate.updateMany({
+      where: {
+        baseCode: input.quoteCode,
+        quoteCode: input.baseCode,
+        channel,
+        isActive: true,
+        effectiveTo: null,
+      },
+      data: { effectiveTo: now, isActive: false },
+    });
 
     const created = await tx.exchangeRate.create({
       data: {
@@ -198,6 +226,49 @@ export async function publishRate(
 
     return toActiveRate(created);
   }, db);
+}
+
+/**
+ * Takes a live rate off the board, with nothing in its place.
+ *
+ * For a price that should never have been published — a shekel-based row
+ * above all — rather than one being updated, which is what publishing does.
+ * The row stays in the history; only its life ends.
+ */
+export async function retireRate(
+  id: string,
+  actor: { id: string; name: string; ip?: string | null; sessionId?: string },
+  db: DbClient = prisma,
+): Promise<{ retired: true }> {
+  const row = await db.exchangeRate.findUnique({ where: { id } });
+  if (!row) throw errors.notFound('ExchangeRate', id);
+  if (!row.isActive || row.effectiveTo) return { retired: true };
+
+  await db.exchangeRate.update({
+    where: { id },
+    data: { isActive: false, effectiveTo: new Date() },
+  });
+  await audit.record(
+    {
+      action: 'RATE_CHANGE',
+      module: 'exchange',
+      entityType: 'ExchangeRate',
+      entityId: id,
+      summaryEn: `Rate ${row.baseCode}/${row.quoteCode} (${row.channel}) taken off the board`,
+      summaryAr: `إيقاف سعر ${row.baseCode}/${row.quoteCode} (${row.channel === 'BROKER' ? 'بنك' : 'نقداً'})`,
+      actor,
+      before: { buyRate: row.buyRate.toString(), sellRate: row.sellRate.toString() },
+      after: null,
+    },
+    db,
+  );
+  emitAsync('rate.changed', {
+    baseCode: row.baseCode,
+    quoteCode: row.quoteCode,
+    rateId: id,
+    actorId: actor.id,
+  });
+  return { retired: true };
 }
 
 function fmt(rate: bigint): string {
@@ -306,7 +377,14 @@ export async function quoteExchange(
   const targetDecimals = target.decimals;
 
   // Direct: pair is stored as FROM/TO. Company buys FROM.
-  const direct = await getActiveRate(fromCurrency, toCurrency, channel, db);
+  //
+  // A row with the shekel as its base is never read: it can only have been
+  // published the wrong way round (see `publishRate`), and honouring one paid
+  // out dollars at the dollar's own price per shekel.
+  const direct =
+    fromCurrency === HOME_CURRENCY
+      ? null
+      : await getActiveRate(fromCurrency, toCurrency, channel, db);
   if (direct) {
     const applied = forcedRate ?? direct.buyRate;
     const toAmount = convert(fromAmount, applied, targetDecimals);
@@ -326,7 +404,10 @@ export async function quoteExchange(
   }
 
   // Reverse: pair is stored as TO/FROM. Company sells TO, so invert the sell side.
-  const reverse = await getActiveRate(toCurrency, fromCurrency, channel, db);
+  const reverse =
+    toCurrency === HOME_CURRENCY
+      ? null
+      : await getActiveRate(toCurrency, fromCurrency, channel, db);
   if (reverse) {
     const rate = forcedRate ?? invertRate(reverse.sellRate);
     const midInverted = invertRate(reverse.midRate);

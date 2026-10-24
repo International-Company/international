@@ -1,5 +1,6 @@
 'use client';
 
+import { canonicalPair, HOME_CURRENCY } from '@/lib/home-currency';
 import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { AlertTriangle, ArrowRight, Check, Clock, Pencil, Plus, X } from 'lucide-react';
@@ -106,7 +107,30 @@ export function RatesView({
 
   const missing = coverage.filter((entry) => entry.rateId === null);
 
-  const open = (base: string, quote: string, channel: 'CASH' | 'BROKER' = 'CASH') => {
+  // Live rows with the shekel as their base: published the wrong way round,
+  // never used to price, and only confusing while they stay on the board.
+  const backwards = board.filter((row) => row.baseCode === HOME_CURRENCY);
+  const [retiring, setRetiring] = useState<string | null>(null);
+  const retire = async (row: BoardRow) => {
+    setRetiring(row.id);
+    try {
+      await api.delete(`/api/exchange/rates?id=${encodeURIComponent(row.id)}`);
+      toast.success(t('rates.retired'), `${row.baseCode}/${row.quoteCode}`);
+      router.refresh();
+    } catch (caught) {
+      toast.error(
+        caught instanceof ApiError
+          ? say(t, caught.messageKey, caught.params) || caught.message
+          : t('errors.generic'),
+      );
+    } finally {
+      setRetiring(null);
+    }
+  };
+
+  const open = (from: string, to: string, channel: 'CASH' | 'BROKER' = 'CASH') => {
+    // Always the published way round: a dollar's price goes on USD/ILS.
+    const [base, quote] = canonicalPair(from, to);
     const current = byPair.get(`${base}/${quote}:${channel}`);
     setError(null);
     setBuyRate(current ? decimal(current.buyRate, 4) : '');
@@ -163,6 +187,45 @@ export function RatesView({
 
   return (
     <div className="space-y-4">
+      {/* --- Prices published the wrong way round ------------------------ */}
+      {backwards.length > 0 && (
+        <Alert tone="danger" icon={<AlertTriangle />} title={t('rates.backwardsTitle')}>
+          <p>{t('rates.backwardsBody')}</p>
+          <ul className="mt-2 space-y-2">
+            {backwards.map((row) => (
+              <li key={row.id} className="flex flex-wrap items-center gap-2">
+                <span className="font-mono text-xs ltr-content">
+                  {row.baseCode}/{row.quoteCode} ·{' '}
+                  {row.channel === 'BROKER' ? t('drawers.broker') : t('drawers.cash')} ·{' '}
+                  <Rate value={row.buyRate} /> / <Rate value={row.sellRate} />
+                </span>
+                {canManage && (
+                  <>
+                    <Button
+                      size="sm"
+                      variant="danger"
+                      loading={retiring === row.id}
+                      onClick={() => void retire(row)}
+                    >
+                      {t('rates.retire')}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={() =>
+                        open(row.quoteCode, row.baseCode, row.channel as 'CASH' | 'BROKER')
+                      }
+                    >
+                      {t('rates.publishAs', { pair: `${row.quoteCode}/${row.baseCode}` })}
+                    </Button>
+                  </>
+                )}
+              </li>
+            ))}
+          </ul>
+        </Alert>
+      )}
+
       {/* --- What is stopping the counter -------------------------------- */}
       {missing.length > 0 && (
         <Alert tone="danger" icon={<AlertTriangle />} title={t('rates.missingTitle')}>

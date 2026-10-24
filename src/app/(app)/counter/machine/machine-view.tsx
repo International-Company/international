@@ -1,5 +1,6 @@
 'use client';
 
+import { HOME_CURRENCY } from '@/lib/home-currency';
 import {
   useCallback,
   useEffect,
@@ -648,8 +649,9 @@ export function MachineView({
   const boardRate = (() => {
     const rows = board.filter(
       (rate) =>
-        (rate.baseCode === from && rate.quoteCode === to) ||
-        (rate.baseCode === to && rate.quoteCode === from),
+        rate.baseCode !== HOME_CURRENCY &&
+        ((rate.baseCode === from && rate.quoteCode === to) ||
+          (rate.baseCode === to && rate.quoteCode === from)),
     );
     const wanted = channel === 'BROKER' ? 'BROKER' : 'CASH';
     const direct = (rate: BoardRate) => rate.baseCode === from;
@@ -671,7 +673,7 @@ export function MachineView({
    * that is the figure on the board and the figure the customer asks about.
    */
   const base =
-    boardRate?.baseCode ?? (to === 'ILS' ? from : from === 'ILS' ? to : from);
+    to === HOME_CURRENCY ? from : from === HOME_CURRENCY ? to : (boardRate?.baseCode ?? from);
   const counter = base === from ? to : from;
   const selling = to === base;
   const baseCurrency = byCode.get(base);

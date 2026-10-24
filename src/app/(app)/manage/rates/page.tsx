@@ -8,6 +8,7 @@ import { counterAddresses } from '@/modules/usdt/counter.service';
 import { toJsonSafe } from '@/core/http/json';
 import { PageHeader } from '@/ui/primitives';
 import { RatesView } from './rates-view';
+import { canonicalPair, HOME_CURRENCY } from '@/lib/home-currency';
 
 export const metadata: Metadata = { title: 'Exchange rates' };
 export const dynamic = 'force-dynamic';
@@ -42,7 +43,21 @@ export default async function RatesPage() {
     ? MACHINE_CURRENCIES.map((code) => `USDT/${code}`)
     : [];
 
-  const required = [...pairs, ...usdtPairs];
+  // Each pair once, the way it is published: USD/ILS, never ILS/USD as well.
+  // Asking for the shekel-based direction is what invited a dollar's price to
+  // be typed into it.
+  const required = [
+    ...new Set(
+      [...pairs, ...usdtPairs].map((pair) => {
+        const [from, to] = pair.split('/') as [string, string];
+        return canonicalPair(from, to).join('/');
+      }),
+    ),
+  ].filter((pair, index, all) => {
+    const [base, quote] = pair.split('/');
+    // between two foreign currencies, keep whichever way round came first
+    return all.indexOf(`${quote}/${base}`) === -1 || all.indexOf(`${quote}/${base}`) > index;
+  });
 
   /*
    * Which of those the board can actually serve — in either direction, since
@@ -55,8 +70,10 @@ export default async function RatesPage() {
     required.flatMap((pair) =>
       (['CASH', 'BROKER'] as const).map(async (channel) => {
       const [from, to] = pair.split('/') as [string, string];
-      const direct = await getActiveRate(from, to, channel);
-      const reverse = direct ? null : await getActiveRate(to, from, channel);
+      // Served as the engine serves it: never from a shekel-based row.
+      const direct = from === HOME_CURRENCY ? null : await getActiveRate(from, to, channel);
+      const reverse =
+        direct || to === HOME_CURRENCY ? null : await getActiveRate(to, from, channel);
 
       return {
         pair,
