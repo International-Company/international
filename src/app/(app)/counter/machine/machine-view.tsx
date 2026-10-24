@@ -691,6 +691,23 @@ export function MachineView({
         : boardRate.buyRate
       : effectiveRate(boardRate, from)
     : null;
+  /*
+   * The price as it was published, for one channel — what the manager typed,
+   * and what the board on the wall says.
+   *
+   * A sale is priced through the inverse of the selling price, and turning
+   * that back for the screen loses the last digit: 1 / (1 / 3.15) comes back
+   * as 3.1499. So the line reads the published row itself, and only falls back
+   * to the quote when there is no row to read or a one-off price was granted.
+   */
+  const publishedFor = (which: 'CASH' | 'BROKER'): string | null => {
+    if (approval) return null;
+    const row = board.find(
+      (rate) => rate.baseCode === base && rate.quoteCode === counter && rate.channel === which,
+    );
+    return row ? (selling ? row.sellRate : row.buyRate) : null;
+  };
+
   const deal = (side: 'BUY' | 'SELL') => {
     if ((side === 'SELL') === selling) return;
     swap();
@@ -864,8 +881,8 @@ export function MachineView({
                   <span className="size-1.5 animate-pulse rounded-full bg-success" aria-hidden />
                   {(
                     [
-                      ['payoutCash', quote.cash.rate],
-                      ['payoutBank', quote.broker.rate],
+                      ['payoutCash', publishedFor('CASH') ?? inBase(quote.cash.rate)],
+                      ['payoutBank', publishedFor('BROKER') ?? inBase(quote.broker.rate)],
                     ] as const
                   ).map(([label, rate]) => (
                     <span
@@ -874,7 +891,7 @@ export function MachineView({
                     >
                       <span className="text-xs">{t(`machine.${label}`)}</span>
                       <span className="ltr-content font-medium tabular-nums text-content">
-                        1 {base} = {rateText(inBase(rate))} {counter}
+                        1 {base} = {rateText(rate)} {counter}
                       </span>
                     </span>
                   ))}
@@ -889,6 +906,8 @@ export function MachineView({
                     1 {base} ={' '}
                     {rateText(
                       (() => {
+                        const published = publishedFor(channel === 'BROKER' ? 'BROKER' : 'CASH');
+                        if (published) return published;
                         const quoted =
                           channel === 'SPLIT'
                             ? (quote?.cash?.rate ?? quote?.broker?.rate ?? null)
@@ -1687,7 +1706,10 @@ function amountSize(text: string, hero: boolean): string {
  * a trail of zeros after the second — 2.90, 2.895, 0.7078.
  */
 function rateText(scaled: string): string {
-  return formatScaled(scaled, 4).replace(/(\.\d{2}\d*?)0+$/, '$1');
+  // Rounded to the fourth place, not cut at it: 3.14999997 is 3.15.
+  const value = BigInt(scaled || '0');
+  const rounded = ((value + 5_000n) / 10_000n) * 10_000n;
+  return formatScaled(rounded.toString(), 4).replace(/(\.\d{2}\d*?)0+$/, '$1');
 }
 
 function effectiveRate(rate: BoardRate, from: string): string {
