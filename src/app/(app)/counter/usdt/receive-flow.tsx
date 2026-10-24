@@ -116,7 +116,7 @@ type Recognised =
       timesSeen: number;
       payout: SavedPayout | null;
     }
-  | { status: 'SHARED'; customers: number };
+  | { status: 'SHARED'; customers: number; marked?: boolean };
 
 /** How often the log refreshes itself while a customer is waiting. */
 const POLL_MS = 10_000;
@@ -232,6 +232,47 @@ export function ReceiveFlow({
    * shared address brings nothing: it has sent for more than one person, and
    * filling it in would be a guess about whose money this is.
    */
+  /*
+   * "Not this customer." An exchange's wallet sends for everyone who withdraws
+   * from it, so the first person seen on it would otherwise be filled in on
+   * every later arrival. Marking it shared clears the form and stops that for
+   * good, on every row from the same address at once.
+   */
+  const [marking, setMarking] = useState<string | null>(null);
+  const notThisCustomer = async (arrival: Arrival) => {
+    if (!arrival.fromAddress) return;
+    setMarking(arrival.fromAddress);
+    try {
+      await api.post('/api/usdt/shared-addresses', {
+        network: arrival.wallet.network,
+        address: arrival.fromAddress,
+      });
+      const shared = { status: 'SHARED' as const, customers: 0, marked: true };
+      setArrivals((current) =>
+        (current ?? []).map((row) =>
+          row.fromAddress === arrival.fromAddress && row.wallet.network === arrival.wallet.network
+            ? { ...row, recognised: shared }
+            : row,
+        ),
+      );
+      setChosen((current) =>
+        current && current.fromAddress === arrival.fromAddress
+          ? { ...current, recognised: shared }
+          : current,
+      );
+      setCustomer(null);
+      setSavedPayouts([]);
+      setMode('CASH');
+      setPayoutAccount('');
+      toast.success(t('receive.markedShared'));
+    } catch (caught) {
+      const failure = describeFailure(caught, t as never);
+      toast.error(failure.title, failure.body);
+    } finally {
+      setMarking(null);
+    }
+  };
+
   const open = (arrival: Arrival) => {
     setDone(null);
     setCounterpartyName('');
@@ -506,11 +547,21 @@ export function ReceiveFlow({
 
                     {/* Who it is, before the row is even opened. */}
                     {arrival.recognised?.status === 'KNOWN' && (
-                      <Badge tone="success">
-                        <UserCheck className="me-1 inline size-3.5" />
-                        {ln(arrival.recognised.customer, 'fullName')}
-                        {arrival.recognised.payout ? ` · ${arrival.recognised.payout.channel}` : ''}
-                      </Badge>
+                      <span className="flex flex-wrap items-center gap-2">
+                        <Badge tone="success">
+                          <UserCheck className="me-1 inline size-3.5" />
+                          {ln(arrival.recognised.customer, 'fullName')}
+                          {arrival.recognised.payout ? ` · ${arrival.recognised.payout.channel}` : ''}
+                        </Badge>
+                        <button
+                          type="button"
+                          onClick={() => void notThisCustomer(arrival)}
+                          disabled={marking === arrival.fromAddress}
+                          className="text-xs font-medium text-danger-text underline-offset-2 hover:underline disabled:opacity-50"
+                        >
+                          {t('receive.notThisCustomer')}
+                        </button>
+                      </span>
                     )}
                     {arrival.recognised?.status === 'SHARED' && (
                       <Badge tone="warning">{t('receive.sharedBadge')}</Badge>
@@ -586,15 +637,30 @@ export function ReceiveFlow({
           >
             {chosen.recognised?.status === 'KNOWN' && (
               <Alert tone="success" icon={<UserCheck />}>
-                {t('receive.known', {
-                  name: ln(chosen.recognised.customer, 'fullName'),
-                  count: chosen.recognised.timesSeen,
-                })}
+                <span className="flex flex-wrap items-center justify-between gap-2">
+                  <span>
+                    {t('receive.known', {
+                      name: ln(chosen.recognised.customer, 'fullName'),
+                      count: chosen.recognised.timesSeen,
+                    })}
+                  </span>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="secondary"
+                    loading={marking === chosen.fromAddress}
+                    onClick={() => void notThisCustomer(chosen)}
+                  >
+                    {t('receive.notThisCustomer')}
+                  </Button>
+                </span>
               </Alert>
             )}
             {chosen.recognised?.status === 'SHARED' && (
               <Alert tone="warning">
-                {t('receive.shared', { count: chosen.recognised.customers })}
+                {chosen.recognised.marked
+                  ? t('receive.sharedMarked')
+                  : t('receive.shared', { count: chosen.recognised.customers })}
               </Alert>
             )}
 

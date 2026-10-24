@@ -50,7 +50,12 @@ export type Recognition =
       /** Where they were paid last time, when it was by transfer. */
       payout: SavedPayout | null;
     }
-  | { status: 'SHARED'; customers: number };
+  | {
+      status: 'SHARED';
+      customers: number;
+      /** Marked by hand as shared, rather than learned from two customers. */
+      marked?: boolean;
+    };
 
 const keyOf = (network: string, address: string) => `${network}\u0000${address}`;
 
@@ -62,8 +67,10 @@ export async function recognise(
   const wanted = senders.filter((sender) => sender.address);
   if (wanted.length === 0) return new Map();
 
-  const rows = await db.customerWallet.findMany({
-    where: { OR: wanted.map(({ network, address }) => ({ network, address })) },
+  const where = { OR: wanted.map(({ network, address }) => ({ network, address })) };
+  const [rows, marked] = await Promise.all([
+    db.customerWallet.findMany({
+    where,
     select: {
       network: true,
       address: true,
@@ -84,7 +91,10 @@ export async function recognise(
         },
       },
     },
-  });
+    }),
+    db.sharedAddress.findMany({ where, select: { network: true, address: true } }),
+  ]);
+  const markedKeys = new Set(marked.map((row) => keyOf(row.network, row.address)));
 
   const grouped = new Map<string, typeof rows>();
   for (const row of rows) {
@@ -93,7 +103,11 @@ export async function recognise(
   }
 
   const known = new Map<string, Recognition>();
+  for (const key of markedKeys) {
+    known.set(key, { status: 'SHARED', customers: grouped.get(key)?.length ?? 0, marked: true });
+  }
   for (const [key, owners] of grouped) {
+    if (markedKeys.has(key)) continue;
     if (owners.length > 1) {
       known.set(key, { status: 'SHARED', customers: owners.length });
       continue;
@@ -109,6 +123,24 @@ export async function recognise(
     });
   }
   return known;
+}
+
+/**
+ * "This is not him": the address is marked shared, so nobody is filled in from
+ * it again. Nothing already recorded changes — a wrongly named settlement is
+ * corrected on the transaction itself — but no further one will be named for
+ * a guess.
+ */
+export async function markShared(
+  input: { network: string; address: string; markedById: string },
+  db: DbClient = prisma,
+): Promise<void> {
+  await db.sharedAddress.upsert({
+    where: { network_address: { network: input.network, address: input.address } },
+    create: input,
+    update: {},
+  });
+  log.info('Address marked shared', { network: input.network });
 }
 
 export function recognitionKey(network: string, address: string): string {

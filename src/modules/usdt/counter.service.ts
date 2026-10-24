@@ -1374,3 +1374,38 @@ export async function settleArrival(
 
   return created;
 }
+
+/**
+ * The teller saying an address sends for more than one person.
+ *
+ * Any teller at the counter may: the harm it prevents — one customer's coins
+ * filled in under another's name — happens at the counter, and marking costs
+ * nothing but a little typing on the next arrival from it.
+ */
+export async function markAddressShared(
+  input: { network: string; address: string },
+  actor: Actor,
+  db: DbClient = prisma,
+): Promise<{ marked: true }> {
+  if (!actor.permissions.includes('usdt.counter.use')) {
+    throw errors.forbidden('usdt.counter.use');
+  }
+  const address = input.address.trim();
+  if (!address) throw errors.validation([{ path: 'address', message: 'An address is required' }]);
+
+  await recognition.markShared({ network: input.network, address, markedById: actor.id }, db);
+  await audit.record(
+    {
+      action: 'UPDATE',
+      module: 'usdt',
+      entityType: 'SharedAddress',
+      entityId: address,
+      summaryEn: `Marked ${address} as a shared address — no customer is filled in from it`,
+      summaryAr: `عُلِّم العنوان ${address} مشتركاً — لا يُملأ منه اسم أي عميل`,
+      actor,
+      after: { network: input.network, address },
+    },
+    db,
+  );
+  return { marked: true };
+}

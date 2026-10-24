@@ -53,11 +53,22 @@ const ahmad = (overrides: Partial<WalletRow> = {}): WalletRow => ({
   ...overrides,
 });
 
-function readDb(rows: WalletRow[]) {
+function readDb(rows: WalletRow[], shared: { network: string; address: string }[] = []) {
   let queries = 0;
+  const matching = <T extends { network: string; address: string }>(
+    list: T[],
+    args: { where: { OR: { network: string; address: string }[] } },
+  ) =>
+    list.filter((row) =>
+      args.where.OR.some((want) => want.network === row.network && want.address === row.address),
+    );
   return {
     queries: () => queries,
     db: {
+      sharedAddress: {
+        findMany: async (args: { where: { OR: { network: string; address: string }[] } }) =>
+          matching(shared, args),
+      },
       customerWallet: {
         findMany: async (args: { where: { OR: { network: string; address: string }[] } }) => {
           queries += 1;
@@ -96,6 +107,15 @@ describe('recognising a sender', () => {
     );
 
     assert.deepEqual(hit, { status: 'SHARED', customers: 2 });
+  });
+
+  it('names nobody from an address marked shared, however few were seen on it', async () => {
+    const { db } = readDb([ahmad()], [{ network: 'TRON', address: 'TSenderAhmad' }]);
+    const hit = (await recognise([{ network: 'TRON', address: 'TSenderAhmad' }], db)).get(
+      recognitionKey('TRON', 'TSenderAhmad'),
+    );
+
+    assert.deepEqual(hit, { status: 'SHARED', customers: 1, marked: true });
   });
 
   it('knows nothing about an address it has never settled', async () => {

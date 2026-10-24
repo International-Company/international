@@ -1087,6 +1087,20 @@ model CustomerWallet {
   @@map("customer_wallets")
 }
 
+/// A sending address marked as shared — an exchange's hot wallet, typically —
+/// so it is never again taken for one customer, whoever was first seen on it.
+model SharedAddress {
+  id      String @id @default(cuid())
+  network String
+  address String
+
+  markedById String?
+  createdAt  DateTime @default(now())
+
+  @@unique([network, address])
+  @@map("shared_addresses")
+}
+
 /// Where a customer is paid when it is not in cash: a channel from the list
 /// the manager keeps, and the account on it.
 ///
