@@ -481,8 +481,19 @@ export function MachineView({
     const costsFrom = roundTo((wanted * 100000000n) / brokerRate, fromCurrency?.decimals ?? 2);
     if (costsFrom >= paid) return { cash: 0n, broker: 0n, from: paid };
 
+    /*
+     * The till pays what the rest of the money buys before the transfer's cost
+     * was rounded — the same figure the server posts. Rounding the cost first
+     * and then the cash lost a hundredth: 300 USD at 2.90 with 70 transferred
+     * came to 869.99 instead of 870.00.
+     */
+    const cashRate = BigInt(quote.cash.rate);
+    const numerator = (paid * brokerRate - wanted * 100000000n) * cashRate;
+    const denominator = brokerRate * 100000000n;
+    const exact = (numerator + denominator / 2n) / denominator;
+
     return {
-      cash: applyRate(paid - costsFrom, quote.cash.rate, toCurrency?.decimals ?? 2),
+      cash: roundTo(exact, toCurrency?.decimals ?? 2),
       broker: wanted,
       from: paid,
     };
@@ -1632,13 +1643,6 @@ function roundTo(amount: bigint, decimals: number): bigint {
   const step = 10n ** BigInt(8 - decimals);
   if (step <= 1n) return amount;
   return ((amount + step / 2n) / step) * step;
-}
-
-function applyRate(amount: bigint, rate: string, decimals: number): bigint {
-  const product = amount * BigInt(rate);
-  const step = 10n ** BigInt(16 - decimals);
-  const rounded = (product + step / 2n) / step;
-  return rounded * step / 100000000n;
 }
 
 /**

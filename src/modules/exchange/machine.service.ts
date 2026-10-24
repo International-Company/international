@@ -1,7 +1,7 @@
 import 'server-only';
 import { prisma, withTransaction, type DbClient } from '@/core/db/prisma';
 import { errors } from '@/core/errors/app-error';
-import { divideRounded, MONEY_FACTOR, toDecimalString } from '@/core/money/money';
+import { divideRounded, MONEY_FACTOR, roundToDecimals, toDecimalString } from '@/core/money/money';
 import * as drawers from '@/modules/drawers/drawer.service';
 import { cashOwnerFor } from '@/modules/treasury/shift.service';
 import * as exceptions from './price-exception.service';
@@ -680,7 +680,40 @@ async function priceLegs(
     );
   }
 
-  const cash = await price(cashFrom, 'CASH');
+  const priced = await price(cashFrom, 'CASH');
+
+  /*
+   * What the till pays is what the rest of the customer's money buys — the
+   * rest before the transfer's cost was rounded, not after.
+   *
+   * 300 dollars at 2.90 with 70 shekels transferred: the transfer costs
+   * 24.1379…, which the dollar expresses as 24.14, and 275.86 at 2.90 is
+   * 799.994 → 799.99. Rounded twice, the customer walked away with 869.99 for
+   * 300 dollars at a price that makes 870.00. Priced from the unrounded cost,
+   * the till pays 800.00 and the two legs add up to what the board promises.
+   */
+  const target = await db.currency.findUnique({
+    where: { code: input.toCurrency },
+    select: { decimals: true },
+  });
+  const brokerRate = brokerLeg.rate;
+  const cashRate = priced.quote?.rate ?? 0n;
+  const exactTo =
+    brokerRate > 0n && cashRate > 0n
+      ? roundToDecimals(
+          divideRounded(
+            (input.fromAmount * brokerRate - wanted * MONEY_FACTOR) * cashRate,
+            brokerRate * MONEY_FACTOR,
+          ),
+          target?.decimals ?? 2,
+        )
+      : priced.to;
+  const cash: Leg = {
+    ...priced,
+    to: exactTo,
+    // the spread moves by the same hundredth the payout does
+    profit: priced.profit - (exactTo - priced.to),
+  };
 
   /*
    * The transfer pays out exactly what was named, not what the rounded cost
