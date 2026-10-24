@@ -1,5 +1,6 @@
 'use client';
 
+import { networkLabel } from '@/lib/network-label';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Check, Loader2, Printer, RotateCcw, TriangleAlert, Wallet } from 'lucide-react';
@@ -484,7 +485,7 @@ export function WithdrawView({
           >
             {config.wallets.map((entry) => (
               <option key={entry.id} value={entry.id}>
-                {ln(entry as unknown as Record<string, unknown>, 'label')} — {entry.network}
+                {ln(entry as unknown as Record<string, unknown>, 'label')} — {networkLabel(entry.network)}
               </option>
             ))}
           </select>
@@ -514,7 +515,7 @@ export function WithdrawView({
         */}
         {address.length >= 10 && wallet && (
           <p className="rounded-xl bg-surface-sunken px-3 py-2 text-xs text-content-secondary">
-            <span className="font-medium">{wallet.network}</span>
+            <span className="font-medium">{networkLabel(wallet.network)}</span>
             <span className="mx-2">·</span>
             <span className="break-all font-mono ltr-content">{address}</span>
           </p>

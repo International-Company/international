@@ -1,5 +1,6 @@
 'use client';
 
+import { networkLabel } from '@/lib/network-label';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
@@ -422,7 +423,7 @@ export function ReceiveFlow({
                   onChange={(event) => setWalletId(event.target.value)}
                   options={addresses.map((entry) => ({
                     value: entry.id,
-                    label: `${ln(entry, 'label')} — ${entry.network}`,
+                    label: `${ln(entry, 'label')} — ${networkLabel(entry.network)}`,
                   }))}
                 />
               )}
@@ -441,7 +442,7 @@ export function ReceiveFlow({
                     {t('counter.networkWarningLabel')}
                   </p>
                   <p className="mt-1 text-2xl font-bold text-content ltr-content">
-                    {wallet.network}
+                    {networkLabel(wallet.network)}
                   </p>
                   <p className="mt-1 text-xs text-content-secondary">
                     {t('counter.networkWarningBody')}

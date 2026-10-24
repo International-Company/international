@@ -263,6 +263,7 @@ export const SETTINGS: SettingDefinition[] = [
       { value: 'MANUAL', labelEn: 'Manual entry', labelAr: 'إدخال يدوي' },
       { value: 'TRON', labelEn: 'TRON (TronGrid)', labelAr: 'ترون (TronGrid)' },
       { value: 'ETHEREUM', labelEn: 'Ethereum (Etherscan)', labelAr: 'إيثيريوم (Etherscan)' },
+      { value: 'BSC', labelEn: 'BNB Smart Chain (BEP-20)', labelAr: 'شبكة BNB (BEP-20)' },
     ],
   },
   {

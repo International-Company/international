@@ -78,6 +78,17 @@ const schema = z.object({
   ETH_API_BASE: z.string().default('https://api.etherscan.io/api'),
   ETH_API_KEY: z.string().default(''),
   ETH_USDT_CONTRACT: z.string().default('0xdAC17F958D2ee523a2206206994597C13D831ec7'),
+
+  /**
+   * BNB Smart Chain (BEP-20), read from a node. Empty uses a public RPC; set a
+   * keyed one (NodeReal, Ankr, QuickNode) when the public one is not enough.
+   */
+  BSC_RPC_URL: z.string().default(''),
+  BSC_USDT_CONTRACT: z.string().default('0x55d398326f99059fF775485246999027B3197955'),
+  /** Blocks per eth_getLogs call — public nodes cap the range. */
+  BSC_LOG_RANGE: z.coerce.number().int().min(100).max(50_000).default(3000),
+  /** How many blocks back the node will still answer for — ~2 hours on a public node. */
+  BSC_MAX_REACH: z.coerce.number().int().min(1000).default(9000),
 });
 
 function load() {

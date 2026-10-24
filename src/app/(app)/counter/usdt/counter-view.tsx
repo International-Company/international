@@ -1,5 +1,6 @@
 'use client';
 
+import { networkLabel } from '@/lib/network-label';
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
@@ -240,7 +241,7 @@ export function CounterView({
                       {t('counter.networkWarningLabel')}
                     </p>
                     <p className="mt-1 text-2xl font-bold text-content ltr-content">
-                      {active.network}
+                      {networkLabel(active.network)}
                     </p>
                     <p className="mt-1 text-xs text-content-secondary">
                       {t('counter.networkWarningBody')}

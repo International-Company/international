@@ -1,4 +1,5 @@
 import 'server-only';
+import { BscProvider } from './bsc';
 import { EthereumProvider } from './ethereum';
 import { ManualProvider } from './manual';
 import { TronProvider } from './tron';
@@ -12,6 +13,7 @@ import type { ChainProvider, Network, ProviderCredentials } from './types';
 const registry = new Map<Network, ChainProvider>([
   ['TRON', new TronProvider()],
   ['ETHEREUM', new EthereumProvider()],
+  ['BSC', new BscProvider()],
   ['MANUAL', new ManualProvider()],
 ]);
 
@@ -48,4 +50,4 @@ export function availableNetworks(): {
 }
 
 export * from './types';
-export { TronProvider, EthereumProvider, ManualProvider };
+export { TronProvider, EthereumProvider, BscProvider, ManualProvider };
