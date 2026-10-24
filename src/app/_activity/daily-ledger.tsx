@@ -628,6 +628,7 @@ export interface DayEntry {
   payoutBankChannel: string | null;
   transferConfirmedAt: string | null;
   party: { en: string | null; ar: string | null };
+  phone?: string | null;
 }
 
 /**

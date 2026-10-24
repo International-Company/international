@@ -658,6 +658,8 @@ export interface DayEntry {
   transferConfirmedAt: Date | null;
   /** Who it was for — the registered customer, or the name left at the counter. */
   party: { en: string | null; ar: string | null };
+  /** Their telephone, so a number typed into the search finds them. */
+  phone: string | null;
 }
 
 /**
@@ -706,15 +708,17 @@ export async function dayEntries(
       payoutBankChannel: true,
       transferConfirmedAt: true,
       counterpartyName: true,
-      customer: { select: { fullNameEn: true, fullNameAr: true } },
+      counterpartyPhone: true,
+      customer: { select: { fullNameEn: true, fullNameAr: true, phone: true } },
     },
   });
 
-  return rows.map(({ counterpartyName, customer, ...row }) => ({
+  return rows.map(({ counterpartyName, counterpartyPhone, customer, ...row }) => ({
     ...row,
     party: {
       en: customer?.fullNameEn ?? counterpartyName ?? null,
       ar: customer?.fullNameAr ?? counterpartyName ?? null,
     },
+    phone: customer?.phone ?? counterpartyPhone ?? null,
   }));
 }

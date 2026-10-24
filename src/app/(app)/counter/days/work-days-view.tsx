@@ -12,6 +12,7 @@ import {
 import { useLocale } from '@/i18n/provider';
 import { formatDate } from '@/i18n/format';
 import { api } from '@/lib/api-client';
+import { normalizeDigits } from '@/core/money/money';
 import { Badge, Card, EmptyState, LoadingRows } from '@/ui/primitives';
 import { Money } from '@/ui/display';
 import { cn } from '@/ui/utils';
@@ -58,8 +59,58 @@ function fromKey(key: string): Date {
 type Filter = 'all' | 'cash' | 'bank' | 'pending' | 'deleted';
 type How = 'cash' | 'bank' | 'split';
 
-/** A 1e8-scaled amount's whole units, as typed into the search: "900". */
-const wholeOf = (scaled: string) => (BigInt(scaled || '0') / 100_000_000n).toString();
+/**
+ * An amount the ways it may be typed into the search: whole ("2030"), with
+ * its fraction ("290.01"), or with the fraction's zeros dropped ("290.5").
+ */
+function amountForms(scaled: string): string[] {
+  const value = BigInt(scaled || '0');
+  const whole = (value / 100_000_000n).toString();
+  const cents = ((value % 100_000_000n) / 1_000_000n).toString().padStart(2, '0');
+  return [whole, `${whole}.${cents}`, `${whole}.${cents.replace(/0+$/, '')}`];
+}
+
+/**
+ * What the teller typed, made comparable: Arabic-Indic digits become Western
+ * (an Arabic keyboard types ٧٠٠, the books hold 700), thousands commas go,
+ * an Arabic decimal mark becomes a point, and case is ignored.
+ */
+function normalise(text: string): string {
+  return normalizeDigits(text)
+    .replace(/[٫]/g, '.')
+    .replace(/[,٬\s]/g, '')
+    .toLowerCase();
+}
+
+/** Whether an exchange is the one being looked for. */
+function found(entry: DayEntry, raw: string): boolean {
+  const needle = normalise(raw);
+  if (!needle) return true;
+  const digits = needle.replace(/\D/g, '');
+
+  const text = [entry.reference, entry.party.ar, entry.party.en, entry.payoutBankChannel]
+    .filter(Boolean)
+    .map((value) => normalise(value!));
+  if (text.some((value) => value.includes(needle))) return true;
+
+  // A telephone, however it was written down: 0592946938, +970 59 294 6938,
+  // 00972-59…. Compared without the country code or the leading zero, so the
+  // local form finds the international one and back.
+  const local = (value: string) => value.replace(/^(00|\+)?(970|972)/, '').replace(/^0/, '');
+  if (digits.length >= 3 && entry.phone) {
+    const phone = local(normalise(entry.phone).replace(/[^\d+]/g, '')).replace(/\D/g, '');
+    if (phone.includes(local(digits))) return true;
+  }
+
+  // an amount, on either side or either leg of a split
+  const amounts = [
+    entry.fromAmount,
+    entry.toAmount,
+    entry.payoutCashAmount,
+    entry.payoutBankAmount,
+  ].filter((value) => BigInt(value || '0') > 0n);
+  return amounts.some((value) => amountForms(value).some((form) => form.startsWith(needle)));
+}
 
 export function WorkDaysView({ initialDate }: { initialDate?: string }) {
   const { t, locale } = useLocale();
@@ -149,16 +200,8 @@ export function WorkDaysView({ initialDate }: { initialDate?: string }) {
         return !gone && kind(entry) !== 'cash' && !entry.transferConfirmedAt;
     }
   };
-  const needle = search.trim().toLowerCase();
   const visible = (entries ?? []).filter(
-    (entry) =>
-      matches(entry, filter) &&
-      (!needle ||
-        entry.reference.toLowerCase().includes(needle) ||
-        (entry.party.ar ?? '').toLowerCase().includes(needle) ||
-        (entry.party.en ?? '').toLowerCase().includes(needle) ||
-        wholeOf(entry.fromAmount).startsWith(needle) ||
-        wholeOf(entry.toAmount).startsWith(needle)),
+    (entry) => matches(entry, filter) && found(entry, search),
   );
   const counts: Record<Filter, number> = {
     all: entries?.length ?? 0,
@@ -330,7 +373,7 @@ export function WorkDaysView({ initialDate }: { initialDate?: string }) {
               <Card className="overflow-clip">
                 <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border-base px-4 py-3">
                   <h3 className="text-sm font-semibold text-content">{t('workDays.entries')}</h3>
-                  <label className="relative block w-full @lg:w-56">
+                  <label className="relative block w-full @lg:w-72">
                     <Search className="pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2 text-content-tertiary" />
                     <input
                       type="search"
@@ -439,11 +482,11 @@ function EntryRow({ entry, time, how }: { entry: DayEntry; time: string; how: Ho
   return (
     <li
       className={cn(
-        'grid grid-cols-[3.25rem_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 px-4 py-3 transition-colors hover:bg-surface-sunken/50',
+        'grid grid-cols-[4.5rem_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 px-4 py-3 transition-colors hover:bg-surface-sunken/50',
         gone && 'bg-danger-subtle/20',
       )}
     >
-      <span className="row-span-2 self-start pt-0.5 text-sm font-semibold tabular-nums text-content-secondary ltr-content @lg:row-span-1 @lg:self-center">
+      <span className="row-span-2 self-start whitespace-nowrap pt-0.5 text-sm font-semibold tabular-nums text-content-secondary @lg:row-span-1 @lg:self-center">
         {time}
       </span>
 
@@ -487,6 +530,7 @@ function EntryRow({ entry, time, how }: { entry: DayEntry; time: string; how: Ho
             </span>
           )}
           {party && <span className="truncate">{party}</span>}
+          {entry.phone && <span className="tabular-nums ltr-content">{entry.phone}</span>}
           <span className="font-mono ltr-content">{entry.reference}</span>
         </p>
       </div>

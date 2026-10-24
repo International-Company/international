@@ -963,7 +963,7 @@ const en = {
     emptyHint: 'Pick a day marked with a dot, or step back to the previous worked day.',
     operations: 'Exchanges',
     entries: 'The day’s exchanges',
-    search: 'Search by reference, name or amount',
+    search: 'Search by amount, phone, name or reference',
     noMatch: 'No exchanges match this choice.',
     monthSummary: '{ops} over {days} days this month',
     monthEmpty: 'No exchanges this month',
