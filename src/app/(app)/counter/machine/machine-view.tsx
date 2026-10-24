@@ -755,11 +755,47 @@ export function MachineView({
                 <span className="text-danger-text">
                   {t('machine.noChannelPrice', { channel: unpriced.join('، ') })}
                 </span>
+              ) : channel === 'SPLIT' &&
+                quote?.cash &&
+                quote.broker &&
+                quote.cash.rate !== quote.broker.rate ? (
+                /*
+                 * A split is two trades at two published prices. Showing their
+                 * blend (total received over total paid) produced figures no
+                 * board ever carried — 2.8999 for a 2.90 and a 2.90 once the
+                 * cash leg was rounded — and the teller reads the line aloud.
+                 * So each part gets its own price, as published.
+                 */
+                <span className="flex flex-wrap items-center justify-center gap-2 text-content-secondary">
+                  <span className="size-1.5 animate-pulse rounded-full bg-success" aria-hidden />
+                  {(
+                    [
+                      ['payoutCash', quote.cash.rate],
+                      ['payoutBank', quote.broker.rate],
+                    ] as const
+                  ).map(([label, rate]) => (
+                    <span
+                      key={label}
+                      className="flex items-center gap-1.5 rounded-full bg-surface-sunken px-2.5 py-0.5"
+                    >
+                      <span className="text-xs">{t(`machine.${label}`)}</span>
+                      <span className="ltr-content font-medium tabular-nums text-content">
+                        1 {from} = {rateText(rate)} {to}
+                      </span>
+                    </span>
+                  ))}
+                </span>
               ) : quote || boardRate ? (
                 <span className="flex items-center gap-2 text-content-secondary">
                   <span className="size-1.5 animate-pulse rounded-full bg-success" aria-hidden />
                   <span className="ltr-content font-medium tabular-nums text-content">
-                    1 {from} = {formatScaled(shownRate ?? effectiveRate(boardRate!, from), 4)} {to}
+                    1 {from} ={' '}
+                    {rateText(
+                      (channel === 'SPLIT'
+                        ? (quote?.cash?.rate ?? quote?.broker?.rate ?? null)
+                        : shownRate) ?? (boardRate ? effectiveRate(boardRate, from) : '0'),
+                    )}{' '}
+                    {to}
                   </span>
                 </span>
               ) : (
@@ -1544,6 +1580,14 @@ function amountSize(text: string, hero: boolean): string {
  * quote is a sale priced by the reciprocal — so the direction decides which of
  * the two the line should show, and whether it needs inverting.
  */
+/**
+ * A rate as it is read aloud: four places where the board uses them, but not
+ * a trail of zeros after the second — 2.90, 2.895, 0.7078.
+ */
+function rateText(scaled: string): string {
+  return formatScaled(scaled, 4).replace(/(\.\d{2}\d*?)0+$/, '$1');
+}
+
 function effectiveRate(rate: BoardRate, from: string): string {
   if (rate.baseCode === from) return rate.buyRate;
 
