@@ -106,7 +106,7 @@ export function TodaySummary({
   const sent = [...sentByCurrency].filter(([, amount]) => amount > 0n);
 
   return (
-    <div className="grid gap-3 sm:grid-cols-2">
+    <div className="grid gap-3 @lg:grid-cols-2">
       {/* --- What I exchanged ---------------------------------------------- */}
       <section className="rounded-2xl bg-surface p-4 ring-1 ring-border-subtle">
         <header className="mb-3 flex items-center justify-between gap-2">

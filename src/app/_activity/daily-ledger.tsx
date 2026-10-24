@@ -67,6 +67,7 @@ export function DailyLedger({
   tellerId,
   title,
   refreshKey,
+  summary = true,
 }: {
   days?: number;
   /** Another teller's days, for a manager. Omitted: the signed-in person's own. */
@@ -74,6 +75,8 @@ export function DailyLedger({
   title?: string;
   /** Changes whenever something is recorded, so the running day follows at once. */
   refreshKey?: string | number | null;
+  /** The owed-today band at the top; off where the page already shows it. */
+  summary?: boolean;
 }) {
   const { t, locale } = useLocale();
   const [rows, setRows] = useState<LedgerDay[] | null>(null);
@@ -137,6 +140,7 @@ export function DailyLedger({
       ) : (
         <div className="@container">
           {/* The one figure the day is reconciled against, before any detail. */}
+          {summary && (
           <div
             className={cn(
               'flex flex-wrap items-end justify-between gap-x-6 gap-y-2 border-b border-border-base px-4 py-4',
@@ -173,6 +177,7 @@ export function DailyLedger({
               {opsWord(periodCount, locale)} · {t('ledgerDays.period', { days: rows.length })}
             </p>
           </div>
+          )}
 
           <ol className="divide-y divide-border-subtle">
             {rows.map((day, index) => {

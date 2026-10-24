@@ -423,13 +423,32 @@ export async function reverse(
   if (!reason.trim()) {
     throw errors.validation([{ path: 'reason', message: 'A reason is required to reverse' }]);
   }
-  if (!actor.permissions.includes('exchange.transaction.reverse')) {
+  /*
+   * The manager reverses anything. A teller may only delete his own exchange,
+   * recorded in the day still open, before any transfer in it was sent — the
+   * wrong entry caught at the counter. Once money has left the bank, or the day
+   * has been closed and counted, it is the manager's call again.
+   */
+  const anyone = actor.permissions.includes('exchange.transaction.reverse');
+  if (!anyone && !actor.permissions.includes('exchange.transaction.reverseOwn')) {
     throw errors.forbidden('exchange.transaction.reverse');
   }
 
   const result = await withTransaction(async (tx) => {
     const original = await tx.transaction.findUnique({ where: { id } });
     if (!original) throw errors.notFound('Transaction', id);
+
+    if (!anyone) {
+      if (original.type !== 'EXCHANGE' || original.createdById !== actor.id) {
+        throw errors.forbidden('exchange.transaction.reverse');
+      }
+      if (original.transferConfirmedAt) {
+        throw errors.conflict(
+          'The transfer in this exchange has already been sent',
+          'errors.ownReverseSent',
+        );
+      }
+    }
 
     // A transfer still awaiting confirmation is exactly the case where undoing
     // is most useful — the mistake is caught before the money leaves the bank —
@@ -447,6 +466,12 @@ export async function reverse(
     }
 
     const day = await requireOpenDay(original.branchId, new Date(), tx, actor);
+    if (!anyone && original.businessDayId !== day.id) {
+      throw errors.conflict(
+        'Only an exchange from the open day can be deleted',
+        'errors.ownReverseOldDay',
+      );
+    }
     const reference = await nextReference('TXN', tx);
 
     /*
@@ -855,7 +880,12 @@ export async function recentFor(
   db: DbClient = prisma,
 ) {
   return db.transaction.findMany({
-    where: { createdById: actor.id, ...(options.type ? { type: options.type } : {}) },
+    // His own entries — not the reversing rows a deletion leaves behind.
+    where: {
+      createdById: actor.id,
+      reversalOfId: null,
+      ...(options.type ? { type: options.type } : {}),
+    },
     orderBy: { createdAt: 'desc' },
     take: Math.min(options.limit ?? 8, 50),
     select: {
@@ -868,6 +898,8 @@ export async function recentFor(
       toCurrency: true,
       toAmount: true,
       createdAt: true,
+      businessDayId: true,
+      transferConfirmedAt: true,
       counterpartyName: true,
       customer: { select: { fullNameEn: true, fullNameAr: true } },
     },

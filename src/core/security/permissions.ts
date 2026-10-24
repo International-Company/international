@@ -71,6 +71,9 @@ export const PERMISSIONS: PermissionDefinition[] = [
     'Record a new financial transaction', 'تسجيل عملية مالية جديدة'),
   def('exchange.transaction.reverse', 'exchange', 'reverse', 'Reverse transaction', 'عكس عملية',
     'Create a reversing entry for a posted transaction', 'إنشاء قيد عكسي لعملية مرحّلة', true),
+  def('exchange.transaction.reverseOwn', 'exchange', 'reverse', 'Delete own exchanges', 'مسح عمليات التصريف الخاصة به',
+    'Undo an exchange he recorded himself in the open day, as long as no transfer in it has been sent',
+    'مسح عملية تصريف سجّلها بنفسه في اليوم المفتوح، ما لم يكن تحويلها قد أُرسل'),
   def('exchange.transaction.edit', 'exchange', 'update', 'Edit and correct transactions', 'تعديل وتصحيح العمليات',
     'Edit the details of a posting, and correct an amount by reversing and reposting it',
     'تعديل بيانات العملية، وتصحيح مبلغها بعكسها وإعادة تسجيلها', true),
@@ -263,9 +266,9 @@ export const SYSTEM_ROLES: RoleDefinition[] = [
     nameEn: 'Teller',
     nameAr: 'التلر',
     descriptionEn:
-      'Works the counter tools and nothing else: takes and sells USDT, exchanges cash, sends and pays out remittances, prints receipts. Cannot reverse a posting, move a rate or fund a drawer.',
+      'Works the counter tools and nothing else: takes and sells USDT, exchanges cash, sends and pays out remittances, prints receipts, and can delete an exchange of his own from the open day. Cannot reverse another teller’s posting, move a rate or fund a drawer.',
     descriptionAr:
-      'يعمل على أدوات الشباك لا غير: يستلم USDT ويبيعه، ويصرّف النقد، ويرسل الحوالات ويسلّمها، ويطبع الإيصالات. لا يعكس عملية ولا يحرّك سعراً ولا يموّل صندوقاً.',
+      'يعمل على أدوات الشباك لا غير: يستلم USDT ويبيعه، ويصرّف النقد، ويرسل الحوالات ويسلّمها، ويطبع الإيصالات، ويمسح عملية تصريف سجّلها بنفسه في اليوم المفتوح. لا يعكس عمليات غيره ولا يحرّك سعراً ولا يموّل صندوقاً.',
     level: 50,
     permissions: [
       // The two tools, and only what they cannot work without.
@@ -284,6 +287,9 @@ export const SYSTEM_ROLES: RoleDefinition[] = [
       'usdt.withdrawal.use',
       'exchange.transaction.view',
       'exchange.transaction.create',
+      // His own exchange, while the day is open and nothing in it was sent:
+      // a wrong entry caught at the counter is undone there, not by a call.
+      'exchange.transaction.reverseOwn',
       'exchange.receipt.print',
       // Attaching a customer, which both tools can require above an amount.
       'customers.view',

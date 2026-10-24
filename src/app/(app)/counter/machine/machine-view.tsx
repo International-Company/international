@@ -14,10 +14,12 @@ import {
   ArrowDownUp,
   Check,
   ChevronDown,
+  History,
   Loader2,
   Plus,
   Printer,
   RotateCcw,
+  Trash2,
   TriangleAlert,
   X,
 } from 'lucide-react';
@@ -75,6 +77,7 @@ interface MachineConfig {
 interface BoardRate {
   baseCode: string;
   quoteCode: string;
+  channel?: string;
   buyRate: string;
   sellRate: string;
   effectiveFrom: string;
@@ -120,6 +123,8 @@ interface RecentRow {
   toCurrency: string;
   toAmount: string;
   createdAt: string;
+  status: string;
+  transferConfirmedAt: string | null;
 }
 
 /** Which field the operator is typing into; the other one is derived. */
@@ -134,7 +139,13 @@ export function MachineView({
   board: BoardRate[];
   permissions: string[];
 }) {
-  const { t, ln } = useLocale();
+  const { t, ln, locale } = useLocale();
+  /** The time of day an entry was made, as the teller reads it. */
+  const clock = (value: string) =>
+    new Intl.DateTimeFormat(locale === 'ar' ? 'ar-u-nu-latn' : 'en-GB', {
+      hour: '2-digit',
+      minute: '2-digit',
+    }).format(new Date(value));
   const router = useRouter();
   const toast = useToast();
 
@@ -178,6 +189,12 @@ export function MachineView({
   const [customer, setCustomer] = useState<CustomerHit | null>(null);
   const [customerOpen, setCustomerOpen] = useState(false);
   const [recent, setRecent] = useState<RecentRow[]>([]);
+  /** The entry the teller asked to delete, while he confirms it. */
+  const [removing, setRemoving] = useState<RecentRow | null>(null);
+  const [removeReason, setRemoveReason] = useState('');
+  const [removeBusy, setRemoveBusy] = useState(false);
+  /** Bumped by a deletion, so today's totals and the days follow at once. */
+  const [removedTick, setRemovedTick] = useState(0);
 
   /*
    * How the payout is handed over, and — when it is split — how much of it goes
@@ -255,6 +272,43 @@ export function MachineView({
   useEffect(() => {
     void loadRecent();
   }, [loadRecent]);
+
+  // --- Deleting a wrong entry -------------------------------------------------
+  //
+  // Not erased: reversed. The drawer gets back exactly what the entry moved and
+  // the books keep both rows, marked, so the day still adds up and the manager
+  // can see what was undone and why. The server holds the limits: his own, the
+  // open day, nothing in it already sent.
+  const canRemove =
+    permissions.includes('exchange.transaction.reverseOwn') ||
+    permissions.includes('exchange.transaction.reverse');
+  const todayKey = new Date().toDateString();
+  const removable = (row: RecentRow) =>
+    canRemove &&
+    row.status !== 'REVERSED' &&
+    !row.transferConfirmedAt &&
+    new Date(row.createdAt).toDateString() === todayKey;
+
+  const remove = async () => {
+    if (!removing) return;
+    setRemoveBusy(true);
+    try {
+      await api.post(`/api/manage/transactions/${removing.id}`, {
+        action: 'reverse',
+        reason: removeReason.trim() || t('machine.deleteReasonDefault'),
+      });
+      toast.success(t('machine.deleted', { reference: removing.reference }));
+      setRemoving(null);
+      setRemovedTick((tick) => tick + 1);
+      void loadRecent();
+      router.refresh();
+    } catch (cause) {
+      const failure = describeFailure(cause, t as never);
+      toast.error(failure.title, failure.body);
+    } finally {
+      setRemoveBusy(false);
+    }
+  };
 
   // --- Pricing ---------------------------------------------------------------
   //
@@ -573,528 +627,656 @@ export function MachineView({
   const receiveAmount = side === 'receive' ? amount : received > 0n ? received.toString() : '';
 
   // The rate for this direction, as one quiet line rather than a table.
-  const boardRate = board.find(
-    (rate) =>
-      (rate.baseCode === from && rate.quoteCode === to) ||
-      (rate.baseCode === to && rate.quoteCode === from),
-  );
+  //
+  // The board can carry the pair both ways round and once per channel. Taking
+  // whichever row came first showed a dinar-or-shekel figure upside down (1 USD
+  // = 0.32 ILS) whenever the reverse row happened to lead; the row published
+  // in this direction, for this way of paying, is the one the teller means.
+  const boardRate = (() => {
+    const rows = board.filter(
+      (rate) =>
+        (rate.baseCode === from && rate.quoteCode === to) ||
+        (rate.baseCode === to && rate.quoteCode === from),
+    );
+    const wanted = channel === 'BROKER' ? 'BROKER' : 'CASH';
+    const direct = (rate: BoardRate) => rate.baseCode === from;
+    return (
+      rows.find((rate) => direct(rate) && rate.channel === wanted) ??
+      rows.find(direct) ??
+      rows.find((rate) => rate.channel === wanted) ??
+      rows[0]
+    );
+  })();
 
   const print = (id: string) => window.open(`/print/receipt/${id}`, '_blank');
 
   return (
     /*
-     * A form, so Enter posts from any field. Phones and tablets get one centred
-     * column; a wide desk screen keeps that same column and sets the teller's
-     * days beside it, so the day's account is in view while he works.
+     * A form, so Enter posts from any field. A narrow page gets one centred
+     * column; a page with room for both keeps that same column and sets the
+     * teller's account beside it, so the day is in view while he works.
      */
-    <form
-      onSubmit={(event) => {
-        event.preventDefault();
-        void submit();
-      }}
-      className="mx-auto w-full max-w-xl xl:grid xl:max-w-6xl xl:grid-cols-[minmax(0,36rem)_minmax(0,1fr)] xl:items-start xl:gap-6"
-    >
-      <div className="space-y-4">
-        {/* ============ The card ============ */}
+    <div className="@container">
+      <form
+        onSubmit={(event) => {
+          event.preventDefault();
+          void submit();
+        }}
+        className={cn(
+          'mx-auto grid w-full max-w-xl gap-6',
+          // Measured against the space the page actually has, not the window:
+          // with the sidebar open, a wide screen can still be a narrow page.
+          '@4xl:max-w-6xl @4xl:grid-cols-[minmax(0,30rem)_minmax(0,1fr)] @4xl:items-start',
+        )}
+      >
         <div className="space-y-4">
-          <section className="rounded-3xl bg-surface p-2 shadow-[var(--shadow-lg)] ring-1 ring-border-subtle">
-            <AmountRow
-              label={t('machine.customerPays')}
-              currency={fromCurrency}
-              options={payable}
-              onChoose={chooseFrom}
-              value={payAmount}
-              active={side === 'pay'}
-              onFocusSide={() => {
-                if (side !== 'pay') {
-                  setSide('pay');
-                  setAmount(legs.from > 0n ? formatPlain(legs.from.toString(), fromCurrency?.decimals ?? 2) : '');
-                }
-              }}
-              onType={(raw) => typeAmount(raw, 'pay')}
-              inputRef={payRef}
-              ln={ln}
-            />
+          {/* ============ The card ============ */}
+          <div className="space-y-4">
+            <section className="rounded-3xl bg-surface p-2 shadow-[var(--shadow-lg)] ring-1 ring-border-subtle">
+              <AmountRow
+                label={t('machine.customerPays')}
+                currency={fromCurrency}
+                options={payable}
+                onChoose={chooseFrom}
+                value={payAmount}
+                active={side === 'pay'}
+                onFocusSide={() => {
+                  if (side !== 'pay') {
+                    setSide('pay');
+                    setAmount(legs.from > 0n ? formatPlain(legs.from.toString(), fromCurrency?.decimals ?? 2) : '');
+                  }
+                }}
+                onType={(raw) => typeAmount(raw, 'pay')}
+                inputRef={payRef}
+                ln={ln}
+              />
 
-            {/*
-              The swap sits on the seam where the two sides meet. Centred by a
-              flex row rather than by `start-1/2` and a translate, because that
-              pair has to be mirrored by hand in RTL and this does not.
-            */}
-            <div className="relative z-10 h-0">
-              <div className="absolute inset-x-0 top-0 flex -translate-y-1/2 justify-center">
-                <button
-                  type="button"
-                  onClick={swap}
-                  disabled={!reversible}
-                  aria-label={t('machine.swap')}
-                  className={cn(
-                    'flex size-11 items-center justify-center rounded-full',
-                    'bg-surface text-content-secondary shadow-[var(--shadow-md)] ring-4 ring-surface',
-                    'transition-all duration-150',
-                    reversible
-                      ? 'hover:text-primary-text hover:shadow-[var(--shadow-lg)] active:scale-90'
-                      : 'opacity-40',
-                  )}
-                >
-                  <ArrowDownUp className="size-5" />
-                </button>
-              </div>
-            </div>
-
-            <AmountRow
-              label={t('machine.customerReceives')}
-              currency={toCurrency}
-              options={receivable(from)}
-              onChoose={chooseTo}
-              value={receiveAmount}
-              active={side === 'receive'}
-              onFocusSide={() => {
-                if (side !== 'receive') {
-                  setSide('receive');
-                  setAmount(received > 0n ? formatPlain(received.toString(), toCurrency?.decimals ?? 2) : '');
-                }
-              }}
-              onType={(raw) => typeAmount(raw, 'receive')}
-              ln={ln}
-              hero
-              busy={quoting}
-            />
-          </section>
-
-          {/*
-            The rate, as one line rather than a board.
-
-            Silent when the chosen way of paying carries no price of its own.
-            The line used to fall back to the board whenever the quote had
-            nothing — which meant choosing the broker, for a pair with no broker
-            price, replaced the figure with one taken from a different row
-            entirely, still wearing the live dot, above a payout of zero. A rate
-            that does not belong to what the teller is doing is worse than no
-            rate at all: he reads it aloud.
-          */}
-          <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-sm">
-            {noPrice ? (
-              <span className="text-danger-text">
-                {t('machine.noChannelPrice', { channel: unpriced.join('، ') })}
-              </span>
-            ) : quote || boardRate ? (
-              <span className="flex items-center gap-2 text-content-secondary">
-                <span className="size-1.5 animate-pulse rounded-full bg-success" aria-hidden />
-                <span className="ltr-content font-medium tabular-nums text-content">
-                  1 {from} = {formatScaled(shownRate ?? effectiveRate(boardRate!, from), 4)} {to}
-                </span>
-              </span>
-            ) : (
-              <span className="text-danger-text">{t('rates.noRateForPair')}</span>
-            )}
-
-            {canSeeSpread && margin !== null && (
-              <span className="text-content-tertiary">
-                {t('transactions.profit')}{' '}
-                <Money
-                  value={margin.toString()}
-                  currency={to}
-                  className="text-content-secondary"
-                />
-              </span>
-            )}
-          </div>
-
-          {/*
-            How it is handed over.
-            Three segments, defaulting to cash, so the ordinary trade costs
-            nothing to record. Splitting reveals one field — the transferred
-            share — and the cash side is shown beside it as a consequence rather
-            than as a second thing to fill in, because two editable halves of a
-            fixed total is a sum the operator has to keep in their head.
-          */}
-          <div className="rounded-2xl bg-surface p-3 ring-1 ring-border-subtle">
-            <div className="flex items-center justify-between gap-3">
-              <span className="text-xs font-medium text-content-secondary">
-                {t('machine.payoutTitle')}
-              </span>
-
-              <div dir="ltr" className="flex gap-1 rounded-full bg-surface-sunken p-1">
-                {(['CASH', 'BROKER', 'SPLIT'] as const).map((option) => (
+              {/*
+                The swap sits on the seam where the two sides meet. Centred by a
+                flex row rather than by `start-1/2` and a translate, because that
+                pair has to be mirrored by hand in RTL and this does not.
+              */}
+              <div className="relative z-10 h-0">
+                <div className="absolute inset-x-0 top-0 flex -translate-y-1/2 justify-center">
                   <button
-                    key={option}
                     type="button"
-                    onClick={() => {
-                      setChannel(option);
-                      setDone(null);
-                      if (option !== 'SPLIT') {
-                        setBrokerShare('');
-                      } else if (side !== 'pay') {
-                        /*
-                         * A split is priced from what the customer hands over —
-                         * what they take away is not known until both parts have
-                         * been priced, so it cannot be the thing divided.
-                         *
-                         * So choosing it moves the entry to that side, carrying
-                         * the figure the counter has already worked out. The
-                         * alternative was to leave the button offering a
-                         * combination the server refuses, which the teller only
-                         * discovers after pressing record in front of a customer.
-                         */
-                        setSide('pay');
-                        setAmount(
-                          legs.from > 0n
-                            ? formatPlain(legs.from.toString(), fromCurrency?.decimals ?? 2)
-                            : '',
-                        );
-                      }
-                    }}
-                    aria-pressed={channel === option}
+                    onClick={swap}
+                    disabled={!reversible}
+                    aria-label={t('machine.swap')}
                     className={cn(
-                      'h-9 rounded-full px-4 text-sm font-medium transition-colors',
-                      channel === option
-                        ? 'bg-surface text-content shadow-[var(--shadow-sm)]'
-                        : 'text-content-tertiary hover:text-content-secondary',
+                      'flex size-11 items-center justify-center rounded-full',
+                      'bg-surface text-content-secondary shadow-[var(--shadow-md)] ring-4 ring-surface',
+                      'transition-all duration-150',
+                      reversible
+                        ? 'hover:text-primary-text hover:shadow-[var(--shadow-lg)] active:scale-90'
+                        : 'opacity-40',
                     )}
                   >
-                    {option === 'CASH'
-                      ? t('machine.payoutCash')
-                      : option === 'BROKER'
-                        ? t('machine.payoutBank')
-                        : t('machine.payoutSplit')}
+                    <ArrowDownUp className="size-5" />
                   </button>
-                ))}
-              </div>
-            </div>
-
-            {/*
-              Where it is going. Only asked when something is actually being
-              transferred — and the server refuses a transfer without it, so
-              this is the convenient way to answer, not the only one trusted.
-            */}
-            {channel !== 'CASH' && config.transferChannels.length > 0 && (
-              <label className="mt-3 block">
-                <span className="text-xs text-content-tertiary">{t('machine.transferTo')}</span>
-                <select
-                  value={destination}
-                  onChange={(event) => {
-                    setDone(null);
-                    setDestination(event.target.value);
-                  }}
-                  className="mt-1 h-12 w-full rounded-xl bg-surface-sunken px-3 text-base font-medium text-content outline-none ring-1 ring-transparent focus:ring-primary"
-                >
-                  {config.transferChannels.map((entry) => (
-                    <option key={entry} value={entry}>
-                      {entry}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            )}
-
-            {/*
-              Both halves in the money the customer takes away, because that is
-              the money they are talking about: "put two hundred in my account
-              and give me the rest." The transfer is exact — it is the figure
-              that will appear on their statement — and the cash is whatever
-              the remainder of their money buys at the till's own price, which
-              is why it moves as the transfer is typed.
-            */}
-            {channel === 'SPLIT' && (
-              <div className="mt-3 grid grid-cols-2 gap-3">
-                <label className="block">
-                  <span className="text-xs text-content-tertiary">
-                    {t('machine.payoutBankLeg')} ({to})
-                  </span>
-                  <input
-                    type="text"
-                    dir="ltr"
-                    inputMode="decimal"
-                    autoComplete="off"
-                    data-zoom-safe=""
-                    value={brokerShare}
-                    placeholder={(0).toFixed(toCurrency?.decimals ?? 2)}
-                    onChange={(event) => {
-                      setDone(null);
-                      setBrokerShare(sanitiseAmount(event.target.value, toCurrency?.decimals ?? 2));
-                    }}
-                    className="mt-1 h-12 w-full rounded-xl bg-surface-sunken px-3 text-end text-xl font-semibold tabular-nums text-content outline-none ring-1 ring-transparent focus:ring-primary"
-                  />
-                </label>
-
-                <div className="block">
-                  <span className="text-xs text-content-tertiary">
-                    {t('machine.payoutCashLeg')} ({to})
-                  </span>
-                  <p className="mt-1 flex h-12 items-center justify-end rounded-xl bg-surface-sunken px-3 text-xl font-semibold tabular-nums text-content-secondary ltr-content">
-                    {formatScaled(legs.cash.toString(), toCurrency?.decimals ?? 2)}
-                  </p>
                 </div>
               </div>
-            )}
-          </div>
 
-          {/* --- Anything standing in the way --------------------------- */}
-          {error && <Blocker tone="danger">{error}</Blocker>}
+              <AmountRow
+                label={t('machine.customerReceives')}
+                currency={toCurrency}
+                options={receivable(from)}
+                onChoose={chooseTo}
+                value={receiveAmount}
+                active={side === 'receive'}
+                onFocusSide={() => {
+                  if (side !== 'receive') {
+                    setSide('receive');
+                    setAmount(received > 0n ? formatPlain(received.toString(), toCurrency?.decimals ?? 2) : '');
+                  }
+                }}
+                onType={(raw) => typeAmount(raw, 'receive')}
+                ln={ln}
+                hero
+                busy={quoting}
+              />
+            </section>
 
-          {/*
-            Every other blocker on this screen explains itself; this one used to
-            grey the button and say nothing, so a teller looking at a payout of
-            zero had no way to know the office had simply never published a
-            price for paying that way.
-          */}
-          {noPrice && (
-            <Blocker tone="danger" title={t('machine.noPriceTitle')}>
-              {t('machine.noPriceBody', { channel: unpriced.join('، '), pair: `${from}/${to}` })}
-            </Blocker>
-          )}
+            {/*
+              The rate, as one line rather than a board.
 
-          {quote && shortLeg === 'BROKER' && (
-            <Blocker tone="danger" title={t('machine.cannotPayTitle')}>
-              {t('machine.payoutBankShort', {
-                currency: to,
-                available: `${formatScaled(quote.availableBroker, toCurrency?.decimals ?? 2)} ${to}`,
-              })}
-            </Blocker>
-          )}
-
-          {quote && shortLeg === 'CASH' && (
-            <Blocker tone="danger" title={t('machine.cannotPayTitle')}>
-              {t('machine.cannotPayBody', {
-                account: `${t('drawers.title')} ${to}`,
-                available: `${formatScaled(quote.availableCash, toCurrency?.decimals ?? 2)} ${to}`,
-              })}
-            </Blocker>
-          )}
-
-          {quote?.overLimit && (
-            <Blocker tone="warning" title={t('machine.overLimitTitle')}>
-              {t('machine.overLimitBody', {
-                maximum: `${formatScaled(config.maxAmount, fromCurrency?.decimals ?? 2)} ${from}`,
-              })}
-            </Blocker>
-          )}
-
-          {quote?.requiresCustomer && !customer && (
-            <Blocker tone="warning" title={t('machine.customerRequiredTitle')}>
-              {t('machine.customerRequiredBody')}
-            </Blocker>
-          )}
-
-          {done && (
-            <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-success-subtle px-4 py-3 ring-1 ring-success-border">
-              <span className="flex items-center gap-2 text-sm text-content">
-                <span className="flex size-6 items-center justify-center rounded-full bg-success">
-                  <Check className="size-4 text-white" />
+              Silent when the chosen way of paying carries no price of its own.
+              The line used to fall back to the board whenever the quote had
+              nothing — which meant choosing the broker, for a pair with no broker
+              price, replaced the figure with one taken from a different row
+              entirely, still wearing the live dot, above a payout of zero. A rate
+              that does not belong to what the teller is doing is worse than no
+              rate at all: he reads it aloud.
+            */}
+            <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-sm">
+              {noPrice ? (
+                <span className="text-danger-text">
+                  {t('machine.noChannelPrice', { channel: unpriced.join('، ') })}
                 </span>
-                {t('machine.recorded')}
-                <span className="font-mono ltr-content">{done.reference}</span>
-              </span>
-              {permissions.includes('exchange.receipt.print') && (
-                <span className="flex items-center gap-1">
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    icon={<Printer />}
-                    onClick={() => print(done.id)}
-                  >
-                    {t('transactions.printReceipt')}
-                  </Button>
-                  <ShareButton transactionId={done.id} />
+              ) : quote || boardRate ? (
+                <span className="flex items-center gap-2 text-content-secondary">
+                  <span className="size-1.5 animate-pulse rounded-full bg-success" aria-hidden />
+                  <span className="ltr-content font-medium tabular-nums text-content">
+                    1 {from} = {formatScaled(shownRate ?? effectiveRate(boardRate!, from), 4)} {to}
+                  </span>
+                </span>
+              ) : (
+                <span className="text-danger-text">{t('rates.noRateForPair')}</span>
+              )}
+
+              {canSeeSpread && margin !== null && (
+                <span className="text-content-tertiary">
+                  {t('transactions.profit')}{' '}
+                  <Money
+                    value={margin.toString()}
+                    currency={to}
+                    className="text-content-secondary"
+                  />
                 </span>
               )}
             </div>
-          )}
 
-          <PriceException
-            from={from}
-            to={to}
-            channel={channel}
-            payAmount={side === 'pay' ? amount : ''}
-            approval={approval}
-            onApproval={setApproval}
-            enabled={permissions.includes('exchange.priceException.request')}
-          />
-        </div>
+            {/*
+              How it is handed over.
+              Three segments, defaulting to cash, so the ordinary trade costs
+              nothing to record. Splitting reveals one field — the transferred
+              share — and the cash side is shown beside it as a consequence rather
+              than as a second thing to fill in, because two editable halves of a
+              fixed total is a sum the operator has to keep in their head.
+            */}
+            <div className="rounded-2xl bg-surface p-3 ring-1 ring-border-subtle">
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-xs font-medium text-content-secondary">
+                  {t('machine.payoutTitle')}
+                </span>
 
-        {/* ============ Shortcuts and the action ============ */}
-        <div className="space-y-3">
-          {config.quickAmounts.length > 0 && (
-            <div dir="ltr" className="flex flex-wrap gap-2">
-              {config.quickAmounts.map((value) => (
-                <button
-                  key={value}
-                  type="button"
-                  onClick={() => {
-                    setDone(null);
-                    setSide('pay');
-                    setAmount(String(value));
-                  }}
-                  className={cn(
-                    'h-11 min-w-[4.5rem] flex-1 rounded-full bg-surface-sunken px-4',
-                    'text-sm font-medium text-content-secondary',
-                    'transition-colors hover:bg-surface-hover hover:text-content active:bg-surface-active',
-                  )}
-                >
-                  {value.toLocaleString('en-US')}
-                </button>
-              ))}
+                <div dir="ltr" className="flex gap-1 rounded-full bg-surface-sunken p-1">
+                  {(['CASH', 'BROKER', 'SPLIT'] as const).map((option) => (
+                    <button
+                      key={option}
+                      type="button"
+                      onClick={() => {
+                        setChannel(option);
+                        setDone(null);
+                        if (option !== 'SPLIT') {
+                          setBrokerShare('');
+                        } else if (side !== 'pay') {
+                          /*
+                           * A split is priced from what the customer hands over —
+                           * what they take away is not known until both parts have
+                           * been priced, so it cannot be the thing divided.
+                           *
+                           * So choosing it moves the entry to that side, carrying
+                           * the figure the counter has already worked out. The
+                           * alternative was to leave the button offering a
+                           * combination the server refuses, which the teller only
+                           * discovers after pressing record in front of a customer.
+                           */
+                          setSide('pay');
+                          setAmount(
+                            legs.from > 0n
+                              ? formatPlain(legs.from.toString(), fromCurrency?.decimals ?? 2)
+                              : '',
+                          );
+                        }
+                      }}
+                      aria-pressed={channel === option}
+                      className={cn(
+                        'h-9 rounded-full px-4 text-sm font-medium transition-colors',
+                        channel === option
+                          ? 'bg-surface text-content shadow-[var(--shadow-sm)]'
+                          : 'text-content-tertiary hover:text-content-secondary',
+                      )}
+                    >
+                      {option === 'CASH'
+                        ? t('machine.payoutCash')
+                        : option === 'BROKER'
+                          ? t('machine.payoutBank')
+                          : t('machine.payoutSplit')}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/*
+                Where it is going. Only asked when something is actually being
+                transferred — and the server refuses a transfer without it, so
+                this is the convenient way to answer, not the only one trusted.
+              */}
+              {channel !== 'CASH' && config.transferChannels.length > 0 && (
+                <label className="mt-3 block">
+                  <span className="text-xs text-content-tertiary">{t('machine.transferTo')}</span>
+                  <select
+                    value={destination}
+                    onChange={(event) => {
+                      setDone(null);
+                      setDestination(event.target.value);
+                    }}
+                    className="mt-1 h-12 w-full rounded-xl bg-surface-sunken px-3 text-base font-medium text-content outline-none ring-1 ring-transparent focus:ring-primary"
+                  >
+                    {config.transferChannels.map((entry) => (
+                      <option key={entry} value={entry}>
+                        {entry}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+
+              {/*
+                Both halves in the money the customer takes away, because that is
+                the money they are talking about: "put two hundred in my account
+                and give me the rest." The transfer is exact — it is the figure
+                that will appear on their statement — and the cash is whatever
+                the remainder of their money buys at the till's own price, which
+                is why it moves as the transfer is typed.
+              */}
+              {channel === 'SPLIT' && (
+                <div className="mt-3 grid grid-cols-2 gap-3">
+                  <label className="block">
+                    <span className="text-xs text-content-tertiary">
+                      {t('machine.payoutBankLeg')} ({to})
+                    </span>
+                    <input
+                      type="text"
+                      dir="ltr"
+                      inputMode="decimal"
+                      autoComplete="off"
+                      data-zoom-safe=""
+                      value={brokerShare}
+                      placeholder={(0).toFixed(toCurrency?.decimals ?? 2)}
+                      onChange={(event) => {
+                        setDone(null);
+                        setBrokerShare(sanitiseAmount(event.target.value, toCurrency?.decimals ?? 2));
+                      }}
+                      className="mt-1 h-12 w-full rounded-xl bg-surface-sunken px-3 text-end text-xl font-semibold tabular-nums text-content outline-none ring-1 ring-transparent focus:ring-primary"
+                    />
+                  </label>
+
+                  <div className="block">
+                    <span className="text-xs text-content-tertiary">
+                      {t('machine.payoutCashLeg')} ({to})
+                    </span>
+                    <p className="mt-1 flex h-12 items-center justify-end rounded-xl bg-surface-sunken px-3 text-xl font-semibold tabular-nums text-content-secondary ltr-content">
+                      {formatScaled(legs.cash.toString(), toCurrency?.decimals ?? 2)}
+                    </p>
+                  </div>
+                </div>
+              )}
             </div>
-          )}
 
-          <button
-            type="submit"
-            disabled={!quote || blocked || quoting || posting}
-            className={cn(
-              'flex h-14 w-full items-center justify-center gap-2 rounded-2xl',
-              'bg-primary text-base font-semibold text-white',
-              'shadow-[var(--shadow-md)] transition-all duration-150',
-              'hover:bg-primary-hover active:scale-[0.98]',
-              'disabled:opacity-40 disabled:shadow-none disabled:active:scale-100',
+            {/* --- Anything standing in the way --------------------------- */}
+            {error && <Blocker tone="danger">{error}</Blocker>}
+
+            {/*
+              Every other blocker on this screen explains itself; this one used to
+              grey the button and say nothing, so a teller looking at a payout of
+              zero had no way to know the office had simply never published a
+              price for paying that way.
+            */}
+            {noPrice && (
+              <Blocker tone="danger" title={t('machine.noPriceTitle')}>
+                {t('machine.noPriceBody', { channel: unpriced.join('، '), pair: `${from}/${to}` })}
+              </Blocker>
             )}
-          >
-            {posting ? <Loader2 className="size-5 animate-spin" /> : <Check className="size-5" />}
-            {t('machine.record')}
-          </button>
 
-          <button
-            type="button"
-            onClick={reset}
-            className="flex h-11 w-full items-center justify-center gap-2 rounded-full text-sm text-content-tertiary transition-colors hover:bg-surface-sunken hover:text-content-secondary"
-          >
-            <RotateCcw className="size-4" />
-            {t('machine.clear')}
-          </button>
-        </div>
+            {quote && shortLeg === 'BROKER' && (
+              <Blocker tone="danger" title={t('machine.cannotPayTitle')}>
+                {t('machine.payoutBankShort', {
+                  currency: to,
+                  available: `${formatScaled(quote.availableBroker, toCurrency?.decimals ?? 2)} ${to}`,
+                })}
+              </Blocker>
+            )}
 
-        {/* ============ Folded away until needed ============ */}
-        <div className="space-y-3">
-          {customerOpen || customer || quote?.requiresCustomer || throughBank ? (
-            <div className="rounded-2xl bg-surface p-4 ring-1 ring-border-subtle">
-              <div className="mb-3 flex items-center justify-between gap-2">
-                <p className="text-sm font-medium text-content">
-                  {throughBank
-                    ? t('machine.transferNeedsContact')
-                    : quote?.requiresCustomer
-                      ? t('machine.customerRequiredTitle')
-                      : t('machine.customerOptional')}
-                </p>
-                {!quote?.requiresCustomer && !throughBank && (
+            {quote && shortLeg === 'CASH' && (
+              <Blocker tone="danger" title={t('machine.cannotPayTitle')}>
+                {t('machine.cannotPayBody', {
+                  account: `${t('drawers.title')} ${to}`,
+                  available: `${formatScaled(quote.availableCash, toCurrency?.decimals ?? 2)} ${to}`,
+                })}
+              </Blocker>
+            )}
+
+            {quote?.overLimit && (
+              <Blocker tone="warning" title={t('machine.overLimitTitle')}>
+                {t('machine.overLimitBody', {
+                  maximum: `${formatScaled(config.maxAmount, fromCurrency?.decimals ?? 2)} ${from}`,
+                })}
+              </Blocker>
+            )}
+
+            {quote?.requiresCustomer && !customer && (
+              <Blocker tone="warning" title={t('machine.customerRequiredTitle')}>
+                {t('machine.customerRequiredBody')}
+              </Blocker>
+            )}
+
+            {done && (
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-success-subtle px-4 py-3 ring-1 ring-success-border">
+                <span className="flex items-center gap-2 text-sm text-content">
+                  <span className="flex size-6 items-center justify-center rounded-full bg-success">
+                    <Check className="size-4 text-white" />
+                  </span>
+                  {t('machine.recorded')}
+                  <span className="font-mono ltr-content">{done.reference}</span>
+                </span>
+                {permissions.includes('exchange.receipt.print') && (
+                  <span className="flex items-center gap-1">
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      icon={<Printer />}
+                      onClick={() => print(done.id)}
+                    >
+                      {t('transactions.printReceipt')}
+                    </Button>
+                    <ShareButton transactionId={done.id} />
+                  </span>
+                )}
+              </div>
+            )}
+
+            <PriceException
+              from={from}
+              to={to}
+              channel={channel}
+              payAmount={side === 'pay' ? amount : ''}
+              approval={approval}
+              onApproval={setApproval}
+              enabled={permissions.includes('exchange.priceException.request')}
+            />
+          </div>
+
+          {/* ============ Shortcuts and the action ============ */}
+          <div className="space-y-3">
+            {config.quickAmounts.length > 0 && (
+              <div dir="ltr" className="flex flex-wrap gap-2">
+                {config.quickAmounts.map((value) => (
                   <button
+                    key={value}
                     type="button"
                     onClick={() => {
-                      setCustomerOpen(false);
-                      setCustomer(null);
-                      setCounterpartyName('');
+                      setDone(null);
+                      setSide('pay');
+                      setAmount(String(value));
                     }}
-                    aria-label={t('common.close')}
-                    className="rounded-full p-1 text-content-tertiary transition-colors hover:bg-surface-sunken hover:text-content"
+                    className={cn(
+                      'h-11 min-w-[4.5rem] flex-1 rounded-full bg-surface-sunken px-4',
+                      'text-sm font-medium text-content-secondary',
+                      'transition-colors hover:bg-surface-hover hover:text-content active:bg-surface-active',
+                    )}
                   >
-                    <X className="size-4" />
+                    {value.toLocaleString('en-US')}
                   </button>
-                )}
+                ))}
               </div>
+            )}
 
-              <div className="grid gap-3 sm:grid-cols-2">
-                <CustomerPicker
-                  value={customer}
-                  onChange={setCustomer}
-                  permissions={permissions}
-                  required={quote?.requiresCustomer || throughBank}
-                />
-                {!customer && (
-                  <Field label={t('transactions.counterpartyName')} required={throughBank}>
-                    {(props) => (
-                      <Input
-                        {...props}
-                        value={counterpartyName}
-                        onChange={(event) => setCounterpartyName(event.target.value)}
-                      />
-                    )}
-                  </Field>
-                )}
-                {/*
-                  A registered customer carries his own number; anybody else has
-                  to leave one, because a transfer the office cannot trace to a
-                  person is the one it will be asked about.
-                */}
-                {!customer?.phone && (
-                  <Field label={t('transactions.counterpartyPhone')} required={throughBank}>
-                    {(props) => (
-                      <Input
-                        {...props}
-                        type="tel"
-                        dir="ltr"
-                        value={counterpartyPhone}
-                        onChange={(event) => setCounterpartyPhone(event.target.value)}
-                      />
-                    )}
-                  </Field>
-                )}
-              </div>
-            </div>
-          ) : (
+            <button
+              type="submit"
+              disabled={!quote || blocked || quoting || posting}
+              className={cn(
+                'flex h-14 w-full items-center justify-center gap-2 rounded-2xl',
+                'bg-primary text-base font-semibold text-white',
+                'shadow-[var(--shadow-md)] transition-all duration-150',
+                'hover:bg-primary-hover active:scale-[0.98]',
+                'disabled:opacity-40 disabled:shadow-none disabled:active:scale-100',
+              )}
+            >
+              {posting ? <Loader2 className="size-5 animate-spin" /> : <Check className="size-5" />}
+              {t('machine.record')}
+            </button>
+
             <button
               type="button"
-              onClick={() => setCustomerOpen(true)}
-              className="flex h-11 w-full items-center justify-center gap-2 rounded-2xl border border-dashed border-border-base text-sm text-content-tertiary transition-colors hover:border-primary hover:text-primary-text"
+              onClick={reset}
+              className="flex h-11 w-full items-center justify-center gap-2 rounded-full text-sm text-content-tertiary transition-colors hover:bg-surface-sunken hover:text-content-secondary"
             >
-              <Plus className="size-4" />
-              {t('machine.attachCustomer')}
+              <RotateCcw className="size-4" />
+              {t('machine.clear')}
             </button>
-          )}
+          </div>
 
-          {recent.length > 0 && (
-            <div className="rounded-2xl bg-surface ring-1 ring-border-subtle">
-              <p className="px-4 pt-3 text-xs font-medium text-content-tertiary">
-                {t('machine.recent')}
-              </p>
-              <ul className="divide-y divide-border-subtle">
-                {recent.map((row) => (
-                  <li key={row.id} className="flex items-center justify-between gap-3 px-4 py-2.5">
-                    <span className="ltr-content text-sm tabular-nums text-content">
-                      {formatScaled(row.fromAmount, byCode.get(row.fromCurrency)?.decimals ?? 2)}{' '}
-                      {row.fromCurrency}
-                      <span className="mx-2 text-content-tertiary">→</span>
-                      {formatScaled(row.toAmount, byCode.get(row.toCurrency)?.decimals ?? 2)}{' '}
-                      {row.toCurrency}
-                    </span>
-                    <span className="flex items-center gap-2">
-                      <span className="hidden font-mono text-xs text-content-tertiary ltr-content sm:inline">
-                        {row.reference}
-                      </span>
-                      {permissions.includes('exchange.receipt.print') && (
-                        <button
-                          type="button"
-                          onClick={() => print(row.id)}
-                          title={t('transactions.printReceipt')}
-                          aria-label={t('transactions.printReceipt')}
-                          className="flex size-10 items-center justify-center rounded-full text-content-tertiary transition-colors hover:bg-surface-sunken hover:text-content sm:size-8"
-                        >
-                          <Printer className="size-4" />
-                        </button>
-                      )}
-                      {permissions.includes('exchange.receipt.print') && (
-                        <ShareButton transactionId={row.id} compact />
-                      )}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
+          {/* ============ Folded away until needed ============ */}
+          <div className="space-y-3">
+            {customerOpen || customer || quote?.requiresCustomer || throughBank ? (
+              <div className="rounded-2xl bg-surface p-4 ring-1 ring-border-subtle">
+                <div className="mb-3 flex items-center justify-between gap-2">
+                  <p className="text-sm font-medium text-content">
+                    {throughBank
+                      ? t('machine.transferNeedsContact')
+                      : quote?.requiresCustomer
+                        ? t('machine.customerRequiredTitle')
+                        : t('machine.customerOptional')}
+                  </p>
+                  {!quote?.requiresCustomer && !throughBank && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCustomerOpen(false);
+                        setCustomer(null);
+                        setCounterpartyName('');
+                      }}
+                      aria-label={t('common.close')}
+                      className="rounded-full p-1 text-content-tertiary transition-colors hover:bg-surface-sunken hover:text-content"
+                    >
+                      <X className="size-4" />
+                    </button>
+                  )}
+                </div>
 
-          {/* What today came to, refreshed the moment a trade is recorded. */}
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <CustomerPicker
+                    value={customer}
+                    onChange={setCustomer}
+                    permissions={permissions}
+                    required={quote?.requiresCustomer || throughBank}
+                  />
+                  {!customer && (
+                    <Field label={t('transactions.counterpartyName')} required={throughBank}>
+                      {(props) => (
+                        <Input
+                          {...props}
+                          value={counterpartyName}
+                          onChange={(event) => setCounterpartyName(event.target.value)}
+                        />
+                      )}
+                    </Field>
+                  )}
+                  {/*
+                    A registered customer carries his own number; anybody else has
+                    to leave one, because a transfer the office cannot trace to a
+                    person is the one it will be asked about.
+                  */}
+                  {!customer?.phone && (
+                    <Field label={t('transactions.counterpartyPhone')} required={throughBank}>
+                      {(props) => (
+                        <Input
+                          {...props}
+                          type="tel"
+                          dir="ltr"
+                          value={counterpartyPhone}
+                          onChange={(event) => setCounterpartyPhone(event.target.value)}
+                        />
+                      )}
+                    </Field>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setCustomerOpen(true)}
+                className="flex h-11 w-full items-center justify-center gap-2 rounded-2xl border border-dashed border-border-base text-sm text-content-tertiary transition-colors hover:border-primary hover:text-primary-text"
+              >
+                <Plus className="size-4" />
+                {t('machine.attachCustomer')}
+              </button>
+            )}
+
+          </div>
+        </div>
+
+        {/*
+          The teller's account, beside the machine whenever there is room for
+          both, and below it otherwise: what today came to, what he just did (to
+          reprint or delete), and each day with what of its own was owed.
+        */}
+        <aside className="@container min-w-0 space-y-4">
           <TodaySummary
-            refreshKey={done?.id ?? null}
+            refreshKey={`${done?.id ?? ''}:${removedTick}`}
             decimalsOf={(code) => byCode.get(code)?.decimals ?? 2}
           />
 
-        </div>
-      </div>
+          {recent.length > 0 && (
+            <section className="overflow-hidden rounded-2xl bg-surface ring-1 ring-border-subtle">
+              <header className="flex items-center justify-between gap-2 border-b border-border-subtle px-4 py-3">
+                <h3 className="flex items-center gap-2 text-sm font-semibold text-content">
+                  <History className="size-4 text-primary-text" />
+                  {t('machine.recent')}
+                </h3>
+              </header>
+              <ul className="divide-y divide-border-subtle">
+                {recent.map((row) => {
+                  const gone = row.status === 'REVERSED';
+                  return (
+                    <li
+                      key={row.id}
+                      className={cn(
+                        'flex items-center justify-between gap-3 px-4 py-2.5 transition-colors hover:bg-surface-sunken/60',
+                        gone && 'bg-danger-subtle/20',
+                      )}
+                    >
+                      <div className="min-w-0">
+                        <p
+                          className={cn(
+                            'ltr-content flex flex-wrap items-baseline gap-x-1.5 text-sm font-medium tabular-nums',
+                            gone
+                              ? 'text-content-tertiary line-through decoration-danger/60'
+                              : 'text-content',
+                          )}
+                        >
+                          <span>
+                            {formatScaled(row.fromAmount, byCode.get(row.fromCurrency)?.decimals ?? 2)}{' '}
+                            <span className="text-xs text-content-secondary">{row.fromCurrency}</span>
+                          </span>
+                          <span className="text-content-tertiary">→</span>
+                          <span>
+                            {formatScaled(row.toAmount, byCode.get(row.toCurrency)?.decimals ?? 2)}{' '}
+                            <span className="text-xs text-content-secondary">{row.toCurrency}</span>
+                          </span>
+                        </p>
+                        <p className="mt-0.5 flex items-center gap-2 text-[11px] text-content-tertiary">
+                          <span className="tabular-nums ltr-content">{clock(row.createdAt)}</span>
+                          <span className="font-mono ltr-content">{row.reference}</span>
+                          {gone && (
+                            <span className="rounded bg-danger-subtle px-1.5 py-px font-medium text-danger-text">
+                              {t('machine.deletedBadge')}
+                            </span>
+                          )}
+                        </p>
+                      </div>
+                      <span className="flex shrink-0 items-center gap-0.5">
+                        {permissions.includes('exchange.receipt.print') && (
+                          <button
+                            type="button"
+                            onClick={() => print(row.id)}
+                            title={t('transactions.printReceipt')}
+                            aria-label={t('transactions.printReceipt')}
+                            className="flex size-10 items-center justify-center rounded-full text-content-tertiary transition-colors hover:bg-surface-sunken hover:text-content sm:size-8"
+                          >
+                            <Printer className="size-4" />
+                          </button>
+                        )}
+                        {permissions.includes('exchange.receipt.print') && (
+                          <ShareButton transactionId={row.id} compact />
+                        )}
+                        {removable(row) && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setRemoveReason('');
+                              setRemoving(row);
+                            }}
+                            title={t('machine.delete')}
+                            aria-label={t('machine.delete')}
+                            className="flex size-10 items-center justify-center rounded-full text-content-tertiary transition-colors hover:bg-danger-subtle hover:text-danger-text sm:size-8"
+                          >
+                            <Trash2 className="size-4" />
+                          </button>
+                        )}
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
+            </section>
+          )}
 
-      {/* The days, each with what of its own was owed when it ended — beside
-          the machine on a wide screen, below it otherwise. */}
-      <aside className="mt-4 xl:sticky xl:top-[6.5rem] xl:mt-0">
-        <DailyLedger days={7} refreshKey={done?.id ?? null} />
-      </aside>
-    </form>
+          {/* Today's owed figure already leads the summary above, so the days
+              start straight at the list here. */}
+          <DailyLedger
+            days={7}
+            refreshKey={`${done?.id ?? ''}:${removedTick}`}
+            summary={false}
+          />
+        </aside>
+
+        <Dialog
+          open={removing !== null}
+          onClose={() => {
+            if (!removeBusy) setRemoving(null);
+          }}
+          title={t('machine.deleteTitle')}
+          description={removing ? t('machine.deleteBody', { reference: removing.reference }) : ''}
+          footer={
+            <>
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => setRemoving(null)}
+                disabled={removeBusy}
+              >
+                {t('common.cancel')}
+              </Button>
+              <Button
+                type="button"
+                variant="danger"
+                icon={<Trash2 />}
+                loading={removeBusy}
+                onClick={() => void remove()}
+              >
+                {t('machine.deleteConfirm')}
+              </Button>
+            </>
+          }
+        >
+          {removing && (
+            <div className="space-y-3">
+              <p className="ltr-content rounded-lg bg-surface-sunken px-3 py-2 text-center text-sm font-medium tabular-nums text-content">
+                {formatScaled(removing.fromAmount, byCode.get(removing.fromCurrency)?.decimals ?? 2)}{' '}
+                {removing.fromCurrency}
+                <span className="mx-2 text-content-tertiary">→</span>
+                {formatScaled(removing.toAmount, byCode.get(removing.toCurrency)?.decimals ?? 2)}{' '}
+                {removing.toCurrency}
+              </p>
+              <Field label={t('machine.deleteReason')}>
+                {(props) => (
+                  <Input
+                    {...props}
+                    value={removeReason}
+                    onChange={(event) => setRemoveReason(event.target.value)}
+                    placeholder={t('machine.deleteReasonDefault')}
+                    maxLength={200}
+                  />
+                )}
+              </Field>
+            </div>
+          )}
+        </Dialog>
+      </form>
+    </div>
   );
 }
 
