@@ -26,12 +26,12 @@ import { cn } from '@/ui/utils';
  * written, and hands it to WhatsApp to send to whoever needs it.
  */
 
-interface Amount {
+export interface Amount {
   currency: string;
   amount: string;
 }
 
-interface LedgerDay {
+export interface LedgerDay {
   dayId: string;
   date: string;
   status: string;
@@ -45,7 +45,7 @@ interface LedgerDay {
 /** The currency as the office writes it in a message. */
 const SHORT_AR: Record<string, string> = { ILS: 'شيكل', USD: 'دولار', JOD: 'دينار', USDT: 'USDT' };
 
-const decimalsOf = (currency: string) => (currency === 'JOD' ? 3 : 2);
+export const decimalsOf = (currency: string) => (currency === 'JOD' ? 3 : 2);
 
 /** A 1e8-scaled amount as a plain figure — whole amounts without ".00". */
 function plain(scaled: string, currency: string): string {
@@ -60,6 +60,35 @@ function plain(scaled: string, currency: string): string {
   const grouped = whole.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
   const text = /^0+$/.test(fraction) ? grouped : `${grouped}.${fraction}`;
   return negative ? `-${text}` : text;
+}
+
+type Translate = ReturnType<typeof useLocale>['t'];
+
+/** The day, written out the way the office sends things on WhatsApp. */
+export function dayReport(day: LedgerDay, t: Translate, locale: string): string {
+  const unit = (currency: string) =>
+    locale === 'ar' ? (SHORT_AR[currency] ?? currency) : currency;
+  const lines = (amounts: Amount[]) =>
+    amounts.length === 0
+      ? [t('ledgerDays.nothing')]
+      : amounts.map((entry) => `${plain(entry.amount, entry.currency)} ${unit(entry.currency)}`);
+
+  return [
+    t('ledgerDays.shareTitle', { date: day.date }),
+    t('ledgerDays.shareCount', { count: day.count }),
+    '',
+    `${t('ledgerDays.received')}:`,
+    ...lines(day.received),
+    '',
+    `${t('ledgerDays.paidCash')}:`,
+    ...lines(day.paidCash),
+    '',
+    `${t('ledgerDays.paidBank')}:`,
+    ...lines(day.paidBank),
+    '',
+    t('ledgerDays.shareOwed'),
+    ...lines(day.owedAtEnd),
+  ].join('\n');
 }
 
 export function DailyLedger({
@@ -113,31 +142,7 @@ export function DailyLedger({
     void load();
   }, [load, refreshKey]);
 
-  const unit = (currency: string) =>
-    locale === 'ar' ? (SHORT_AR[currency] ?? currency) : currency;
-  const lines = (amounts: Amount[]) =>
-    amounts.length === 0
-      ? [t('ledgerDays.nothing')]
-      : amounts.map((entry) => `${plain(entry.amount, entry.currency)} ${unit(entry.currency)}`);
-
-  /** The day, written out the way the office sends things. */
-  const message = (day: LedgerDay) =>
-    [
-      t('ledgerDays.shareTitle', { date: day.date }),
-      t('ledgerDays.shareCount', { count: day.count }),
-      '',
-      `${t('ledgerDays.received')}:`,
-      ...lines(day.received),
-      '',
-      `${t('ledgerDays.paidCash')}:`,
-      ...lines(day.paidCash),
-      '',
-      `${t('ledgerDays.paidBank')}:`,
-      ...lines(day.paidBank),
-      '',
-      t('ledgerDays.shareOwed'),
-      ...lines(day.owedAtEnd),
-    ].join('\n');
+  const message = (day: LedgerDay) => dayReport(day, t, locale);
 
   // The newest day is the one being worked: its own transfers still unsent.
   const all = rows ?? [];
@@ -361,7 +366,7 @@ function sumAll(lists: Amount[][]): Amount[] {
 }
 
 /** «يوم واحد / يومان / ٣ أيام / ١١ يوماً» — the count of days as Arabic says it. */
-function daysPhrase(count: number, locale: string): string {
+export function daysPhrase(count: number, locale: string): string {
   if (locale !== 'ar') return count === 1 ? '1 day' : `${count} days`;
   const tail = count % 100;
   if (count === 1) return 'يوم واحد';
@@ -370,7 +375,7 @@ function daysPhrase(count: number, locale: string): string {
   return `${count} يوماً`;
 }
 
-function Amounts({ list }: { list: Amount[] }) {
+export function Amounts({ list }: { list: Amount[] }) {
   if (list.length === 0) return <span className="text-content-tertiary">—</span>;
   return (
     <span className="flex flex-col gap-0.5">
@@ -386,7 +391,7 @@ function Amounts({ list }: { list: Amount[] }) {
   );
 }
 
-function Tile({
+export function Tile({
   label,
   hint,
   tone,
@@ -577,7 +582,7 @@ function DayRow({
 }
 
 /** «عملية / عمليتان / عمليات» — the noun agreeing with its count, as Arabic does. */
-function opsWord(count: number, locale: string): string {
+export function opsWord(count: number, locale: string): string {
   if (locale !== 'ar') return count === 1 ? 'operation' : 'operations';
   const tail = count % 100;
   if (count === 1) return 'عملية';
@@ -609,7 +614,7 @@ function Figure({ label, amounts }: { label: string; amounts: Amount[] }) {
   );
 }
 
-interface DayEntry {
+export interface DayEntry {
   id: string;
   reference: string;
   createdAt: string;

@@ -952,6 +952,30 @@ const en = {
     perCurrency: 'Totals are kept in each currency and never added across currencies. Reversed operations are counted but left out of every total.',
   },
 
+  workDays: {
+    legendWorked: 'Worked day',
+    legendOwed: 'Ended owing the bank',
+    previous: 'Previous worked day',
+    next: 'Next worked day',
+    prevMonth: 'Previous month',
+    nextMonth: 'Next month',
+    emptyTitle: 'No exchanges on this day',
+    emptyHint: 'Pick a day marked with a dot, or step back to the previous worked day.',
+    operations: 'Exchanges',
+    entries: 'The day’s exchanges',
+    search: 'Search by reference, name or amount',
+    noMatch: 'No exchanges match this choice.',
+    monthSummary: '{ops} over {days} days this month',
+    monthEmpty: 'No exchanges this month',
+    filter: {
+      all: 'All',
+      cash: 'Cash',
+      bank: 'Transfer',
+      pending: 'Awaiting transfer',
+      deleted: 'Deleted',
+    },
+  },
+
   ledgerDays: {
     title: 'Work days',
     pageTitle: 'Work days',
