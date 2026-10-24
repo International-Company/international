@@ -951,6 +951,27 @@ const en = {
     perCurrency: 'Totals are kept in each currency and never added across currencies. Reversed operations are counted but left out of every total.',
   },
 
+  ledgerDays: {
+    title: 'My days',
+    titleFor: '{name}’s days',
+    hint: 'Each day and what was exchanged in it, and what was owed to the bank when it ended — including anything left over from earlier days.',
+    date: 'Day',
+    ops: 'Operations',
+    received: 'Taken in',
+    paidCash: 'Paid in cash',
+    paidBank: 'Paid by transfer',
+    owed: 'Owed to the bank',
+    owedHint: 'at day’s end',
+    running: 'Running',
+    closed: 'Closed',
+    none: 'No days yet.',
+    share: 'Send the day’s report',
+    shareTitle: 'Report for {date}',
+    shareCount: 'Operations: {count}',
+    shareOwed: 'Owed to the bank at day’s end:',
+    nothing: 'Nothing',
+  },
+
   myReport: {
     title: 'My reports',
     subtitle: 'What you recorded, and what it did to the balances in your hands.',

@@ -2,6 +2,7 @@ import 'server-only';
 import type { Prisma } from '@prisma/client';
 import { prisma, type DbClient } from '@/core/db/prisma';
 import { errors } from '@/core/errors/app-error';
+import { dayBounds, formatDayKey } from '@/core/time/day-key';
 import type { Actor } from './transaction.service';
 import {
   categoryOf,
@@ -479,4 +480,157 @@ export async function machineToday(actor: Actor, db: DbClient = prisma): Promise
       a.pending === b.pending ? a.channel.localeCompare(b.channel) : a.pending > b.pending ? -1 : 1,
     ),
   };
+}
+
+// ---------------------------------------------------------------------------
+// One teller, day by day
+// ---------------------------------------------------------------------------
+
+/** One business day of one teller's work, and where he stood at its end. */
+export interface LedgerDay {
+  dayId: string;
+  /** The day, as `YYYY-MM-DD`. */
+  date: string;
+  /** OPEN | REOPENED | CLOSING | CLOSED. */
+  status: string;
+  /** Exchanges on the machine that stand. */
+  count: number;
+  received: Amount[];
+  paidCash: Amount[];
+  paidBank: Amount[];
+  /**
+   * Every transfer of his still unsent when the day ended — that day's and any
+   * left over from before. What he owed the bank, as of that evening.
+   */
+  owedAtEnd: Amount[];
+}
+
+/**
+ * A teller's days, newest first: what each one came to, and what he still
+ * owed the bank when it ended.
+ *
+ * ## Why the owed figure is "as of that evening"
+ *
+ * The question asked at the end of a day is "how much do I owe the bank now",
+ * and a transfer left unsent yesterday is still owed today. So each day carries
+ * everything of his that had been promised by transfer and not yet confirmed
+ * as sent by its close — read from when each was recorded and when it was
+ * confirmed, so last week's figure stays last week's however much has been
+ * sent since.
+ *
+ * The exchanged totals are the machine's, as the screen it sits on. The owed
+ * figure is every transfer he promised, from any screen: the bank does not
+ * care which one he used.
+ *
+ * A reversed deal is left out of both — it neither exchanged anything nor
+ * promised anything that is still owed.
+ */
+export async function dailyLedger(
+  input: { days?: number; tellerId?: string | null },
+  actor: Actor,
+  db: DbClient = prisma,
+): Promise<LedgerDay[]> {
+  // His own, unless the asker may read everybody's and named somebody.
+  const tellerId =
+    input.tellerId && actor.permissions.includes('exchange.transaction.viewAll')
+      ? input.tellerId
+      : actor.id;
+  if (!actor.permissions.includes('exchange.transaction.view')) {
+    throw errors.forbidden('exchange.transaction.view');
+  }
+  if (!actor.branchId) return [];
+
+  const days = await db.businessDay.findMany({
+    where: { branchId: actor.branchId },
+    orderBy: { date: 'desc' },
+    take: Math.min(Math.max(input.days ?? 14, 1), 90),
+    select: { id: true, date: true, status: true },
+  });
+  if (days.length === 0) return [];
+
+  const oldest = days[days.length - 1]!.date;
+
+  const [worked, transfers] = await Promise.all([
+    db.transaction.findMany({
+      where: {
+        type: 'EXCHANGE',
+        createdById: tellerId,
+        businessDayId: { in: days.map((day) => day.id) },
+        reversalOfId: null,
+        status: { in: ['POSTED', 'PENDING_TRANSFER'] },
+      },
+      select: {
+        businessDayId: true,
+        fromCurrency: true,
+        fromAmount: true,
+        toCurrency: true,
+        payoutCashAmount: true,
+        payoutBankAmount: true,
+      },
+    }),
+    // Every transfer that could still have been owed on any of these days:
+    // unsent now, or sent only after the oldest of them began.
+    db.transaction.findMany({
+      where: {
+        createdById: tellerId,
+        reversalOfId: null,
+        status: { not: 'REVERSED' },
+        payoutBankAmount: { gt: 0n },
+        OR: [{ transferConfirmedAt: null }, { transferConfirmedAt: { gte: oldest } }],
+      },
+      select: {
+        toCurrency: true,
+        payoutBankAmount: true,
+        createdAt: true,
+        transferConfirmedAt: true,
+        status: true,
+      },
+    }),
+  ]);
+
+  const add = (into: Map<string, bigint>, currency: string, amount: bigint) => {
+    if (amount !== 0n) into.set(currency, (into.get(currency) ?? 0n) + amount);
+  };
+  const list = (sums: Map<string, bigint>): Amount[] =>
+    [...sums.entries()]
+      .map(([currency, amount]) => ({ currency, amount }))
+      .sort((a, b) => a.currency.localeCompare(b.currency));
+
+  const now = new Date();
+
+  return days.map((day) => {
+    const mine = worked.filter((row) => row.businessDayId === day.id);
+    const received = new Map<string, bigint>();
+    const paidCash = new Map<string, bigint>();
+    const paidBank = new Map<string, bigint>();
+    for (const row of mine) {
+      add(received, row.fromCurrency, row.fromAmount);
+      add(paidCash, row.toCurrency, row.payoutCashAmount);
+      add(paidBank, row.toCurrency, row.payoutBankAmount);
+    }
+
+    // The end of the day, or now for a day still running.
+    const { end } = dayBounds(day.date);
+    const cutoff = end > now ? now : end;
+    const owed = new Map<string, bigint>();
+    for (const transfer of transfers) {
+      if (transfer.createdAt > cutoff) continue;
+      const sentBy = transfer.transferConfirmedAt;
+      // Confirmed by the cut-off means paid; a row no longer pending but with
+      // no time recorded was settled some other way and is not owed.
+      if (sentBy ? sentBy <= cutoff : transfer.status !== 'PENDING_TRANSFER') continue;
+      add(owed, transfer.toCurrency, transfer.payoutBankAmount);
+    }
+
+    return {
+      dayId: day.id,
+      date: formatDayKey(day.date),
+      status: day.status,
+      count: mine.length,
+      received: list(received),
+      paidCash: list(paidCash),
+      paidBank: list(paidBank),
+      owedAtEnd: list(owed),
+    };
+  });
 }

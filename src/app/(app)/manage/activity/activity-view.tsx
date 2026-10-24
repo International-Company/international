@@ -17,6 +17,7 @@ import {
   usePeriod,
   type TypeTotals,
 } from '@/app/_activity/parts';
+import { DailyLedger } from '@/app/_activity/daily-ledger';
 
 /**
  * What each teller recorded, and what it came to.
@@ -250,6 +251,16 @@ export function ActivityView({ initialTeller }: { initialTeller: string }) {
       )}
 
       {/* --- The deals themselves ------------------------------------------- */}
+      {/* One teller chosen: his days, with what he owed the bank at each end. */}
+      {chosen && (
+        <DailyLedger
+          days={30}
+          tellerId={chosen.tellerId}
+          title={t('ledgerDays.titleFor', { name: name(chosen) })}
+          refreshKey={reloadKey}
+        />
+      )}
+
       <OperationsList
         range={range}
         createdById={tellerId || undefined}

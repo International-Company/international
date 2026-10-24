@@ -15,6 +15,7 @@ import {
   usePeriod,
   type TypeTotals,
 } from '@/app/_activity/parts';
+import { DailyLedger } from '@/app/_activity/daily-ledger';
 
 /**
  * What I did, and what it did to what I hold.
@@ -217,6 +218,9 @@ export function MyReportView({ userId }: { userId: string }) {
           <CategoryCards types={report.types} />
         </section>
       )}
+
+      {/* Day by day: what each came to, and what was owed when it ended. */}
+      <DailyLedger days={30} refreshKey={reloadKey} />
 
       <OperationsList
         range={range}

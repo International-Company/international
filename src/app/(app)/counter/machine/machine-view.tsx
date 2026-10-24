@@ -32,6 +32,7 @@ import { Field, Input, MoneyInput, Textarea } from '@/ui/form';
 import { Money } from '@/ui/display';
 import { CustomerPicker, type CustomerHit } from '@/ui/customer-picker';
 import { cn } from '@/ui/utils';
+import { DailyLedger } from '@/app/_activity/daily-ledger';
 import { TodaySummary } from './today-summary';
 
 /**
@@ -1085,6 +1086,9 @@ export function MachineView({
             refreshKey={done?.id ?? null}
             decimalsOf={(code) => byCode.get(code)?.decimals ?? 2}
           />
+
+          {/* And the days before it, each with what was owed when it ended. */}
+          <DailyLedger days={7} refreshKey={done?.id ?? null} />
         </div>
       </div>
     </form>
