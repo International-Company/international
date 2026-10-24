@@ -12,8 +12,10 @@ import {
 import { useRouter } from 'next/navigation';
 import {
   ArrowDownUp,
+  CalendarCheck,
   Check,
   ChevronDown,
+  ChevronLeft,
   History,
   Loader2,
   Plus,
@@ -34,7 +36,7 @@ import { Field, Input, MoneyInput, Textarea } from '@/ui/form';
 import { Money } from '@/ui/display';
 import { CustomerPicker, type CustomerHit } from '@/ui/customer-picker';
 import { cn } from '@/ui/utils';
-import { DailyLedger } from '@/app/_activity/daily-ledger';
+import Link from 'next/link';
 import { TodaySummary } from './today-summary';
 
 /**
@@ -1214,13 +1216,17 @@ export function MachineView({
             </section>
           )}
 
-          {/* Today's owed figure already leads the summary above, so the days
-              start straight at the list here. */}
-          <DailyLedger
-            days={7}
-            refreshKey={`${done?.id ?? ''}:${removedTick}`}
-            summary={false}
-          />
+          {/* The days have a screen of their own; one tap away from here. */}
+          <Link
+            href="/counter/days"
+            className="flex items-center justify-between gap-3 rounded-2xl bg-surface px-4 py-3 text-sm font-medium text-content ring-1 ring-border-subtle transition-colors hover:bg-surface-sunken hover:text-primary-text"
+          >
+            <span className="flex items-center gap-2">
+              <CalendarCheck className="size-4 text-primary-text" />
+              {t('nav.workDays')}
+            </span>
+            <ChevronLeft className="size-4 text-content-tertiary rtl:rotate-0 ltr:rotate-180" />
+          </Link>
         </aside>
 
         <Dialog

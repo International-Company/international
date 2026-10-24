@@ -81,6 +81,13 @@ export const NAVIGATION: NavSection[] = [
         shortcut: 'g m',
       },
       {
+        // The machine's days, each its own account, opening to its exchanges.
+        href: '/counter/days',
+        labelKey: 'nav.workDays',
+        icon: 'day',
+        permissions: ['exchange.machine.use'],
+      },
+      {
         href: '/counter/remittance',
         labelKey: 'nav.remittance',
         icon: 'transfer',

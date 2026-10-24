@@ -636,3 +636,85 @@ export async function dailyLedger(
     };
   });
 }
+
+// ---------------------------------------------------------------------------
+// One day, entry by entry
+// ---------------------------------------------------------------------------
+
+/** One exchange of a teller's day, as the day's detail lists it. */
+export interface DayEntry {
+  id: string;
+  reference: string;
+  createdAt: Date;
+  /** POSTED | PENDING_TRANSFER | REVERSED. */
+  status: string;
+  fromCurrency: string;
+  fromAmount: bigint;
+  toCurrency: string;
+  toAmount: bigint;
+  payoutCashAmount: bigint;
+  payoutBankAmount: bigint;
+  payoutBankChannel: string | null;
+  transferConfirmedAt: Date | null;
+  /** Who it was for — the registered customer, or the name left at the counter. */
+  party: { en: string | null; ar: string | null };
+}
+
+/**
+ * The exchanges behind one row of the days, oldest first: the same day, the
+ * same teller, and the same rule for whose — so the detail always adds up to
+ * the row it opens from.
+ *
+ * Reversed deals are listed, marked, because the teller asks "where did that
+ * one go" as often as "what did I do"; the reversing rows themselves are not,
+ * since they are the deletion, not a second deal.
+ */
+export async function dayEntries(
+  input: { dayId: string; tellerId?: string | null },
+  actor: Actor,
+  db: DbClient = prisma,
+): Promise<DayEntry[]> {
+  const tellerId =
+    input.tellerId && actor.permissions.includes('exchange.transaction.viewAll')
+      ? input.tellerId
+      : actor.id;
+  if (!actor.permissions.includes('exchange.transaction.view')) {
+    throw errors.forbidden('exchange.transaction.view');
+  }
+
+  const rows = await db.transaction.findMany({
+    where: {
+      type: 'EXCHANGE',
+      createdById: tellerId,
+      businessDayId: input.dayId,
+      reversalOfId: null,
+      ...(actor.branchId ? { branchId: actor.branchId } : {}),
+    },
+    orderBy: { createdAt: 'asc' },
+    take: 500,
+    select: {
+      id: true,
+      reference: true,
+      createdAt: true,
+      status: true,
+      fromCurrency: true,
+      fromAmount: true,
+      toCurrency: true,
+      toAmount: true,
+      payoutCashAmount: true,
+      payoutBankAmount: true,
+      payoutBankChannel: true,
+      transferConfirmedAt: true,
+      counterpartyName: true,
+      customer: { select: { fullNameEn: true, fullNameAr: true } },
+    },
+  });
+
+  return rows.map(({ counterpartyName, customer, ...row }) => ({
+    ...row,
+    party: {
+      en: customer?.fullNameEn ?? counterpartyName ?? null,
+      ar: customer?.fullNameAr ?? counterpartyName ?? null,
+    },
+  }));
+}

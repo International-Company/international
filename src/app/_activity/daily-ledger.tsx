@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { MessageCircle } from 'lucide-react';
+import { ChevronDown, MessageCircle, Printer } from 'lucide-react';
 import { useLocale } from '@/i18n/provider';
 import { api, queryString } from '@/lib/api-client';
 import { formatDate } from '@/i18n/format';
@@ -80,6 +80,15 @@ export function DailyLedger({
 }) {
   const { t, locale } = useLocale();
   const [rows, setRows] = useState<LedgerDay[] | null>(null);
+  /** The days opened to their exchanges. */
+  const [opened, setOpened] = useState<Set<string>>(() => new Set());
+  const toggle = (dayId: string) =>
+    setOpened((current) => {
+      const next = new Set(current);
+      if (next.has(dayId)) next.delete(dayId);
+      else next.add(dayId);
+      return next;
+    });
 
   const load = useCallback(async () => {
     try {
@@ -202,8 +211,14 @@ export function DailyLedger({
                     <span aria-hidden className="absolute inset-y-0 start-0 w-0.5 bg-primary" />
                   )}
                   <div className="flex items-center justify-between gap-3">
-                    {/* the day */}
-                    <div className="flex min-w-0 items-center gap-3">
+                    {/* the day — tapped, it opens to the exchanges behind it */}
+                    <button
+                      type="button"
+                      disabled={quiet}
+                      onClick={() => toggle(day.dayId)}
+                      aria-expanded={quiet ? undefined : opened.has(day.dayId)}
+                      className="flex min-w-0 flex-1 items-center gap-3 rounded-lg text-start outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-default"
+                    >
                       <div
                         className={cn(
                           'flex shrink-0 flex-col items-center justify-center rounded-lg border leading-none',
@@ -244,11 +259,25 @@ export function DailyLedger({
                             <>
                               <span className="tabular-nums">{day.count}</span>{' '}
                               {opsWord(day.count, locale)}
+                              <span className="ms-2 text-primary-text">
+                                {opened.has(day.dayId)
+                                  ? t('ledgerDays.hideDetail')
+                                  : t('ledgerDays.showDetail')}
+                              </span>
                             </>
                           )}
                         </p>
                       </div>
-                    </div>
+                      {!quiet && (
+                        <ChevronDown
+                          aria-hidden
+                          className={cn(
+                            'ms-auto size-4 shrink-0 text-content-tertiary transition-transform duration-200',
+                            opened.has(day.dayId) && 'rotate-180',
+                          )}
+                        />
+                      )}
+                    </button>
 
                     {/* what was owed when it ended, then the report */}
                     <div className="flex shrink-0 items-center gap-1">
@@ -293,6 +322,10 @@ export function DailyLedger({
                       <Figure label={t('ledgerDays.paidBank')} amounts={day.paidBank} />
                     </dl>
                   )}
+
+                  {!quiet && opened.has(day.dayId) && (
+                    <DayDetail dayId={day.dayId} tellerId={tellerId} refreshKey={refreshKey} />
+                  )}
                 </li>
               );
             })}
@@ -332,6 +365,152 @@ function Figure({ label, amounts }: { label: string; amounts: Amount[] }) {
           ))
         )}
       </dd>
+    </div>
+  );
+}
+
+interface DayEntry {
+  id: string;
+  reference: string;
+  createdAt: string;
+  status: string;
+  fromCurrency: string;
+  fromAmount: string;
+  toCurrency: string;
+  toAmount: string;
+  payoutCashAmount: string;
+  payoutBankAmount: string;
+  payoutBankChannel: string | null;
+  transferConfirmedAt: string | null;
+  party: { en: string | null; ar: string | null };
+}
+
+/**
+ * The exchanges behind one day, oldest first — fetched only when the day is
+ * opened, so a month of days costs one request until someone asks for more.
+ */
+function DayDetail({
+  dayId,
+  tellerId,
+  refreshKey,
+}: {
+  dayId: string;
+  tellerId?: string;
+  refreshKey?: string | number | null;
+}) {
+  const { t, locale } = useLocale();
+  const [entries, setEntries] = useState<DayEntry[] | null>(null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    let live = true;
+    setFailed(false);
+    api
+      .get<{ entries: DayEntry[] }>(`/api/my/days/${dayId}${queryString({ tellerId })}`)
+      .then((result) => live && setEntries(result.entries))
+      .catch(() => live && setFailed(true));
+    return () => {
+      live = false;
+    };
+  }, [dayId, tellerId, refreshKey]);
+
+  const clock = (value: string) =>
+    new Intl.DateTimeFormat(locale === 'ar' ? 'ar-u-nu-latn' : 'en-GB', {
+      hour: '2-digit',
+      minute: '2-digit',
+    }).format(new Date(value));
+
+  if (failed) {
+    return <p className="mt-3 text-xs text-danger-text">{t('ledgerDays.detailFailed')}</p>;
+  }
+  if (entries === null) {
+    return (
+      <div className="mt-3 space-y-2" aria-busy>
+        {[0, 1].map((key) => (
+          <div key={key} className="h-12 animate-pulse rounded-lg bg-surface-sunken" />
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-3 overflow-hidden rounded-lg border border-border-subtle">
+      <p className="border-b border-border-subtle bg-surface-sunken px-3 py-1.5 text-[11px] font-medium text-content-secondary">
+        {t('ledgerDays.detailTitle', { count: entries.length })}
+      </p>
+      <ul className="divide-y divide-border-subtle">
+        {entries.map((entry) => {
+          const gone = entry.status === 'REVERSED';
+          const bank = BigInt(entry.payoutBankAmount) > 0n;
+          const cash = BigInt(entry.payoutCashAmount) > 0n;
+          const how = bank && cash ? 'split' : bank ? 'bank' : 'cash';
+          const party = locale === 'ar' ? entry.party.ar : (entry.party.en ?? entry.party.ar);
+          return (
+            <li
+              key={entry.id}
+              className={cn(
+                'flex items-center gap-3 px-3 py-2.5',
+                gone && 'bg-danger-subtle/20',
+              )}
+            >
+              <span className="w-11 shrink-0 text-xs font-medium tabular-nums text-content-secondary ltr-content">
+                {clock(entry.createdAt)}
+              </span>
+
+              <div className="min-w-0 flex-1">
+                <p
+                  className={cn(
+                    'ltr-content flex flex-wrap items-baseline gap-x-1.5 text-sm font-medium tabular-nums',
+                    gone ? 'text-content-tertiary line-through decoration-danger/60' : 'text-content',
+                  )}
+                >
+                  <Money
+                    value={entry.fromAmount}
+                    currency={entry.fromCurrency}
+                    decimals={decimalsOf(entry.fromCurrency)}
+                  />
+                  <span className="text-content-tertiary">→</span>
+                  <Money
+                    value={entry.toAmount}
+                    currency={entry.toCurrency}
+                    decimals={decimalsOf(entry.toCurrency)}
+                  />
+                </p>
+                <p className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-content-tertiary">
+                  <span>
+                    {t(`ledgerDays.how.${how}`)}
+                    {bank && entry.payoutBankChannel ? ` · ${entry.payoutBankChannel}` : ''}
+                  </span>
+                  {party && <span className="truncate">{party}</span>}
+                  <span className="font-mono ltr-content">{entry.reference}</span>
+                </p>
+              </div>
+
+              <span className="flex shrink-0 items-center gap-1">
+                {gone ? (
+                  <Badge tone="danger">{t('ledgerDays.state.deleted')}</Badge>
+                ) : bank ? (
+                  entry.transferConfirmedAt ? (
+                    <Badge tone="success">{t('ledgerDays.state.sent')}</Badge>
+                  ) : (
+                    <Badge tone="warning">{t('ledgerDays.state.pending')}</Badge>
+                  )
+                ) : null}
+                <a
+                  href={`/print/receipt/${entry.id}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title={t('transactions.printReceipt')}
+                  aria-label={t('transactions.printReceipt')}
+                  className="inline-flex size-8 items-center justify-center rounded-full text-content-tertiary transition-colors hover:bg-surface-sunken hover:text-content"
+                >
+                  <Printer className="size-4" />
+                </a>
+              </span>
+            </li>
+          );
+        })}
+      </ul>
     </div>
   );
 }

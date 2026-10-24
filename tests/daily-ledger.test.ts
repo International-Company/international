@@ -3,7 +3,7 @@ import './support/test-env.ts';
 
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { dailyLedger } from '../src/modules/exchange/activity.service.ts';
+import { dailyLedger, dayEntries } from '../src/modules/exchange/activity.service.ts';
 import { dayKey } from '../src/core/time/day-key.ts';
 
 /**
@@ -175,5 +175,45 @@ describe('a teller’s days', () => {
       db,
     );
     assert.ok(asked.every((where) => where.createdById === 'sami'));
+  });
+});
+
+describe('one day, entry by entry', () => {
+  const capture = () => {
+    const asked: Record<string, unknown>[] = [];
+    const db = {
+      transaction: {
+        findMany: async (args: { where: Record<string, unknown> }) => {
+          asked.push(args.where);
+          return [
+            {
+              id: 't1',
+              reference: 'TXN-1',
+              counterpartyName: 'سامي',
+              customer: null,
+            },
+          ];
+        },
+      },
+    } as never;
+    return { asked, db };
+  };
+
+  it('lists that day’s own exchanges, not the rows a deletion leaves behind', async () => {
+    const { asked, db } = capture();
+    const entries = await dayEntries({ dayId: 'd-today' }, teller, db);
+
+    const where = asked[0]!;
+    assert.equal(where.type, 'EXCHANGE');
+    assert.equal(where.businessDayId, 'd-today');
+    assert.equal(where.createdById, 'ahmad');
+    assert.equal(where.reversalOfId, null);
+    assert.deepEqual(entries[0]!.party, { en: 'سامي', ar: 'سامي' });
+  });
+
+  it('is a teller’s own, whoever he names', async () => {
+    const { asked, db } = capture();
+    await dayEntries({ dayId: 'd-today', tellerId: 'sami' }, teller, db);
+    assert.equal(asked[0]!.createdById, 'ahmad');
   });
 });
