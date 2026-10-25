@@ -13,8 +13,10 @@ import { requireOpenDay } from './business-day.service';
 import { cashOwnerFor } from '@/modules/treasury/shift.service';
 import {
   CATEGORIES,
+  MACHINE_TYPES,
   TRANSACTION_TYPE_META,
   balancesFor,
+  isWalletType,
   type BalanceSide,
   type Category,
   type TransactionStatus,
@@ -110,7 +112,10 @@ export async function record(
    * the correspondent is owed shekels, and the gap between the two figures is
    * the margin rather than a conversion.
    */
-  const isRemittance = input.type === 'REMITTANCE_OUT' || input.type === 'REMITTANCE_IN';
+  // A wallet cash-out or top-up is one currency through two balances, the
+  // fee being the gap — the same shape as a remittance, for the same reason.
+  const isRemittance =
+    input.type === 'REMITTANCE_OUT' || input.type === 'REMITTANCE_IN' || isWalletType(input.type);
   if (!isRemittance && input.fromCurrency === input.toCurrency) {
     throw errors.precondition('Both sides are the same currency', 'errors.sameCurrencyPair');
   }
@@ -439,7 +444,12 @@ export async function reverse(
     if (!original) throw errors.notFound('Transaction', id);
 
     if (!anyone) {
-      if (original.type !== 'EXCHANGE' || original.createdById !== actor.id) {
+      // Anything he recorded on the machine — an exchange, or a wallet
+      // cash-out or top-up beside it.
+      if (
+        !(MACHINE_TYPES as readonly string[]).includes(original.type) ||
+        original.createdById !== actor.id
+      ) {
         throw errors.forbidden('exchange.transaction.reverse');
       }
       if (original.transferConfirmedAt) {

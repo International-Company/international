@@ -6,6 +6,7 @@ import type { Locale } from '@/i18n/config';
 import * as settings from '@/modules/settings/settings.service';
 import * as audit from '@/modules/audit/audit.service';
 import type { Actor } from './transaction.service';
+import { MACHINE_TYPES } from './transaction-types';
 
 /**
  * A transaction as a message a person can send.
@@ -212,7 +213,8 @@ const DIVIDER = '\n\n———\n\n';
 export type PendingKind = 'exchange' | 'usdt';
 
 const KIND_TYPES: Record<PendingKind, string[]> = {
-  exchange: ['EXCHANGE'],
+  // A wallet top-up is a transfer the machine promised, settled with the rest.
+  exchange: [...MACHINE_TYPES],
   usdt: ['USDT_RECEIVE', 'USDT_SEND'],
 };
 

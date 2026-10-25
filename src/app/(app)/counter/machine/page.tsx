@@ -6,6 +6,7 @@ import { rateBoard } from '@/modules/exchange/rates.service';
 import { toJsonSafe } from '@/core/http/json';
 import { Alert, PageHeader } from '@/ui/primitives';
 import { MachineView } from './machine-view';
+import { MachineTabs } from './machine-tabs';
 
 export const metadata: Metadata = { title: 'Exchange machine' };
 export const dynamic = 'force-dynamic';
@@ -31,9 +32,21 @@ export default async function MachinePage() {
     <div className="space-y-4">
       <PageHeader title={t('machine.title')} description={t('machine.subtitle')} />
 
-      <MachineView
-        config={toJsonSafe(config)}
-        board={toJsonSafe(board)}
+      <MachineTabs
+        exchange={
+          <MachineView
+            config={toJsonSafe(config)}
+            board={toJsonSafe(board)}
+            permissions={session.user.permissions}
+          />
+        }
+        currencies={config.currencies.map((currency) => ({
+          code: currency.code,
+          nameAr: currency.nameAr,
+          nameEn: currency.nameEn,
+          decimals: currency.decimals,
+        }))}
+        channels={config.transferChannels}
         permissions={session.user.permissions}
       />
     </div>

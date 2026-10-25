@@ -155,7 +155,7 @@ describe('a teller’s days', () => {
   it('keeps USDT deals out of the exchange account', async () => {
     const { db, asked } = fakeDb([], []);
     await dailyLedger({ days: 2 }, teller, db);
-    assert.ok(asked.every((where) => where.type === 'EXCHANGE'));
+    assert.ok(asked.every((where) => JSON.stringify(where.type) === JSON.stringify({ in: ['EXCHANGE', 'WALLET_CASHOUT', 'WALLET_TOPUP'] })));
   });
 
   it('is a teller’s own, whoever he names', async () => {
@@ -204,7 +204,7 @@ describe('one day, entry by entry', () => {
     const entries = await dayEntries({ dayId: 'd-today' }, teller, db);
 
     const where = asked[0]!;
-    assert.equal(where.type, 'EXCHANGE');
+    assert.deepEqual(where.type, { in: ['EXCHANGE', 'WALLET_CASHOUT', 'WALLET_TOPUP'] });
     assert.equal(where.businessDayId, 'd-today');
     assert.equal(where.createdById, 'ahmad');
     assert.equal(where.reversalOfId, null);

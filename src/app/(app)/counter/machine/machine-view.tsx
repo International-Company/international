@@ -214,6 +214,16 @@ export function MachineView({
    */
   const [destination, setDestination] = useState(config.transferChannels[0] ?? '');
 
+  /*
+   * How the customer pays: across the counter, or by transfer into one of the
+   * office's accounts. Paid by transfer, the deal is priced at the bank rate —
+   * the money arrived through the bank, not as notes — and handed back in
+   * cash, so the payout choice below gives way to a plain "paid in cash".
+   */
+  const [intakeVia, setIntakeVia] = useState<'CASH' | 'TRANSFER'>('CASH');
+  const [intakeChannel, setIntakeChannel] = useState(config.transferChannels[0] ?? '');
+  const paidByTransfer = intakeVia === 'TRANSFER';
+
   // Clearing hands the caret back, so the next customer can be served without
   // reaching for the mouse first.
   const payRef = useRef<HTMLInputElement>(null);
@@ -341,7 +351,8 @@ export function MachineView({
             [side]: value,
             // A reverse-priced amount is sized against one channel; a split is
             // priced forwards, so the till is the sensible one to size against.
-            through: channel === 'BROKER' ? 'BROKER' : 'CASH',
+            // Paid by transfer, the whole deal is at the bank rate.
+            through: channel === 'BROKER' || paidByTransfer ? 'BROKER' : 'CASH',
           })}`,
         )
         .then((result) => {
@@ -364,7 +375,7 @@ export function MachineView({
     }, 220);
 
     return () => clearTimeout(timer);
-  }, [amount, from, to, side, channel, t]);
+  }, [amount, from, to, side, channel, paidByTransfer, t]);
 
   /**
    * Typed entry, as opposed to the keypad.
@@ -421,6 +432,8 @@ export function MachineView({
     setChannel('CASH');
     setBrokerShare('');
     setDestination(config.transferChannels[0] ?? '');
+    setIntakeVia('CASH');
+    setIntakeChannel(config.transferChannels[0] ?? '');
     setSide('pay');
     payRef.current?.focus();
   };
@@ -444,6 +457,13 @@ export function MachineView({
   const legs = (() => {
     const none = { cash: 0n, broker: 0n, from: 0n };
     if (!quote) return none;
+
+    // Paid by transfer: the bank's price, handed back in notes.
+    if (paidByTransfer) {
+      return quote.broker
+        ? { cash: BigInt(quote.broker.toAmount), broker: 0n, from: BigInt(quote.broker.fromAmount) }
+        : none;
+    }
 
     if (channel === 'CASH') {
       return quote.cash
@@ -511,11 +531,17 @@ export function MachineView({
         : null
     : null;
 
+  /**
+   * Whose price this deal is at. Paid by transfer it is the bank's, though the
+   * customer takes notes — so the price and the payout channel part company.
+   */
+  const pricedAs: Channel = paidByTransfer ? 'BROKER' : channel;
+
   /** The rate to show, and the margin, for the chosen way of paying. */
   const shownRate =
-    channel === 'BROKER'
+    pricedAs === 'BROKER'
       ? (quote?.broker?.rate ?? null)
-      : channel === 'CASH'
+      : pricedAs === 'CASH'
         ? (quote?.cash?.rate ?? null)
         : // A split has no single rate; what the customer actually got per unit
           // is the only one that describes their trade.
@@ -525,8 +551,8 @@ export function MachineView({
 
   const margin = (() => {
     if (!canSeeSpread || !quote) return null;
-    if (channel === 'CASH') return quote.cash ? BigInt(quote.cash.profit ?? '0') : null;
-    if (channel === 'BROKER') return quote.broker ? BigInt(quote.broker.profit ?? '0') : null;
+    if (pricedAs === 'CASH') return quote.cash ? BigInt(quote.cash.profit ?? '0') : null;
+    if (pricedAs === 'BROKER') return quote.broker ? BigInt(quote.broker.profit ?? '0') : null;
 
     // Each channel's margin in proportion to the money that went through it.
     if (!quote.cash?.profit || !quote.broker?.profit || legs.from === 0n) return null;
@@ -549,10 +575,10 @@ export function MachineView({
    */
   const unpriced = quote
     ? ([
-        (channel === 'CASH' || channel === 'SPLIT') && !quote.cash
+        (pricedAs === 'CASH' || pricedAs === 'SPLIT') && !quote.cash
           ? t('machine.payoutCash')
           : null,
-        (channel === 'BROKER' || channel === 'SPLIT') && !quote.broker
+        (pricedAs === 'BROKER' || pricedAs === 'SPLIT') && !quote.broker
           ? t('machine.payoutBank')
           : null,
       ].filter(Boolean) as string[])
@@ -567,7 +593,9 @@ export function MachineView({
    * learns it while the customer is still in front of him rather than after
    * pressing record.
    */
-  const throughBank = channel === 'BROKER' || (channel === 'SPLIT' && legs.broker > 0n);
+  // Paid by transfer is money through a bank too, on the way in.
+  const throughBank =
+    paidByTransfer || channel === 'BROKER' || (channel === 'SPLIT' && legs.broker > 0n);
   const named = Boolean(customer) || counterpartyName.trim().length > 0;
   const reachable = Boolean(customer?.phone?.trim()) || counterpartyPhone.trim().length > 0;
   const needsContact = throughBank && (!named || !reachable);
@@ -595,7 +623,9 @@ export function MachineView({
         {
           from,
           to,
-          mode: channel,
+          // Paid by transfer is always handed back in cash.
+          mode: paidByTransfer ? 'CASH' : channel,
+          intakeChannel: paidByTransfer ? intakeChannel : null,
           [side]: amount.trim(),
           /*
            * Only the broker's share of what the customer hands over travels.
@@ -906,7 +936,7 @@ export function MachineView({
                     1 {base} ={' '}
                     {rateText(
                       (() => {
-                        const published = publishedFor(channel === 'BROKER' ? 'BROKER' : 'CASH');
+                        const published = publishedFor(pricedAs === 'BROKER' ? 'BROKER' : 'CASH');
                         if (published) return published;
                         const quoted =
                           channel === 'SPLIT'
@@ -935,6 +965,73 @@ export function MachineView({
               )}
             </div>
 
+            {/*
+              How the customer pays. Notes across the counter, or a transfer
+              into one of the office's accounts — priced at the bank rate, and
+              handed back in cash, so the payout choice below steps aside.
+            */}
+            <div className="rounded-2xl bg-surface p-3 ring-1 ring-border-subtle">
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-xs font-medium text-content-secondary">
+                  {t('machine.intakeTitle')}
+                </span>
+                <div dir="ltr" className="flex gap-1 rounded-full bg-surface-sunken p-1">
+                  {(['CASH', 'TRANSFER'] as const).map((option) => (
+                    <button
+                      key={option}
+                      type="button"
+                      onClick={() => {
+                        setIntakeVia(option);
+                        setDone(null);
+                        if (option === 'TRANSFER') {
+                          setChannel('CASH');
+                          setBrokerShare('');
+                        }
+                      }}
+                      aria-pressed={intakeVia === option}
+                      disabled={option === 'TRANSFER' && config.transferChannels.length === 0}
+                      className={cn(
+                        'h-9 rounded-full px-4 text-sm font-medium transition-colors disabled:opacity-40',
+                        intakeVia === option
+                          ? 'bg-surface text-content shadow-[var(--shadow-sm)]'
+                          : 'text-content-tertiary hover:text-content-secondary',
+                      )}
+                    >
+                      {option === 'CASH' ? t('machine.intakeCash') : t('machine.intakeTransfer')}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {paidByTransfer && (
+                <>
+                  <label className="mt-3 block">
+                    <span className="text-xs text-content-tertiary">{t('machine.intakeInto')}</span>
+                    <select
+                      value={intakeChannel}
+                      onChange={(event) => {
+                        setDone(null);
+                        setIntakeChannel(event.target.value);
+                      }}
+                      className="mt-1 h-12 w-full rounded-xl bg-surface-sunken px-3 text-base font-medium text-content outline-none ring-1 ring-transparent focus:ring-primary"
+                    >
+                      {config.transferChannels.map((entry) => (
+                        <option key={entry} value={entry}>
+                          {entry}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <p className="mt-2 text-xs text-content-tertiary">
+                    {t('machine.intakeTransferHint')}
+                  </p>
+                </>
+              )}
+            </div>
+
+            {/* Paid by transfer is handed back in cash; nothing to choose. */}
+            {!paidByTransfer && (
+            <>
             {/*
               How it is handed over.
               Three segments, defaulting to cash, so the ordinary trade costs
@@ -1063,6 +1160,8 @@ export function MachineView({
                 </div>
               )}
             </div>
+            </>
+            )}
 
             {/* --- Anything standing in the way --------------------------- */}
             {error && <Blocker tone="danger">{error}</Blocker>}

@@ -181,7 +181,7 @@ describe('every pending transfer, as one message', () => {
     const { db, asked } = fakeDb([]);
     await pendingTransfers(teller, 'ar', db, 'exchange');
     await pendingTransfers(teller, 'ar', db, 'usdt');
-    assert.deepEqual(asked[0]!.where.type, { in: ['EXCHANGE'] });
+    assert.deepEqual(asked[0]!.where.type, { in: ['EXCHANGE', 'WALLET_CASHOUT', 'WALLET_TOPUP'] });
     assert.deepEqual(asked[1]!.where.type, { in: ['USDT_RECEIVE', 'USDT_SEND'] });
   });
 

@@ -13,14 +13,34 @@
  * services need it on the server. One definition, both sides.
  */
 
+/*
+ * Never reuse a retired name. scripts/pre-deploy-schema.mjs deletes rows of the
+ * types the reduction retired (CASH_IN, CASH_OUT, DEPOSIT, WITHDRAWAL and the
+ * rest) on every deploy, so a new type called "DEPOSIT" would vanish with each
+ * one. tests/pre-deploy-safety.test.ts fails if that ever happens.
+ */
 export const TRANSACTION_TYPES = [
   'EXCHANGE',
+  'WALLET_CASHOUT',
+  'WALLET_TOPUP',
   'USDT_RECEIVE',
   'USDT_SEND',
   'REMITTANCE_OUT',
   'REMITTANCE_IN',
 ] as const;
 export type TransactionType = (typeof TRANSACTION_TYPES)[number];
+
+/**
+ * Everything the exchange machine records: a conversion, and the two same-
+ * currency services beside it — cash out of a customer's wallet, and cash into
+ * it. One account, one set of totals, one list of the teller's work.
+ */
+export const MACHINE_TYPES = ['EXCHANGE', 'WALLET_CASHOUT', 'WALLET_TOPUP'] as const;
+
+/** The same-currency services: the office's income on them is the fee, not a spread. */
+export function isWalletType(type: string): boolean {
+  return type === 'WALLET_CASHOUT' || type === 'WALLET_TOPUP';
+}
 
 /**
  * Recording is posting. A mistake is undone by reversal, which leaves both
@@ -37,6 +57,12 @@ export interface TransactionTypeMeta {
 
 export const TRANSACTION_TYPE_META: Record<TransactionType, TransactionTypeMeta> = {
   EXCHANGE: { type: 'EXCHANGE', nameEn: 'Currency Exchange', nameAr: 'تصريف عملة' },
+  WALLET_CASHOUT: {
+    type: 'WALLET_CASHOUT',
+    nameEn: 'Wallet cash-out',
+    nameAr: 'سحب من محفظة',
+  },
+  WALLET_TOPUP: { type: 'WALLET_TOPUP', nameEn: 'Wallet top-up', nameAr: 'إيداع في محفظة' },
   REMITTANCE_OUT: { type: 'REMITTANCE_OUT', nameEn: 'Remittance Sent', nameAr: 'حوالة صادرة' },
   REMITTANCE_IN: { type: 'REMITTANCE_IN', nameEn: 'Remittance Received', nameAr: 'حوالة واردة' },
   USDT_RECEIVE: { type: 'USDT_RECEIVE', nameEn: 'USDT Received', nameAr: 'استلام USDT' },
@@ -71,6 +97,14 @@ export function balancesFor(type: TransactionType): {
   // A withdrawal is the machine reversed: the customer pays through the till or
   // the broker, and what they take away is USDT out of the one wallet balance.
   if (type === 'USDT_SEND') return { intake: null, payout: 'CASH' };
+  /*
+   * The machine's work goes through either balance on either side: a customer
+   * can pay by transfer and take notes, and a wallet cash-out comes in by
+   * transfer and goes out in cash while a top-up does the reverse. The legs on
+   * the row say which; an old row with none recorded was all cash, and the
+   * posting and the reversal both read it that way.
+   */
+  if (type === 'EXCHANGE' || isWalletType(type)) return { intake: null, payout: null };
   return { intake: 'CASH', payout: null };
 }
 
@@ -80,7 +114,7 @@ export function balancesFor(type: TransactionType): {
  * screens that answer him group by them.
  */
 export const CATEGORIES = {
-  EXCHANGE: ['EXCHANGE'],
+  EXCHANGE: ['EXCHANGE', 'WALLET_CASHOUT', 'WALLET_TOPUP'],
   REMITTANCE: ['REMITTANCE_OUT', 'REMITTANCE_IN'],
   USDT: ['USDT_RECEIVE', 'USDT_SEND'],
 } as const satisfies Record<string, readonly TransactionType[]>;

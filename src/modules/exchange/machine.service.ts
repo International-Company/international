@@ -313,6 +313,12 @@ export interface MachineRecordInput {
   brokerPayout?: bigint;
   /** Which of the broker's accounts the transfer is instructed to. */
   payoutChannel?: string | null;
+  /**
+   * The customer paid by transfer, into this one of the office's accounts,
+   * rather than across the counter. Priced at the bank rate — the money arrived
+   * through the bank, not as notes — and paid out in cash only.
+   */
+  intakeChannel?: string | null;
   branchId: string;
   /**
    * An approval to break the board, granted for this deal.
@@ -354,9 +360,45 @@ export async function record(input: MachineRecordInput, actor: Actor, db: DbClie
 }
 
 async function post(input: MachineRecordInput, actor: Actor, db: DbClient) {
+  /*
+   * Paid by transfer: the money came in through one of the office's accounts.
+   *
+   * The whole deal is priced at the bank rate, by the office's decision — the
+   * shekels arrived as a balance at the broker, not as notes in the till — and
+   * the customer takes cash. Checked against the same list of accounts a
+   * payout is, and kept apart from a broken price: an approval is granted for
+   * one channel's leg, and this deal has no leg it was granted for.
+   */
+  const intakeChannel = input.intakeChannel?.trim() || null;
+  if (intakeChannel) {
+    if (input.mode !== 'CASH') {
+      throw errors.precondition(
+        'A customer who paid by transfer is paid in cash',
+        'errors.intakeTransferCashOnly',
+      );
+    }
+    if (input.priceExceptionId) {
+      throw errors.precondition(
+        'A broken price cannot be used on a deal paid by transfer',
+        'errors.intakeTransferNoException',
+      );
+    }
+    const allowed = await transferChannels(db);
+    if (!allowed.includes(intakeChannel)) {
+      throw errors.precondition(
+        `${intakeChannel} is not an account the counter offers`,
+        'errors.transferChannelUnknown',
+        { channel: intakeChannel },
+      );
+    }
+  }
+
   const forced = input.priceExceptionId ? await claimForDeal(input, actor, db) : null;
 
-  const legs = await priceLegs(input, db, forced);
+  // Paid by transfer: priced through the bank, handed over from the till.
+  const legs = intakeChannel
+    ? { cash: (await priceLegs({ ...input, mode: 'BROKER' }, db)).broker, broker: NO_LEG }
+    : await priceLegs(input, db, forced);
   const total = legs.cash.to + legs.broker.to;
   const fromTotal = legs.cash.from + legs.broker.from;
 
@@ -456,6 +498,9 @@ async function post(input: MachineRecordInput, actor: Actor, db: DbClient) {
       fromAmount: fromTotal,
       toCurrency: input.toCurrency,
       toAmount: total,
+      // What came in by transfer lands on the office's account at the broker.
+      intake: intakeChannel ? { cash: 0n, broker: fromTotal } : undefined,
+      intakeChannel,
       payout: { cash: legs.cash.to, bank: legs.broker.to },
       payoutChannel: account,
       rate,

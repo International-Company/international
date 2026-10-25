@@ -76,7 +76,7 @@ describe('the machine’s total for today', () => {
 
     assert.equal(where.createdById, 'ahmad');
     assert.equal(where.businessDayId, 'day-1');
-    assert.equal(where.type, 'EXCHANGE');
+    assert.deepEqual(where.type, { in: ['EXCHANGE', 'WALLET_CASHOUT', 'WALLET_TOPUP'] });
     assert.equal(where.reversalOfId, null);
     assert.deepEqual(where.status, { in: ['POSTED', 'PENDING_TRANSFER'] });
   });

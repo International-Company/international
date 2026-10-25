@@ -6,6 +6,7 @@ import { dayBounds, formatDayKey } from '@/core/time/day-key';
 import type { Actor } from './transaction.service';
 import {
   categoryOf,
+  MACHINE_TYPES,
   TRANSACTION_TYPES,
   type Category,
   type TransactionType,
@@ -410,7 +411,7 @@ export async function machineToday(actor: Actor, db: DbClient = prisma): Promise
 
   const rows = await db.transaction.findMany({
     where: {
-      type: 'EXCHANGE',
+      type: { in: [...MACHINE_TYPES] },
       createdById: actor.id,
       businessDayId: day.id,
       reversalOfId: null,
@@ -552,7 +553,7 @@ export async function dailyLedger(
   const [worked, transfers] = await Promise.all([
     db.transaction.findMany({
       where: {
-        type: 'EXCHANGE',
+        type: { in: [...MACHINE_TYPES] },
         createdById: tellerId,
         businessDayId: { in: days.map((day) => day.id) },
         reversalOfId: null,
@@ -572,7 +573,7 @@ export async function dailyLedger(
     // and never enter the exchange account.
     db.transaction.findMany({
       where: {
-        type: 'EXCHANGE',
+        type: { in: [...MACHINE_TYPES] },
         createdById: tellerId,
         createdAt: { gte: oldest },
         reversalOfId: null,
@@ -686,7 +687,7 @@ export async function dayEntries(
 
   const rows = await db.transaction.findMany({
     where: {
-      type: 'EXCHANGE',
+      type: { in: [...MACHINE_TYPES] },
       createdById: tellerId,
       businessDayId: input.dayId,
       reversalOfId: null,
