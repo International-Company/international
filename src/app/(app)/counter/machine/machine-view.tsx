@@ -2021,7 +2021,7 @@ function PriceException({
   const ask = async () => {
     setBusy(true);
     try {
-      await api.post('/api/exchange/price-exceptions', {
+      const result = await api.post<{ status: string }>('/api/exchange/price-exceptions', {
         action: 'request',
         fromCurrency: from,
         toCurrency: to,
@@ -2030,7 +2030,8 @@ function PriceException({
         requestedRate: wanted,
         reason: reason.trim() || null,
       });
-      toast.success(t('exception.asked2'));
+      // Within the teller's own room it applies at once; past it, the manager decides.
+      toast.success(result.status === 'APPROVED' ? t('exception.selfApplied') : t('exception.asked2'));
       setAsking(false);
       setWanted('');
       setReason('');

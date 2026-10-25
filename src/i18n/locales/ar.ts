@@ -885,6 +885,7 @@ const ar: Dictionary = {
     askAmount: 'حتى مبلغ',
     askReason: 'لماذا؟',
     asked2: 'أُرسل الطلب — بانتظار المدير',
+    selfApplied: 'طُبّق السعر المميز — ضمن الحد المسموح لك',
     live: 'سعر سارٍ {rate}',
     liveHint: 'حتى {amount} — سجّل العملية الآن قبل أن ينتهي.',
     expiresIn: 'ينتهي بعد {seconds} ثانية',

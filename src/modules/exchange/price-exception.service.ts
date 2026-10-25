@@ -117,6 +117,28 @@ export interface RequestInput {
   reason?: string | null;
 }
 
+/**
+ * Whether a teller may apply this price himself, without the manager.
+ *
+ * Rates here are `toCurrency` per one `fromCurrency`, and the office hands out
+ * the `toCurrency` — so a higher rate is always the customer's gain. It may:
+ * when it is no further above the board than the office's percentage, and not
+ * at or past the cost the office carries the currency at. With no cost known
+ * (no cut-off approved yet), the percentage alone holds it.
+ */
+export function mayGrantOwn(input: {
+  requestedRate: bigint;
+  boardRate: bigint;
+  costRate: bigint | null;
+  selfPercent: number;
+}): boolean {
+  if (!(input.selfPercent > 0)) return false;
+  const basisPoints = BigInt(Math.round(input.selfPercent * 100));
+  const withinRoom = input.requestedRate * 10_000n <= input.boardRate * (10_000n + basisPoints);
+  const aboveCost = input.costRate === null || input.requestedRate < input.costRate;
+  return withinRoom && aboveCost;
+}
+
 export async function request(input: RequestInput, actor: Actor, db: DbClient = prisma) {
   if (!actor.permissions.includes(REQUEST_PERMISSION)) {
     throw errors.forbidden(REQUEST_PERMISSION);
@@ -153,15 +175,38 @@ export async function request(input: RequestInput, actor: Actor, db: DbClient = 
     );
   }
 
-  const [reference, day] = await Promise.all([
+  const [reference, day, selfPercent, cost, minutes] = await Promise.all([
     nextReference('PEX', db),
     currentOpenDay(actor.branchId, db, actor),
+    settings.getNumber('exchange.priceException.selfGrantPercent', db),
+    costRateFor(input.fromCurrency, input.toCurrency, db),
+    settings.getNumber('exchange.priceException.minutes', db),
   ]);
+
+  /*
+   * A small special price the teller may give himself.
+   *
+   * Within the office's percentage of the board, and never at or past what the
+   * currency costs the office, it applies at once — the regular customer does
+   * not wait for the manager to look up. It is still everything a granted price
+   * is: one use, a few minutes, this pair, this channel, this amount, stamped
+   * on the deal and charged to the teller in his evaluation. Only the person
+   * saying yes changes, and the manager is told it happened.
+   *
+   * Beyond the percentage, or where a known cost says it would lose money, it
+   * is a request like any other.
+   */
+  const selfGranted = mayGrantOwn({
+    requestedRate: input.requestedRate,
+    boardRate: board.rate,
+    costRate: cost,
+    selfPercent,
+  });
 
   const row = await db.priceException.create({
     data: {
       reference,
-      status: 'PENDING',
+      status: selfGranted ? 'APPROVED' : 'PENDING',
       branchId: actor.branchId,
       businessDayId: day?.id ?? null,
       requestedById: actor.id,
@@ -172,8 +217,53 @@ export async function request(input: RequestInput, actor: Actor, db: DbClient = 
       boardRate: board.rate,
       requestedRate: input.requestedRate,
       reason: input.reason?.trim() || null,
+      ...(selfGranted
+        ? {
+            approvedById: actor.id,
+            approvedRate: input.requestedRate,
+            costRate: cost,
+            decidedAt: new Date(),
+            decisionNote: `Within the teller's own ${selfPercent}% — applied at once`,
+            expiresAt: new Date(Date.now() + Math.max(1, minutes) * 60_000),
+          }
+        : {}),
     },
   });
+
+  if (selfGranted) {
+    // The manager hears of it, though nobody waited for him.
+    await notifications.notify(
+      {
+        severity: 'INFO',
+        eventKey: 'exchange.priceException.selfGranted',
+        module: 'exchange',
+        titleEn: 'A teller gave a special price',
+        titleAr: 'سعر مميز طبّقه التلر',
+        bodyEn: `${actor.name} on ${input.fromCurrency}/${input.toCurrency} at ${toDecimalString(input.requestedRate, 6)} (board ${toDecimalString(board.rate, 6)}) — ${reference}`,
+        bodyAr: `${actor.name} على ${input.fromCurrency}/${input.toCurrency} بسعر ${toDecimalString(input.requestedRate, 6)} (اللوحة ${toDecimalString(board.rate, 6)}) — ${reference}`,
+        entityType: 'PriceException',
+        entityId: row.id,
+        link: '/manage/exceptions',
+        createdById: actor.id,
+      },
+      { permission: APPROVE_PERMISSION, branchId: actor.branchId, exceptUserId: actor.id },
+      db,
+    );
+    await audit.record(
+      {
+        action: 'CREATE',
+        module: 'exchange',
+        entityType: 'PriceException',
+        entityId: row.id,
+        summaryEn: `Gave a special price on ${input.fromCurrency}/${input.toCurrency}: ${toDecimalString(input.requestedRate, 6)} against a board of ${toDecimalString(board.rate, 6)}, within the teller's ${selfPercent}%`,
+        summaryAr: `طبّق سعراً مميزاً على ${input.fromCurrency}/${input.toCurrency}: ${toDecimalString(input.requestedRate, 6)} واللوحة ${toDecimalString(board.rate, 6)}، ضمن حد التلر ${selfPercent}%`,
+        actor,
+      },
+      db,
+    );
+    log.info('Price exception self-granted', { reference, pair: `${input.fromCurrency}/${input.toCurrency}` });
+    return row;
+  }
 
   await notifications.notify(
     {

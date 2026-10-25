@@ -886,6 +886,7 @@ const en = {
     askAmount: 'Up to',
     askReason: 'Why?',
     asked2: 'Sent — waiting on the manager',
+    selfApplied: 'Special price applied — within your allowance',
     live: 'Approved at {rate}',
     liveHint: 'Up to {amount} — record it now, before it expires.',
     expiresIn: 'Expires in {seconds}s',

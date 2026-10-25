@@ -172,6 +172,20 @@ export const SETTINGS: SettingDefinition[] = [
       'عدد الدقائق التي يبقى فيها السعر المُوافق عليه صالحاً. المقصود هو الزبون الواقف الآن — مدة تكفي لإتمام الصفقة ولا تكفي لتتحول موافقة غير مستعملة إلى خصم جاهز غداً.',
   },
   {
+    // The teller's own room to give a regular a better price, without waiting
+    // for the manager. Inside it the price applies at once; beyond it, or below
+    // the office's cost, it goes to the manager as before. Every one is still a
+    // one-off, stamped on its deal and counted in the teller's evaluation.
+    key: 'exchange.priceException.selfGrantPercent', category: 'machine', type: 'number',
+    defaultValue: 1, min: 0, max: 10,
+    labelEn: 'Special price a teller may give himself (%)',
+    labelAr: 'السعر المميز الذي يطبّقه التلر بنفسه (%)',
+    descriptionEn:
+      'How far from the board, in percent, a teller may move the price for a customer without asking. Within it the price applies at once — never below the office’s cost — and the manager is told; beyond it the manager approves as before. Zero sends every special price to the manager.',
+    descriptionAr:
+      'كم يستطيع التلر أن يبتعد عن سعر اللوحة، بالنسبة المئوية، لعميل مميز دون طلب موافقة. ضمن هذا الحد يُطبَّق السعر فوراً — ولا يكون أبداً تحت تكلفة المكتب — ويُبلَّغ المدير؛ وما يتجاوزه يوافق عليه المدير كما الآن. الصفر يرسل كل سعر مميز للمدير.',
+  },
+  {
     key: 'market.enabled', category: 'machine', type: 'boolean', defaultValue: true,
     labelEn: 'Market strip', labelAr: 'شريط السوق',
     descriptionEn:
