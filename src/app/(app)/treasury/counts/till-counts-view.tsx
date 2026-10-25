@@ -285,7 +285,7 @@ export function TillCountsView({
                         </p>
                       )}
                     </div>
-                    {books?.onShift && <Badge tone="warning">{t('handover.myShift')}</Badge>}
+                    {books?.onShift && <Badge tone="warning">{t('till.onShiftBadge')}</Badge>}
                   </div>
 
                   <div>
@@ -310,6 +310,12 @@ export function TillCountsView({
                       </div>
                     )}
                   </div>
+
+                  {books?.onShift && (
+                    <p className="rounded-lg bg-warning-subtle px-2.5 py-2 text-xs text-warning-text">
+                      {t('till.onShiftCard')}
+                    </p>
+                  )}
 
                   <div className="flex gap-2">
                     <Button

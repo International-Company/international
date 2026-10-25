@@ -157,7 +157,21 @@ export async function preview(
     },
   });
 
-  const periodStart = previous?.periodEnd ?? (await firstStart(teller.branchId, db));
+  /*
+   * A shift closed since then has already been counted, by the handover that
+   * closed it — its deals moved through the teller's own drawer and were
+   * settled there. Starting before its close would count them a second time.
+   */
+  const [since, lastShift] = await Promise.all([
+    previous ? Promise.resolve(previous.periodEnd) : firstStart(teller.branchId, db),
+    db.shift.findFirst({
+      where: { tellerId, status: 'CLOSED', closedAt: { not: null } },
+      orderBy: { closedAt: 'desc' },
+      select: { closedAt: true },
+    }),
+  ]);
+  const periodStart =
+    lastShift?.closedAt && lastShift.closedAt > since ? lastShift.closedAt : since;
 
   const [{ flows, deals }, adjustments, shift] = await Promise.all([
     cashFlows(tellerId, periodStart, now, db),

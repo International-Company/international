@@ -1156,6 +1156,8 @@ const en = {
     firstCount: 'First count — from the start of today',
     deals: '{count} deals',
     onShift: 'This teller is on an open shift — count them by the handover that closes it, not here.',
+    onShiftBadge: 'On an open shift',
+    onShiftCard: 'They took a float by handover, so they are on a shift. Close it once — the teller returns what they hold under Top-up and you confirm it — and count them here after that.',
     blind: 'Blind count',
     blindHint: 'Hides the expected figures until the count is saved, so the counter is not led by them.',
     opening: 'Opening',
