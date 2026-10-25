@@ -22,6 +22,7 @@ import {
   Plus,
   Printer,
   RotateCcw,
+  Star,
   Trash2,
   TriangleAlert,
   X,
@@ -2068,13 +2069,14 @@ function PriceException({
           <span className="font-mono ltr-content ms-auto text-xs">{waiting.reference}</span>
         </div>
       ) : (
-        <button
-          type="button"
+        <Button
+          size="sm"
+          variant="secondary"
+          icon={<Star />}
           onClick={() => setAsking(true)}
-          className="text-content-secondary hover:text-content text-xs underline underline-offset-4"
         >
           {t('exception.ask')}
-        </button>
+        </Button>
       )}
 
       <Dialog

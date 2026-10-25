@@ -80,4 +80,19 @@ describe('who may give a special price', () => {
       false,
     );
   });
+
+  it('the teller, always, when the office lets him set any price', () => {
+    // Past the percentage and past cost alike: the office chose to trust the
+    // counter, and the manager is told instead.
+    assert.equal(
+      mayGrantOwn({
+        requestedRate: R(3.2),
+        boardRate: R(2.9),
+        costRate: R(3.0),
+        selfPercent: 0,
+        unlimited: true,
+      }),
+      true,
+    );
+  });
 });

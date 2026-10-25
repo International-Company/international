@@ -186,6 +186,20 @@ export const SETTINGS: SettingDefinition[] = [
       'كم يستطيع التلر أن يبتعد عن سعر اللوحة، بالنسبة المئوية، لعميل مميز دون طلب موافقة. ضمن هذا الحد يُطبَّق السعر فوراً — ولا يكون أبداً تحت تكلفة المكتب — ويُبلَّغ المدير؛ وما يتجاوزه يوافق عليه المدير كما الآن. الصفر يرسل كل سعر مميز للمدير.',
   },
   {
+    // The office's choice to trust the counter with every special price. On, a
+    // teller applies whatever price he types, at once; the manager is told of
+    // each, with a warning when it is at or past cost. Off, the percentage above
+    // decides what needs the manager.
+    key: 'exchange.priceException.tellerSetsPrice', category: 'machine', type: 'boolean',
+    defaultValue: true,
+    labelEn: 'Teller sets any special price himself',
+    labelAr: 'التلر يطبّق أي سعر مميز بنفسه',
+    descriptionEn:
+      'When on, any special price a teller enters applies at once, with no limit and no approval; the manager is notified of each one, with a warning if it is at or below the office’s cost. When off, only prices within the percentage above apply at once and the rest go to the manager.',
+    descriptionAr:
+      'عند التفعيل، أي سعر مميز يكتبه التلر يُطبَّق فوراً بلا حد وبلا موافقة، ويُبلَّغ المدير بكل سعر، مع تنبيه إن كان عند تكلفة المكتب أو تحتها. عند الإيقاف، تُطبَّق فوراً فقط الأسعار ضمن النسبة أعلاه، والباقي يذهب للمدير.',
+  },
+  {
     key: 'market.enabled', category: 'machine', type: 'boolean', defaultValue: true,
     labelEn: 'Market strip', labelAr: 'شريط السوق',
     descriptionEn:

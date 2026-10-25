@@ -131,7 +131,10 @@ export function mayGrantOwn(input: {
   boardRate: bigint;
   costRate: bigint | null;
   selfPercent: number;
+  /** The office lets the teller set any special price himself. */
+  unlimited?: boolean;
 }): boolean {
+  if (input.unlimited) return true;
   if (!(input.selfPercent > 0)) return false;
   const basisPoints = BigInt(Math.round(input.selfPercent * 100));
   const withinRoom = input.requestedRate * 10_000n <= input.boardRate * (10_000n + basisPoints);
@@ -175,12 +178,13 @@ export async function request(input: RequestInput, actor: Actor, db: DbClient = 
     );
   }
 
-  const [reference, day, selfPercent, cost, minutes] = await Promise.all([
+  const [reference, day, selfPercent, cost, minutes, unlimited] = await Promise.all([
     nextReference('PEX', db),
     currentOpenDay(actor.branchId, db, actor),
     settings.getNumber('exchange.priceException.selfGrantPercent', db),
     costRateFor(input.fromCurrency, input.toCurrency, db),
     settings.getNumber('exchange.priceException.minutes', db),
+    settings.getBoolean('exchange.priceException.tellerSetsPrice', db),
   ]);
 
   /*
@@ -194,14 +198,19 @@ export async function request(input: RequestInput, actor: Actor, db: DbClient = 
    * saying yes changes, and the manager is told it happened.
    *
    * Beyond the percentage, or where a known cost says it would lose money, it
-   * is a request like any other.
+   * is a request like any other — unless the office has let the teller set any
+   * special price himself, in which case it always applies at once and the
+   * manager is told, loudly when it is at or past cost.
    */
   const selfGranted = mayGrantOwn({
     requestedRate: input.requestedRate,
     boardRate: board.rate,
     costRate: cost,
     selfPercent,
+    unlimited,
   });
+  const belowCost = cost !== null && input.requestedRate >= cost;
+  const grantedBy = unlimited ? 'the teller, as the office allows' : `the teller's own ${selfPercent}%`;
 
   const row = await db.priceException.create({
     data: {
@@ -223,7 +232,7 @@ export async function request(input: RequestInput, actor: Actor, db: DbClient = 
             approvedRate: input.requestedRate,
             costRate: cost,
             decidedAt: new Date(),
-            decisionNote: `Within the teller's own ${selfPercent}% — applied at once`,
+            decisionNote: `Set by ${grantedBy} — applied at once${belowCost ? ' (at or past cost)' : ''}`,
             expiresAt: new Date(Date.now() + Math.max(1, minutes) * 60_000),
           }
         : {}),
@@ -234,11 +243,11 @@ export async function request(input: RequestInput, actor: Actor, db: DbClient = 
     // The manager hears of it, though nobody waited for him.
     await notifications.notify(
       {
-        severity: 'INFO',
+        severity: belowCost ? 'WARNING' : 'INFO',
         eventKey: 'exchange.priceException.selfGranted',
         module: 'exchange',
-        titleEn: 'A teller gave a special price',
-        titleAr: 'سعر مميز طبّقه التلر',
+        titleEn: belowCost ? 'A teller gave a price at or past cost' : 'A teller gave a special price',
+        titleAr: belowCost ? 'سعر مميز طبّقه التلر — عند التكلفة أو تحتها' : 'سعر مميز طبّقه التلر',
         bodyEn: `${actor.name} on ${input.fromCurrency}/${input.toCurrency} at ${toDecimalString(input.requestedRate, 6)} (board ${toDecimalString(board.rate, 6)}) — ${reference}`,
         bodyAr: `${actor.name} على ${input.fromCurrency}/${input.toCurrency} بسعر ${toDecimalString(input.requestedRate, 6)} (اللوحة ${toDecimalString(board.rate, 6)}) — ${reference}`,
         entityType: 'PriceException',
@@ -255,8 +264,8 @@ export async function request(input: RequestInput, actor: Actor, db: DbClient = 
         module: 'exchange',
         entityType: 'PriceException',
         entityId: row.id,
-        summaryEn: `Gave a special price on ${input.fromCurrency}/${input.toCurrency}: ${toDecimalString(input.requestedRate, 6)} against a board of ${toDecimalString(board.rate, 6)}, within the teller's ${selfPercent}%`,
-        summaryAr: `طبّق سعراً مميزاً على ${input.fromCurrency}/${input.toCurrency}: ${toDecimalString(input.requestedRate, 6)} واللوحة ${toDecimalString(board.rate, 6)}، ضمن حد التلر ${selfPercent}%`,
+        summaryEn: `Gave a special price on ${input.fromCurrency}/${input.toCurrency}: ${toDecimalString(input.requestedRate, 6)} against a board of ${toDecimalString(board.rate, 6)}, set by ${grantedBy}`,
+        summaryAr: `طبّق سعراً مميزاً على ${input.fromCurrency}/${input.toCurrency}: ${toDecimalString(input.requestedRate, 6)} واللوحة ${toDecimalString(board.rate, 6)}${unlimited ? '' : `، ضمن حد التلر ${selfPercent}%`}`,
         actor,
       },
       db,
