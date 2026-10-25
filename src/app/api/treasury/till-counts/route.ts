@@ -41,8 +41,12 @@ const bodySchema = z.discriminatedUnion('action', [
 
 const scaled = (value: bigint) => value.toString();
 
+/*
+ * No permission at the door for reading: a teller reads their own counts here
+ * too. What the drawer should hold is for counters only, and the service
+ * refuses anyone else; the list answers a teller with their own counts alone.
+ */
 export const GET = route<unknown, z.infer<typeof querySchema>>({
-  permissions: ['treasury.handover.manage'],
   querySchema,
   handler: async ({ query, actor }) => {
     if (query.tellerId) {

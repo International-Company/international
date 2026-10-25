@@ -143,6 +143,7 @@ const en = {
     withdraw: 'Sell USDT',
     handovers: 'Top-up',
     tillCounts: 'Till counts',
+    myCounts: 'My counts',
     tellers: 'Tellers',
     activity: 'Teller activity',
     myReport: 'My reports',
@@ -1199,6 +1200,8 @@ const en = {
     teller: 'Teller',
     signature: 'Signature',
     noCountOwn: 'You cannot count your own till',
+    mine: 'My counts',
+    mineHint: 'What each count of your till found, once it was saved: expected, counted and the difference.',
   },
   handover: {
     inSystem: 'In the system:',

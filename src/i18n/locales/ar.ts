@@ -145,6 +145,7 @@ const ar: Dictionary = {
     withdraw: 'سحب USDT',
     handovers: 'تغذية رصيد',
     tillCounts: 'جرد الصناديق',
+    myCounts: 'محاضر جردي',
     tellers: 'تقييم التلرات',
     activity: 'عمليات التلرات',
     myReport: 'تقاريري',
@@ -1198,6 +1199,8 @@ const ar: Dictionary = {
     teller: 'التلر',
     signature: 'التوقيع',
     noCountOwn: 'لا يمكنك جرد صندوقك بنفسك',
+    mine: 'محاضر جردي',
+    mineHint: 'نتيجة كل جرد لصندوقك بعد أن يُحفظ: المتوقع، والمعدود، والفرق.',
   },
   handover: {
     inSystem: 'في النظام:',

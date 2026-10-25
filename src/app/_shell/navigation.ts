@@ -23,6 +23,8 @@ export interface NavItem {
   icon: IconName;
   /** Any one of these grants visibility. */
   permissions?: string[];
+  /** Hidden from anyone holding one of these, who has a fuller view elsewhere. */
+  hiddenWith?: string[];
   /** Match child routes for the active state. */
   matchPrefix?: boolean;
   shortcut?: string;
@@ -93,6 +95,15 @@ export const NAVIGATION: NavSection[] = [
         labelKey: 'nav.workDays',
         icon: 'day',
         permissions: ['exchange.machine.use'],
+      },
+      {
+        // A teller's own counts, once taken. Whoever counts sees them all on
+        // the till-count screen instead.
+        href: '/counter/my-counts',
+        labelKey: 'nav.myCounts',
+        icon: 'ledger',
+        permissions: ['exchange.machine.use', 'exchange.transaction.create'],
+        hiddenWith: ['treasury.handover.manage'],
       },
       {
         href: '/counter/remittance',
@@ -274,7 +285,9 @@ export function visibleNavigation(permissions: string[]): NavSection[] {
   return NAVIGATION.map((section) => ({
     ...section,
     items: section.items.filter(
-      (item) => !item.permissions || item.permissions.some((p) => granted.has(p)),
+      (item) =>
+        (!item.permissions || item.permissions.some((p) => granted.has(p))) &&
+        !item.hiddenWith?.some((p) => granted.has(p)),
     ),
   })).filter((section) => section.items.length > 0);
 }
