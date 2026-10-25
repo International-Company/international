@@ -241,7 +241,7 @@ export async function closeFromHandover(
 }
 
 /** Opens the treasury's differences balance for a currency if it has none. */
-async function ensureDifferenceDrawer(currency: string, tx: DbClient): Promise<void> {
+export async function ensureDifferenceDrawer(currency: string, tx: DbClient): Promise<void> {
   const existing = await tx.drawer.findUnique({
     where: {
       ownerKey_currencyCode_kind: {
@@ -336,6 +336,7 @@ export async function openDiscrepancies(db: DbClient = prisma) {
     include: {
       teller: { select: { id: true, fullNameEn: true, fullNameAr: true } },
       shift: { select: { reference: true } },
+      tillCount: { select: { reference: true } },
       currency: { select: { decimals: true } },
     },
   });

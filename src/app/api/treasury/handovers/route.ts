@@ -3,6 +3,7 @@ import { route } from '@/core/http/route';
 import { parseMoney } from '@/core/money/money';
 import { DRAWER_KINDS } from '@/modules/drawers/funding-categories';
 import * as handovers from '@/modules/treasury/handover.service';
+import * as counts from '@/modules/treasury/count-record.service';
 
 /**
  * The handover, over HTTP.
@@ -60,7 +61,24 @@ export const GET = route({
       ),
     ]);
 
-    return { awaiting: waiting, recent };
+    /*
+     * What the books say the teller holds, beside each line still waiting to
+     * be counted — the figure the count is about to be measured against. Only
+     * for someone who counts, or the teller himself; it changes nothing.
+     */
+    const expected = await counts.expectedForPending([...waiting, ...recent]);
+    const withExpected = <T extends { id: string; lines: { currencyCode: string; kind: string }[] }>(
+      handover: T,
+    ) => ({
+      ...handover,
+      lines: handover.lines.map((line) => ({
+        ...line,
+        expected:
+          expected.get(`${handover.id}:${line.currencyCode}:${line.kind}`)?.toString() ?? null,
+      })),
+    });
+
+    return { awaiting: waiting.map(withExpected), recent: recent.map(withExpected) };
   },
 });
 

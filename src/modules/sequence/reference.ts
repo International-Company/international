@@ -10,7 +10,7 @@ import { prisma, type DbClient } from '@/core/db/prisma';
  * concurrent tellers cannot be issued the same number.
  */
 
-export type SequencePrefix = 'TXN' | 'JRN' | 'RCP' | 'CUS' | 'BKP' | 'DAY' | 'DEP' | 'HND' | 'SHF' | 'PEX' | 'TRF';
+export type SequencePrefix = 'TXN' | 'JRN' | 'RCP' | 'CUS' | 'BKP' | 'DAY' | 'DEP' | 'HND' | 'SHF' | 'PEX' | 'TRF' | 'CNT';
 
 function dateKey(date = new Date()): string {
   const year = date.getFullYear();

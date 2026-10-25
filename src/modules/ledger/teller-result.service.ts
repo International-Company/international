@@ -126,9 +126,13 @@ export async function tellerResults(
       select: { createdById: true, profitAmount: true, toCurrency: true },
     }),
     db.discrepancy.findMany({
-      // Through the shift, which is what carries the branch. Filtering only on
-      // the date put every branch's shortages into every branch's figures.
-      where: { createdAt: { gte: from, lte: to }, shift: { branchId } },
+      // Through the shift or the till count, which is what carries the branch.
+      // Filtering only on the date put every branch's shortages into every
+      // branch's figures.
+      where: {
+        createdAt: { gte: from, lte: to },
+        OR: [{ shift: { branchId } }, { tillCount: { branchId } }],
+      },
       select: { tellerId: true, amount: true, currencyCode: true },
     }),
     db.priceException.findMany({

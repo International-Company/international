@@ -44,7 +44,7 @@ export const GET = route({
       oldestOpenAgeDays: oldest,
       open: open.map((row) => ({
         id: row.id,
-        shift: row.shift.reference,
+        shift: row.shift?.reference ?? row.tillCount?.reference ?? '',
         tellerId: row.teller.id,
         tellerNameEn: row.teller.fullNameEn,
         tellerNameAr: row.teller.fullNameAr,

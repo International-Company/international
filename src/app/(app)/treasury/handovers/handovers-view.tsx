@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ArrowLeftRight, Check, Plus, TriangleAlert, X } from 'lucide-react';
+import { ArrowLeftRight, Calculator, Check, FileText, Plus, TriangleAlert, X } from 'lucide-react';
 import { useLocale } from '@/i18n/provider';
 import { api, ApiError } from '@/lib/api-client';
 import { describeFailure } from '@/lib/failure';
@@ -12,6 +12,9 @@ import { ConfirmDialog, Dialog, useToast } from '@/ui/overlay';
 import { Field, Input, Select } from '@/ui/form';
 import { DateText, Money } from '@/ui/display';
 import type { TranslationKey } from '@/i18n/types';
+import { cn } from '@/ui/utils';
+import { DenominationCounter, hasNotes } from './denomination-counter';
+import { CountRecordDialog, plain } from './count-record';
 
 /**
  * التسليم — one screen for both sides of it.
@@ -34,6 +37,8 @@ interface Line {
   nature: string;
   amount: string;
   countedAmount: string | null;
+  /** What the books say the teller holds — only while it waits to be counted. */
+  expected?: string | null;
 }
 
 interface Handover {
@@ -86,6 +91,39 @@ export function HandoversView({
   const [counting, setCounting] = useState<Handover | null>(null);
   const [counted, setCounted] = useState<Record<string, string>>({});
   const [cancelling, setCancelling] = useState<Handover | null>(null);
+
+  /** Which line's note-by-note counter is open, keyed like `counted`. */
+  const [noteCounter, setNoteCounter] = useState<string | null>(null);
+  /** The count record being read. */
+  const [reading, setReading] = useState<string | null>(null);
+
+  /*
+   * The teller's own figures, for handing back: what the books say he holds in
+   * each currency, and what he owes the bank tonight. Shown in the declaration
+   * so he hands back against the figure he will be counted on.
+   */
+  const [holdings, setHoldings] = useState<Record<string, string>>({});
+  const [owed, setOwed] = useState<{ currency: string; amount: string }[]>([]);
+
+  useEffect(() => {
+    if (isTreasury) return;
+    void api
+      .get<{ holdings: { currency: string; kind: string; amount: string }[] }>('/api/treasury/shift')
+      .then((data) =>
+        setHoldings(
+          Object.fromEntries(
+            data.holdings
+              .filter((row) => row.kind === 'CASH')
+              .map((row) => [row.currency, row.amount]),
+          ),
+        ),
+      )
+      .catch(() => setHoldings({}));
+    void api
+      .get<{ days: { owedAtEnd: { currency: string; amount: string }[] }[] }>('/api/my/days?days=1')
+      .then((data) => setOwed(data.days[0]?.owedAtEnd ?? []))
+      .catch(() => setOwed([]));
+  }, [isTreasury, declaring]);
 
   const load = useCallback(async () => {
     try {
@@ -268,6 +306,17 @@ export function HandoversView({
 
                   <span className="ms-auto flex items-center gap-2 text-xs text-content-tertiary">
                     <DateText value={handover.createdAt} withTime />
+                    {/* The count, currency by currency — once there is one. */}
+                    {handover.direction === 'TO_TREASURY' && handover.status !== 'CANCELLED' && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        icon={<FileText />}
+                        onClick={() => setReading(handover.id)}
+                      >
+                        {t('handover.record')}
+                      </Button>
+                    )}
                     {isTreasury && (handover.status === 'PENDING' || handover.status === 'DISPUTED') && (
                       <Button size="sm" variant="ghost" icon={<X />} onClick={() => setCancelling(handover)}>
                         {t('common.cancel')}
@@ -315,29 +364,106 @@ export function HandoversView({
             </Field>
           )}
 
-          {currencies.map((currency) => (
-            <Field
-              key={currency.code}
-              label={`${ln(currency as unknown as Record<string, unknown>, 'name')} (${currency.code})`}
-              hint={currency.kind === 'CRYPTO' ? t('handover.allocatedHint') : undefined}
-            >
-              {(props) => (
-                <Input
-                  {...props}
-                  dir="ltr"
-                  inputMode="decimal"
-                  value={amounts[currency.code] ?? ''}
-                  placeholder="0"
-                  onChange={(event) =>
-                    setAmounts((current) => ({
-                      ...current,
-                      [currency.code]: sanitise(event.target.value, currency.decimals),
-                    }))
-                  }
-                />
-              )}
-            </Field>
-          ))}
+          {/*
+            What he owes the bank tonight, beside what he hands back: the two
+            things the evening asks of a teller, in one place.
+          */}
+          {!isTreasury && owed.some((entry) => BigInt(entry.amount) !== 0n) && (
+            <Alert tone="warning" title={t('handover.owedBank')}>
+              <span className="ltr-content tabular-nums">
+                {owed
+                  .map((entry) => `${plain(entry.amount, decimalsOf(entry.currency))} ${entry.currency}`)
+                  .join(' · ')}
+              </span>
+            </Alert>
+          )}
+
+          {currencies.map((currency) => {
+            const held = !isTreasury ? holdings[currency.code] : undefined;
+            const entered = amounts[currency.code] ?? '';
+            // What would be booked as a shortage if he hands back this much.
+            const short =
+              held !== undefined && entered !== ''
+                ? BigInt(held) - toScaled(entered)
+                : null;
+            const counterKey = `declare:${currency.code}`;
+            return (
+              <Field
+                key={currency.code}
+                label={`${ln(currency as unknown as Record<string, unknown>, 'name')} (${currency.code})`}
+                hint={currency.kind === 'CRYPTO' ? t('handover.allocatedHint') : undefined}
+              >
+                {(props) => (
+                  <div className="space-y-1.5">
+                    <Input
+                      {...props}
+                      dir="ltr"
+                      inputMode="decimal"
+                      value={entered}
+                      placeholder="0"
+                      onChange={(event) =>
+                        setAmounts((current) => ({
+                          ...current,
+                          [currency.code]: sanitise(event.target.value, currency.decimals),
+                        }))
+                      }
+                    />
+                    {held !== undefined && (
+                      <div className="flex flex-wrap items-center gap-2 text-xs">
+                        <span className="text-content-secondary">
+                          {t('handover.inSystem')}{' '}
+                          <span className="font-semibold tabular-nums ltr-content">
+                            {plain(held, currency.decimals)}
+                          </span>
+                        </span>
+                        <button
+                          type="button"
+                          className="text-primary-text hover:underline"
+                          onClick={() =>
+                            setAmounts((current) => ({
+                              ...current,
+                              [currency.code]: plain(held, currency.decimals).replace(/,/g, ''),
+                            }))
+                          }
+                        >
+                          {t('handover.fillExpected')}
+                        </button>
+                        {currency.kind !== 'CRYPTO' && hasNotes(currency.code) && (
+                          <button
+                            type="button"
+                            className="inline-flex items-center gap-1 text-primary-text hover:underline"
+                            onClick={() =>
+                              setNoteCounter(noteCounter === counterKey ? null : counterKey)
+                            }
+                          >
+                            <Calculator className="size-3.5" />
+                            {t('handover.byNotes')}
+                          </button>
+                        )}
+                        {short !== null && short > 0n && currency.kind !== 'CRYPTO' && (
+                          <span className="font-medium text-danger-text">
+                            {t('handover.willBookShort', {
+                              amount: `${plain(short.toString(), currency.decimals)} ${currency.code}`,
+                            })}
+                          </span>
+                        )}
+                      </div>
+                    )}
+                    {noteCounter === counterKey && (
+                      <DenominationCounter
+                        currency={currency.code}
+                        decimals={currency.decimals}
+                        onUse={(amount) => {
+                          setAmounts((current) => ({ ...current, [currency.code]: amount }));
+                          setNoteCounter(null);
+                        }}
+                      />
+                    )}
+                  </div>
+                )}
+              </Field>
+            );
+          })}
         </div>
       </Dialog>
 
@@ -376,37 +502,116 @@ export function HandoversView({
               );
             }
 
+            /*
+             * As the count is typed: does it agree with what was declared (if
+             * not, the handover is held as a dispute and nothing moves), and
+             * how does it stand against the books (any gap is booked to the
+             * differences balance when it is confirmed). Both, because they are
+             * different questions with different consequences.
+             */
+            const entry = counted[key] ?? '';
+            const typed = entry !== '' ? toScaled(entry) : null;
+            const matchesDeclared = typed !== null && typed === BigInt(line.amount);
+            const gap =
+              typed !== null && line.expected != null ? BigInt(line.expected) - typed : null;
+            const counterKey = `count:${key}`;
+
             return (
-              <Field
-                key={line.id}
-                label={`${line.currencyCode} — ${t('handover.declaredAmount', {
-                  amount: format(line.amount, decimals),
-                })}`}
-                hint={t('handover.countedHint')}
-                required
-              >
-                {(props) => (
-                  <Input
-                    {...props}
-                    dir="ltr"
-                    inputMode="decimal"
-                    /* Never pre-filled with the declared figure: a count that
-                       arrives already agreed is not a count. */
-                    value={counted[key] ?? ''}
-                    placeholder="0"
-                    onChange={(event) =>
-                      setCounted((current) => ({
-                        ...current,
-                        [key]: sanitise(event.target.value, decimals),
-                      }))
-                    }
+              <div key={line.id} className="space-y-1.5 rounded-xl ring-1 ring-border-subtle p-3">
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
+                  <span className="text-sm font-semibold ltr-content">{line.currencyCode}</span>
+                  {line.expected != null && (
+                    <span className="text-content-secondary">
+                      {t('handover.inSystem')}{' '}
+                      <span className="font-semibold tabular-nums ltr-content">
+                        {plain(line.expected, decimals)}
+                      </span>
+                    </span>
+                  )}
+                  <span className="text-content-secondary">
+                    {t('handover.declaredAmount', { amount: format(line.amount, decimals) })}
+                  </span>
+                </div>
+                <Field label={t('handover.countedHint')} required>
+                  {(props) => (
+                    <Input
+                      {...props}
+                      dir="ltr"
+                      inputMode="decimal"
+                      /* Never pre-filled with the declared figure: a count that
+                         arrives already agreed is not a count. */
+                      value={entry}
+                      placeholder="0"
+                      onChange={(event) =>
+                        setCounted((current) => ({
+                          ...current,
+                          [key]: sanitise(event.target.value, decimals),
+                        }))
+                      }
+                    />
+                  )}
+                </Field>
+                <div className="flex flex-wrap items-center gap-3 text-xs">
+                  {hasNotes(line.currencyCode) && (
+                    <button
+                      type="button"
+                      className="inline-flex items-center gap-1 text-primary-text hover:underline"
+                      onClick={() => setNoteCounter(noteCounter === counterKey ? null : counterKey)}
+                    >
+                      <Calculator className="size-3.5" />
+                      {t('handover.byNotes')}
+                    </button>
+                  )}
+                  {typed !== null && (
+                    <span
+                      className={cn(
+                        'font-medium',
+                        matchesDeclared ? 'text-success-text' : 'text-danger-text',
+                      )}
+                    >
+                      {matchesDeclared ? t('handover.matchesDeclared') : t('handover.notDeclared')}
+                    </span>
+                  )}
+                  {gap !== null && (
+                    <span
+                      className={cn(
+                        'font-medium',
+                        gap === 0n
+                          ? 'text-success-text'
+                          : gap > 0n
+                            ? 'text-danger-text'
+                            : 'text-warning-text',
+                      )}
+                    >
+                      {gap === 0n
+                        ? t('handover.recordExact')
+                        : gap > 0n
+                          ? t('handover.recordShort', {
+                              amount: `${plain(gap.toString(), decimals)} ${line.currencyCode}`,
+                            })
+                          : t('handover.recordOver', {
+                              amount: `${plain((-gap).toString(), decimals)} ${line.currencyCode}`,
+                            })}
+                    </span>
+                  )}
+                </div>
+                {noteCounter === counterKey && (
+                  <DenominationCounter
+                    currency={line.currencyCode}
+                    decimals={decimals}
+                    onUse={(amount) => {
+                      setCounted((current) => ({ ...current, [key]: amount }));
+                      setNoteCounter(null);
+                    }}
                   />
                 )}
-              </Field>
+              </div>
             );
           })}
         </div>
       </Dialog>
+
+      <CountRecordDialog id={reading} onClose={() => setReading(null)} decimalsOf={decimalsOf} />
 
       <ConfirmDialog
         open={cancelling !== null}
@@ -477,6 +682,13 @@ function sanitise(raw: string, limit: number): string {
   const fraction = rest.join('').slice(0, limit);
   const next = rest.length > 0 && limit > 0 ? `${whole}.${fraction}` : whole;
   return next.replace(/^0+(?=\d)/, '');
+}
+
+/** A typed amount at the 1e8 scale the server speaks. */
+function toScaled(value: string): bigint {
+  const [whole = '0', fraction = ''] = value.trim().replace(/,/g, '').split('.');
+  if (!/^\d*$/.test(whole) || !/^\d*$/.test(fraction)) return 0n;
+  return BigInt(whole || '0') * 100_000_000n + BigInt((fraction + '00000000').slice(0, 8));
 }
 
 /** Renders a 1e8-scaled string at a currency's own precision. */

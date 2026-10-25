@@ -52,6 +52,7 @@ model Branch {
   @@map("branches")
   priceExceptions PriceException[]
   shiftReports ShiftReport[]
+  tillCounts   TillCount[]
 }
 
 // ===========================================================================
@@ -118,6 +119,10 @@ model User {
   shifts          Shift[]                 @relation("ShiftTeller")
   discrepancies   Discrepancy[]           @relation("DiscrepancyTeller")
   resolvedDiffs   Discrepancy[]           @relation("DiscrepancyResolvedBy")
+  tillCounts      TillCount[]             @relation("TillCountTeller")
+  tillCountsTaken TillCount[]             @relation("TillCountCountedBy")
+  tillAdjustments TillAdjustment[]        @relation("TillAdjustmentTeller")
+  tillAdjusted    TillAdjustment[]        @relation("TillAdjustmentBy")
   handoversMade   Handover[]              @relation("HandoverCreatedBy")
   handoversTaken  Handover[]              @relation("HandoverConfirmedBy")
   passwordHistory PasswordHistory[]
@@ -371,8 +376,13 @@ model Shift {
 model Discrepancy {
   id String @id @default(cuid())
 
-  shiftId String
-  shift   Shift  @relation(fields: [shiftId], references: [id], onDelete: Cascade)
+  /// Where the gap was found: a shift's closing count, or a till count. Exactly
+  /// one of the two is set.
+  shiftId String?
+  shift   Shift?  @relation(fields: [shiftId], references: [id], onDelete: Cascade)
+
+  tillCountId String?
+  tillCount   TillCount? @relation(fields: [tillCountId], references: [id], onDelete: Cascade)
 
   tellerId String
   teller   User   @relation("DiscrepancyTeller", fields: [tellerId], references: [id])
@@ -671,6 +681,8 @@ model Currency {
   drawers       Drawer[]
   cutoffRates   CutoffRate[]
   discrepancies Discrepancy[]
+  tillCountLines  TillCountLine[]
+  tillAdjustments TillAdjustment[]
 
   @@map("currencies")
 }
@@ -1504,6 +1516,7 @@ model BusinessDay {
   @@map("business_days")
   priceExceptions PriceException[]
   shiftReports ShiftReport[]
+  tillCounts   TillCount[]
 }
 
 // ===========================================================================
@@ -1977,4 +1990,107 @@ model Draft {
   @@unique([userId, formKey, entityId])
   @@index([userId, updatedAt])
   @@map("drafts")
+}
+
+// ===========================================================================
+// TILL COUNT — جرد الصندوق
+// ===========================================================================
+
+/// A count of what a teller holds, measured against what they traded.
+///
+/// The alternative to the handover: no float is declared and nothing changes
+/// hands during the day. At the end of it the books work out what the teller
+/// should hold from their own deals — what they started with, plus the cash
+/// they took in, less the cash they paid out, plus anything the safe gave them,
+/// less anything it took — and somebody counts the drawer against that.
+///
+/// Each count closes a period: the next one starts where this one ended, and
+/// opens with what was left with the teller here (`kept`). So no deal is ever
+/// counted twice, and none falls between two counts.
+model TillCount {
+  id        String @id @default(cuid())
+  reference String @unique // CNT-20261025-00001
+
+  tellerId String
+  teller   User   @relation("TillCountTeller", fields: [tellerId], references: [id])
+
+  branchId String
+  branch   Branch @relation(fields: [branchId], references: [id])
+
+  businessDayId String?
+  businessDay   BusinessDay? @relation(fields: [businessDayId], references: [id], onDelete: SetNull)
+
+  /// The deals counted are the teller's own between these two moments.
+  periodStart DateTime
+  periodEnd   DateTime
+
+  /// Whoever counted. Never the teller; the service refuses that.
+  countedById String
+  countedBy   User   @relation("TillCountCountedBy", fields: [countedById], references: [id])
+
+  note      String?
+  createdAt DateTime @default(now())
+
+  lines         TillCountLine[]
+  discrepancies Discrepancy[]
+
+  @@index([tellerId, createdAt])
+  @@map("till_counts")
+}
+
+/// One currency of a till count. Every figure is scaled 1e8, and
+/// expected = opening + received - paid + toppedUp - drawn.
+model TillCountLine {
+  id      String    @id @default(cuid())
+  countId String
+  count   TillCount @relation(fields: [countId], references: [id], onDelete: Cascade)
+
+  currencyCode String
+  currency     Currency @relation(fields: [currencyCode], references: [code])
+
+  opening    BigInt
+  received   BigInt
+  paid       BigInt
+  toppedUp   BigInt
+  drawn      BigInt
+  expected   BigInt
+  counted    BigInt
+  /// Expected minus counted: positive is a shortage, negative a surplus.
+  difference BigInt
+  /// Left with the teller as the next period's opening.
+  kept       BigInt
+
+  /// The notes counted, as JSON {"200": 3, "coins": "12.5"}, when the counter
+  /// used them. Kept for the record; nothing reads it back into the sums.
+  denominations String?
+
+  @@index([countId])
+  @@map("till_count_lines")
+}
+
+/// Cash the safe gave a teller (IN) or took from them (OUT) between counts.
+///
+/// Nothing moves in the drawers — without a shift the teller trades out of the
+/// treasury's cash already — so this only tells the next count about it.
+/// Without it, change handed over at noon would read as a surplus tonight.
+model TillAdjustment {
+  id String @id @default(cuid())
+
+  tellerId String
+  teller   User   @relation("TillAdjustmentTeller", fields: [tellerId], references: [id])
+
+  currencyCode String
+  currency     Currency @relation(fields: [currencyCode], references: [code])
+
+  /// IN — given to the teller. OUT — taken from them.
+  direction String
+  amount    BigInt
+  note      String?
+
+  createdById String
+  createdBy   User     @relation("TillAdjustmentBy", fields: [createdById], references: [id])
+  createdAt   DateTime @default(now())
+
+  @@index([tellerId, createdAt])
+  @@map("till_adjustments")
 }

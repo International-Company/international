@@ -65,6 +65,13 @@ export const NAVIGATION: NavSection[] = [
         shortcut: 'g s',
       },
       {
+        // The count without a float: each teller against what they traded.
+        href: '/treasury/counts',
+        labelKey: 'nav.tillCounts',
+        icon: 'ledger',
+        permissions: ['treasury.handover.manage'],
+      },
+      {
         // One counter, two directions. Whoever holds either permission belongs
         // here; the screen offers each of them only the side they hold.
         href: '/counter/usdt',

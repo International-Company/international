@@ -53,7 +53,11 @@ export async function resolve(
   return withTransaction(async (tx) => {
     const difference = await tx.discrepancy.findUnique({
       where: { id },
-      include: { teller: true, shift: { select: { reference: true } } },
+      include: {
+        teller: true,
+        shift: { select: { reference: true } },
+        tillCount: { select: { reference: true } },
+      },
     });
     if (!difference) throw errors.notFound('Discrepancy', id);
     if (difference.status !== 'OPEN') {
@@ -61,6 +65,8 @@ export async function resolve(
     }
 
     const { currencyCode, amount } = difference;
+    // The count it was found in: a shift's close, or a till count.
+    const source = difference.shift?.reference ?? difference.tillCount?.reference ?? '';
     // Positive is a shortage: the differences balance is holding it. Negative is
     // a surplus, and the balance is short by that much.
     const size = amount > 0n ? amount : -amount;
@@ -81,7 +87,7 @@ export async function resolve(
             direction: shortage ? 'OUT' : 'IN',
             amount: size,
             reason: 'DIFFERENCE',
-            note: `${difference.shift.reference} — miscount`,
+            note: `${source} — miscount`,
           },
           {
             currency: currencyCode,
@@ -90,7 +96,7 @@ export async function resolve(
             direction: shortage ? 'IN' : 'OUT',
             amount: size,
             reason: 'DIFFERENCE',
-            note: `${difference.shift.reference} — miscount`,
+            note: `${source} — miscount`,
           },
         ],
         actor,
@@ -117,7 +123,7 @@ export async function resolve(
             direction: 'OUT',
             amount: size,
             reason: 'DIFFERENCE',
-            note: `${difference.shift.reference} — charged`,
+            note: `${source} — charged`,
           },
           {
             currency: currencyCode,
@@ -126,7 +132,7 @@ export async function resolve(
             direction: 'IN',
             amount: size,
             reason: 'DIFFERENCE',
-            note: `${difference.shift.reference} — charged`,
+            note: `${source} — charged`,
           },
         ],
         actor,
@@ -149,7 +155,7 @@ export async function resolve(
             amount: size,
             reason: 'FUNDING',
             category: 'CORRECTION',
-            note: `${difference.shift.reference} — written off`,
+            note: `${source} — written off`,
           },
         ],
         actor,
@@ -174,8 +180,8 @@ export async function resolve(
         module: 'exchange',
         entityType: 'Discrepancy',
         entityId: id,
-        summaryEn: `Settled a ${shortage ? 'shortage' : 'surplus'} of ${toDecimalString(size, 2)} ${currencyCode} from ${difference.shift.reference} as ${input.resolution}`,
-        summaryAr: `فصل في ${shortage ? 'نقص' : 'زيادة'} ${toDecimalString(size, 2)} ${currencyCode} من ${difference.shift.reference}`,
+        summaryEn: `Settled a ${shortage ? 'shortage' : 'surplus'} of ${toDecimalString(size, 2)} ${currencyCode} from ${source} as ${input.resolution}`,
+        summaryAr: `فصل في ${shortage ? 'نقص' : 'زيادة'} ${toDecimalString(size, 2)} ${currencyCode} من ${source}`,
         actor,
         after: { resolution: input.resolution, teller: difference.teller.username },
       },
