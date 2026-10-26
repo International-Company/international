@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { headers } from 'next/headers';
 import { notFound } from 'next/navigation';
 import { requirePermission } from '@/modules/auth/context';
 import { getTranslator } from '@/i18n/server';
@@ -8,6 +9,8 @@ import * as settings from '@/modules/settings/settings.service';
 import * as audit from '@/modules/audit/audit.service';
 import { formatDateTime } from '@/i18n/format';
 import { BRAND } from '@/app/_shell/brand';
+import { QrCode } from '@/core/qr/qr-code';
+import { verificationToken } from '@/modules/exchange/receipt-verify';
 import { AutoPrint } from './auto-print';
 
 export const metadata: Metadata = { title: 'Receipt', robots: { index: false } };
@@ -99,6 +102,17 @@ export default async function ReceiptPage({ params }: { params: Promise<{ id: st
   }
 
   const isExchange = transaction.toCurrency !== transaction.fromCurrency;
+
+  /*
+   * The QR opens this receipt's verification page on whatever address the
+   * office reached the system on — read from the request rather than from
+   * configuration, so it is right without anybody having to set it.
+   */
+  const requestHeaders = await headers();
+  const host = requestHeaders.get('x-forwarded-host') ?? requestHeaders.get('host') ?? '';
+  const proto =
+    requestHeaders.get('x-forwarded-proto') ?? (host.startsWith('localhost') ? 'http' : 'https');
+  const verifyUrl = `${proto}://${host}/verify/${encodeURIComponent(verificationToken(transaction.reference))}`;
   const copyLabels = [t('receipt.originalCopy'), t('receipt.officeCopy')];
 
   return (
@@ -277,6 +291,17 @@ export default async function ReceiptPage({ params }: { params: Promise<{ id: st
                 {transaction.notes}
               </p>
             )}
+
+            {/* --- Verification: scanned by staff to check this paper against the books --- */}
+            <div className={`flex flex-col items-center ${roll ? 'mt-2' : 'mt-4'}`}>
+              <QrCode
+                value={verifyUrl}
+                level="M"
+                size={roll ? 96 : 110}
+                title={t('receipt.verify')}
+              />
+              <p className={`text-[10px] ${muted}`}>{t('receipt.verify')}</p>
+            </div>
 
             {/* --- Signatures — on paper only; a roll receipt is the customer's slip --- */}
             {!roll && (

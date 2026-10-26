@@ -1939,6 +1939,21 @@ const en = {
     licenseNo: 'Licence no.',
     disclaimer:
       'This receipt confirms the transaction detailed above. Please retain it for your records.',
+    verify: 'Scan to verify this receipt',
+  },
+
+  verify: {
+    title: 'Receipt check',
+    hint: 'Compare every figure below with the paper. Any difference means the receipt was altered.',
+    genuine: 'Genuine receipt — issued by this system',
+    reversed: 'Cancelled — this transaction was reversed',
+    reversedHint: 'The receipt is real, but the transaction no longer stands. Pay nothing against it.',
+    pending: 'Genuine — transfer still pending',
+    invalid: 'Not a receipt from this system',
+    invalidHint: 'This code was not signed by the system. Treat the paper as forged.',
+    notFound: 'No such transaction',
+    printed: 'Printed {count} time(s)',
+    reversalRef: 'Reversed by {reference}',
   },
 
   shortcuts: {
