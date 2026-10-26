@@ -7,14 +7,16 @@ import {
   Check,
   Copy,
   ExternalLink,
+  History,
   Inbox,
   Loader2,
   MessageCircle,
+  Printer,
   RefreshCw,
   UserCheck,
 } from 'lucide-react';
 import { useLocale } from '@/i18n/provider';
-import { api } from '@/lib/api-client';
+import { api, queryString } from '@/lib/api-client';
 import { describeFailure } from '@/lib/failure';
 import { QrCode } from '@/core/qr/qr-code';
 import { Alert, Badge, Button, Card, CardBody, CardHeader } from '@/ui/primitives';
@@ -159,6 +161,32 @@ export function ReceiveFlow({
   const [savedPayouts, setSavedPayouts] = useState<SavedPayout[]>([]);
   const [recording, setRecording] = useState(false);
   const [done, setDone] = useState<{ id: string; reference: string } | null>(null);
+  const [recent, setRecent] = useState<RecentReceipt[]>([]);
+
+  /*
+   * The teller's last few USDT taken in, each with its receipt.
+   *
+   * The customer who sold us coins for a bank transfer leaves with a receipt
+   * saying what will reach their account, where, and that it is still on its
+   * way — and asks for it again when they lose it.
+   */
+  const loadRecent = useCallback(async () => {
+    try {
+      setRecent(
+        await api.get<RecentReceipt[]>(
+          `/api/manage/transactions${queryString({ recent: true, type: 'USDT_RECEIVE', pageSize: 5 })}`,
+        ),
+      );
+    } catch {
+      setRecent([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadRecent();
+  }, [loadRecent]);
+
+  const print = (id: string) => window.open(`/print/receipt/${id}`, '_blank');
 
   const wallet = addresses.find((entry) => entry.id === walletId);
 
@@ -391,6 +419,7 @@ export function ReceiveFlow({
       );
       toast.success(t('receive.recorded'), created.reference);
       setDone(created);
+      void loadRecent();
       setChosen(null);
       setCustomer(null);
       setCounterpartyName('');
@@ -495,7 +524,17 @@ export function ReceiveFlow({
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="font-mono ltr-content">{done.reference}</span>
                   {permissions.includes('exchange.receipt.print') && (
-                    <ShareButton transactionId={done.id} variant="secondary" />
+                    <>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        icon={<Printer />}
+                        onClick={() => print(done.id)}
+                      >
+                        {t('transactions.printReceipt')}
+                      </Button>
+                      <ShareButton transactionId={done.id} variant="secondary" />
+                    </>
                   )}
                 </div>
               </Alert>
@@ -600,6 +639,79 @@ export function ReceiveFlow({
             )}
           </CardBody>
         </Card>
+
+        {/* ============ The teller's recent receipts, for a reprint ========== */}
+        {recent.length > 0 && (
+          <Card>
+            <CardHeader
+              title={
+                <span className="flex items-center gap-2">
+                  <History className="size-4 text-primary-text" />
+                  {t('receive.recent')}
+                </span>
+              }
+            />
+            <CardBody className="p-0">
+              <ul className="divide-y divide-border-subtle">
+                {recent.map((row) => {
+                  const gone = row.status === 'REVERSED';
+                  return (
+                    <li
+                      key={row.id}
+                      className={cn(
+                        'flex items-center justify-between gap-3 px-4 py-2.5',
+                        gone && 'bg-danger-subtle/20',
+                      )}
+                    >
+                      <div className="min-w-0">
+                        <p
+                          className={cn(
+                            'ltr-content flex flex-wrap items-baseline gap-x-1.5 text-sm font-medium tabular-nums',
+                            gone
+                              ? 'text-content-tertiary line-through decoration-danger/60'
+                              : 'text-content',
+                          )}
+                        >
+                          <Money value={row.fromAmount} currency={row.fromCurrency} />
+                          <span className="text-content-tertiary">→</span>
+                          <Money value={row.toAmount} currency={row.toCurrency} />
+                        </p>
+                        <p className="mt-0.5 flex flex-wrap items-center gap-2 text-[11px] text-content-tertiary">
+                          <DateText value={row.createdAt} withTime />
+                          <span className="font-mono ltr-content">{row.reference}</span>
+                          {row.status === 'PENDING_TRANSFER' && (
+                            <span className="rounded bg-warning-subtle px-1.5 py-px font-medium text-warning-text">
+                              {t('machine.pendingTransfer')}
+                            </span>
+                          )}
+                          {gone && (
+                            <span className="rounded bg-danger-subtle px-1.5 py-px font-medium text-danger-text">
+                              {t('machine.deletedBadge')}
+                            </span>
+                          )}
+                        </p>
+                      </div>
+                      {permissions.includes('exchange.receipt.print') && (
+                        <span className="flex shrink-0 items-center gap-0.5">
+                          <button
+                            type="button"
+                            onClick={() => print(row.id)}
+                            title={t('transactions.printReceipt')}
+                            aria-label={t('transactions.printReceipt')}
+                            className="flex size-10 items-center justify-center rounded-full text-content-tertiary transition-colors hover:bg-surface-sunken hover:text-content sm:size-8"
+                          >
+                            <Printer className="size-4" />
+                          </button>
+                          <ShareButton transactionId={row.id} compact />
+                        </span>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            </CardBody>
+          </Card>
+        )}
       </div>
 
       {/* ============ Recording the one the teller picked ================== */}
@@ -996,4 +1108,15 @@ function scaleCoins(value: string): bigint {
   const [whole = '0', fraction = ''] = value.trim().split('.');
   if (!/^\d*$/.test(whole) || !/^\d*$/.test(fraction)) return 0n;
   return BigInt(whole || '0') * 100000000n + BigInt((fraction + '00000000').slice(0, 8));
+}
+
+interface RecentReceipt {
+  id: string;
+  reference: string;
+  status: string;
+  fromCurrency: string;
+  fromAmount: string;
+  toCurrency: string;
+  toAmount: string;
+  createdAt: string;
 }

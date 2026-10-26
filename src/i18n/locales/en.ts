@@ -1413,6 +1413,7 @@ const en = {
   },
 
   receive: {
+    recent: 'Recent receipts',
     known: 'Known customer: {name} — {count} earlier transfer(s) from this address',
     knownBadge: '{name}',
     shared: 'This address has sent for {count} different customers — usually an exchange’s wallet. Nothing was filled in: confirm who this is.',
