@@ -86,6 +86,22 @@ export const SETTINGS: SettingDefinition[] = [
     labelEn: 'Receipt copies', labelAr: 'عدد نسخ الإيصال',
     descriptionEn: 'Copies printed per transaction', descriptionAr: 'عدد النسخ المطبوعة لكل عملية',
   },
+  {
+    // The paper the receipt comes out on. A counter's thermal printer takes a
+    // narrow roll with no margins, and a page laid out for A4 prints on it as a
+    // column of tiny grey text — so the receipt is drawn for the roll it is on.
+    key: 'operations.receiptPaper', category: 'operations', type: 'select', defaultValue: 'POS80',
+    labelEn: 'Receipt paper', labelAr: 'ورق الإيصال',
+    descriptionEn:
+      'The printer receipts go to. A thermal (POS) roll gets a narrow, margin-free receipt in solid black, one copy per cut.',
+    descriptionAr:
+      'الطابعة التي تخرج منها الإيصالات. لطابعة الفواتير الحرارية (POS) يُطبع إيصال بعرض الرول وبلا هوامش وبخط أسود واضح، كل نسخة في قطعة.',
+    options: [
+      { value: 'POS80', labelEn: 'Thermal roll 80 mm', labelAr: 'طابعة فواتير — رول 80 ملم' },
+      { value: 'POS58', labelEn: 'Thermal roll 58 mm', labelAr: 'طابعة فواتير — رول 58 ملم' },
+      { value: 'A4', labelEn: 'A4 / regular printer', labelAr: 'ورق A4 — طابعة عادية' },
+    ],
+  },
 
   // --- Exchange machine ----------------------------------------------------
   {

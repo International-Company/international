@@ -46,17 +46,31 @@ export default async function ReceiptPage({ params }: { params: Promise<{ id: st
    * receipt must not do is claim more than happened, so the pending state is
    * printed on it.
    */
-  if (!transaction || (transaction.status !== 'POSTED' && transaction.status !== 'PENDING_TRANSFER')) {
+  if (
+    !transaction ||
+    (transaction.status !== 'POSTED' && transaction.status !== 'PENDING_TRANSFER')
+  ) {
     notFound();
   }
 
-  const [companyName, licenseNumber, phone, address, copies] = await Promise.all([
+  const [companyName, licenseNumber, phone, address, copies, paper] = await Promise.all([
     settings.getString(locale === 'ar' ? 'company.name.ar' : 'company.name.en'),
     settings.getString('company.licenseNumber'),
     settings.getString('company.phone'),
     settings.getString('company.address'),
     settings.getNumber('operations.receiptCopies'),
+    settings.getString('operations.receiptPaper'),
   ]);
+
+  /*
+   * A thermal roll: the printable width of the roll, no margins, and solid
+   * black only — a thermal head prints grey as speckle, and a border as a
+   * smear down both edges. Each copy ends in a page break, which the printer
+   * driver turns into a cut.
+   */
+  const roll = paper === 'POS58' ? 48 : paper === 'POS80' ? 72 : null;
+  const muted = roll ? 'text-black' : 'text-gray-600';
+  const rule = roll ? 'border-dashed border-black' : 'border-gray-300';
 
   const receipt = transaction.receipts[0];
 
@@ -89,49 +103,84 @@ export default async function ReceiptPage({ params }: { params: Promise<{ id: st
   return (
     <div className="min-h-screen bg-canvas p-4 print:bg-white print:p-0">
       <AutoPrint />
+      {roll && <style>{`@media print { @page { size: ${roll + 8}mm auto; margin: 0; } }`}</style>}
 
-      <div className="mx-auto max-w-md space-y-6">
+      <div
+        className={roll ? 'mx-auto space-y-6 print:space-y-0' : 'mx-auto max-w-md space-y-6'}
+        style={roll ? { width: `${roll}mm` } : undefined}
+      >
         {Array.from({ length: Math.max(1, Math.min(copies, 3)) }, (_, index) => (
           <article
             key={index}
             dir={isRtl ? 'rtl' : 'ltr'}
             className={[
-              'bg-white text-black border border-gray-300 p-6 text-[13px] leading-relaxed',
+              roll
+                ? 'bg-white px-1 py-2 text-[12px] font-medium leading-snug text-black'
+                : 'bg-white text-black border border-gray-300 p-6 text-[13px] leading-relaxed',
               index < copies - 1 ? 'print-break' : '',
             ].join(' ')}
           >
             {/* --- Header ------------------------------------------------- */}
-            <header className="border-b border-gray-400 pb-3 text-center">
+            <header
+              className={`border-b pb-3 text-center ${roll ? 'border-dashed border-black' : 'border-gray-400'}`}
+            >
               <h1 className="text-lg font-bold">{companyName}</h1>
               {licenseNumber && (
-                <p className="text-xs text-gray-600">
+                <p className={`text-xs ${muted}`}>
                   {t('receipt.licenseNo')}: {licenseNumber}
                 </p>
               )}
               {(phone || address) && (
-                <p className="text-xs text-gray-600">{[address, phone].filter(Boolean).join(' · ')}</p>
+                <p className={`text-xs ${muted}`}>{[address, phone].filter(Boolean).join(' · ')}</p>
               )}
               <p className="mt-2 text-sm font-semibold">{t('receipt.title')}</p>
-              <p className="text-xs text-gray-600">
+              <p className={`text-xs ${muted}`}>
                 {copyLabels[index] ?? t('receipt.copy', { index: index + 1, total: copies })}
               </p>
             </header>
 
             {/* --- Meta ---------------------------------------------------- */}
-            <dl className="mt-3 space-y-1 border-b border-gray-300 pb-3 text-xs">
-              <Row label={t('receipt.number')} value={receipt?.number ?? transaction.reference} mono />
-              <Row label={t('transactions.reference')} value={transaction.reference} mono />
+            <dl className={`mt-3 space-y-1 border-b pb-3 text-xs ${rule}`}>
+              <Row
+                label={t('receipt.number')}
+                value={receipt?.number ?? transaction.reference}
+                mono
+                muted={muted}
+              />
+              <Row
+                label={t('transactions.reference')}
+                value={transaction.reference}
+                mono
+                muted={muted}
+              />
               <Row
                 label={t('receipt.date')}
                 value={formatDateTime(transaction.createdAt ?? transaction.createdAt, locale)}
+                muted={muted}
               />
-              <Row label={t('common.branch')} value={ln(transaction.branch, 'name')} />
-              <Row label={t('receipt.teller')} value={ln(transaction.createdBy, 'fullName')} />
+              <Row
+                label={t('common.branch')}
+                value={ln(transaction.branch, 'name')}
+                muted={muted}
+              />
+              <Row
+                label={t('receipt.teller')}
+                value={ln(transaction.createdBy, 'fullName')}
+                muted={muted}
+              />
               {transaction.customer && (
-                <Row label={t('receipt.customer')} value={ln(transaction.customer, 'fullName')} />
+                <Row
+                  label={t('receipt.customer')}
+                  value={ln(transaction.customer, 'fullName')}
+                  muted={muted}
+                />
               )}
               {!transaction.customer && transaction.counterpartyName && (
-                <Row label={t('receipt.customer')} value={transaction.counterpartyName} />
+                <Row
+                  label={t('receipt.customer')}
+                  value={transaction.counterpartyName}
+                  muted={muted}
+                />
               )}
             </dl>
 
@@ -140,9 +189,7 @@ export default async function ReceiptPage({ params }: { params: Promise<{ id: st
               <p className="text-sm font-semibold">
                 {t(`transactions.type.${transaction.type}` as never)}
                 {transaction.status === 'PENDING_TRANSFER' && (
-                  <span className="ms-2 font-normal">
-                    — {t('machine.pendingTransfer')}
-                  </span>
+                  <span className="ms-2 font-normal">— {t('machine.pendingTransfer')}</span>
                 )}
               </p>
 
@@ -164,7 +211,7 @@ export default async function ReceiptPage({ params }: { params: Promise<{ id: st
                           {transaction.toCurrency}
                         </td>
                       </tr>
-                      <tr className="border-t border-gray-300">
+                      <tr className={`border-t ${rule}`}>
                         <td className="py-1 font-semibold">{t('receipt.delivered')}</td>
                         <td className="py-1 text-end font-bold" dir="ltr">
                           {toDecimalString(transaction.toAmount, 2)} {transaction.toCurrency}
@@ -181,14 +228,14 @@ export default async function ReceiptPage({ params }: { params: Promise<{ id: st
                     still standing at the counter.
                   */}
                   {transaction.payoutAddress && (
-                    <tr className="border-t border-gray-300">
+                    <tr className={`border-t ${rule}`}>
                       <td className="py-1 align-top">{t('withdraw.address')}</td>
                       <td className="py-1 text-end align-top" dir="ltr">
                         <span className="break-all font-mono text-xs">
                           {transaction.payoutAddress}
                         </span>
                         {transaction.payoutWallet && (
-                          <span className="block text-xs text-gray-600">
+                          <span className={`block text-xs ${muted}`}>
                             {transaction.payoutWallet.network}
                           </span>
                         )}
@@ -200,24 +247,28 @@ export default async function ReceiptPage({ params }: { params: Promise<{ id: st
             </div>
 
             {transaction.notes && (
-              <p className="mt-3 border-t border-gray-300 pt-2 text-xs text-gray-700">
+              <p
+                className={`mt-3 border-t pt-2 text-xs ${rule} ${roll ? 'text-black' : 'text-gray-700'}`}
+              >
                 {transaction.notes}
               </p>
             )}
 
             {/* --- Signatures ------------------------------------------------ */}
-            <div className="mt-6 grid grid-cols-2 gap-6 text-xs">
+            <div className={`grid grid-cols-2 text-xs ${roll ? 'mt-4 gap-3' : 'mt-6 gap-6'}`}>
               <div>
-                <div className="h-10 border-b border-gray-400" />
-                <p className="mt-1 text-center text-gray-600">{t('receipt.signature')}</p>
+                <div className={`border-b ${roll ? 'h-8 border-black' : 'h-10 border-gray-400'}`} />
+                <p className={`mt-1 text-center ${muted}`}>{t('receipt.signature')}</p>
               </div>
               <div>
-                <div className="h-10 border-b border-gray-400" />
-                <p className="mt-1 text-center text-gray-600">{t('receipt.tellerSignature')}</p>
+                <div className={`border-b ${roll ? 'h-8 border-black' : 'h-10 border-gray-400'}`} />
+                <p className={`mt-1 text-center ${muted}`}>{t('receipt.tellerSignature')}</p>
               </div>
             </div>
 
-            <footer className="mt-4 border-t border-gray-300 pt-2 text-center text-[10px] text-gray-600">
+            <footer
+              className={`mt-4 border-t pt-2 text-center ${rule} ${roll ? 'pb-6 text-[11px] text-black' : 'text-[10px] text-gray-600'}`}
+            >
               <p>{t('receipt.disclaimer')}</p>
               <p className="mt-1 font-semibold">{t('receipt.thankYou')}</p>
             </footer>
@@ -228,10 +279,20 @@ export default async function ReceiptPage({ params }: { params: Promise<{ id: st
   );
 }
 
-function Row({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
+function Row({
+  label,
+  value,
+  mono,
+  muted = 'text-gray-600',
+}: {
+  label: string;
+  value: string;
+  mono?: boolean;
+  muted?: string;
+}) {
   return (
     <div className="flex justify-between gap-4">
-      <dt className="text-gray-600">{label}</dt>
+      <dt className={muted}>{label}</dt>
       <dd className={mono ? 'font-mono' : undefined} dir={mono ? 'ltr' : undefined}>
         {value}
       </dd>
