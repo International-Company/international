@@ -7,6 +7,7 @@ import { toDecimalString } from '@/core/money/money';
 import * as settings from '@/modules/settings/settings.service';
 import * as audit from '@/modules/audit/audit.service';
 import { formatDateTime } from '@/i18n/format';
+import { BRAND } from '@/app/_shell/brand';
 import { AutoPrint } from './auto-print';
 
 export const metadata: Metadata = { title: 'Receipt', robots: { index: false } };
@@ -115,16 +116,28 @@ export default async function ReceiptPage({ params }: { params: Promise<{ id: st
             dir={isRtl ? 'rtl' : 'ltr'}
             className={[
               roll
-                ? 'bg-white px-1 py-2 text-[12px] font-medium leading-snug text-black'
+                ? 'bg-white px-1 pb-1 text-[11px] font-medium leading-tight text-black'
                 : 'bg-white text-black border border-gray-300 p-6 text-[13px] leading-relaxed',
               index < copies - 1 ? 'print-break' : '',
             ].join(' ')}
           >
             {/* --- Header ------------------------------------------------- */}
             <header
-              className={`border-b pb-3 text-center ${roll ? 'border-dashed border-black' : 'border-gray-400'}`}
+              className={`border-b text-center ${roll ? 'border-dashed border-black pb-1.5' : 'border-gray-400 pb-3'}`}
             >
-              <h1 className="text-lg font-bold">{companyName}</h1>
+              {/*
+                The logo, in grey on a roll: a thermal head has no colour, and a
+                colour image left to the driver prints as a dark blot.
+              */}
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={BRAND.logoSmall}
+                alt=""
+                className={`mx-auto ${roll ? 'mb-1 size-[16mm] grayscale contrast-125' : 'mb-2 size-16'}`}
+              />
+              <h1 className={roll ? 'text-[14px] font-bold leading-tight' : 'text-lg font-bold'}>
+                {companyName}
+              </h1>
               {licenseNumber && (
                 <p className={`text-xs ${muted}`}>
                   {t('receipt.licenseNo')}: {licenseNumber}
@@ -133,26 +146,41 @@ export default async function ReceiptPage({ params }: { params: Promise<{ id: st
               {(phone || address) && (
                 <p className={`text-xs ${muted}`}>{[address, phone].filter(Boolean).join(' · ')}</p>
               )}
-              <p className="mt-2 text-sm font-semibold">{t('receipt.title')}</p>
-              <p className={`text-xs ${muted}`}>
-                {copyLabels[index] ?? t('receipt.copy', { index: index + 1, total: copies })}
+              <p className={roll ? 'mt-1 text-[12px] font-semibold' : 'mt-2 text-sm font-semibold'}>
+                {t('receipt.title')}
+                {roll && (
+                  <span className="font-normal">
+                    {' — '}
+                    {copyLabels[index] ?? t('receipt.copy', { index: index + 1, total: copies })}
+                  </span>
+                )}
               </p>
+              {!roll && (
+                <p className={`text-xs ${muted}`}>
+                  {copyLabels[index] ?? t('receipt.copy', { index: index + 1, total: copies })}
+                </p>
+              )}
             </header>
 
             {/* --- Meta ---------------------------------------------------- */}
-            <dl className={`mt-3 space-y-1 border-b pb-3 text-xs ${rule}`}>
+            <dl
+              className={`border-b text-xs ${rule} ${roll ? 'mt-1.5 space-y-0.5 pb-1.5 text-[11px]' : 'mt-3 space-y-1 pb-3'}`}
+            >
               <Row
                 label={t('receipt.number')}
                 value={receipt?.number ?? transaction.reference}
                 mono
                 muted={muted}
               />
-              <Row
-                label={t('transactions.reference')}
-                value={transaction.reference}
-                mono
-                muted={muted}
-              />
+              {/* Only when it says something the receipt number did not. */}
+              {receipt?.number && receipt.number !== transaction.reference && (
+                <Row
+                  label={t('transactions.reference')}
+                  value={transaction.reference}
+                  mono
+                  muted={muted}
+                />
+              )}
               <Row
                 label={t('receipt.date')}
                 value={formatDateTime(transaction.createdAt ?? transaction.createdAt, locale)}
@@ -185,15 +213,15 @@ export default async function ReceiptPage({ params }: { params: Promise<{ id: st
             </dl>
 
             {/* --- Amounts -------------------------------------------------- */}
-            <div className="mt-3 space-y-2">
-              <p className="text-sm font-semibold">
+            <div className={roll ? 'mt-1.5 space-y-1' : 'mt-3 space-y-2'}>
+              <p className={roll ? 'text-[12px] font-semibold' : 'text-sm font-semibold'}>
                 {t(`transactions.type.${transaction.type}` as never)}
                 {transaction.status === 'PENDING_TRANSFER' && (
                   <span className="ms-2 font-normal">— {t('machine.pendingTransfer')}</span>
                 )}
               </p>
 
-              <table className="w-full text-sm">
+              <table className={`w-full ${roll ? 'text-[12px] [&_td]:py-0.5' : 'text-sm'}`}>
                 <tbody>
                   <tr>
                     <td className="py-1">{t('receipt.received')}</td>
@@ -255,19 +283,19 @@ export default async function ReceiptPage({ params }: { params: Promise<{ id: st
             )}
 
             {/* --- Signatures ------------------------------------------------ */}
-            <div className={`grid grid-cols-2 text-xs ${roll ? 'mt-4 gap-3' : 'mt-6 gap-6'}`}>
+            <div className={`grid grid-cols-2 text-xs ${roll ? 'mt-2 gap-3' : 'mt-6 gap-6'}`}>
               <div>
-                <div className={`border-b ${roll ? 'h-8 border-black' : 'h-10 border-gray-400'}`} />
+                <div className={`border-b ${roll ? 'h-6 border-black' : 'h-10 border-gray-400'}`} />
                 <p className={`mt-1 text-center ${muted}`}>{t('receipt.signature')}</p>
               </div>
               <div>
-                <div className={`border-b ${roll ? 'h-8 border-black' : 'h-10 border-gray-400'}`} />
+                <div className={`border-b ${roll ? 'h-6 border-black' : 'h-10 border-gray-400'}`} />
                 <p className={`mt-1 text-center ${muted}`}>{t('receipt.tellerSignature')}</p>
               </div>
             </div>
 
             <footer
-              className={`mt-4 border-t pt-2 text-center ${rule} ${roll ? 'pb-6 text-[11px] text-black' : 'text-[10px] text-gray-600'}`}
+              className={`border-t text-center ${rule} ${roll ? 'mt-2 pt-1 pb-4 text-[10px] text-black' : 'mt-4 pt-2 text-[10px] text-gray-600'}`}
             >
               <p>{t('receipt.disclaimer')}</p>
               <p className="mt-1 font-semibold">{t('receipt.thankYou')}</p>
