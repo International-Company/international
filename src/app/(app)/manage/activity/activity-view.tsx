@@ -14,7 +14,10 @@ import {
   CategoryCards,
   OperationsList,
   PeriodPicker,
+  SpecialPrices,
   usePeriod,
+  type Amount,
+  type SpecialPriceDeal,
   type TypeTotals,
 } from '@/app/_activity/parts';
 import { DailyLedger } from '@/app/_activity/daily-ledger';
@@ -44,12 +47,15 @@ interface TellerSummary {
   counts: Record<Category, number>;
   total: number;
   reversed: number;
+  special: number;
   lastAt: string | null;
 }
 
 interface Activity {
   tellers: TellerSummary[];
   types: TypeTotals[];
+  specialPrices: SpecialPriceDeal[];
+  specialConceded: Amount[];
   canSeeMargin: boolean;
 }
 
@@ -104,8 +110,9 @@ export function ActivityView({ initialTeller }: { initialTeller: string }) {
           USDT: acc.USDT + teller.counts.USDT,
           total: acc.total + teller.total,
           reversed: acc.reversed + teller.reversed,
+          special: acc.special + teller.special,
         }),
-        { EXCHANGE: 0, REMITTANCE: 0, USDT: 0, total: 0, reversed: 0 },
+        { EXCHANGE: 0, REMITTANCE: 0, USDT: 0, total: 0, reversed: 0, special: 0 },
       ),
     [tellers],
   );
@@ -171,6 +178,7 @@ export function ActivityView({ initialTeller }: { initialTeller: string }) {
                     ))}
                     <th className="px-3 py-2 text-end font-medium">{t('activity.total')}</th>
                     <th className="px-3 py-2 text-end font-medium">{t('activity.reversed')}</th>
+                    <th className="px-3 py-2 text-end font-medium">{t('activity.special')}</th>
                     <th className="px-3 py-2 text-end font-medium">{t('activity.last')}</th>
                   </tr>
                 </thead>
@@ -203,6 +211,13 @@ export function ActivityView({ initialTeller }: { initialTeller: string }) {
                             <span className="text-content-tertiary">0</span>
                           )}
                         </td>
+                        <td className="px-3 py-2 text-end tabular-nums">
+                          {teller.special > 0 ? (
+                            <Badge tone="warning">{teller.special}</Badge>
+                          ) : (
+                            <span className="text-content-tertiary">0</span>
+                          )}
+                        </td>
                         <td className="px-3 py-2 text-end text-xs text-content-secondary">
                           <DateText value={teller.lastAt} withTime />
                         </td>
@@ -221,6 +236,7 @@ export function ActivityView({ initialTeller }: { initialTeller: string }) {
                       ))}
                       <td className="px-3 py-2 text-end tabular-nums">{sums.total}</td>
                       <td className="px-3 py-2 text-end tabular-nums">{sums.reversed}</td>
+                      <td className="px-3 py-2 text-end tabular-nums">{sums.special}</td>
                       <td />
                     </tr>
                   </tfoot>
@@ -248,6 +264,18 @@ export function ActivityView({ initialTeller }: { initialTeller: string }) {
           </div>
           <CategoryCards types={data.types} />
         </section>
+      )}
+
+      {/* --- Deals at a special price, apart from the rest --------------------- */}
+      {data && (
+        <SpecialPrices
+          deals={data.specialPrices}
+          conceded={data.specialConceded}
+          showStaff={!tellerId}
+          title={
+            chosen ? t('activity.specialFor', { name: name(chosen) }) : t('activity.specialTitle')
+          }
+        />
       )}
 
       {/* --- The deals themselves ------------------------------------------- */}

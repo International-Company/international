@@ -68,8 +68,36 @@ export interface TellerSummary {
   counts: Record<Category, number>;
   total: number;
   reversed: number;
+  /** Of the deals that stand, how many were at a special price. */
+  special: number;
   /** The last thing he recorded in the window. */
   lastAt: Date | null;
+}
+
+/**
+ * One deal done off the board — a special price, given by the teller himself
+ * or approved by the manager — with what it cost the office against the board.
+ */
+export interface SpecialPriceDeal {
+  id: string;
+  reference: string;
+  createdAt: Date;
+  tellerId: string;
+  fullNameEn: string;
+  fullNameAr: string;
+  type: TransactionType;
+  pending: boolean;
+  fromCurrency: string;
+  fromAmount: bigint;
+  toCurrency: string;
+  toAmount: bigint;
+  /** The board's rate when it was given, and the rate the customer got. */
+  boardRate: bigint;
+  givenRate: bigint;
+  /** What the office gave up against the board, as stamped when it was used. */
+  conceded: Amount | null;
+  /** Given by the teller himself, not approved by somebody else. */
+  selfGranted: boolean;
 }
 
 export interface Activity {
@@ -79,6 +107,10 @@ export interface Activity {
   tellers: TellerSummary[];
   /** The breakdown — for one teller when one is chosen, for the office otherwise. */
   types: TypeTotals[];
+  /** Deals at a special price, newest first — for the same teller or everybody. */
+  specialPrices: SpecialPriceDeal[];
+  /** What those concessions came to, per currency. */
+  specialConceded: Amount[];
   canSeeMargin: boolean;
 }
 
@@ -134,6 +166,8 @@ export async function activity(
   const rows = await db.transaction.findMany({
     where,
     select: {
+      id: true,
+      reference: true,
       createdById: true,
       type: true,
       status: true,
@@ -143,6 +177,17 @@ export async function activity(
       toAmount: true,
       profitAmount: true,
       createdAt: true,
+      priceException: {
+        select: {
+          boardRate: true,
+          approvedRate: true,
+          requestedRate: true,
+          concededAmount: true,
+          concededCurrency: true,
+          requestedById: true,
+          approvedById: true,
+        },
+      },
     },
   });
 
@@ -165,6 +210,7 @@ export async function activity(
         counts: { EXCHANGE: 0, REMITTANCE: 0, USDT: 0 },
         total: 0,
         reversed: 0,
+        special: 0,
         lastAt: null,
       };
       tellers.set(row.createdById, summary);
@@ -179,6 +225,7 @@ export async function activity(
     const category = categoryOf(row.type);
     if (category) summary.counts[category] += 1;
     summary.total += 1;
+    if (row.priceException) summary.special += 1;
   }
 
   // --- How much, by type ----------------------------------------------------
@@ -235,13 +282,64 @@ export async function activity(
     margin: canSeeMargin ? list(sums.margin) : null,
   }));
 
+  // --- Off the board -------------------------------------------------------
+  const conceded = new Map<string, bigint>();
+  const specialPrices: SpecialPriceDeal[] = chosen
+    .filter((row) => row.priceException && row.status !== 'REVERSED')
+    .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+    .map((row) => {
+      const exception = row.priceException!;
+      const person = named.get(row.createdById);
+      const cost =
+        exception.concededAmount !== null && exception.concededCurrency
+          ? { currency: exception.concededCurrency, amount: exception.concededAmount }
+          : null;
+      if (cost) add(conceded, cost.currency, cost.amount);
+      return {
+        id: row.id,
+        reference: row.reference,
+        createdAt: row.createdAt,
+        tellerId: row.createdById,
+        fullNameEn: person?.fullNameEn ?? row.createdById,
+        fullNameAr: person?.fullNameAr ?? row.createdById,
+        type: row.type as TransactionType,
+        pending: row.status === 'PENDING_TRANSFER',
+        fromCurrency: row.fromCurrency,
+        fromAmount: row.fromAmount,
+        toCurrency: row.toCurrency,
+        toAmount: row.toAmount,
+        boardRate: exception.boardRate,
+        givenRate: exception.approvedRate ?? exception.requestedRate,
+        conceded: cost,
+        selfGranted: exception.approvedById === exception.requestedById,
+      };
+    });
+
   return {
     from: input.from.toISOString(),
     to: input.to.toISOString(),
     tellers: [...tellers.values()].sort((a, b) => b.total - a.total || b.reversed - a.reversed),
     types,
+    specialPrices,
+    specialConceded: list(conceded),
     canSeeMargin,
   };
+}
+
+/** Special-price deals as JSON: bigints as strings, dates as ISO text. */
+export function serializeSpecialPrices(deals: SpecialPriceDeal[]) {
+  return deals.map((deal) => ({
+    ...deal,
+    createdAt: deal.createdAt.toISOString(),
+    fromAmount: deal.fromAmount.toString(),
+    toAmount: deal.toAmount.toString(),
+    boardRate: deal.boardRate.toString(),
+    givenRate: deal.givenRate.toString(),
+    conceded: deal.conceded && {
+      currency: deal.conceded.currency,
+      amount: deal.conceded.amount.toString(),
+    },
+  }));
 }
 
 // ---------------------------------------------------------------------------

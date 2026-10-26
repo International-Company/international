@@ -37,6 +37,8 @@ export const GET = route<unknown, z.infer<typeof querySchema>>({
         paid: amounts(totals.paid),
         margin: amounts(totals.margin),
       })),
+      specialPrices: activity.serializeSpecialPrices(work.specialPrices),
+      specialConceded: amounts(work.specialConceded),
       balances: flows.map((flow) => ({
         currency: flow.currency,
         kind: flow.kind,

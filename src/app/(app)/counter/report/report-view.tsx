@@ -12,7 +12,10 @@ import {
   CategoryCards,
   OperationsList,
   PeriodPicker,
+  SpecialPrices,
   usePeriod,
+  type Amount as ScaledAmount,
+  type SpecialPriceDeal,
   type TypeTotals,
 } from '@/app/_activity/parts';
 import { DailyLedger } from '@/app/_activity/daily-ledger';
@@ -57,6 +60,8 @@ interface Balance {
 interface Report {
   summary: Summary | null;
   types: TypeTotals[];
+  specialPrices: SpecialPriceDeal[];
+  specialConceded: ScaledAmount[];
   balances: Balance[];
 }
 
@@ -217,6 +222,17 @@ export function MyReportView({ userId }: { userId: string }) {
           <h2 className="text-base font-semibold text-content">{t('myReport.summary')}</h2>
           <CategoryCards types={report.types} />
         </section>
+      )}
+
+      {/* --- My deals at a special price, apart from the rest ---------------- */}
+      {report && (
+        <SpecialPrices
+          deals={report.specialPrices}
+          conceded={report.specialConceded}
+          showStaff={false}
+          title={t('activity.specialTitle')}
+          linkable={false}
+        />
       )}
 
       {/* Day by day: what each came to, and what was owed when it ended. */}

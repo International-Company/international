@@ -161,6 +161,165 @@ export function PeriodPicker({ period }: { period: ReturnType<typeof usePeriod> 
   );
 }
 
+// --- Off the board ---------------------------------------------------------------
+
+export interface SpecialPriceDeal {
+  id: string;
+  reference: string;
+  createdAt: string;
+  tellerId: string;
+  fullNameEn: string;
+  fullNameAr: string;
+  type: string;
+  pending: boolean;
+  fromCurrency: string;
+  fromAmount: string;
+  toCurrency: string;
+  toAmount: string;
+  boardRate: string;
+  givenRate: string;
+  conceded: Amount | null;
+  selfGranted: boolean;
+}
+
+/** A 1e8-scaled rate, to four places. */
+const rateText = (scaled: string) => (Number(BigInt(scaled)) / 1e8).toFixed(4);
+
+/**
+ * The deals done at a special price, apart from the rest.
+ *
+ * Each with the board it was measured against, the rate the customer got,
+ * what that gave away, and who said yes — the teller himself or a manager —
+ * so a run of them by one person reads at a glance.
+ */
+export function SpecialPrices({
+  deals,
+  conceded,
+  showStaff,
+  title,
+  linkable = true,
+}: {
+  deals: SpecialPriceDeal[];
+  conceded: Amount[];
+  showStaff: boolean;
+  title: string;
+  /** Rows open the transaction's page — only for someone who may see it. */
+  linkable?: boolean;
+}) {
+  const { t, ln } = useLocale();
+  const router = useRouter();
+
+  return (
+    <Card>
+      <CardHeader
+        title={title}
+        description={t('activity.specialHint')}
+        actions={
+          <Badge tone={deals.length > 0 ? 'warning' : 'neutral'}>
+            {t('activity.operations', { count: deals.length })}
+          </Badge>
+        }
+      />
+      <CardBody className="p-0">
+        {deals.length === 0 ? (
+          <p className="px-4 py-6 text-center text-sm text-content-tertiary">
+            {t('activity.specialNone')}
+          </p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[44rem] border-collapse text-sm">
+              <thead>
+                <tr className="bg-surface-sunken text-xs text-content-secondary">
+                  <th className="px-3 py-2 text-start font-medium">{t('activity.specialWhen')}</th>
+                  {showStaff && (
+                    <th className="px-3 py-2 text-start font-medium">{t('activity.teller')}</th>
+                  )}
+                  <th className="px-3 py-2 text-end font-medium">{t('activity.received')}</th>
+                  <th className="px-3 py-2 text-end font-medium">{t('activity.paid')}</th>
+                  <th className="px-3 py-2 text-end font-medium">{t('activity.specialBoard')}</th>
+                  <th className="px-3 py-2 text-end font-medium">{t('activity.specialGiven')}</th>
+                  <th className="px-3 py-2 text-end font-medium">{t('activity.specialCost')}</th>
+                  <th className="px-3 py-2 text-end font-medium">{t('activity.specialBy')}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {deals.map((deal) => (
+                  <tr
+                    key={deal.id}
+                    onClick={
+                      linkable ? () => router.push(`/manage/transactions/${deal.id}`) : undefined
+                    }
+                    className={cn(
+                      'border-t border-border-subtle',
+                      linkable && 'cursor-pointer transition-colors hover:bg-surface-hover',
+                    )}
+                  >
+                    <td className="px-3 py-2">
+                      <DateText value={deal.createdAt} withTime />
+                      <span className="block font-mono text-[11px] text-content-tertiary ltr-content">
+                        {deal.reference}
+                      </span>
+                    </td>
+                    {showStaff && <td className="px-3 py-2 font-medium">{ln(deal, 'fullName')}</td>}
+                    <td className="px-3 py-2 text-end tabular-nums">
+                      <Money value={deal.fromAmount} currency={deal.fromCurrency} />
+                    </td>
+                    <td className="px-3 py-2 text-end tabular-nums">
+                      <Money value={deal.toAmount} currency={deal.toCurrency} />
+                      {deal.pending && (
+                        <span className="block text-[11px] text-warning-text">
+                          {t('machine.pendingTransfer')}
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-3 py-2 text-end tabular-nums text-content-secondary ltr-content">
+                      {rateText(deal.boardRate)}
+                    </td>
+                    <td className="px-3 py-2 text-end font-semibold tabular-nums ltr-content">
+                      {rateText(deal.givenRate)}
+                    </td>
+                    <td className="px-3 py-2 text-end tabular-nums text-danger-text">
+                      {deal.conceded ? (
+                        <Money value={deal.conceded.amount} currency={deal.conceded.currency} />
+                      ) : (
+                        '—'
+                      )}
+                    </td>
+                    <td className="px-3 py-2 text-end">
+                      <Badge tone={deal.selfGranted ? 'warning' : 'neutral'}>
+                        {deal.selfGranted
+                          ? t('activity.specialSelf')
+                          : t('activity.specialManager')}
+                      </Badge>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+              {conceded.length > 0 && (
+                <tfoot>
+                  <tr className="border-t-2 border-border-base bg-surface-sunken font-semibold">
+                    <td className="px-3 py-2" colSpan={showStaff ? 6 : 5}>
+                      {t('activity.specialTotal')}
+                    </td>
+                    <td className="px-3 py-2 text-end tabular-nums text-danger-text">
+                      {conceded.map((entry) => (
+                        <span key={entry.currency} className="block">
+                          <Money value={entry.amount} currency={entry.currency} />
+                        </span>
+                      ))}
+                    </td>
+                    <td />
+                  </tr>
+                </tfoot>
+              )}
+            </table>
+          </div>
+        )}
+      </CardBody>
+    </Card>
+  );
+}
+
 // --- What it came to ------------------------------------------------------------
 
 /** The three kinds of work side by side, and the one rule that governs them. */

@@ -45,6 +45,8 @@ export const GET = route<unknown, z.infer<typeof querySchema>>({
         paid: amounts(totals.paid),
         margin: amounts(totals.margin),
       })),
+      specialPrices: activity.serializeSpecialPrices(result.specialPrices),
+      specialConceded: amounts(result.specialConceded),
     };
   },
 });
