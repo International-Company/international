@@ -57,13 +57,14 @@ export default async function ReceiptPage({ params }: { params: Promise<{ id: st
     notFound();
   }
 
-  const [companyName, licenseNumber, phone, address, copies, paper] = await Promise.all([
+  const [companyName, licenseNumber, phone, address, copies, paper, bankNote] = await Promise.all([
     settings.getString(locale === 'ar' ? 'company.name.ar' : 'company.name.en'),
     settings.getString('company.licenseNumber'),
     settings.getString('company.phone'),
     settings.getString('company.address'),
     settings.getNumber('operations.receiptCopies'),
     settings.getString('operations.receiptPaper'),
+    settings.getString('operations.bankReceiptNote'),
   ]);
 
   /*
@@ -348,6 +349,18 @@ export default async function ReceiptPage({ params }: { params: Promise<{ id: st
                 className={`mt-3 border-t pt-2 text-xs ${rule} ${roll ? 'text-black' : 'text-gray-700'}`}
               >
                 {transaction.notes}
+              </p>
+            )}
+
+            {/*
+              When the money leaves by transfer, the customer is told when to
+              expect it — in the office's own words, kept in settings.
+            */}
+            {bankPayout && bankNote.trim() && (
+              <p
+                className={`border-y text-center font-semibold ${rule} ${roll ? 'mt-2 py-1 text-[11px]' : 'mt-3 py-2 text-xs'}`}
+              >
+                {bankNote}
               </p>
             )}
 

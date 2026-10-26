@@ -87,6 +87,17 @@ export const SETTINGS: SettingDefinition[] = [
     descriptionEn: 'Copies printed per transaction', descriptionAr: 'عدد النسخ المطبوعة لكل عملية',
   },
   {
+    // What a customer paid by bank or wallet transfer is told about when the
+    // money arrives. Printed only on those receipts; empty prints nothing.
+    key: 'operations.bankReceiptNote', category: 'operations', type: 'string',
+    defaultValue: 'ملاحظة: سيتم التسليم خلال يوم عمل',
+    labelEn: 'Note on transfer receipts', labelAr: 'ملاحظة إيصالات التحويل',
+    descriptionEn:
+      'Printed on every receipt paid out by bank or wallet transfer, such as when the money will arrive. Leave empty to print nothing.',
+    descriptionAr:
+      'تُطبع على كل إيصال يُصرف بتحويل بنكي أو إلى محفظة، مثل موعد وصول المبلغ. اتركها فارغة لعدم طباعة شيء.',
+  },
+  {
     // The paper the receipt comes out on. A counter's thermal printer takes a
     // narrow roll with no margins, and a page laid out for A4 prints on it as a
     // column of tiny grey text — so the receipt is drawn for the roll it is on.
