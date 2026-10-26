@@ -33,6 +33,39 @@ function databaseUrl() {
   }
 }
 
+/**
+ * The office changed its number on 2026-10-26, and asked for it to be changed
+ * from here rather than in the settings screen.
+ *
+ * Only the old number is replaced, matched on its digits alone so spacing or a
+ * leading plus does not matter. Once it is gone this does nothing — and a
+ * number anyone sets on the settings screen afterwards is never touched.
+ */
+const OLD_PHONE_DIGITS = '972594020634';
+const NEW_PHONE = '0567556555';
+
+async function correctCompanyPhone(prisma) {
+  try {
+    const row = await prisma.systemSetting.findUnique({ where: { key: 'company.phone' } });
+    if (!row) return;
+    let current = '';
+    try {
+      current = String(JSON.parse(row.value) ?? '');
+    } catch {
+      current = row.value;
+    }
+    if (current.replace(/\D/g, '') !== OLD_PHONE_DIGITS) return;
+    await prisma.systemSetting.update({
+      where: { key: 'company.phone' },
+      data: { value: JSON.stringify(NEW_PHONE) },
+    });
+    console.log('[post-deploy] Company phone updated to the new number.');
+  } catch (error) {
+    // A receipt header is not worth failing a deploy over.
+    console.warn('[post-deploy] Could not update the company phone:', error);
+  }
+}
+
 async function main() {
   const url = databaseUrl();
 
@@ -44,6 +77,8 @@ async function main() {
   const prisma = new PrismaClient();
 
   try {
+    await correctCompanyPhone(prisma);
+
     const drawers = await prisma.drawer.findMany();
     if (drawers.length === 0) {
       console.log('[post-deploy] No drawers yet — nothing to account for.');
