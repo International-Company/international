@@ -707,6 +707,7 @@ const ar: Dictionary = {
   },
 
   withdraw: {
+    recent: 'آخر عمليات السحب',
     title: 'سحب USDT',
     subtitle: 'العميل يدفع، والفرع يرسل العملة إلى محفظته.',
     customerPays: 'العميل يدفع',

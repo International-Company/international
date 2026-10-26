@@ -705,6 +705,7 @@ const en = {
   },
 
   withdraw: {
+    recent: 'Recent withdrawals',
     title: 'Sell USDT',
     subtitle: 'The customer pays, and the branch sends the coins to their wallet.',
     customerPays: 'Customer pays',

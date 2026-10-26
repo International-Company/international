@@ -3,7 +3,7 @@
 import { networkLabel } from '@/lib/network-label';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Check, Loader2, Printer, RotateCcw, TriangleAlert, Wallet } from 'lucide-react';
+import { Check, History, Loader2, Printer, RotateCcw, TriangleAlert, Wallet } from 'lucide-react';
 import { useLocale } from '@/i18n/provider';
 import { normalizeDigits } from '@/core/money/money';
 import { api, ApiError, queryString } from '@/lib/api-client';
@@ -99,6 +99,27 @@ export function WithdrawView({
   const [error, setError] = useState<string | null>(null);
   const [posting, setPosting] = useState(false);
   const [done, setDone] = useState<{ id: string; reference: string } | null>(null);
+  const [recent, setRecent] = useState<RecentWithdrawal[]>([]);
+
+  // --- The teller's own recent withdrawals, for a reprint ----------------------
+  //
+  // A lost receipt is asked for at the counter, while the next customer waits,
+  // so the last few are here rather than on a screen of their own.
+  const loadRecent = useCallback(async () => {
+    try {
+      setRecent(
+        await api.get<RecentWithdrawal[]>(
+          `/api/manage/transactions${queryString({ recent: true, type: 'USDT_SEND', pageSize: 5 })}`,
+        ),
+      );
+    } catch {
+      setRecent([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadRecent();
+  }, [loadRecent]);
 
   const amountRef = useRef<HTMLInputElement>(null);
 
@@ -267,6 +288,7 @@ export function WithdrawView({
       setCustomer(null);
       setCounterpartyName('');
       router.refresh();
+      void loadRecent();
     } catch (cause) {
       toast.error(
         t('errors.title'),
@@ -608,8 +630,91 @@ export function WithdrawView({
         <RotateCcw className="size-4" />
         {t('machine.clear')}
       </button>
+
+      {recent.length > 0 && (
+        <section className="overflow-hidden rounded-2xl bg-surface ring-1 ring-border-subtle">
+          <header className="flex items-center gap-2 border-b border-border-subtle px-4 py-3">
+            <History className="size-4 text-primary-text" />
+            <h3 className="text-sm font-semibold text-content">{t('withdraw.recent')}</h3>
+          </header>
+          <ul className="divide-y divide-border-subtle">
+            {recent.map((row) => {
+              const gone = row.status === 'REVERSED';
+              return (
+                <li
+                  key={row.id}
+                  className={cn(
+                    'flex items-center justify-between gap-3 px-4 py-2.5',
+                    gone && 'bg-danger-subtle/20',
+                  )}
+                >
+                  <div className="min-w-0">
+                    <p
+                      className={cn(
+                        'ltr-content flex flex-wrap items-baseline gap-x-1.5 text-sm font-medium tabular-nums',
+                        gone
+                          ? 'text-content-tertiary line-through decoration-danger/60'
+                          : 'text-content',
+                      )}
+                    >
+                      <span>
+                        {formatScaled(row.fromAmount, 2)}{' '}
+                        <span className="text-xs text-content-secondary">{row.fromCurrency}</span>
+                      </span>
+                      <span className="text-content-tertiary">→</span>
+                      <span>
+                        {formatScaled(row.toAmount, USDT_DECIMALS)}{' '}
+                        <span className="text-xs text-content-secondary">{row.toCurrency}</span>
+                      </span>
+                    </p>
+                    <p className="mt-0.5 flex items-center gap-2 text-[11px] text-content-tertiary">
+                      <span className="tabular-nums ltr-content">
+                        {new Date(row.createdAt).toLocaleTimeString('en-GB', {
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        })}
+                      </span>
+                      <span className="font-mono ltr-content">{row.reference}</span>
+                      {gone && (
+                        <span className="rounded bg-danger-subtle px-1.5 py-px font-medium text-danger-text">
+                          {t('machine.deletedBadge')}
+                        </span>
+                      )}
+                    </p>
+                  </div>
+                  {permissions.includes('exchange.receipt.print') && (
+                    <span className="flex shrink-0 items-center gap-0.5">
+                      <button
+                        type="button"
+                        onClick={() => print(row.id)}
+                        title={t('transactions.printReceipt')}
+                        aria-label={t('transactions.printReceipt')}
+                        className="flex size-10 items-center justify-center rounded-full text-content-tertiary transition-colors hover:bg-surface-sunken hover:text-content sm:size-8"
+                      >
+                        <Printer className="size-4" />
+                      </button>
+                      <ShareButton transactionId={row.id} compact />
+                    </span>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      )}
     </form>
   );
+}
+
+interface RecentWithdrawal {
+  id: string;
+  reference: string;
+  status: string;
+  fromCurrency: string;
+  fromAmount: string;
+  toCurrency: string;
+  toAmount: string;
+  createdAt: string;
 }
 
 /** A reason the trade cannot go through, said plainly and in one place. */
