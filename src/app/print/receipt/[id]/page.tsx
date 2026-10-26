@@ -103,7 +103,8 @@ export default async function ReceiptPage({ params }: { params: Promise<{ id: st
 
   return (
     <div className="min-h-screen bg-canvas p-4 print:bg-white print:p-0">
-      <AutoPrint />
+      {/* On a roll the page is cut to the receipt's own length, measured once it has rendered. */}
+      <AutoPrint rollWidthMm={roll ? roll + 8 : undefined} />
       {roll && <style>{`@media print { @page { size: ${roll + 8}mm auto; margin: 0; } }`}</style>}
 
       <div
@@ -113,6 +114,7 @@ export default async function ReceiptPage({ params }: { params: Promise<{ id: st
         {Array.from({ length: Math.max(1, Math.min(copies, 3)) }, (_, index) => (
           <article
             key={index}
+            data-receipt
             dir={isRtl ? 'rtl' : 'ltr'}
             className={[
               roll
@@ -148,12 +150,6 @@ export default async function ReceiptPage({ params }: { params: Promise<{ id: st
               )}
               <p className={roll ? 'mt-1 text-[12px] font-semibold' : 'mt-2 text-sm font-semibold'}>
                 {t('receipt.title')}
-                {roll && (
-                  <span className="font-normal">
-                    {' — '}
-                    {copyLabels[index] ?? t('receipt.copy', { index: index + 1, total: copies })}
-                  </span>
-                )}
               </p>
               {!roll && (
                 <p className={`text-xs ${muted}`}>
@@ -282,20 +278,22 @@ export default async function ReceiptPage({ params }: { params: Promise<{ id: st
               </p>
             )}
 
-            {/* --- Signatures ------------------------------------------------ */}
-            <div className={`grid grid-cols-2 text-xs ${roll ? 'mt-2 gap-3' : 'mt-6 gap-6'}`}>
-              <div>
-                <div className={`border-b ${roll ? 'h-6 border-black' : 'h-10 border-gray-400'}`} />
-                <p className={`mt-1 text-center ${muted}`}>{t('receipt.signature')}</p>
+            {/* --- Signatures — on paper only; a roll receipt is the customer's slip --- */}
+            {!roll && (
+              <div className="mt-6 grid grid-cols-2 gap-6 text-xs">
+                <div>
+                  <div className="h-10 border-b border-gray-400" />
+                  <p className={`mt-1 text-center ${muted}`}>{t('receipt.signature')}</p>
+                </div>
+                <div>
+                  <div className="h-10 border-b border-gray-400" />
+                  <p className={`mt-1 text-center ${muted}`}>{t('receipt.tellerSignature')}</p>
+                </div>
               </div>
-              <div>
-                <div className={`border-b ${roll ? 'h-6 border-black' : 'h-10 border-gray-400'}`} />
-                <p className={`mt-1 text-center ${muted}`}>{t('receipt.tellerSignature')}</p>
-              </div>
-            </div>
+            )}
 
             <footer
-              className={`border-t text-center ${rule} ${roll ? 'mt-2 pt-1 pb-4 text-[10px] text-black' : 'mt-4 pt-2 text-[10px] text-gray-600'}`}
+              className={`border-t text-center ${rule} ${roll ? 'mt-2 pt-1 pb-2 text-[10px] text-black' : 'mt-4 pt-2 text-[10px] text-gray-600'}`}
             >
               <p>{t('receipt.disclaimer')}</p>
               <p className="mt-1 font-semibold">{t('receipt.thankYou')}</p>
