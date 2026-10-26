@@ -388,9 +388,18 @@ export function ReceiveFlow({
    * person it is for.
    */
   const transferring = mode !== 'CASH';
+  /*
+   * The account a transfer goes to. Left empty, it is the customer's phone —
+   * the number the field already shows greyed out, and for a wallet the very
+   * number the money is sent to. Without this the teller saw a number in the
+   * field and a button that would not press.
+   */
+  const accountToUse =
+    payoutAccount.trim() || customer?.phone?.trim() || counterpartyPhone.trim();
+
   const missingForTransfer =
     transferring &&
-    (!payoutAccount.trim() ||
+    (!accountToUse ||
       (!customer && (!counterpartyName.trim() || !counterpartyPhone.trim())));
 
   const record = async () => {
@@ -410,7 +419,7 @@ export function ReceiveFlow({
            */
           brokerShare: mode === 'SPLIT' ? brokerShare.trim() : undefined,
           payoutChannel: mode === 'CASH' ? null : destination,
-          payoutAccount: mode === 'CASH' ? null : payoutAccount.trim() || null,
+          payoutAccount: mode === 'CASH' ? null : accountToUse || null,
           customerId: customer?.id ?? null,
           counterpartyName: customer ? null : counterpartyName.trim() || null,
           counterpartyPhone: customer ? null : counterpartyPhone.trim() || null,
