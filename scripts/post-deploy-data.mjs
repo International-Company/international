@@ -66,6 +66,43 @@ async function correctCompanyPhone(prisma) {
   }
 }
 
+/**
+ * Receipt changes the office asked for on 2026-10-26: the company's new Arabic
+ * name, the branch printed by its place rather than "head office", and one
+ * copy per receipt instead of two.
+ *
+ * Applied exactly once, then remembered under a marker row — so whatever is
+ * set on the settings screen afterwards stays as it is set, deploy after deploy.
+ */
+const RECEIPT_REQUEST_MARKER = 'deploy.applied.receipt-2026-10-26';
+
+async function applyReceiptRequest(prisma) {
+  try {
+    const done = await prisma.systemSetting.findUnique({ where: { key: RECEIPT_REQUEST_MARKER } });
+    if (done) return;
+
+    const set = (key, value, valueType, category) =>
+      prisma.systemSetting.upsert({
+        where: { key },
+        create: { key, value: JSON.stringify(value), valueType, category },
+        update: { value: JSON.stringify(value) },
+      });
+
+    await set('company.name.ar', 'شركة انترنشونال للمعاملات المالية والالكترونية', 'string', 'company');
+    await set('operations.receiptCopies', 1, 'number', 'operations');
+    await prisma.branch.updateMany({
+      where: { code: 'HQ' },
+      data: { nameAr: 'دير البلح - البلد' },
+    });
+    await set(RECEIPT_REQUEST_MARKER, true, 'boolean', 'system');
+
+    console.log('[post-deploy] Applied the receipt changes asked for on 2026-10-26.');
+  } catch (error) {
+    // A receipt header is not worth failing a deploy over.
+    console.warn('[post-deploy] Could not apply the receipt changes:', error);
+  }
+}
+
 async function main() {
   const url = databaseUrl();
 
@@ -78,6 +115,7 @@ async function main() {
 
   try {
     await correctCompanyPhone(prisma);
+    await applyReceiptRequest(prisma);
 
     const drawers = await prisma.drawer.findMany();
     if (drawers.length === 0) {
