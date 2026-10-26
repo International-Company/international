@@ -124,10 +124,19 @@ export default async function ReceiptPage({ params }: { params: Promise<{ id: st
   const copyLabels = [t('receipt.originalCopy'), t('receipt.officeCopy')];
 
   return (
-    <div className="min-h-screen bg-canvas p-4 print:bg-white print:p-0">
-      {/* On a roll the page is cut to the receipt's own length, measured once it has rendered. */}
-      <AutoPrint rollWidthMm={roll ? roll + 8 : undefined} />
-      {roll && <style>{`@media print { @page { size: ${roll + 8}mm auto; margin: 0; } }`}</style>}
+    <div className="min-h-screen bg-canvas p-4 print:min-h-0 print:bg-white print:p-0">
+      <AutoPrint />
+      {/*
+        The page is declared as the driver's own roll paper — 80 (or 58) wide
+        and 3276 mm long — so the browser neither scales it nor centres it on a
+        sheet. The receipt starts at the very top, and the driver stops and
+        cuts after the last printed line. A page cut to the receipt's length
+        looked tidier but did not match any paper the driver offers, and the
+        browser centred it on the nearest one, leaving a gap above the logo.
+      */}
+      {roll && (
+        <style>{`@media print { @page { size: ${roll === 48 ? 58 : 80}mm 3276mm; margin: 0; } }`}</style>
+      )}
 
       <div
         className={roll ? 'mx-auto space-y-6 print:space-y-0' : 'mx-auto max-w-md space-y-6'}
