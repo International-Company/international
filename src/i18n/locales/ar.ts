@@ -1306,6 +1306,7 @@ const ar: Dictionary = {
   },
 
   machine: {
+    specialToday: 'صفقاتي بسعر مميز اليوم',
     intakeTitle: 'العميل يدفع',
     intakeCash: 'نقداً',
     intakeTransfer: 'تحويل',

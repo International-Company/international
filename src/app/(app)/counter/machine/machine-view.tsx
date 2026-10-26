@@ -40,6 +40,7 @@ import { CustomerPicker, type CustomerHit } from '@/ui/customer-picker';
 import { cn } from '@/ui/utils';
 import Link from 'next/link';
 import { TodaySummary } from './today-summary';
+import { TodaySpecialPrices } from './today-special-prices';
 
 /**
  * The exchange tool.
@@ -1472,6 +1473,9 @@ export function MachineView({
               </ul>
             </section>
           )}
+
+          {/* Today's deals off the board, apart — refreshed with each new deal. */}
+          <TodaySpecialPrices refreshKey={recent[0]?.id} />
 
           {/* The days have a screen of their own; one tap away from here. */}
           <Link

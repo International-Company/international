@@ -1307,6 +1307,7 @@ const en = {
   },
 
   machine: {
+    specialToday: 'My special-price deals today',
     intakeTitle: 'Customer pays',
     intakeCash: 'Cash',
     intakeTransfer: 'Transfer',
