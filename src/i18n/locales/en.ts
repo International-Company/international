@@ -1924,7 +1924,7 @@ const en = {
     number: 'Receipt no.',
     date: 'Date',
     teller: 'Served by',
-    customer: 'Customer',
+    customer: 'Beneficiary',
     received: 'Received',
     delivered: 'Delivered',
     rate: 'Rate',
@@ -1940,6 +1940,10 @@ const en = {
     disclaimer:
       'This receipt confirms the transaction detailed above. Please retain it for your records.',
     verify: 'Scan to verify this receipt',
+    payoutChannel: 'Bank / wallet',
+    payoutAccount: 'Account no.',
+    byTransfer: 'By transfer',
+    inCash: 'In cash',
   },
 
   verify: {

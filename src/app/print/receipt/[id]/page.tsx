@@ -103,6 +103,14 @@ export default async function ReceiptPage({ params }: { params: Promise<{ id: st
 
   const isExchange = transaction.toCurrency !== transaction.fromCurrency;
 
+  // Paid out by bank or wallet transfer, in whole or in part.
+  const bankPayout = transaction.payoutBankAmount > 0n && !transaction.payoutAddress;
+  const payoutNumber =
+    transaction.payoutAccount?.trim() ||
+    transaction.customer?.phone ||
+    transaction.counterpartyPhone ||
+    null;
+
   /*
    * The QR opens this receipt's verification page on whatever address the
    * office reached the system on — read from the request rather than from
@@ -259,6 +267,48 @@ export default async function ReceiptPage({ params }: { params: Promise<{ id: st
                   )}
 
                   {/*
+                    Where a bank or wallet payout went: the beneficiary's bank or
+                    wallet, the account (or the wallet's number), and how much
+                    went that way when part of it was paid in cash.
+                  */}
+                  {bankPayout && (
+                    <>
+                      <tr className={`border-t ${rule}`}>
+                        <td className="py-1">{t('receipt.payoutChannel')}</td>
+                        <td className="py-1 text-end font-semibold">
+                          {transaction.payoutBankChannel ?? '—'}
+                        </td>
+                      </tr>
+                      {payoutNumber && (
+                        <tr>
+                          <td className="py-1">{t('receipt.payoutAccount')}</td>
+                          <td className="py-1 text-end font-mono font-semibold" dir="ltr">
+                            {payoutNumber}
+                          </td>
+                        </tr>
+                      )}
+                      {transaction.payoutCashAmount > 0n && (
+                        <>
+                          <tr>
+                            <td className="py-1">{t('receipt.byTransfer')}</td>
+                            <td className="py-1 text-end" dir="ltr">
+                              {toDecimalString(transaction.payoutBankAmount, 2)}{' '}
+                              {transaction.toCurrency}
+                            </td>
+                          </tr>
+                          <tr>
+                            <td className="py-1">{t('receipt.inCash')}</td>
+                            <td className="py-1 text-end" dir="ltr">
+                              {toDecimalString(transaction.payoutCashAmount, 2)}{' '}
+                              {transaction.toCurrency}
+                            </td>
+                          </tr>
+                        </>
+                      )}
+                    </>
+                  )}
+
+                  {/*
                     Where the coins went. On the receipt because this is the
                     only copy the customer takes away, and the address is the
                     one part of a withdrawal nobody can correct afterwards —
@@ -300,7 +350,6 @@ export default async function ReceiptPage({ params }: { params: Promise<{ id: st
                 size={roll ? 96 : 110}
                 title={t('receipt.verify')}
               />
-              <p className={`text-[10px] ${muted}`}>{t('receipt.verify')}</p>
             </div>
 
             {/* --- Signatures — on paper only; a roll receipt is the customer's slip --- */}

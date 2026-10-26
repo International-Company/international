@@ -1923,7 +1923,7 @@ const ar: Dictionary = {
     number: 'رقم الإيصال',
     date: 'التاريخ',
     teller: 'الموظف',
-    customer: 'العميل',
+    customer: 'المستفيد',
     received: 'المستلم',
     delivered: 'المسلّم',
     rate: 'السعر',
@@ -1938,6 +1938,10 @@ const ar: Dictionary = {
     licenseNo: 'رقم الترخيص',
     disclaimer: 'يؤكد هذا الإيصال العملية الموضحة أعلاه. يُرجى الاحتفاظ به.',
     verify: 'امسح للتحقق من الإيصال',
+    payoutChannel: 'البنك / المحفظة',
+    payoutAccount: 'رقم الحساب',
+    byTransfer: 'بالتحويل',
+    inCash: 'نقداً',
   },
 
   verify: {
