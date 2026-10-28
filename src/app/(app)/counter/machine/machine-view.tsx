@@ -41,6 +41,7 @@ import { cn } from '@/ui/utils';
 import Link from 'next/link';
 import { TodaySummary } from './today-summary';
 import { TodaySpecialPrices } from './today-special-prices';
+import { MyCashLedger } from './my-cash-ledger';
 
 /**
  * The exchange tool.
@@ -1543,6 +1544,9 @@ export function MachineView({
           )}
         </Dialog>
       </form>
+
+      {/* The teller's own box for the day, from zero, to count his drawer by. */}
+      <MyCashLedger refreshKey={recent[0]?.id} />
     </div>
   );
 }
