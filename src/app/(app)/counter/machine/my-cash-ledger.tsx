@@ -1,11 +1,15 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { CalendarDays, ChevronLeft, ChevronRight, ClipboardList } from 'lucide-react';
+import { CalendarDays, ChevronLeft, ChevronRight, ClipboardList, Wallet } from 'lucide-react';
 import { useLocale } from '@/i18n/provider';
 import { formatDate } from '@/i18n/format';
 import { api, queryString } from '@/lib/api-client';
-import { Badge } from '@/ui/primitives';
+import { Alert, Badge, Button } from '@/ui/primitives';
+import { Dialog, useToast } from '@/ui/overlay';
+import { Field, Input } from '@/ui/form';
+import { describeFailure } from '@/lib/failure';
+import { normalizeDigits } from '@/core/money/money';
 import { Money } from '@/ui/display';
 import { cn } from '@/ui/utils';
 
@@ -43,6 +47,8 @@ interface Entry {
 
 interface Ledger {
   opening: Amount[];
+  openingSet: boolean;
+  currencies: { code: string; decimals: number }[];
   closing: Amount[];
   traded: { currency: string; bought: string; sold: string; buys: number; sells: number }[];
   entries: Entry[];
@@ -65,9 +71,25 @@ function priceOf(entry: Entry): string | null {
   return null;
 }
 
-export function MyCashLedger({ refreshKey }: { refreshKey?: string }) {
+export function MyCashLedger({
+  refreshKey,
+  day: fixedDay,
+  className,
+}: {
+  refreshKey?: string;
+  /** A day chosen elsewhere on the page; without it the section picks its own. */
+  day?: string;
+  className?: string;
+}) {
   const { t } = useLocale();
-  const [day, setDay] = useState(() => dayInput(new Date()));
+  const toast = useToast();
+  const [ownDay, setDay] = useState(() => dayInput(new Date()));
+  const day = fixedDay ?? ownDay;
+  const isToday = day === dayInput(new Date());
+
+  // --- Opening the box ----------------------------------------------------------
+  const [opening, setOpening] = useState<Record<string, string> | null>(null);
+  const [saving, setSaving] = useState(false);
   const [filter, setFilter] = useState<Filter>('ALL');
   const [ledger, setLedger] = useState<Ledger | null>(null);
   const [loading, setLoading] = useState(true);
@@ -80,7 +102,7 @@ export function MyCashLedger({ refreshKey }: { refreshKey?: string }) {
     try {
       setLedger(
         await api.get<Ledger>(
-          `/api/my/cash-ledger${queryString({ from: from.toISOString(), to: to.toISOString() })}`,
+          `/api/my/cash-ledger${queryString({ from: from.toISOString(), to: to.toISOString(), day })}`,
         ),
       );
     } catch {
@@ -115,8 +137,48 @@ export function MyCashLedger({ refreshKey }: { refreshKey?: string }) {
       ))
     );
 
+  const startOpening = () => {
+    if (!ledger) return;
+    const current = new Map(ledger.opening.map((entry) => [entry.currency, entry.amount]));
+    setOpening(
+      Object.fromEntries(
+        ledger.currencies.map((currency) => {
+          const scaled = current.get(currency.code);
+          return [currency.code, scaled && scaled !== '0' ? plainAmount(scaled) : ''];
+        }),
+      ),
+    );
+  };
+
+  const saveOpening = async () => {
+    if (!opening) return;
+    setSaving(true);
+    try {
+      await api.post('/api/my/cash-ledger', {
+        day,
+        lines: Object.entries(opening).map(([currency, amount]) => ({
+          currency,
+          amount: amount.trim() || '0',
+        })),
+      });
+      toast.success(t('cashLedger.openingSaved'));
+      setOpening(null);
+      await load();
+    } catch (caught) {
+      const { title, body } = describeFailure(caught, t as never);
+      toast.error(title, body);
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
-    <section className="mt-6 space-y-4 rounded-2xl bg-surface p-4 ring-1 ring-border-subtle">
+    <section
+      className={cn(
+        'mt-6 space-y-4 rounded-2xl bg-surface p-4 ring-1 ring-border-subtle',
+        className,
+      )}
+    >
       {/* --- Heading and the day ---------------------------------------- */}
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div>
@@ -126,12 +188,24 @@ export function MyCashLedger({ refreshKey }: { refreshKey?: string }) {
           </h2>
           <p className="text-xs text-content-secondary">{t('cashLedger.hint')}</p>
         </div>
-        <DayNavigator value={day} onChange={setDay} />
+        {fixedDay === undefined && <DayNavigator value={day} onChange={setDay} />}
       </header>
+
+      {/* The day starts with the box: asked for, plainly, until it is given. */}
+      {ledger && !ledger.openingSet && isToday && (
+        <Alert tone="warning" icon={<Wallet />} title={t('cashLedger.openingAsk')}>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span>{t('cashLedger.openingAskHint')}</span>
+            <Button size="sm" onClick={startOpening}>
+              {t('cashLedger.openingSet')}
+            </Button>
+          </div>
+        </Alert>
+      )}
 
       {loading && !ledger ? (
         <p className="py-6 text-center text-sm text-content-tertiary">{t('common.loading')}</p>
-      ) : !ledger || ledger.entries.length === 0 ? (
+      ) : !ledger || (ledger.entries.length === 0 && !ledger.openingSet) ? (
         <p className="py-6 text-center text-sm text-content-tertiary">{t('cashLedger.empty')}</p>
       ) : (
         <>
@@ -142,9 +216,14 @@ export function MyCashLedger({ refreshKey }: { refreshKey?: string }) {
                 {t('cashLedger.opening')}
               </p>
               <div className="mt-1 text-lg font-bold tabular-nums">{amounts(ledger.opening)}</div>
-              <p className="mt-1 text-[11px] text-content-tertiary">
-                {t('cashLedger.openingHint')}
-              </p>
+              <div className="mt-1 flex flex-wrap items-center justify-between gap-2">
+                <p className="text-[11px] text-content-tertiary">
+                  {ledger.openingSet ? t('cashLedger.openingByYou') : t('cashLedger.openingHint')}
+                </p>
+                <Button size="sm" variant="ghost" onClick={startOpening}>
+                  {ledger.openingSet ? t('cashLedger.openingEdit') : t('cashLedger.openingSet')}
+                </Button>
+              </div>
             </div>
 
             <div className="rounded-xl bg-surface-sunken p-3">
@@ -283,6 +362,48 @@ export function MyCashLedger({ refreshKey }: { refreshKey?: string }) {
           </div>
         </>
       )}
+
+      {/* --- Opening the box: one field per cash currency --------------------- */}
+      <Dialog
+        open={opening !== null}
+        onClose={() => setOpening(null)}
+        title={t('cashLedger.openingTitle')}
+        description={t('cashLedger.openingDialogHint')}
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setOpening(null)} disabled={saving}>
+              {t('common.cancel')}
+            </Button>
+            <Button loading={saving} onClick={() => void saveOpening()}>
+              {t('common.save')}
+            </Button>
+          </>
+        }
+      >
+        {opening && ledger && (
+          <div className="grid gap-3 sm:grid-cols-2">
+            {ledger.currencies.map((currency) => (
+              <Field key={currency.code} label={currency.code}>
+                {(props) => (
+                  <Input
+                    {...props}
+                    dir="ltr"
+                    inputMode="decimal"
+                    placeholder="0"
+                    value={opening[currency.code] ?? ''}
+                    onChange={(event) =>
+                      setOpening((current) => ({
+                        ...(current ?? {}),
+                        [currency.code]: sanitiseAmount(event.target.value, currency.decimals),
+                      }))
+                    }
+                  />
+                )}
+              </Field>
+            ))}
+          </div>
+        )}
+      </Dialog>
     </section>
   );
 }
@@ -396,4 +517,23 @@ function DayNavigator({ value, onChange }: { value: string; onChange: (day: stri
       )}
     </div>
   );
+}
+
+/** A 1e8-scaled figure as a plain decimal for an input, without trailing zeros. */
+function plainAmount(scaled: string): string {
+  const value = BigInt(scaled);
+  const whole = value / 100_000_000n;
+  const fraction = (value % 100_000_000n).toString().padStart(8, '0').replace(/0+$/, '');
+  return fraction ? `${whole}.${fraction}` : whole.toString();
+}
+
+/** Digits and one decimal point, at most `limit` places after it. */
+function sanitiseAmount(raw: string, limit: number): string {
+  const cleaned = normalizeDigits(raw)
+    .replace(/[,٫٬]/g, '.')
+    .replace(/[^\d.]/g, '');
+  const [whole = '', ...rest] = cleaned.split('.');
+  const fraction = rest.join('').slice(0, limit);
+  const next = rest.length > 0 && limit > 0 ? `${whole}.${fraction}` : whole;
+  return next.replace(/^0+(?=\d)/, '');
 }

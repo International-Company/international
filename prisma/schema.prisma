@@ -123,6 +123,7 @@ model User {
   tillCountsTaken TillCount[]             @relation("TillCountCountedBy")
   tillAdjustments TillAdjustment[]        @relation("TillAdjustmentTeller")
   tillAdjusted    TillAdjustment[]        @relation("TillAdjustmentBy")
+  openingBoxes    TellerOpening[]
   handoversMade   Handover[]              @relation("HandoverCreatedBy")
   handoversTaken  Handover[]              @relation("HandoverConfirmedBy")
   passwordHistory PasswordHistory[]
@@ -683,6 +684,7 @@ model Currency {
   discrepancies Discrepancy[]
   tillCountLines  TillCountLine[]
   tillAdjustments TillAdjustment[]
+  openingBoxes    TellerOpening[]
 
   @@map("currencies")
 }
@@ -2093,4 +2095,33 @@ model TillAdjustment {
 
   @@index([tellerId, createdAt])
   @@map("till_adjustments")
+}
+
+/// The box a teller says he opened a day with, per currency.
+///
+/// His own figure, entered by him at the start of the day: the closing box on
+/// his day's account is this plus what his deals put in the drawer, less what
+/// they took out. Kept per local day as the counter calls it ("2026-10-28"),
+/// because that is the day he counts — not a business day the office may
+/// reopen, and not a UTC date that changes at two in the morning.
+model TellerOpening {
+  id String @id @default(cuid())
+
+  tellerId String
+  teller   User   @relation(fields: [tellerId], references: [id])
+
+  /// The counter's local day, YYYY-MM-DD.
+  day String
+
+  currencyCode String
+  currency     Currency @relation(fields: [currencyCode], references: [code])
+
+  /// Scaled 1e8.
+  amount BigInt
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([tellerId, day, currencyCode])
+  @@map("teller_openings")
 }

@@ -24,7 +24,7 @@ type Deal = {
   moves: [direction: 'IN' | 'OUT', currency: string, amount: bigint][];
 };
 
-function fakeDb(deals: Deal[]) {
+function fakeDb(deals: Deal[], opening: { currencyCode: string; amount: bigint }[] = []) {
   const movements = deals.flatMap((deal, index) =>
     deal.moves.map(([direction, currency, amount]) => ({
       direction,
@@ -46,7 +46,16 @@ function fakeDb(deals: Deal[]) {
       },
     })),
   );
-  return { drawerMovement: { findMany: async () => movements } } as never;
+  return {
+    drawerMovement: { findMany: async () => movements },
+    currency: {
+      findMany: async () => [
+        { code: 'ILS', decimals: 2 },
+        { code: 'USD', decimals: 2 },
+      ],
+    },
+    tellerOpening: { findMany: async () => opening },
+  } as never;
 }
 
 const teller = { id: 'ahmad', name: 'Ahmad', permissions: ['exchange.transaction.view'] };
@@ -179,6 +188,50 @@ describe('my box for the day', () => {
     assert.deepEqual(
       ledger.closing.map((row) => [row.currency, row.amount]),
       [['USD', 100n * UNIT]],
+    );
+  });
+});
+
+describe('my box, opened by me', () => {
+  it('starts from the box I entered and closes on top of it', async () => {
+    const ledger = await cashLedger(
+      { ...day, day: '2026-10-28' },
+      teller,
+      fakeDb(
+        [
+          {
+            id: 'a',
+            from: ['USD', 100n * UNIT],
+            to: ['ILS', 300n * UNIT],
+            moves: [
+              ['IN', 'USD', 100n * UNIT],
+              ['OUT', 'ILS', 300n * UNIT],
+            ],
+          },
+        ],
+        [
+          { currencyCode: 'ILS', amount: 1_000n * UNIT },
+          { currencyCode: 'USD', amount: 500n * UNIT },
+        ],
+      ),
+    );
+    assert.equal(ledger.openingSet, true);
+    const closing = Object.fromEntries(ledger.closing.map((row) => [row.currency, row.amount]));
+    assert.equal(closing.ILS, 700n * UNIT);
+    assert.equal(closing.USD, 600n * UNIT);
+    const opening = Object.fromEntries(ledger.opening.map((row) => [row.currency, row.amount]));
+    assert.equal(opening.ILS, 1_000n * UNIT);
+  });
+
+  it('closes a currency he opened with even when nothing moved in it', async () => {
+    const ledger = await cashLedger(
+      { ...day, day: '2026-10-28' },
+      teller,
+      fakeDb([], [{ currencyCode: 'JOD', amount: 50n * UNIT }]),
+    );
+    assert.deepEqual(
+      ledger.closing.map((row) => [row.currency, row.amount]),
+      [['JOD', 50n * UNIT]],
     );
   });
 });

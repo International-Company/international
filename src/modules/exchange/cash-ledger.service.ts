@@ -1,7 +1,9 @@
 import 'server-only';
 import { prisma, type DbClient } from '@/core/db/prisma';
 import { errors } from '@/core/errors/app-error';
+import { toDecimalString } from '@/core/money/money';
 import { HOME_CURRENCY } from '@/lib/home-currency';
+import * as audit from '@/modules/audit/audit.service';
 import type { Actor } from './transaction.service';
 
 /**
@@ -62,8 +64,14 @@ export interface LedgerEntry {
 export interface CashLedger {
   from: Date;
   to: Date;
-  /** Always zero, per currency the window touched — said so on the page. */
+  /**
+   * What the teller said he opened the day with, per currency — zero where he
+   * has said nothing. `openingSet` tells the page which of the two it is.
+   */
   opening: CashAmount[];
+  openingSet: boolean;
+  /** The cash currencies he can open a box in, for the form. */
+  currencies: { code: string; decimals: number }[];
   /** Per foreign currency: how much the office bought and sold, deals that stand. */
   traded: { currency: string; bought: bigint; sold: bigint; buys: number; sells: number }[];
   entries: LedgerEntry[];
@@ -76,8 +84,98 @@ function sideOf(type: string, fromCurrency: string, toCurrency: string): Side {
   return fromCurrency !== HOME_CURRENCY ? 'BUY' : 'SELL';
 }
 
+const DAY = /^\d{4}-\d{2}-\d{2}$/;
+
+/** The opening box a teller entered for a day, per currency. */
+export async function openingFor(
+  tellerId: string,
+  day: string,
+  db: DbClient = prisma,
+): Promise<Map<string, bigint> | null> {
+  if (!DAY.test(day)) return null;
+  const rows = await db.tellerOpening.findMany({
+    where: { tellerId, day },
+    select: { currencyCode: true, amount: true },
+  });
+  return rows.length === 0 ? null : new Map(rows.map((row) => [row.currencyCode, row.amount]));
+}
+
+/**
+ * The teller opens his own box for a day — and may correct it, each time on
+ * the audit log with what it was before, so a box quietly raised at night to
+ * cover a shortage reads as exactly that.
+ *
+ * Not for a day ahead: the box is what is in the drawer, and tomorrow's
+ * drawer is not here yet. A day is the counter's own (YYYY-MM-DD), so
+ * "today" is allowed a day's slack either side of the server's clock.
+ */
+export async function setOpening(
+  input: { day: string; lines: CashAmount[] },
+  actor: Actor,
+  db: DbClient = prisma,
+) {
+  if (!actor.permissions.includes('exchange.transaction.view')) {
+    throw errors.forbidden('exchange.transaction.view');
+  }
+  if (!DAY.test(input.day)) {
+    throw errors.validation([{ path: 'day', message: 'Not a day' }]);
+  }
+  const tomorrow = new Date(Date.now() + 36 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  if (input.day > tomorrow) {
+    throw errors.precondition('A box cannot be opened for a day ahead', 'errors.openingAhead');
+  }
+  for (const line of input.lines) {
+    if (line.amount < 0n) {
+      throw errors.validation([{ path: `lines.${line.currency}`, message: 'Below zero' }]);
+    }
+  }
+
+  const before = await openingFor(actor.id, input.day, db);
+
+  for (const line of input.lines) {
+    await db.tellerOpening.upsert({
+      where: {
+        tellerId_day_currencyCode: {
+          tellerId: actor.id,
+          day: input.day,
+          currencyCode: line.currency,
+        },
+      },
+      create: {
+        tellerId: actor.id,
+        day: input.day,
+        currencyCode: line.currency,
+        amount: line.amount,
+      },
+      update: { amount: line.amount },
+    });
+  }
+
+  const describe = (map: Map<string, bigint> | null) =>
+    map
+      ? [...map.entries()].map(([currency, amount]) => `${currency} ${toDecimalString(amount, 2)}`)
+      : [];
+  const after = new Map(before ?? []);
+  for (const line of input.lines) after.set(line.currency, line.amount);
+
+  await audit.record(
+    {
+      action: before ? 'UPDATE' : 'CREATE',
+      module: 'exchange',
+      entityType: 'TellerOpening',
+      entityId: `${actor.id}:${input.day}`,
+      summaryEn: `${before ? 'Corrected' : 'Opened'} his box for ${input.day}`,
+      summaryAr: `${before ? 'عدّل' : 'رصّد'} صندوقه الافتتاحي ليوم ${input.day}`,
+      actor,
+      before: before ? { box: describe(before) } : undefined,
+      after: { box: describe(after) },
+    },
+    db,
+  );
+}
+
 export async function cashLedger(
-  input: { from: Date; to: Date },
+  input: { from: Date; to: Date; day?: string },
   actor: Actor,
   db: DbClient = prisma,
 ): Promise<CashLedger> {
@@ -172,8 +270,9 @@ export async function cashLedger(
       .map(([currency, amount]) => ({ currency, amount }))
       .sort((a, b) => a.currency.localeCompare(b.currency));
 
-  // The box, carried line by line from zero.
-  const box = new Map<string, bigint>();
+  // The box, carried line by line from what the teller opened with.
+  const opened = input.day ? await openingFor(actor.id, input.day, db) : null;
+  const box = new Map<string, bigint>(opened ?? []);
   const traded = new Map<string, { bought: bigint; sold: bigint; buys: number; sells: number }>();
   const entries: LedgerEntry[] = [];
 
@@ -207,11 +306,24 @@ export async function cashLedger(
     });
   }
 
+  const currencies = await db.currency.findMany({
+    where: { isActive: true, kind: { not: 'CRYPTO' } },
+    orderBy: { sortOrder: 'asc' },
+    select: { code: true, decimals: true },
+  });
+
+  // Every currency he opened with or traded in closes, even at zero.
+  for (const currency of opened?.keys() ?? []) if (!box.has(currency)) box.set(currency, 0n);
   const closing = list(box);
   return {
     from: input.from,
     to: input.to,
-    opening: closing.map((entry) => ({ currency: entry.currency, amount: 0n })),
+    opening: closing.map((entry) => ({
+      currency: entry.currency,
+      amount: opened?.get(entry.currency) ?? 0n,
+    })),
+    openingSet: opened !== null,
+    currencies,
     traded: [...traded.entries()]
       .map(([currency, totals]) => ({ currency, ...totals }))
       .sort((a, b) => a.currency.localeCompare(b.currency)),

@@ -25,6 +25,7 @@ import {
   type DayEntry,
   type LedgerDay,
 } from '@/app/_activity/daily-ledger';
+import { MyCashLedger } from '../machine/my-cash-ledger';
 
 /**
  * «أيام العمل» — one day at a time, chosen from a calendar.
@@ -327,6 +328,12 @@ export function WorkDaysView({ initialDate }: { initialDate?: string }) {
               )}
             </div>
           </Card>
+
+          {/*
+            The box for this day: what the teller opened it with, every buy and
+            sell with the box after it, and the closing figure to count by.
+          */}
+          <MyCashLedger day={selected} className="mt-0" />
 
           {days === null ? (
             <Card className="p-4">
