@@ -64,6 +64,8 @@ export interface DailyCount {
 /** Which list a deal belongs in, or none: remittances are counted elsewhere. */
 export function kindOf(type: string, fromCurrency: string): CountKind | null {
   if (type === 'USDT_RECEIVE' || type === 'USDT_SEND') return type;
+  // A sale only recorded is still coins out for money in: it counts with the sends.
+  if (type === 'USDT_SALE') return 'USDT_SEND';
   if (type !== 'EXCHANGE') return null;
   // As the counter says it: the office buys whatever foreign currency is
   // handed over, and sells when the customer hands over shekels.
@@ -86,7 +88,7 @@ export async function dailyCount(
     where: {
       createdById: actor.id,
       reversalOfId: null,
-      type: { in: ['EXCHANGE', 'USDT_RECEIVE', 'USDT_SEND'] },
+      type: { in: ['EXCHANGE', 'USDT_RECEIVE', 'USDT_SEND', 'USDT_SALE'] },
       createdAt: { gte: input.from, lte: input.to },
     },
     orderBy: { createdAt: 'asc' },

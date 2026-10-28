@@ -338,6 +338,7 @@ const en = {
       REMITTANCE_IN: 'Remittance Received',
       USDT_RECEIVE: 'USDT Received',
       USDT_SEND: 'USDT Sent',
+      USDT_SALE: 'USDT Sold',
     },
     status: {
       DRAFT: 'Draft',
@@ -1117,6 +1118,7 @@ const en = {
       REMITTANCE_IN: 'Remittance in',
       USDT_RECEIVE: 'USDT received',
       USDT_SEND: 'USDT sent',
+      USDT_SALE: 'USDT sold',
     },
     say: {
       CLEAN: 'A clean shift — no difference, nothing given away, margin in line with his usual.',
@@ -1139,7 +1141,21 @@ const en = {
     subtitle: 'Receiving and selling in one place — choose the direction the customer came for.',
     receive: 'Receive',
     send: 'Sell',
+    sale: 'Sale (record)',
     offTitle: 'That direction is switched off',
+  },
+
+  usdtSale: {
+    hint: 'Record only: nothing is sent and the USDT balance is not touched. Send the coins yourself, then record the sale here so the money is in your drawer and your count.',
+    coins: 'How much USDT did you sell?',
+    price: 'Price per USDT',
+    customerPays: 'What the customer paid',
+    phone: 'Phone',
+    notes: 'Note',
+    notesHint: 'Optional — e.g. where you sent from, or the wallet address.',
+    record: 'Record the sale',
+    recorded: 'Sale recorded',
+    recent: 'Recent recorded sales',
   },
 
   market: {
@@ -1313,7 +1329,7 @@ const en = {
     tab: { USDT: 'USDT', EXCHANGE: 'Exchange' },
     kind: {
       USDT_RECEIVE: 'USDT received',
-      USDT_SEND: 'USDT sent',
+      USDT_SEND: 'USDT sold / sent',
       BUY: 'Currency bought',
       SELL: 'Currency sold',
     },

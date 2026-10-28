@@ -70,9 +70,16 @@ export default async function UsdtPage({
    * otherwise whichever they hold — and receiving first when they hold both,
    * because a customer arriving with coins is the commoner errand.
    */
-  const asked: Direction | null = d === 'out' ? 'out' : d === 'in' ? 'in' : null;
+  const asked: Direction | null =
+    d === 'out' ? 'out' : d === 'in' ? 'in' : d === 'sale' ? 'sale' : null;
   const initial: Direction =
-    asked === 'out' && canSend ? 'out' : asked === 'in' && canReceive ? 'in' : canReceive ? 'in' : 'out';
+    (asked === 'out' || asked === 'sale') && canSend
+      ? asked
+      : asked === 'in' && canReceive
+        ? 'in'
+        : canReceive
+          ? 'in'
+          : 'out';
 
   return (
     <div className="space-y-4">
@@ -98,6 +105,14 @@ export default async function UsdtPage({
         withdraw={
           canSend && sendConfig?.enabled && sendConfig.wallets.length > 0
             ? { config: toJsonSafe(sendConfig), permissions: session.user.permissions }
+            : null
+        }
+        sale={
+          canSend && sendConfig
+            ? {
+                currencies: sendConfig.currencies.map(({ code, decimals }) => ({ code, decimals })),
+                transferChannels: sendConfig.transferChannels,
+              }
             : null
         }
       />

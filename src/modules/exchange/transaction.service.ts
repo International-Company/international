@@ -141,7 +141,7 @@ export async function record(
    */
   const balances = balancesFor(input.type);
   const split = (side: BalanceSide, total: bigint, given: { cash: bigint; broker: bigint } | undefined) => {
-    if (side === 'CORRESPONDENT') return { cash: 0n, broker: 0n };
+    if (side === 'CORRESPONDENT' || side === 'NONE') return { cash: 0n, broker: 0n };
     if (side === 'CASH') return { cash: total, broker: 0n };
     return given ?? { cash: total, broker: 0n };
   };
@@ -303,6 +303,8 @@ export async function record(
         transactionId: row.id,
         businessDayId: day.id,
       };
+      // A side that moves nothing — a sale only recorded — has no legs.
+      if (side === 'NONE') return [];
       // The correspondent is the office's account, never a teller's.
       if (side) return [{ ...common, kind: side, amount: total, owner: side === 'CASH' ? cashOwner : undefined }];
 
@@ -513,11 +515,10 @@ export async function reverse(
       original.intakeBrokerAmount,
       original.fromAmount,
     );
-    const wasPayout = divided(
-      original.payoutCashAmount,
-      original.payoutBankAmount,
-      original.toAmount,
-    );
+    const wasPayout =
+      mirrored.payout === 'NONE'
+        ? { cash: 0n, broker: 0n }
+        : divided(original.payoutCashAmount, original.payoutBankAmount, original.toAmount);
 
     // The mirror: what went out comes back, what came in goes away.
     const reversal = await tx.transaction.create({
@@ -579,6 +580,7 @@ export async function reverse(
         transactionId: reversal.id,
         businessDayId: day.id,
       };
+      if (side === 'NONE') return [];
       if (side) return [{ ...common, kind: side, amount: total }];
 
       return [

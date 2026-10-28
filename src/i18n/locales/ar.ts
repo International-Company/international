@@ -340,6 +340,7 @@ const ar: Dictionary = {
       REMITTANCE_IN: 'حوالة واردة',
       USDT_RECEIVE: 'استلام USDT',
       USDT_SEND: 'سحب USDT',
+      USDT_SALE: 'بيع USDT',
     },
     status: {
       DRAFT: 'مسودة',
@@ -1116,6 +1117,7 @@ const ar: Dictionary = {
       REMITTANCE_IN: 'حوالة واردة',
       USDT_RECEIVE: 'استلام USDT',
       USDT_SEND: 'سحب USDT',
+      USDT_SALE: 'بيع USDT',
     },
     say: {
       CLEAN: 'ورديّة نظيفة — لا فرق، ولا تنازل، والهامش ضمن معدّله.',
@@ -1138,7 +1140,21 @@ const ar: Dictionary = {
     subtitle: 'الاستلام والسحب في مكان واحد — اختر الاتجاه الذي جاء له العميل.',
     receive: 'استلام',
     send: 'سحب',
+    sale: 'بيع (تسجيل)',
     offTitle: 'هذا الاتجاه متوقف',
+  },
+
+  usdtSale: {
+    hint: 'تسجيل فقط: لا يُرسل النظام شيئاً ولا يمسّ رصيد اليواس. أرسل العملة بنفسك، ثم سجّل البيع هنا ليدخل المبلغ درجك ويظهر في جردك.',
+    coins: 'كم USDT بعت؟',
+    price: 'السعر لكل USDT',
+    customerPays: 'المبلغ الذي دفعه العميل',
+    phone: 'رقم الهاتف',
+    notes: 'ملاحظة',
+    notesHint: 'اختياري — مثلاً من أين أرسلت أو عنوان المحفظة.',
+    record: 'سجّل البيع',
+    recorded: 'سُجّل البيع',
+    recent: 'آخر المبيعات المسجّلة',
   },
 
   market: {
@@ -1312,14 +1328,14 @@ const ar: Dictionary = {
     tab: { USDT: 'اليواس', EXCHANGE: 'الصرافة' },
     kind: {
       USDT_RECEIVE: 'استلام USDT',
-      USDT_SEND: 'إرسال USDT',
+      USDT_SEND: 'بيع / إرسال USDT',
       BUY: 'شراء عملات',
       SELL: 'بيع عملات',
     },
-    short: { USDT_RECEIVE: 'استلام', USDT_SEND: 'إرسال', BUY: 'شراء', SELL: 'بيع' },
+    short: { USDT_RECEIVE: 'استلام', USDT_SEND: 'بيع', BUY: 'شراء', SELL: 'بيع' },
     goods: {
       USDT_RECEIVE: 'استلمت',
-      USDT_SEND: 'أرسلت',
+      USDT_SEND: 'بعت',
       BUY: 'اشتريت',
       SELL: 'بعت',
     },

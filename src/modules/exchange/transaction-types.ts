@@ -25,6 +25,7 @@ export const TRANSACTION_TYPES = [
   'WALLET_TOPUP',
   'USDT_RECEIVE',
   'USDT_SEND',
+  'USDT_SALE',
   'REMITTANCE_OUT',
   'REMITTANCE_IN',
 ] as const;
@@ -67,6 +68,7 @@ export const TRANSACTION_TYPE_META: Record<TransactionType, TransactionTypeMeta>
   REMITTANCE_IN: { type: 'REMITTANCE_IN', nameEn: 'Remittance Received', nameAr: 'حوالة واردة' },
   USDT_RECEIVE: { type: 'USDT_RECEIVE', nameEn: 'USDT Received', nameAr: 'استلام USDT' },
   USDT_SEND: { type: 'USDT_SEND', nameEn: 'USDT Sent', nameAr: 'سحب USDT' },
+  USDT_SALE: { type: 'USDT_SALE', nameEn: 'USDT Sold', nameAr: 'بيع USDT' },
 };
 
 /**
@@ -86,7 +88,7 @@ export const TRANSACTION_TYPE_META: Record<TransactionType, TransactionTypeMeta>
  * the broker — the branch pays out that way on the machine, and takes money in
  * that way when a customer buys USDT.
  */
-export type BalanceSide = 'CASH' | 'CORRESPONDENT' | null;
+export type BalanceSide = 'CASH' | 'CORRESPONDENT' | 'NONE' | null;
 
 export function balancesFor(type: TransactionType): {
   intake: BalanceSide;
@@ -97,6 +99,12 @@ export function balancesFor(type: TransactionType): {
   // A withdrawal is the machine reversed: the customer pays through the till or
   // the broker, and what they take away is USDT out of the one wallet balance.
   if (type === 'USDT_SEND') return { intake: null, payout: 'CASH' };
+  /*
+   * A USDT sale recorded and nothing more: the teller sent the coins himself,
+   * from wherever he holds them, and the office keeps no balance of those. So
+   * the customer's money comes in as on any sale, and nothing goes out.
+   */
+  if (type === 'USDT_SALE') return { intake: null, payout: 'NONE' };
   /*
    * The machine's work goes through either balance on either side: a customer
    * can pay by transfer and take notes, and a wallet cash-out comes in by
@@ -116,7 +124,7 @@ export function balancesFor(type: TransactionType): {
 export const CATEGORIES = {
   EXCHANGE: ['EXCHANGE', 'WALLET_CASHOUT', 'WALLET_TOPUP'],
   REMITTANCE: ['REMITTANCE_OUT', 'REMITTANCE_IN'],
-  USDT: ['USDT_RECEIVE', 'USDT_SEND'],
+  USDT: ['USDT_RECEIVE', 'USDT_SEND', 'USDT_SALE'],
 } as const satisfies Record<string, readonly TransactionType[]>;
 
 export type Category = keyof typeof CATEGORIES;

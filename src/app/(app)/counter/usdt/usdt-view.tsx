@@ -1,12 +1,13 @@
 'use client';
 
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
-import { ArrowDownToLine, ArrowUpFromLine } from 'lucide-react';
+import { ArrowDownToLine, ArrowUpFromLine, NotebookPen } from 'lucide-react';
 import { useLocale } from '@/i18n/provider';
 import { Alert } from '@/ui/primitives';
 import { cn } from '@/ui/utils';
 import { CounterView } from './counter-view';
 import { WithdrawView } from './withdraw-view';
+import { SaleView } from './sale-view';
 
 /**
  * The USDT window — both directions behind one door.
@@ -35,7 +36,7 @@ import { WithdrawView } from './withdraw-view';
  * people to ignore controls.
  */
 
-export type Direction = 'in' | 'out';
+export type Direction = 'in' | 'out' | 'sale';
 
 interface Side {
   /** Whether the office has this direction switched on at all. */
@@ -51,6 +52,7 @@ export function UsdtView({
   permissions,
   counter,
   withdraw,
+  sale,
 }: {
   receive: Side;
   send: Side;
@@ -60,11 +62,13 @@ export function UsdtView({
   counter: Parameters<typeof CounterView>[0] | null;
   /** Everything the sending side needs, or null when it is not on offer. */
   withdraw: Parameters<typeof WithdrawView>[0] | null;
+  /** A sale only recorded — the teller sent the coins himself. Null when not his to do. */
+  sale: Omit<Parameters<typeof SaleView>[0], 'permissions'> | null;
 }) {
   const { t } = useLocale();
   const [direction, setDirection] = useState<Direction>(initial);
 
-  const both = receive.allowed && send.allowed;
+  const tabs = [receive.allowed, send.allowed, sale !== null].filter(Boolean).length;
 
   /*
    * Kept in the address so a refresh does not throw the teller back to the
@@ -82,33 +86,46 @@ export function UsdtView({
     (next: Direction) => {
       if (next === 'in' && !receive.allowed) return;
       if (next === 'out' && !send.allowed) return;
+      if (next === 'sale' && sale === null) return;
       setDirection(next);
     },
-    [receive.allowed, send.allowed],
+    [receive.allowed, send.allowed, sale],
   );
 
   const side = direction === 'in' ? receive : send;
 
   return (
     <div className="space-y-4">
-      {both && (
+      {tabs > 1 && (
         <div
           role="tablist"
           aria-label={t('usdtWindow.title')}
           className="bg-surface-sunken flex gap-1 rounded-xl p-1"
         >
-          <Tab
-            active={direction === 'in'}
-            onClick={() => pick('in')}
-            icon={<ArrowDownToLine className="size-4" />}
-            label={t('usdtWindow.receive')}
-          />
-          <Tab
-            active={direction === 'out'}
-            onClick={() => pick('out')}
-            icon={<ArrowUpFromLine className="size-4" />}
-            label={t('usdtWindow.send')}
-          />
+          {receive.allowed && (
+            <Tab
+              active={direction === 'in'}
+              onClick={() => pick('in')}
+              icon={<ArrowDownToLine className="size-4" />}
+              label={t('usdtWindow.receive')}
+            />
+          )}
+          {send.allowed && (
+            <Tab
+              active={direction === 'out'}
+              onClick={() => pick('out')}
+              icon={<ArrowUpFromLine className="size-4" />}
+              label={t('usdtWindow.send')}
+            />
+          )}
+          {sale !== null && (
+            <Tab
+              active={direction === 'sale'}
+              onClick={() => pick('sale')}
+              icon={<NotebookPen className="size-4" />}
+              label={t('usdtWindow.sale')}
+            />
+          )}
         </div>
       )}
 
@@ -117,7 +134,9 @@ export function UsdtView({
         with, is said here rather than inside the tool — the answer is the same
         whichever direction is chosen, and it is not the tool's business.
       */}
-      {!side.enabled ? (
+      {direction === 'sale' ? (
+        sale && <SaleView {...sale} permissions={permissions} />
+      ) : !side.enabled ? (
         <Alert tone="neutral" title={t('usdtWindow.offTitle')}>
           {direction === 'in' ? t('counter.disabledBody') : t('withdraw.disabledBody')}
         </Alert>
