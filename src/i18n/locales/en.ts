@@ -1350,6 +1350,7 @@ const en = {
     hint: 'Your box from zero: what your deals put into the drawer and took out, deal by deal, to the closing box.',
     day: 'Pick a day',
     today: 'Today',
+    yesterday: 'Yesterday',
     previousDay: 'Previous day',
     nextDay: 'Next day',
     backToToday: 'Back to today',

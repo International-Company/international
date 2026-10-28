@@ -416,15 +416,39 @@ function parseDay(value: string): Date {
 
 /**
  * The day being counted: the previous and next day one tap either side, the
- * day itself spelled out — weekday, date, month and year — and a calendar
- * behind it for any day further back. Never past today: there is nothing to
- * count in a day that has not happened.
+ * day itself spelled out — weekday, date, month and year — and a calendar of
+ * our own behind it, Saturday first as the office's week runs, for any day
+ * further back. Never past today: there is nothing to count in a day that has
+ * not happened.
  */
-export function DayNavigator({ value, onChange }: { value: string; onChange: (day: string) => void }) {
+export function DayNavigator({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (day: string) => void;
+}) {
   const { t, locale } = useLocale();
-  const picker = useRef<HTMLInputElement>(null);
+  const [open, setOpen] = useState(false);
+  const container = useRef<HTMLDivElement>(null);
   const today = dayInput(new Date());
   const isToday = value === today;
+
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (event: PointerEvent) => {
+      if (!container.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOpen(false);
+    };
+    document.addEventListener('pointerdown', onPointerDown);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [open]);
 
   const shift = (days: number) => {
     const date = parseDay(value);
@@ -433,15 +457,9 @@ export function DayNavigator({ value, onChange }: { value: string; onChange: (da
     if (next <= today) onChange(next);
   };
 
-  const openCalendar = () => {
-    const input = picker.current;
-    if (!input) return;
-    try {
-      input.showPicker();
-    } catch {
-      input.focus();
-      input.click();
-    }
+  const choose = (day: string) => {
+    onChange(day);
+    setOpen(false);
   };
 
   const step =
@@ -460,11 +478,15 @@ export function DayNavigator({ value, onChange }: { value: string; onChange: (da
         <ChevronRight className="size-4 ltr:rotate-180" />
       </button>
 
-      <div className="relative">
+      <div ref={container} className="relative">
         <button
           type="button"
-          onClick={openCalendar}
-          className="flex min-w-44 items-center justify-center gap-2 rounded-full px-3 py-1.5 text-sm font-medium text-content transition-colors hover:bg-surface-sunken"
+          onClick={() => setOpen((current) => !current)}
+          aria-expanded={open}
+          className={cn(
+            'flex min-w-44 items-center justify-center gap-2 rounded-full px-3 py-1.5 text-sm font-medium text-content transition-colors hover:bg-surface-sunken',
+            open && 'bg-surface-sunken',
+          )}
           aria-label={t('cashLedger.day')}
         >
           <CalendarDays className="size-4 text-primary-text" />
@@ -482,17 +504,12 @@ export function DayNavigator({ value, onChange }: { value: string; onChange: (da
             </span>
           )}
         </button>
-        {/* The browser's own calendar, kept out of sight and opened from here. */}
-        <input
-          ref={picker}
-          type="date"
-          value={value}
-          max={today}
-          onChange={(event) => event.target.value && onChange(event.target.value)}
-          tabIndex={-1}
-          aria-hidden
-          className="pointer-events-none absolute inset-0 opacity-0"
-        />
+
+        {open && (
+          <div className="absolute left-1/2 top-full z-40 mt-2 w-[19rem] -translate-x-1/2 rounded-2xl border border-border-base bg-surface p-3 shadow-[var(--shadow-lg)]">
+            <DayCalendar value={value} today={today} onChoose={choose} />
+          </div>
+        )}
       </div>
 
       <button
@@ -515,6 +532,135 @@ export function DayNavigator({ value, onChange }: { value: string; onChange: (da
           {t('cashLedger.backToToday')}
         </button>
       )}
+    </div>
+  );
+}
+
+/**
+ * A month to pick a day from: the chosen day filled, today ringed, the days
+ * still to come out of reach, and today and yesterday a tap away underneath.
+ */
+function DayCalendar({
+  value,
+  today,
+  onChoose,
+}: {
+  value: string;
+  today: string;
+  onChoose: (day: string) => void;
+}) {
+  const { t, locale } = useLocale();
+  const chosen = parseDay(value);
+  const [shown, setShown] = useState({ year: chosen.getFullYear(), month: chosen.getMonth() });
+  const { year, month } = shown;
+
+  const first = new Date(year, month, 1, 12);
+  const daysIn = new Date(year, month + 1, 0).getDate();
+  // Saturday = 6 in getDay(); how many blanks before the 1st.
+  const lead = (first.getDay() + 1) % 7;
+  const cells: (number | null)[] = [
+    ...Array.from({ length: lead }, () => null),
+    ...Array.from({ length: daysIn }, (_, index) => index + 1),
+  ];
+  const weekdays = Array.from({ length: 7 }, (_, index) =>
+    new Intl.DateTimeFormat(locale === 'ar' ? 'ar' : 'en-GB', { weekday: 'short' }).format(
+      // 2026-01-03 is a Saturday
+      new Date(2026, 0, 3 + index, 12),
+    ),
+  );
+
+  const todayDate = parseDay(today);
+  const atThisMonth = year === todayDate.getFullYear() && month === todayDate.getMonth();
+  const move = (delta: number) => {
+    const at = new Date(year, month + delta, 1, 12);
+    setShown({ year: at.getFullYear(), month: at.getMonth() });
+  };
+  const yesterday = (() => {
+    const date = parseDay(today);
+    date.setDate(date.getDate() - 1);
+    return dayInput(date);
+  })();
+
+  const arrow =
+    'flex size-8 items-center justify-center rounded-full text-content-secondary transition-colors hover:bg-surface-sunken hover:text-content disabled:pointer-events-none disabled:opacity-30';
+
+  return (
+    <div>
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <button
+          type="button"
+          onClick={() => move(-1)}
+          className={arrow}
+          aria-label={t('workDays.prevMonth')}
+          title={t('workDays.prevMonth')}
+        >
+          <ChevronRight className="size-4 ltr:rotate-180" />
+        </button>
+        <p className="text-sm font-semibold text-content">
+          {formatDate(first, locale, { day: undefined, month: 'long', year: 'numeric' })}
+        </p>
+        <button
+          type="button"
+          onClick={() => move(1)}
+          disabled={atThisMonth}
+          className={arrow}
+          aria-label={t('workDays.nextMonth')}
+          title={t('workDays.nextMonth')}
+        >
+          <ChevronLeft className="size-4 ltr:rotate-180" />
+        </button>
+      </div>
+
+      <div className="grid grid-cols-7 gap-1 text-center">
+        {weekdays.map((label, index) => (
+          <span key={index} className="py-1 text-[10px] font-medium text-content-tertiary">
+            {label}
+          </span>
+        ))}
+        {cells.map((cell, index) => {
+          if (cell === null) return <span key={`blank-${index}`} />;
+          const key = `${year}-${String(month + 1).padStart(2, '0')}-${String(cell).padStart(2, '0')}`;
+          const future = key > today;
+          const selected = key === value;
+          return (
+            <button
+              key={key}
+              type="button"
+              disabled={future}
+              onClick={() => onChoose(key)}
+              aria-pressed={selected}
+              aria-label={key}
+              className={cn(
+                'flex aspect-square items-center justify-center rounded-xl text-sm tabular-nums transition-colors',
+                selected
+                  ? 'bg-primary font-semibold text-white shadow-[var(--shadow-sm)]'
+                  : 'text-content hover:bg-primary-subtle',
+                key === today && !selected && 'font-semibold text-primary-text ring-1 ring-primary',
+                future && 'text-content-tertiary opacity-30',
+              )}
+            >
+              {cell}
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="mt-3 flex gap-2 border-t border-border-subtle pt-3">
+        <button
+          type="button"
+          onClick={() => onChoose(today)}
+          className="flex-1 rounded-full bg-primary-subtle py-1.5 text-xs font-semibold text-primary-text transition-colors hover:bg-primary hover:text-white"
+        >
+          {t('cashLedger.today')}
+        </button>
+        <button
+          type="button"
+          onClick={() => onChoose(yesterday)}
+          className="flex-1 rounded-full bg-surface-sunken py-1.5 text-xs font-semibold text-content-secondary transition-colors hover:text-content"
+        >
+          {t('cashLedger.yesterday')}
+        </button>
+      </div>
     </div>
   );
 }
