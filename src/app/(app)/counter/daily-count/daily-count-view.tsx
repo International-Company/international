@@ -1,11 +1,14 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ArrowDownToLine,
+  ArrowLeftRight,
   ArrowUpFromLine,
+  Coins,
   HandCoins,
   Printer,
+  Search,
   ShoppingCart,
   type LucideIcon,
 } from 'lucide-react';
@@ -17,9 +20,10 @@ import { cn } from '@/ui/utils';
 import { DayNavigator, dayInput } from '../machine/my-cash-ledger';
 
 /**
- * The day in four lists — USDT received, USDT sent, bought, sold — each with
- * its totals on top and its deals beneath, and a strip of the four counts
- * that jumps to each list.
+ * The day in two lists — USDT and exchange — chosen by a tab. Each list opens
+ * with its two kinds side by side (received and sent, bought and sold), which
+ * double as its filter, and beneath them every deal of the list in one table:
+ * the kind, the customer, how much of the goods, the price, and the other side.
  */
 
 interface Amount {
@@ -28,6 +32,7 @@ interface Amount {
 }
 
 type Kind = 'USDT_RECEIVE' | 'USDT_SEND' | 'BUY' | 'SELL';
+type Tab = 'USDT' | 'EXCHANGE';
 
 interface Entry {
   id: string;
@@ -52,41 +57,60 @@ interface Group {
   entries: Entry[];
 }
 
-/** How each list reads: its icon and colour, and which side is the "goods". */
-const LOOK: Record<Kind, { icon: LucideIcon; tone: string; ring: string; goodsOn: 'from' | 'to' }> =
-  {
-    USDT_RECEIVE: {
-      icon: ArrowDownToLine,
-      tone: 'text-success-text bg-success-subtle',
-      ring: 'ring-success/30',
-      goodsOn: 'from',
-    },
-    USDT_SEND: {
-      icon: ArrowUpFromLine,
-      tone: 'text-warning-text bg-warning-subtle',
-      ring: 'ring-warning/30',
-      goodsOn: 'to',
-    },
-    BUY: {
-      icon: ShoppingCart,
-      tone: 'text-primary-text bg-primary-subtle',
-      ring: 'ring-primary/30',
-      goodsOn: 'from',
-    },
-    SELL: {
-      icon: HandCoins,
-      tone: 'text-danger-text bg-danger-subtle',
-      ring: 'ring-danger/30',
-      goodsOn: 'to',
-    },
-  };
+const TABS: { tab: Tab; icon: LucideIcon; kinds: [Kind, Kind] }[] = [
+  { tab: 'USDT', icon: Coins, kinds: ['USDT_RECEIVE', 'USDT_SEND'] },
+  { tab: 'EXCHANGE', icon: ArrowLeftRight, kinds: ['BUY', 'SELL'] },
+];
+
+/** How each kind reads: icon, colour, and which side of the deal is the goods. */
+const LOOK: Record<
+  Kind,
+  { icon: LucideIcon; tone: string; active: string; goodsOn: 'from' | 'to' }
+> = {
+  USDT_RECEIVE: {
+    icon: ArrowDownToLine,
+    tone: 'text-success-text bg-success-subtle',
+    active: 'ring-2 ring-success',
+    goodsOn: 'from',
+  },
+  USDT_SEND: {
+    icon: ArrowUpFromLine,
+    tone: 'text-warning-text bg-warning-subtle',
+    active: 'ring-2 ring-warning',
+    goodsOn: 'to',
+  },
+  BUY: {
+    icon: ShoppingCart,
+    tone: 'text-primary-text bg-primary-subtle',
+    active: 'ring-2 ring-primary',
+    goodsOn: 'from',
+  },
+  SELL: {
+    icon: HandCoins,
+    tone: 'text-danger-text bg-danger-subtle',
+    active: 'ring-2 ring-danger',
+    goodsOn: 'to',
+  },
+};
+
+type Row = Entry & { kind: Kind };
+
+const goods = (row: Row) =>
+  LOOK[row.kind].goodsOn === 'from'
+    ? { currency: row.fromCurrency, amount: row.fromAmount }
+    : { currency: row.toCurrency, amount: row.toAmount };
+
+const counter = (row: Row) =>
+  LOOK[row.kind].goodsOn === 'from'
+    ? { currency: row.toCurrency, amount: row.toAmount }
+    : { currency: row.fromCurrency, amount: row.fromAmount };
 
 /** The price per unit of the goods, read off the amounts themselves. */
-function priceOf(entry: Entry, goodsOn: 'from' | 'to'): string | null {
-  const goods = Number(goodsOn === 'from' ? entry.fromAmount : entry.toAmount);
-  const other = Number(goodsOn === 'from' ? entry.toAmount : entry.fromAmount);
-  if (!goods || !other) return null;
-  return (other / goods).toFixed(4).replace(/\.?0+$/, '');
+function priceOf(row: Row): string | null {
+  const unit = Number(goods(row).amount);
+  const other = Number(counter(row).amount);
+  if (!unit || !other) return null;
+  return (other / unit).toFixed(4).replace(/\.?0+$/, '');
 }
 
 export function DailyCountView() {
@@ -94,6 +118,9 @@ export function DailyCountView() {
   const [day, setDay] = useState(() => dayInput(new Date()));
   const [groups, setGroups] = useState<Group[] | null>(null);
   const [loading, setLoading] = useState(true);
+  const [tab, setTab] = useState<Tab>('USDT');
+  const [kind, setKind] = useState<Kind | null>(null);
+  const [search, setSearch] = useState('');
 
   const load = useCallback(async () => {
     const [year, month, date] = day.split('-').map(Number) as [number, number, number];
@@ -116,12 +143,40 @@ export function DailyCountView() {
     void load();
   }, [load]);
 
-  const amounts = (list: Amount[]) =>
+  const byKind = useMemo(
+    () => new Map((groups ?? []).map((group) => [group.kind, group])),
+    [groups],
+  );
+  const current = TABS.find((entry) => entry.tab === tab)!;
+
+  // The tab's deals, newest first, narrowed by the chosen kind and the search.
+  const rows = useMemo(() => {
+    const needle = search.trim().toLowerCase();
+    return current.kinds
+      .filter((each) => kind === null || each === kind)
+      .flatMap((each) =>
+        (byKind.get(each)?.entries ?? []).map((entry): Row => ({ ...entry, kind: each })),
+      )
+      .filter(
+        (row) =>
+          !needle ||
+          row.reference.toLowerCase().includes(needle) ||
+          (row.customer ?? '').toLowerCase().includes(needle),
+      )
+      .sort((a, b) => b.at.localeCompare(a.at));
+  }, [current, kind, byKind, search]);
+
+  const chooseTab = (next: Tab) => {
+    setTab(next);
+    setKind(null);
+  };
+
+  const amounts = (list: Amount[], className?: string) =>
     list.length === 0 ? (
-      <span className="text-content-tertiary">—</span>
+      <span className="text-content-tertiary">0</span>
     ) : (
       list.map((entry) => (
-        <span key={entry.currency} className="block">
+        <span key={entry.currency} className={cn('block', className)}>
           <Money value={entry.amount} currency={entry.currency} />
         </span>
       ))
@@ -129,8 +184,35 @@ export function DailyCountView() {
 
   return (
     <div className="space-y-4">
-      <div className="flex justify-center sm:justify-end">
-        <DayNavigator value={day} onChange={setDay} />
+      {/* --- The day, and which list ------------------------------------------ */}
+      <div className="flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex gap-1 rounded-2xl bg-surface-sunken p-1">
+          {TABS.map(({ tab: each, icon: Icon, kinds }) => {
+            const total = kinds.reduce((sum, k) => sum + (byKind.get(k)?.count ?? 0), 0);
+            return (
+              <button
+                key={each}
+                type="button"
+                onClick={() => chooseTab(each)}
+                className={cn(
+                  'flex flex-1 items-center justify-center gap-2 rounded-xl px-5 py-2.5 text-sm font-semibold transition-colors sm:flex-none',
+                  tab === each
+                    ? 'bg-surface text-content shadow-sm'
+                    : 'text-content-secondary hover:text-content',
+                )}
+              >
+                <Icon className="size-4" />
+                {t(`dailyCount.tab.${each}`)}
+                <span className="rounded-full bg-surface-sunken px-2 py-px text-xs tabular-nums">
+                  {total}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+        <div className="flex justify-center">
+          <DayNavigator value={day} onChange={setDay} />
+        </div>
       </div>
 
       {loading && !groups ? (
@@ -141,183 +223,217 @@ export function DailyCountView() {
         </p>
       ) : (
         <>
-          {/* --- The four counts, each a jump to its list --------------------- */}
-          <nav className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-            {groups.map((group) => {
-              const look = LOOK[group.kind];
+          {/* --- The two kinds: totals, and a tap to show only that kind ------ */}
+          <div className="grid gap-3 sm:grid-cols-2">
+            {current.kinds.map((each) => {
+              const look = LOOK[each];
               const Icon = look.icon;
+              const group = byKind.get(each);
+              const goodsTotal = look.goodsOn === 'from' ? group?.received : group?.paid;
+              const counterTotal = look.goodsOn === 'from' ? group?.paid : group?.received;
+              const chosen = kind === each;
               return (
-                <a
-                  key={group.kind}
-                  href={`#${group.kind}`}
-                  className="flex items-center gap-3 rounded-2xl bg-surface p-3 ring-1 ring-border-subtle transition-shadow hover:shadow-md"
+                <button
+                  key={each}
+                  type="button"
+                  onClick={() => setKind(chosen ? null : each)}
+                  aria-pressed={chosen}
+                  className={cn(
+                    'rounded-2xl bg-surface p-4 text-start ring-1 ring-border-subtle transition-shadow hover:shadow-md',
+                    chosen && look.active,
+                  )}
                 >
-                  <span
-                    className={cn('flex size-10 items-center justify-center rounded-xl', look.tone)}
-                  >
-                    <Icon className="size-5" />
-                  </span>
-                  <span>
-                    <span className="block text-xs text-content-secondary">
-                      {t(`dailyCount.kind.${group.kind}`)}
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="flex items-center gap-2 font-semibold text-content">
+                      <span
+                        className={cn(
+                          'flex size-9 items-center justify-center rounded-xl',
+                          look.tone,
+                        )}
+                      >
+                        <Icon className="size-5" />
+                      </span>
+                      {t(`dailyCount.kind.${each}`)}
                     </span>
-                    <span className="text-xl font-bold tabular-nums">{group.count}</span>
-                  </span>
-                </a>
-              );
-            })}
-          </nav>
-
-          {/* --- Each kind on its own ------------------------------------------ */}
-          {groups.map((group) => {
-            const look = LOOK[group.kind];
-            const Icon = look.icon;
-            return (
-              <section
-                key={group.kind}
-                id={group.kind}
-                className="scroll-mt-20 space-y-3 rounded-2xl bg-surface p-4 ring-1 ring-border-subtle"
-              >
-                <header className="flex flex-wrap items-center justify-between gap-2">
-                  <h2 className="flex items-center gap-2 text-base font-semibold text-content">
-                    <span
-                      className={cn(
-                        'flex size-8 items-center justify-center rounded-lg',
-                        look.tone,
-                      )}
-                    >
-                      <Icon className="size-4" />
-                    </span>
-                    {t(`dailyCount.kind.${group.kind}`)}
-                  </h2>
-                  <Badge tone="neutral">{t('dailyCount.operations', { count: group.count })}</Badge>
-                </header>
-
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <div className={cn('rounded-xl bg-surface-sunken p-3 ring-1', look.ring)}>
-                    <p className="text-xs font-medium text-content-secondary">
-                      {t(`dailyCount.received.${group.kind}`)}
-                    </p>
-                    <div className="mt-1 text-lg font-bold tabular-nums">
-                      {amounts(group.received)}
+                    <Badge tone="neutral">
+                      {t('dailyCount.operations', { count: group?.count ?? 0 })}
+                    </Badge>
+                  </div>
+                  <div className="mt-3 flex items-end justify-between gap-3">
+                    <div>
+                      <p className="text-xs text-content-secondary">
+                        {t(`dailyCount.goods.${each}`)}
+                      </p>
+                      <div className="text-xl font-bold tabular-nums">
+                        {amounts(goodsTotal ?? [])}
+                      </div>
+                    </div>
+                    <div className="text-end">
+                      <p className="text-xs text-content-secondary">
+                        {t(`dailyCount.counter.${each}`)}
+                      </p>
+                      <div className="text-sm font-semibold tabular-nums text-content-secondary">
+                        {amounts(counterTotal ?? [])}
+                      </div>
                     </div>
                   </div>
-                  <div className={cn('rounded-xl bg-surface-sunken p-3 ring-1', look.ring)}>
-                    <p className="text-xs font-medium text-content-secondary">
-                      {t(`dailyCount.paid.${group.kind}`)}
-                    </p>
-                    <div className="mt-1 text-lg font-bold tabular-nums">{amounts(group.paid)}</div>
-                  </div>
-                </div>
+                </button>
+              );
+            })}
+          </div>
 
-                {group.entries.length === 0 ? (
-                  <p className="py-4 text-center text-sm text-content-tertiary">
-                    {t('dailyCount.empty')}
-                  </p>
-                ) : (
-                  <div className="overflow-x-auto">
-                    <table className="w-full min-w-[40rem] border-collapse text-sm">
-                      <thead>
-                        <tr className="bg-surface-sunken text-xs text-content-secondary">
-                          <th className="px-2 py-2 text-start font-medium">
-                            {t('dailyCount.colTime')}
-                          </th>
-                          <th className="px-2 py-2 text-start font-medium">
-                            {t('dailyCount.colCustomer')}
-                          </th>
-                          <th className="px-2 py-2 text-end font-medium">
-                            {t(`dailyCount.received.${group.kind}`)}
-                          </th>
-                          <th className="px-2 py-2 text-end font-medium">
-                            {t('dailyCount.colPrice')}
-                          </th>
-                          <th className="px-2 py-2 text-end font-medium">
-                            {t(`dailyCount.paid.${group.kind}`)}
-                          </th>
-                          <th className="w-10 px-2 py-2" />
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {group.entries.map((entry) => {
-                          const bank = BigInt(entry.payoutBank) > 0n;
-                          return (
-                            <tr
-                              key={entry.id}
+          {/* --- The list ------------------------------------------------------ */}
+          <section className="space-y-3 rounded-2xl bg-surface p-4 ring-1 ring-border-subtle">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex gap-1 rounded-full bg-surface-sunken p-1">
+                {[null, ...current.kinds].map((each) => (
+                  <button
+                    key={each ?? 'ALL'}
+                    type="button"
+                    onClick={() => setKind(each)}
+                    className={cn(
+                      'rounded-full px-4 py-1.5 text-sm font-medium transition-colors',
+                      kind === each
+                        ? 'bg-surface text-content shadow-sm'
+                        : 'text-content-secondary hover:text-content',
+                    )}
+                  >
+                    {each ? t(`dailyCount.short.${each}`) : t('dailyCount.all')}
+                  </button>
+                ))}
+              </div>
+              <label className="relative w-full sm:w-64">
+                <Search className="pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2 text-content-tertiary" />
+                <input
+                  type="search"
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                  placeholder={t('dailyCount.search')}
+                  className="w-full rounded-full bg-surface-sunken py-2 ps-9 pe-3 text-sm outline-none ring-1 ring-border-subtle focus:ring-primary"
+                />
+              </label>
+            </div>
+
+            {rows.length === 0 ? (
+              <p className="py-8 text-center text-sm text-content-tertiary">
+                {t('dailyCount.empty')}
+              </p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[42rem] border-collapse text-sm">
+                  <thead>
+                    <tr className="bg-surface-sunken text-xs text-content-secondary">
+                      <th className="px-2 py-2 text-start font-medium">
+                        {t('dailyCount.colTime')}
+                      </th>
+                      <th className="px-2 py-2 text-start font-medium">
+                        {t('dailyCount.colKind')}
+                      </th>
+                      <th className="px-2 py-2 text-start font-medium">
+                        {t('dailyCount.colCustomer')}
+                      </th>
+                      <th className="px-2 py-2 text-end font-medium">
+                        {t('dailyCount.colAmount')}
+                      </th>
+                      <th className="px-2 py-2 text-end font-medium">{t('dailyCount.colPrice')}</th>
+                      <th className="px-2 py-2 text-end font-medium">
+                        {t('dailyCount.colCounter')}
+                      </th>
+                      <th className="w-10 px-2 py-2" />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.map((row) => {
+                      const look = LOOK[row.kind];
+                      const Icon = look.icon;
+                      const main = goods(row);
+                      const other = counter(row);
+                      const bank = BigInt(row.payoutBank) > 0n;
+                      return (
+                        <tr
+                          key={row.id}
+                          className={cn(
+                            'border-t border-border-subtle align-middle',
+                            row.reversed && 'bg-danger-subtle/20',
+                          )}
+                        >
+                          <td className="px-2 py-2.5 tabular-nums ltr-content">
+                            {new Date(row.at).toLocaleTimeString('en-GB', {
+                              hour: '2-digit',
+                              minute: '2-digit',
+                            })}
+                          </td>
+                          <td className="px-2 py-2.5">
+                            <span
                               className={cn(
-                                'border-t border-border-subtle align-top',
-                                entry.reversed && 'bg-danger-subtle/20',
+                                'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold',
+                                look.tone,
                               )}
                             >
-                              <td className="px-2 py-2 tabular-nums ltr-content">
-                                {new Date(entry.at).toLocaleTimeString('en-GB', {
-                                  hour: '2-digit',
-                                  minute: '2-digit',
-                                })}
-                              </td>
-                              <td className="px-2 py-2">
-                                <span className="block">
-                                  {entry.customer ?? (
-                                    <span className="text-content-tertiary">—</span>
-                                  )}
-                                </span>
-                                <span className="mt-0.5 flex flex-wrap items-center gap-1">
-                                  <span className="font-mono text-[11px] text-content-tertiary ltr-content">
-                                    {entry.reference}
-                                  </span>
-                                  {entry.reversed && (
-                                    <Badge tone="danger">{t('machine.deletedBadge')}</Badge>
-                                  )}
-                                  {!entry.reversed && entry.status === 'PENDING_TRANSFER' && (
-                                    <Badge tone="warning">{t('dailyCount.pending')}</Badge>
-                                  )}
-                                </span>
-                              </td>
-                              <td
-                                className={cn(
-                                  'px-2 py-2 text-end font-semibold tabular-nums',
-                                  entry.reversed && 'text-content-tertiary line-through',
-                                )}
-                              >
-                                <Money value={entry.fromAmount} currency={entry.fromCurrency} />
-                              </td>
-                              <td className="px-2 py-2 text-end tabular-nums ltr-content">
-                                {priceOf(entry, look.goodsOn) ?? '—'}
-                              </td>
-                              <td
-                                className={cn(
-                                  'px-2 py-2 text-end font-semibold tabular-nums',
-                                  entry.reversed && 'text-content-tertiary line-through',
-                                )}
-                              >
-                                <Money value={entry.toAmount} currency={entry.toCurrency} />
-                                {bank && (
-                                  <span className="block text-[11px] font-normal text-content-tertiary">
-                                    {entry.payoutChannel ?? t('dailyCount.byTransfer')}
-                                  </span>
-                                )}
-                              </td>
-                              <td className="px-2 py-2 text-end">
-                                <a
-                                  href={`/print/receipt/${entry.id}`}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  title={t('transactions.printReceipt')}
-                                  aria-label={t('transactions.printReceipt')}
-                                  className="inline-flex size-8 items-center justify-center rounded-full text-content-tertiary transition-colors hover:bg-surface-sunken hover:text-content"
-                                >
-                                  <Printer className="size-4" />
-                                </a>
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </section>
-            );
-          })}
+                              <Icon className="size-3.5" />
+                              {t(`dailyCount.short.${row.kind}`)}
+                            </span>
+                          </td>
+                          <td className="px-2 py-2.5">
+                            <span className="block font-medium">
+                              {row.customer ?? <span className="text-content-tertiary">—</span>}
+                            </span>
+                            <span className="mt-0.5 flex flex-wrap items-center gap-1">
+                              <span className="font-mono text-[11px] text-content-tertiary ltr-content">
+                                {row.reference}
+                              </span>
+                              {row.reversed && (
+                                <Badge tone="danger">{t('machine.deletedBadge')}</Badge>
+                              )}
+                              {!row.reversed && row.status === 'PENDING_TRANSFER' && (
+                                <Badge tone="warning">{t('dailyCount.pending')}</Badge>
+                              )}
+                            </span>
+                          </td>
+                          <td
+                            className={cn(
+                              'px-2 py-2.5 text-end text-base font-bold tabular-nums',
+                              row.reversed && 'text-content-tertiary line-through',
+                            )}
+                          >
+                            <Money value={main.amount} currency={main.currency} />
+                          </td>
+                          <td className="px-2 py-2.5 text-end tabular-nums ltr-content">
+                            {priceOf(row) ?? '—'}
+                          </td>
+                          <td
+                            className={cn(
+                              'px-2 py-2.5 text-end font-semibold tabular-nums text-content-secondary',
+                              row.reversed && 'text-content-tertiary line-through',
+                            )}
+                          >
+                            <Money value={other.amount} currency={other.currency} />
+                            {bank && (
+                              <span className="block text-[11px] font-normal text-content-tertiary">
+                                {row.payoutChannel ?? t('dailyCount.byTransfer')}
+                              </span>
+                            )}
+                          </td>
+                          <td className="px-2 py-2.5 text-end">
+                            <a
+                              href={`/print/receipt/${row.id}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              title={t('transactions.printReceipt')}
+                              aria-label={t('transactions.printReceipt')}
+                              className="inline-flex size-8 items-center justify-center rounded-full text-content-tertiary transition-colors hover:bg-surface-sunken hover:text-content"
+                            >
+                              <Printer className="size-4" />
+                            </a>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
         </>
       )}
     </div>
