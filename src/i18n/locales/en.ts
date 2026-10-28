@@ -148,6 +148,7 @@ const en = {
     activity: 'Teller activity',
     myReport: 'My reports',
     workDays: 'Work days',
+    dailyCount: 'Daily count',
     access: 'Permissions',
     exceptions: 'Broken prices',
     differences: 'Differences',
@@ -1304,6 +1305,37 @@ const en = {
     customerPays: 'Customer pays in cash',
     record: 'Record',
     recorded: 'Recorded',
+  },
+
+  dailyCount: {
+    title: 'Daily count',
+    subtitle: 'Your deals for the day by kind: USDT received, USDT sent, bought and sold — each with its totals and its deals.',
+    kind: {
+      USDT_RECEIVE: 'USDT received',
+      USDT_SEND: 'USDT sent',
+      BUY: 'Currency bought',
+      SELL: 'Currency sold',
+    },
+    received: {
+      USDT_RECEIVE: 'Taken from customer',
+      USDT_SEND: 'Taken from customer',
+      BUY: 'Bought',
+      SELL: 'Taken from customer',
+    },
+    paid: {
+      USDT_RECEIVE: 'Paid to customer',
+      USDT_SEND: 'Sent to customer',
+      BUY: 'Paid to customer',
+      SELL: 'Sold',
+    },
+    operations: '{count} deals',
+    empty: 'No deals of this kind on this day',
+    loadError: 'Could not load the count',
+    colTime: 'Time',
+    colCustomer: 'Customer / reference',
+    colPrice: 'Price',
+    pending: 'Awaiting transfer',
+    byTransfer: 'Transfer',
   },
 
   cashLedger: {

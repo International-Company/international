@@ -97,6 +97,14 @@ export const NAVIGATION: NavSection[] = [
         permissions: ['exchange.machine.use'],
       },
       {
+        // His day sorted by kind — USDT in, USDT out, bought, sold — for
+        // counting at the end of it. Always his own.
+        href: '/counter/daily-count',
+        labelKey: 'nav.dailyCount',
+        icon: 'ledger',
+        permissions: ['exchange.machine.use', 'usdt.counter.use', 'usdt.withdrawal.use'],
+      },
+      {
         // A teller's own counts, once taken. Whoever counts sees them all on
         // the till-count screen instead.
         href: '/counter/my-counts',

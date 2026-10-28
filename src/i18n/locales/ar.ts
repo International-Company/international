@@ -150,6 +150,7 @@ const ar: Dictionary = {
     activity: 'عمليات التلرات',
     myReport: 'تقاريري',
     workDays: 'أيام العمل',
+    dailyCount: 'الجرد اليومي',
     access: 'الصلاحيات',
     exceptions: 'كسر السعر',
     differences: 'الفروقات',
@@ -1303,6 +1304,37 @@ const ar: Dictionary = {
     customerPays: 'يدفع العميل نقداً',
     record: 'سجّل العملية',
     recorded: 'سُجّلت العملية',
+  },
+
+  dailyCount: {
+    title: 'الجرد اليومي',
+    subtitle: 'عملياتك في اليوم مصنّفة: استلام اليواس، وإرسال اليواس، والشراء، والبيع — لكل صنف مجاميعه وعملياته.',
+    kind: {
+      USDT_RECEIVE: 'استلام USDT',
+      USDT_SEND: 'إرسال USDT',
+      BUY: 'شراء عملات',
+      SELL: 'بيع عملات',
+    },
+    received: {
+      USDT_RECEIVE: 'استلمت من العميل',
+      USDT_SEND: 'قبضت من العميل',
+      BUY: 'اشتريت',
+      SELL: 'قبضت من العميل',
+    },
+    paid: {
+      USDT_RECEIVE: 'سلّمت للعميل',
+      USDT_SEND: 'أرسلت للعميل',
+      BUY: 'دفعت للعميل',
+      SELL: 'بعت',
+    },
+    operations: '{count} عملية',
+    empty: 'لا عمليات من هذا الصنف في هذا اليوم',
+    loadError: 'تعذّر تحميل الجرد',
+    colTime: 'الوقت',
+    colCustomer: 'العميل / المرجع',
+    colPrice: 'السعر',
+    pending: 'بانتظار التحويل',
+    byTransfer: 'تحويل',
   },
 
   cashLedger: {

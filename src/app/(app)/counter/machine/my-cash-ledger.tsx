@@ -56,7 +56,7 @@ interface Ledger {
 
 type Filter = 'ALL' | 'BUY' | 'SELL';
 
-const dayInput = (date: Date) => {
+export const dayInput = (date: Date) => {
   const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
   return local.toISOString().slice(0, 10);
 };
@@ -420,7 +420,7 @@ function parseDay(value: string): Date {
  * behind it for any day further back. Never past today: there is nothing to
  * count in a day that has not happened.
  */
-function DayNavigator({ value, onChange }: { value: string; onChange: (day: string) => void }) {
+export function DayNavigator({ value, onChange }: { value: string; onChange: (day: string) => void }) {
   const { t, locale } = useLocale();
   const picker = useRef<HTMLInputElement>(null);
   const today = dayInput(new Date());
