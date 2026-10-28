@@ -1309,7 +1309,11 @@ const en = {
   cashLedger: {
     title: 'My box',
     hint: 'Your box from zero: what your deals put into the drawer and took out, deal by deal, to the closing box.',
-    day: 'Day',
+    day: 'Pick a day',
+    today: 'Today',
+    previousDay: 'Previous day',
+    nextDay: 'Next day',
+    backToToday: 'Back to today',
     opening: 'Opening box',
     openingHint: 'Always starts at zero — anything you held before is yours to add.',
     traded: 'Bought and sold',

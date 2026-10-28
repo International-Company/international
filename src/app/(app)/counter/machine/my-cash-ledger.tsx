@@ -1,8 +1,9 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
-import { ClipboardList } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { CalendarDays, ChevronLeft, ChevronRight, ClipboardList } from 'lucide-react';
 import { useLocale } from '@/i18n/provider';
+import { formatDate } from '@/i18n/format';
 import { api, queryString } from '@/lib/api-client';
 import { Badge } from '@/ui/primitives';
 import { Money } from '@/ui/display';
@@ -125,14 +126,7 @@ export function MyCashLedger({ refreshKey }: { refreshKey?: string }) {
           </h2>
           <p className="text-xs text-content-secondary">{t('cashLedger.hint')}</p>
         </div>
-        <input
-          type="date"
-          value={day}
-          max={dayInput(new Date())}
-          onChange={(event) => event.target.value && setDay(event.target.value)}
-          aria-label={t('cashLedger.day')}
-          className="h-9 rounded-[var(--radius-control)] border border-border-base bg-surface px-2 text-sm"
-        />
+        <DayNavigator value={day} onChange={setDay} />
       </header>
 
       {loading && !ledger ? (
@@ -290,5 +284,116 @@ export function MyCashLedger({ refreshKey }: { refreshKey?: string }) {
         </>
       )}
     </section>
+  );
+}
+
+/** A local day, from its `YYYY-MM-DD` key. */
+function parseDay(value: string): Date {
+  const [year, month, date] = value.split('-').map(Number) as [number, number, number];
+  return new Date(year, month - 1, date);
+}
+
+/**
+ * The day being counted: the previous and next day one tap either side, the
+ * day itself spelled out — weekday, date, month and year — and a calendar
+ * behind it for any day further back. Never past today: there is nothing to
+ * count in a day that has not happened.
+ */
+function DayNavigator({ value, onChange }: { value: string; onChange: (day: string) => void }) {
+  const { t, locale } = useLocale();
+  const picker = useRef<HTMLInputElement>(null);
+  const today = dayInput(new Date());
+  const isToday = value === today;
+
+  const shift = (days: number) => {
+    const date = parseDay(value);
+    date.setDate(date.getDate() + days);
+    const next = dayInput(date);
+    if (next <= today) onChange(next);
+  };
+
+  const openCalendar = () => {
+    const input = picker.current;
+    if (!input) return;
+    try {
+      input.showPicker();
+    } catch {
+      input.focus();
+      input.click();
+    }
+  };
+
+  const step =
+    'flex size-9 shrink-0 items-center justify-center rounded-full text-content-secondary transition-colors hover:bg-surface-sunken hover:text-content disabled:pointer-events-none disabled:opacity-30';
+
+  return (
+    <div className="flex items-center gap-1 rounded-full bg-surface p-1 ring-1 ring-border-subtle">
+      {/* In Arabic the earlier day is to the right, as the page reads. */}
+      <button
+        type="button"
+        onClick={() => shift(-1)}
+        className={step}
+        title={t('cashLedger.previousDay')}
+        aria-label={t('cashLedger.previousDay')}
+      >
+        <ChevronRight className="size-4 ltr:rotate-180" />
+      </button>
+
+      <div className="relative">
+        <button
+          type="button"
+          onClick={openCalendar}
+          className="flex min-w-44 items-center justify-center gap-2 rounded-full px-3 py-1.5 text-sm font-medium text-content transition-colors hover:bg-surface-sunken"
+          aria-label={t('cashLedger.day')}
+        >
+          <CalendarDays className="size-4 text-primary-text" />
+          <span className="tabular-nums">
+            {formatDate(parseDay(value), locale, {
+              weekday: 'long',
+              day: 'numeric',
+              month: 'long',
+              year: 'numeric',
+            })}
+          </span>
+          {isToday && (
+            <span className="rounded-full bg-primary-subtle px-2 py-px text-[11px] font-semibold text-primary-text">
+              {t('cashLedger.today')}
+            </span>
+          )}
+        </button>
+        {/* The browser's own calendar, kept out of sight and opened from here. */}
+        <input
+          ref={picker}
+          type="date"
+          value={value}
+          max={today}
+          onChange={(event) => event.target.value && onChange(event.target.value)}
+          tabIndex={-1}
+          aria-hidden
+          className="pointer-events-none absolute inset-0 opacity-0"
+        />
+      </div>
+
+      <button
+        type="button"
+        onClick={() => shift(1)}
+        disabled={isToday}
+        className={step}
+        title={t('cashLedger.nextDay')}
+        aria-label={t('cashLedger.nextDay')}
+      >
+        <ChevronLeft className="size-4 ltr:rotate-180" />
+      </button>
+
+      {!isToday && (
+        <button
+          type="button"
+          onClick={() => onChange(today)}
+          className="rounded-full px-3 py-1.5 text-xs font-semibold text-primary-text transition-colors hover:bg-primary-subtle"
+        >
+          {t('cashLedger.backToToday')}
+        </button>
+      )}
+    </div>
   );
 }
