@@ -59,6 +59,8 @@ const SHORT_AR: Record<string, string> = {
 /** What the button needs: the words, and who to send them to. */
 export interface Shareable {
   reference: string;
+  /** What kind of deal it was, for whoever needs to say so beside the text. */
+  type: string;
   /** The letterhead of the PDF. Not in the message: the message is the deal. */
   companyName: string;
   text: string;
@@ -204,6 +206,7 @@ export async function shareable(
 
   return {
     reference: transaction.reference,
+    type: transaction.type,
     companyName: company ?? '',
     // A blank line between each, the way the office types them.
     text: lines.join('\n\n'),

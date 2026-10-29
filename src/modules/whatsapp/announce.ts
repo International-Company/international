@@ -6,8 +6,8 @@ import { createLogger } from '@/core/logger/logger';
 import { HOME_CURRENCY } from '@/lib/home-currency';
 import { TRANSACTION_TYPE_META, type TransactionType } from '@/modules/exchange/transaction-types';
 import * as settings from '@/modules/settings/settings.service';
-import { shareable } from '@/modules/exchange/share.service';
-import { isLinked, sendText } from './whatsapp.service';
+import { shareable, type Shareable } from '@/modules/exchange/share.service';
+import { isLinked, sendText, type SentMessage } from './whatsapp.service';
 
 /**
  * Every deal, to the office's WhatsApp group, the moment it is recorded — and
@@ -17,6 +17,9 @@ import { isLinked, sendText } from './whatsapp.service';
  * A deal is written exactly as the office shares one by hand: the number, the
  * name, the bank or wallet, the amount, a line each with a blank between — the
  * same words the share button produces, so the two can never drift apart.
+ * Then the bot answers its own message with what kind of deal it was —
+ * «صرافة», «استلام يواس» — as a reply, so the kind sits on the deal it names
+ * however busy the group gets.
  *
  * After the posting and apart from it: a group that could not be reached is
  * logged, never a deal that failed. And only when the manager has switched it
@@ -109,6 +112,22 @@ async function target(): Promise<string | null> {
   return group;
 }
 
+/** The word the office uses for each kind of deal, said in the reply. */
+const KIND_LABEL: Record<string, string> = {
+  EXCHANGE: 'صرافة',
+  WALLET_CASHOUT: 'صرافة',
+  WALLET_TOPUP: 'صرافة',
+  USDT_RECEIVE: 'استلام يواس',
+  USDT_SEND: 'سحب يواس',
+  USDT_SALE: 'بيع يواس',
+  REMITTANCE_OUT: 'حوالة صادرة',
+  REMITTANCE_IN: 'حوالة واردة',
+};
+
+export function kindLabel(type: string): string {
+  return KIND_LABEL[type] ?? TRANSACTION_TYPE_META[type as TransactionType]?.nameAr ?? type;
+}
+
 /**
  * The deal's message, once the deal can be read.
  *
@@ -119,16 +138,70 @@ async function target(): Promise<string | null> {
  * again for a few seconds; a deal whose transaction rolled back never
  * appears, and is rightly never sent.
  */
-async function settled(transactionId: string) {
+async function settled(
+  transactionId: string,
+  load: (id: string) => Promise<Shareable>,
+  pause: number,
+): Promise<Shareable | null> {
   for (let attempt = 0; attempt < 20; attempt += 1) {
     try {
-      return await shareable(transactionId, 'ar');
+      return await load(transactionId);
     } catch (error) {
       if ((error as { code?: string }).code !== 'NOT_FOUND') return null;
-      await new Promise((resolve) => setTimeout(resolve, 500));
+      await new Promise((resolve) => setTimeout(resolve, pause));
     }
   }
   return null;
+}
+
+export interface AnnounceDeps {
+  /** The group to write to, or null when nothing should be sent. */
+  target: () => Promise<string | null>;
+  load: (id: string) => Promise<Shareable>;
+  send: (jid: string, text: string, quoted?: SentMessage) => Promise<SentMessage>;
+  /** Between attempts to read a deal not yet committed. */
+  pause?: number;
+}
+
+export type AnnounceOutcome = 'SKIPPED' | 'NOT_FOUND' | 'SEND_FAILED' | 'NO_REPLY' | 'SENT';
+
+/**
+ * One deal to the group: its message, then the kind as a reply to it.
+ *
+ * The reply goes only once the message itself is confirmed sent — a kind
+ * hanging under nothing, or under the previous deal, would be worse than no
+ * kind at all. Nothing here throws: a failure is logged and said in the
+ * outcome, and the deal it was about is untouched.
+ */
+export async function announceDeal(
+  transactionId: string,
+  deps: AnnounceDeps,
+): Promise<AnnounceOutcome> {
+  const group = await deps.target();
+  if (!group) return 'SKIPPED';
+
+  const message = await settled(transactionId, deps.load, deps.pause ?? 500);
+  if (!message?.text) return 'NOT_FOUND';
+
+  let sent: SentMessage;
+  try {
+    sent = await deps.send(group, message.text);
+  } catch (error) {
+    log.warn('Could not announce a deal', { reference: message.reference, error });
+    return 'SEND_FAILED';
+  }
+  if (!sent?.key?.id) {
+    log.warn('A deal went out without an id to reply to', { reference: message.reference });
+    return 'NO_REPLY';
+  }
+
+  try {
+    await deps.send(group, kindLabel(message.type), sent);
+  } catch (error) {
+    log.warn('Could not label a deal', { reference: message.reference, error });
+    return 'NO_REPLY';
+  }
+  return 'SENT';
 }
 
 let registered = false;
@@ -138,13 +211,11 @@ export function registerWhatsappSubscribers(): void {
   registered = true;
 
   on('transaction.posted', 'whatsapp-announce-deal', async ({ transactionId }) => {
-    const group = await target();
-    if (!group) return;
-    const message = await settled(transactionId);
-    if (!message?.text) return;
-    await sendText(group, message.text).catch((error) =>
-      log.warn('Could not announce a deal', { reference: message.reference, error }),
-    );
+    await announceDeal(transactionId, {
+      target,
+      load: (id) => shareable(id, 'ar'),
+      send: sendText,
+    });
   });
 
   on(

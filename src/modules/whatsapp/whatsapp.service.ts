@@ -234,6 +234,16 @@ export function isLinked(): boolean {
   return holder.status === 'CONNECTED' && holder.sock !== null;
 }
 
-export async function sendText(jid: string, text: string): Promise<void> {
-  await linked().sendMessage(jid, { text });
+export type SentMessage = Awaited<ReturnType<WASocket['sendMessage']>>;
+
+/**
+ * Writes to a chat, optionally as a reply to a message already in it, and
+ * hands back what was sent so a reply can be made to it in turn.
+ */
+export async function sendText(
+  jid: string,
+  text: string,
+  quoted?: SentMessage,
+): Promise<SentMessage> {
+  return linked().sendMessage(jid, { text }, quoted ? { quoted } : undefined);
 }
