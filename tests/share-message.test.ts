@@ -124,9 +124,15 @@ describe('one transfer, as the office writes it', () => {
     ]);
   });
 
-  it('keeps a fraction that is really there', async () => {
-    const { db } = fakeDb([row({ payoutBankAmount: 32050n * 1_000_000n })]);
-    assert.equal(lines((await shareable('t1', 'ar', db)).text).at(-1), '320.50 شيكل');
+  it('rounds a fraction the way the office writes it: up from six, dropped at five', async () => {
+    const at = async (scaled: bigint) => {
+      const { db } = fakeDb([row({ payoutBankAmount: scaled })]);
+      return lines((await shareable('t1', 'ar', db)).text).at(-1);
+    };
+    assert.equal(await at(32050n * 1_000_000n), '320 شيكل');
+    assert.equal(await at(32060n * 1_000_000n), '321 شيكل');
+    assert.equal(await at(32040n * 1_000_000n), '320 شيكل');
+    assert.equal(await at(32099n * 1_000_000n), '321 شيكل');
   });
 });
 

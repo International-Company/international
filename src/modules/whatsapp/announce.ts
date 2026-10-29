@@ -109,6 +109,28 @@ async function target(): Promise<string | null> {
   return group;
 }
 
+/**
+ * The deal's message, once the deal can be read.
+ *
+ * The event fires when the deal is written, but a screen like the exchange
+ * machine writes it inside a larger database transaction of its own — and
+ * until that commits, nothing outside it can see the row. Reading at once
+ * found nothing, and the machine's deals were never announced. So it asks
+ * again for a few seconds; a deal whose transaction rolled back never
+ * appears, and is rightly never sent.
+ */
+async function settled(transactionId: string) {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    try {
+      return await shareable(transactionId, 'ar');
+    } catch (error) {
+      if ((error as { code?: string }).code !== 'NOT_FOUND') return null;
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+  }
+  return null;
+}
+
 let registered = false;
 
 export function registerWhatsappSubscribers(): void {
@@ -118,7 +140,7 @@ export function registerWhatsappSubscribers(): void {
   on('transaction.posted', 'whatsapp-announce-deal', async ({ transactionId }) => {
     const group = await target();
     if (!group) return;
-    const message = await shareable(transactionId, 'ar').catch(() => null);
+    const message = await settled(transactionId);
     if (!message?.text) return;
     await sendText(group, message.text).catch((error) =>
       log.warn('Could not announce a deal', { reference: message.reference, error }),
