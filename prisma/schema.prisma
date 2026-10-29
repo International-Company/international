@@ -2125,3 +2125,16 @@ model TellerOpening {
   @@unique([tellerId, day, currencyCode])
   @@map("teller_openings")
 }
+
+/// The linked WhatsApp number's session — what WhatsApp Web would keep in the
+/// browser, kept here so it survives a deploy. One row per key the library
+/// asks for: the credentials under "creds", and its signal keys beside them.
+/// Values are JSON as the library writes it (buffers encoded). Emptied when
+/// the number is unlinked.
+model WhatsappAuth {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt
+
+  @@map("whatsapp_auth")
+}

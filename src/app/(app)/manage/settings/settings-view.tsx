@@ -12,6 +12,7 @@ import { useToast } from '@/ui/overlay';
 import { cn } from '@/ui/utils';
 import { AppearanceSettings } from './appearance-settings';
 import { MarketPanel } from './market-panel';
+import { WhatsappPanel } from './whatsapp-panel';
 import {
   SETTING_CATEGORIES,
   type SettingCategory,
@@ -191,35 +192,42 @@ export function SettingsView({
                 screen to squint at a moving strip.
               */}
               {category === 'machine' && <MarketPanel />}
+              {category === 'whatsapp' && <WhatsappPanel canManage={canManage} />}
 
-              {(byCategory.get(category) ?? []).map((setting) => (
-                <div key={setting.key}>
-                  {/*
+              {(byCategory.get(category) ?? [])
+                .filter((setting) => !setting.hidden)
+                .map((setting) => (
+                  <div key={setting.key}>
+                    {/*
                     In the language the person is reading the rest of the screen
                     in. Every setting carries both, and the catalogue is the only
                     place either is written — so this is the one line that had to
                     stop choosing English for an Arabic reader.
                   */}
-                  <Field
-                    label={
-                      <span className="flex items-center gap-2">
-                        {ln(setting, 'label')}
-                        {setting.isSensitive && (
-                          <Badge tone="warning">{t('roles.sensitive')}</Badge>
-                        )}
-                      </span>
-                    }
-                    hint={ln(setting, 'description')}
-                  >
-                    {() => renderControl(setting)}
-                  </Field>
-                </div>
-              ))}
+                    <Field
+                      label={
+                        <span className="flex items-center gap-2">
+                          {ln(setting, 'label')}
+                          {setting.isSensitive && (
+                            <Badge tone="warning">{t('roles.sensitive')}</Badge>
+                          )}
+                        </span>
+                      }
+                      hint={ln(setting, 'description')}
+                    >
+                      {() => renderControl(setting)}
+                    </Field>
+                  </div>
+                ))}
             </CardBody>
 
             {canManage && (
               <CardFooter>
-                <Button variant="secondary" disabled={!dirty || saving} onClick={() => setDraft({})}>
+                <Button
+                  variant="secondary"
+                  disabled={!dirty || saving}
+                  onClick={() => setDraft({})}
+                >
                   {t('common.reset')}
                 </Button>
                 <Button

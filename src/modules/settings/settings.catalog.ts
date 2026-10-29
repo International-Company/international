@@ -20,11 +20,13 @@ export interface SettingDefinition {
   options?: { value: string; labelEn: string; labelAr: string }[];
   /** Requires `settings.manage`; sensitive ones are additionally audited. */
   isSensitive?: boolean;
+  /** Set from a panel of its own rather than shown as a field of the form. */
+  hidden?: boolean;
   min?: number;
   max?: number;
 }
 
-export const SETTING_CATEGORIES = ['company', 'operations', 'machine', 'usdt', 'security', 'notifications', 'backup'] as const;
+export const SETTING_CATEGORIES = ['company', 'operations', 'machine', 'usdt', 'whatsapp', 'security', 'notifications', 'backup'] as const;
 
 export type SettingCategory = (typeof SETTING_CATEGORIES)[number];
 
@@ -34,6 +36,7 @@ export const SETTING_CATEGORY_LABELS: Record<SettingCategory, { en: string; ar: 
   machine: { en: 'Exchange Machine', ar: 'ماكينة التصريف' },
   security: { en: 'Security', ar: 'الأمان' },
   usdt: { en: 'USDT Monitoring', ar: 'مراقبة USDT' },
+  whatsapp: { en: 'WhatsApp', ar: 'واتساب' },
   notifications: { en: 'Notifications', ar: 'الإشعارات' },
   backup: { en: 'Backup', ar: 'النسخ الاحتياطي' },
 };
@@ -395,6 +398,27 @@ export const SETTINGS: SettingDefinition[] = [
     descriptionAr:
       'مطالبة كل عميل بمبلغ لا ينتظره طلب آخر مفتوح، حتى لا يختلط شخصان أرسلا نفس الرقم. إيقافه يعني أن على التلر تمييز كل تحويل ببصمته.',
     isSensitive: true,
+  },
+
+  // --- WhatsApp ------------------------------------------------------------
+  {
+    key: 'whatsapp.enabled', category: 'whatsapp', type: 'boolean', defaultValue: false,
+    labelEn: 'Send every deal to the WhatsApp group',
+    labelAr: 'إرسال كل عملية إلى مجموعة الواتساب',
+    descriptionEn:
+      'When on, each deal is written to the group chosen above the moment it is recorded, and each deletion too. Needs the number linked and a group chosen.',
+    descriptionAr:
+      'عند تفعيله تُرسل كل عملية إلى المجموعة المختارة أعلاه فور تسجيلها، وكذلك كل حذف. يحتاج ربط الرقم واختيار المجموعة.',
+  },
+  {
+    key: 'whatsapp.groupId', category: 'whatsapp', type: 'string', defaultValue: '', hidden: true,
+    labelEn: 'WhatsApp group', labelAr: 'مجموعة الواتساب',
+    descriptionEn: 'Chosen from the list of the linked number’s groups', descriptionAr: 'تُختار من مجموعات الرقم المرتبط',
+  },
+  {
+    key: 'whatsapp.groupName', category: 'whatsapp', type: 'string', defaultValue: '', hidden: true,
+    labelEn: 'WhatsApp group name', labelAr: 'اسم مجموعة الواتساب',
+    descriptionEn: 'Kept for display', descriptionAr: 'للعرض فقط',
   },
 
   // --- Notifications -------------------------------------------------------

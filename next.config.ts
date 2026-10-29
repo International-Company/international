@@ -42,7 +42,7 @@ const nextConfig: NextConfig = {
   // and the server knows which build it is serving.
   env: { NEXT_PUBLIC_BUILD_ID: BUILD_ID },
   poweredByHeader: false,
-  serverExternalPackages: ['@prisma/client', 'exceljs'],
+  serverExternalPackages: ['@prisma/client', 'exceljs', '@whiskeysockets/baileys', 'qrcode'],
 
   // `experimental.optimizePackageImports` was removed deliberately.
   //

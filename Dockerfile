@@ -15,9 +15,10 @@
 # --- Stage 1: dependencies --------------------------------------------------
 FROM node:24-bookworm-slim AS deps
 
-# Prisma's query engine is linked against OpenSSL.
+# Prisma's query engine is linked against OpenSSL. Git, because the WhatsApp
+# library's signal dependency is published as a GitHub repository.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends openssl ca-certificates \
+    && apt-get install -y --no-install-recommends openssl ca-certificates git \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
