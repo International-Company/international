@@ -1406,6 +1406,12 @@ const en = {
     intakeTransfer: 'Transfer',
     intakeInto: 'Paid into the office’s account',
     intakeTransferHint: 'At the bank rate, and the customer takes cash. Name and phone are required.',
+    intakeSplit: 'Both',
+    intakeBankLeg: 'By transfer',
+    intakeCashLeg: 'In cash',
+    intakeSplitHint:
+      'The transfer at the bank rate, the notes at the till rate; the customer takes the total in cash. Name and phone are required.',
+    intakeSplitTooBig: 'The transfer must be less than the amount paid — otherwise choose “Transfer”.',
     today: {
       exchanged: 'Exchanged today',
       operations: '{count} operations',
@@ -2087,6 +2093,8 @@ const en = {
     payoutAccount: 'Account no.',
     byTransfer: 'By transfer',
     inCash: 'In cash',
+    paidByTransfer: 'Paid by transfer',
+    paidInCash: 'Paid in cash',
   },
 
   verify: {

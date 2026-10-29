@@ -85,6 +85,8 @@ const bodySchema = z.object({
   payoutChannel: z.string().max(80).nullish(),
   /** The customer paid by transfer, into this account. Priced at the bank rate, paid in cash. */
   intakeChannel: z.string().max(80).nullish(),
+  /** Paid both ways: how much of `pay` came by transfer; the rest was notes. */
+  intakeTransfer: z.string().optional(),
   /**
    * An approval to break the board. The id and nothing else — the price lives
    * on the approval, and the server reads it from there.
@@ -113,6 +115,8 @@ export const POST = route<z.infer<typeof bodySchema>>({
         brokerPayout: body.brokerPayout !== undefined ? parseMoney(body.brokerPayout) : undefined,
         payoutChannel: body.payoutChannel ?? null,
         intakeChannel: body.intakeChannel ?? null,
+        intakeTransfer:
+          body.intakeTransfer !== undefined ? parseMoney(body.intakeTransfer) : undefined,
         priceExceptionId: body.priceExceptionId ?? null,
         branchId: actor.branchId,
         customerId: body.customerId ?? null,

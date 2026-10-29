@@ -277,6 +277,32 @@ export default async function ReceiptPage({ params }: { params: Promise<{ id: st
                   )}
 
                   {/*
+                    Paid both ways: the customer's money came part by transfer,
+                    part in notes, and the paper says how much each way.
+                  */}
+                  {transaction.intakeBrokerAmount > 0n && transaction.intakeCashAmount > 0n && (
+                    <>
+                      <tr className={`border-t ${rule}`}>
+                        <td className="py-1">
+                          {t('receipt.paidByTransfer')}
+                          {transaction.intakeBankChannel ? ` — ${transaction.intakeBankChannel}` : ''}
+                        </td>
+                        <td className="py-1 text-end" dir="ltr">
+                          {toDecimalString(transaction.intakeBrokerAmount, 2)}{' '}
+                          {transaction.fromCurrency}
+                        </td>
+                      </tr>
+                      <tr>
+                        <td className="py-1">{t('receipt.paidInCash')}</td>
+                        <td className="py-1 text-end" dir="ltr">
+                          {toDecimalString(transaction.intakeCashAmount, 2)}{' '}
+                          {transaction.fromCurrency}
+                        </td>
+                      </tr>
+                    </>
+                  )}
+
+                  {/*
                     Where a bank or wallet payout went: the beneficiary's bank or
                     wallet, the account (or the wallet's number), and how much
                     went that way when part of it was paid in cash.

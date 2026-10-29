@@ -15,6 +15,7 @@ import {
 } from './rates.service';
 import * as transactions from './transaction.service';
 import type { Actor } from './transaction.service';
+import { intakeShares } from './intake-split';
 
 /**
  * The exchange machine.
@@ -319,6 +320,12 @@ export interface MachineRecordInput {
    * through the bank, not as notes — and paid out in cash only.
    */
   intakeChannel?: string | null;
+  /**
+   * The customer paid both ways: this much of what they hand over came by
+   * transfer into `intakeChannel`, the rest in notes. Each part is priced at
+   * its own channel and the customer takes the sum in cash.
+   */
+  intakeTransfer?: bigint;
   branchId: string;
   /**
    * An approval to break the board, granted for this deal.
@@ -393,12 +400,42 @@ async function post(input: MachineRecordInput, actor: Actor, db: DbClient) {
     }
   }
 
+  /*
+   * Paid both ways: part by transfer, the rest in notes. Priced from what the
+   * customer hands over, because that is the side they divided — "five hundred
+   * into your account and three hundred here".
+   */
+  let shares: { cash: bigint; broker: bigint } | null = null;
+  if (input.intakeTransfer !== undefined) {
+    if (!intakeChannel) {
+      throw errors.precondition(
+        'Say which account the transfer was paid into',
+        'errors.transferChannelRequired',
+      );
+    }
+    if (input.fromAmount === undefined) {
+      throw errors.precondition(
+        'A split is priced from what the customer hands over',
+        'errors.splitNeedsPayAmount',
+      );
+    }
+    shares = intakeShares(input.fromAmount, input.intakeTransfer);
+    if (!shares) {
+      throw errors.precondition(
+        'The transferred share must be part of the amount, not all or none of it',
+        'errors.splitShareOutOfRange',
+      );
+    }
+  }
+
   const forced = input.priceExceptionId ? await claimForDeal(input, actor, db) : null;
 
   // Paid by transfer: priced through the bank, handed over from the till.
-  const legs = intakeChannel
-    ? { cash: (await priceLegs({ ...input, mode: 'BROKER' }, db)).broker, broker: NO_LEG }
-    : await priceLegs(input, db, forced);
+  const legs = shares
+    ? { cash: await paidBothWays(input, shares, db), broker: NO_LEG }
+    : intakeChannel
+      ? { cash: (await priceLegs({ ...input, mode: 'BROKER' }, db)).broker, broker: NO_LEG }
+      : await priceLegs(input, db, forced);
   const total = legs.cash.to + legs.broker.to;
   const fromTotal = legs.cash.from + legs.broker.from;
 
@@ -499,7 +536,7 @@ async function post(input: MachineRecordInput, actor: Actor, db: DbClient) {
       toCurrency: input.toCurrency,
       toAmount: total,
       // What came in by transfer lands on the office's account at the broker.
-      intake: intakeChannel ? { cash: 0n, broker: fromTotal } : undefined,
+      intake: shares ?? (intakeChannel ? { cash: 0n, broker: fromTotal } : undefined),
       intakeChannel,
       payout: { cash: legs.cash.to, bank: legs.broker.to },
       payoutChannel: account,
@@ -779,6 +816,30 @@ async function priceLegs(
   };
 
   return { cash, broker };
+}
+
+/**
+ * One leg handed over from the till, priced in two parts: the notes at the
+ * till's rate, the transfer at the bank's. Each part is rounded as a deal of
+ * its own would be, so the screen — which adds the same two figures — reads
+ * out exactly what is posted.
+ */
+async function paidBothWays(
+  input: MachineRecordInput,
+  shares: { cash: bigint; broker: bigint },
+  db: DbClient,
+): Promise<Leg> {
+  const [cash, broker] = await Promise.all([
+    quoteExchange(input.fromCurrency, input.toCurrency, shares.cash, 'CASH', db),
+    quoteExchange(input.fromCurrency, input.toCurrency, shares.broker, 'BROKER', db),
+  ]);
+  return {
+    from: shares.cash + shares.broker,
+    to: cash.toAmount + broker.toAmount,
+    profit: cash.profit + broker.profit,
+    // Two prices, so no single published row describes it.
+    quote: null,
+  };
 }
 
 /**

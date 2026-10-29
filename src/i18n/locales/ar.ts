@@ -1405,6 +1405,12 @@ const ar: Dictionary = {
     intakeTransfer: 'تحويل',
     intakeInto: 'حوّل إلى حساب المكتب',
     intakeTransferHint: 'بسعر البنك، ويستلم العميل نقداً. اسمه ورقم هاتفه مطلوبان.',
+    intakeSplit: 'مزدوج',
+    intakeBankLeg: 'بنكي',
+    intakeCashLeg: 'نقدي',
+    intakeSplitHint:
+      'الجزء البنكي بسعر البنك والنقدي بسعر الصندوق، ويستلم العميل المجموع نقداً. اسمه ورقم هاتفه مطلوبان.',
+    intakeSplitTooBig: 'المبلغ البنكي يجب أن يكون أقل مما يدفعه العميل — وإلا اختر «تحويل».',
     today: {
       exchanged: 'صرّفت اليوم',
       operations: '{count} عملية',
@@ -2085,6 +2091,8 @@ const ar: Dictionary = {
     payoutAccount: 'رقم الحساب',
     byTransfer: 'بالتحويل',
     inCash: 'نقداً',
+    paidByTransfer: 'دفع بنكي',
+    paidInCash: 'دفع نقدي',
   },
 
   verify: {

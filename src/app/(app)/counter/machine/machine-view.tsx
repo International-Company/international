@@ -29,6 +29,7 @@ import {
 } from 'lucide-react';
 import { useLocale } from '@/i18n/provider';
 import { normalizeDigits } from '@/core/money/money';
+import { intakeShares, paidBothWaysPayout } from '@/modules/exchange/intake-split';
 import { describeFailure, say } from '@/lib/failure';
 import { api, ApiError, queryString } from '@/lib/api-client';
 import { Button } from '@/ui/primitives';
@@ -222,10 +223,18 @@ export function MachineView({
    * office's accounts. Paid by transfer, the deal is priced at the bank rate —
    * the money arrived through the bank, not as notes — and handed back in
    * cash, so the payout choice below gives way to a plain "paid in cash".
+   *
+   * Or both ways: part by transfer, the rest in notes. Only the transferred
+   * part is held, in the money the customer hands over; the notes are the
+   * remainder, so the two always add up to what was paid.
    */
-  const [intakeVia, setIntakeVia] = useState<'CASH' | 'TRANSFER'>('CASH');
+  const [intakeVia, setIntakeVia] = useState<'CASH' | 'TRANSFER' | 'SPLIT'>('CASH');
   const [intakeChannel, setIntakeChannel] = useState(config.transferChannels[0] ?? '');
+  const [intakeShare, setIntakeShare] = useState('');
   const paidByTransfer = intakeVia === 'TRANSFER';
+  const bothWays = intakeVia === 'SPLIT';
+  /** Some of the customer's money came through the bank; they take cash. */
+  const viaBank = intakeVia !== 'CASH';
 
   // Clearing hands the caret back, so the next customer can be served without
   // reaching for the mouse first.
@@ -437,6 +446,7 @@ export function MachineView({
     setDestination(config.transferChannels[0] ?? '');
     setIntakeVia('CASH');
     setIntakeChannel(config.transferChannels[0] ?? '');
+    setIntakeShare('');
     setSide('pay');
     payRef.current?.focus();
   };
@@ -460,6 +470,27 @@ export function MachineView({
   const legs = (() => {
     const none = { cash: 0n, broker: 0n, from: 0n };
     if (!quote) return none;
+
+    /*
+     * Paid both ways: the transfer at the bank's price, the notes at the
+     * till's, and the customer takes the sum in cash — the same two figures,
+     * rounded the same way, the server adds before it posts.
+     */
+    if (bothWays) {
+      if (!quote.cash || !quote.broker) return none;
+      const paid = BigInt(quote.cash.fromAmount);
+      const shares = intakeShares(paid, scaleAmount(intakeShare));
+      if (!shares) return { cash: 0n, broker: 0n, from: paid };
+      return {
+        cash: paidBothWaysPayout(
+          shares,
+          { cash: BigInt(quote.cash.rate), broker: BigInt(quote.broker.rate) },
+          toCurrency?.decimals ?? 2,
+        ),
+        broker: 0n,
+        from: paid,
+      };
+    }
 
     // Paid by transfer: the bank's price, handed back in notes.
     if (paidByTransfer) {
@@ -538,7 +569,14 @@ export function MachineView({
    * Whose price this deal is at. Paid by transfer it is the bank's, though the
    * customer takes notes — so the price and the payout channel part company.
    */
-  const pricedAs: Channel = paidByTransfer ? 'BROKER' : channel;
+  const pricedAs: Channel = bothWays ? 'SPLIT' : paidByTransfer ? 'BROKER' : channel;
+
+  /** The two shares of a deal paid both ways, once the transfer is a part of it. */
+  const intakeSplit =
+    bothWays && legs.from > 0n ? intakeShares(legs.from, scaleAmount(intakeShare)) : null;
+  /** A transfer typed that is all of the money, or more. */
+  const intakeShareTooBig =
+    bothWays && legs.from > 0n && scaleAmount(intakeShare) >= legs.from;
 
   /** The rate to show, and the margin, for the chosen way of paying. */
   const shownRate =
@@ -559,6 +597,13 @@ export function MachineView({
 
     // Each channel's margin in proportion to the money that went through it.
     if (!quote.cash?.profit || !quote.broker?.profit || legs.from === 0n) return null;
+    if (bothWays) {
+      if (!intakeSplit) return null;
+      return (
+        (BigInt(quote.cash.profit) * intakeSplit.cash) / legs.from +
+        (BigInt(quote.broker.profit) * intakeSplit.broker) / legs.from
+      );
+    }
     const brokerRate = BigInt(quote.broker.rate);
     if (brokerRate <= 0n) return null;
     const costsFrom = (legs.broker * 100000000n) / brokerRate;
@@ -598,7 +643,7 @@ export function MachineView({
    */
   // Paid by transfer is money through a bank too, on the way in.
   const throughBank =
-    paidByTransfer || channel === 'BROKER' || (channel === 'SPLIT' && legs.broker > 0n);
+    viaBank || channel === 'BROKER' || (channel === 'SPLIT' && legs.broker > 0n);
   const named = Boolean(customer) || counterpartyName.trim().length > 0;
   const reachable = Boolean(customer?.phone?.trim()) || counterpartyPhone.trim().length > 0;
   const needsContact = throughBank && (!named || !reachable);
@@ -612,6 +657,7 @@ export function MachineView({
     !quote ||
     noPrice ||
     received <= 0n ||
+    (bothWays && !intakeSplit) ||
     quote.overLimit ||
     shortLeg !== null ||
     (quote.requiresCustomer && !customer) ||
@@ -626,10 +672,16 @@ export function MachineView({
         {
           from,
           to,
-          // Paid by transfer is always handed back in cash.
-          mode: paidByTransfer ? 'CASH' : channel,
-          intakeChannel: paidByTransfer ? intakeChannel : null,
-          [side]: amount.trim(),
+          // Paid by transfer, wholly or in part, is always handed back in cash.
+          mode: viaBank ? 'CASH' : channel,
+          intakeChannel: viaBank ? intakeChannel : null,
+          /*
+           * Paid both ways is priced from what the customer hands over — the
+           * side they divided — whichever field the teller happened to type in.
+           */
+          ...(bothWays && intakeSplit
+            ? { pay: unscale(legs.from), intakeTransfer: unscale(intakeSplit.broker) }
+            : { [side]: amount.trim() }),
           /*
            * Only the broker's share of what the customer hands over travels.
            * The till takes the rest and the server prices both legs from its
@@ -880,6 +932,8 @@ export function MachineView({
                 ln={ln}
                 hero
                 busy={quoting}
+                // Paid both ways is priced from what the customer hands over.
+                readOnly={bothWays}
               />
             </section>
 
@@ -899,7 +953,7 @@ export function MachineView({
                 <span className="text-danger-text">
                   {t('machine.noChannelPrice', { channel: unpriced.join('، ') })}
                 </span>
-              ) : channel === 'SPLIT' &&
+              ) : (channel === 'SPLIT' || bothWays) &&
                 quote?.cash &&
                 quote.broker &&
                 quote.cash.rate !== quote.broker.rate ? (
@@ -979,20 +1033,32 @@ export function MachineView({
                   {t('machine.intakeTitle')}
                 </span>
                 <div dir="ltr" className="flex gap-1 rounded-full bg-surface-sunken p-1">
-                  {(['CASH', 'TRANSFER'] as const).map((option) => (
+                  {(['CASH', 'TRANSFER', 'SPLIT'] as const).map((option) => (
                     <button
                       key={option}
                       type="button"
                       onClick={() => {
                         setIntakeVia(option);
                         setDone(null);
-                        if (option === 'TRANSFER') {
+                        if (option !== 'CASH') {
                           setChannel('CASH');
                           setBrokerShare('');
                         }
+                        if (option !== 'SPLIT') {
+                          setIntakeShare('');
+                        } else if (side !== 'pay') {
+                          // Priced from what the customer hands over; see the
+                          // same move for a split payout below.
+                          setSide('pay');
+                          setAmount(
+                            legs.from > 0n
+                              ? formatPlain(legs.from.toString(), fromCurrency?.decimals ?? 2)
+                              : '',
+                          );
+                        }
                       }}
                       aria-pressed={intakeVia === option}
-                      disabled={option === 'TRANSFER' && config.transferChannels.length === 0}
+                      disabled={option !== 'CASH' && config.transferChannels.length === 0}
                       className={cn(
                         'h-9 rounded-full px-4 text-sm font-medium transition-colors disabled:opacity-40',
                         intakeVia === option
@@ -1000,13 +1066,17 @@ export function MachineView({
                           : 'text-content-tertiary hover:text-content-secondary',
                       )}
                     >
-                      {option === 'CASH' ? t('machine.intakeCash') : t('machine.intakeTransfer')}
+                      {option === 'CASH'
+                        ? t('machine.intakeCash')
+                        : option === 'TRANSFER'
+                          ? t('machine.intakeTransfer')
+                          : t('machine.intakeSplit')}
                     </button>
                   ))}
                 </div>
               </div>
 
-              {paidByTransfer && (
+              {viaBank && (
                 <>
                   <label className="mt-3 block">
                     <span className="text-xs text-content-tertiary">{t('machine.intakeInto')}</span>
@@ -1025,15 +1095,64 @@ export function MachineView({
                       ))}
                     </select>
                   </label>
+                  {/*
+                    Both halves in the money the customer hands over, because
+                    that is how they say it: "five hundred into your account and
+                    three hundred here". Only the transfer is typed; the notes
+                    are the rest of what they pay, shown beside it.
+                  */}
+                  {bothWays && (
+                    <div className="mt-3 grid grid-cols-2 gap-3">
+                      <label className="block">
+                        <span className="text-xs text-content-tertiary">
+                          {t('machine.intakeBankLeg')} ({from})
+                        </span>
+                        <input
+                          type="text"
+                          dir="ltr"
+                          inputMode="decimal"
+                          autoComplete="off"
+                          data-zoom-safe=""
+                          value={intakeShare}
+                          placeholder={(0).toFixed(fromCurrency?.decimals ?? 2)}
+                          onChange={(event) => {
+                            setDone(null);
+                            setIntakeShare(
+                              sanitiseAmount(event.target.value, fromCurrency?.decimals ?? 2),
+                            );
+                          }}
+                          className={cn(
+                            'mt-1 h-12 w-full rounded-xl bg-surface-sunken px-3 text-end text-xl font-semibold tabular-nums text-content outline-none ring-1 ring-transparent focus:ring-primary',
+                            intakeShareTooBig && 'ring-danger',
+                          )}
+                        />
+                      </label>
+
+                      <div className="block">
+                        <span className="text-xs text-content-tertiary">
+                          {t('machine.intakeCashLeg')} ({from})
+                        </span>
+                        <p className="mt-1 flex h-12 items-center justify-end rounded-xl bg-surface-sunken px-3 text-xl font-semibold tabular-nums text-content-secondary ltr-content">
+                          {formatScaled(
+                            (intakeSplit?.cash ?? (intakeShareTooBig ? 0n : legs.from)).toString(),
+                            fromCurrency?.decimals ?? 2,
+                          )}
+                        </p>
+                      </div>
+                    </div>
+                  )}
                   <p className="mt-2 text-xs text-content-tertiary">
-                    {t('machine.intakeTransferHint')}
+                    {bothWays ? t('machine.intakeSplitHint') : t('machine.intakeTransferHint')}
                   </p>
+                  {intakeShareTooBig && (
+                    <p className="mt-1 text-xs text-danger-text">{t('machine.intakeSplitTooBig')}</p>
+                  )}
                 </>
               )}
             </div>
 
             {/* Paid by transfer is handed back in cash; nothing to choose. */}
-            {!paidByTransfer && (
+            {!viaBank && (
             <>
             {/*
               How it is handed over.
@@ -1570,6 +1689,7 @@ function AmountRow({
   inputRef,
   hero,
   busy,
+  readOnly,
   ln,
 }: {
   label: string;
@@ -1583,6 +1703,8 @@ function AmountRow({
   inputRef?: RefObject<HTMLInputElement | null>;
   hero?: boolean;
   busy?: boolean;
+  /** Worked out from the other side only, never typed into. */
+  readOnly?: boolean;
   ln: (record: object, baseKey: string) => string;
 }) {
   const decimals = currency?.decimals ?? 2;
@@ -1732,7 +1854,9 @@ function AmountRow({
           aria-label={label}
           value={display}
           placeholder={zero}
+          readOnly={readOnly}
           onFocus={(event) => {
+            if (readOnly) return;
             // Already the active side: nothing is about to re-render, so the
             // next digit can safely replace what is here.
             if (active) event.currentTarget.select();

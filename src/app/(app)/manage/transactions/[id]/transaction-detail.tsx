@@ -58,6 +58,8 @@ interface TransactionData {
   counterpartyName: string | null;
   counterpartyPhone: string | null;
   intakeBankChannel: string | null;
+  intakeCashAmount: string;
+  intakeBrokerAmount: string;
   payoutBankChannel: string | null;
   payoutAccount: string | null;
   payoutAddress: string | null;
@@ -280,6 +282,24 @@ export function TransactionDetail({
                   {transaction.intakeBankChannel}
                 </DetailRow>
               )}
+              {/* Paid both ways: how much came each way. */}
+              {BigInt(transaction.intakeBrokerAmount) > 0n &&
+                BigInt(transaction.intakeCashAmount) > 0n && (
+                  <>
+                    <DetailRow label={t('receipt.paidByTransfer')}>
+                      <Money
+                        value={transaction.intakeBrokerAmount}
+                        currency={transaction.fromCurrency}
+                      />
+                    </DetailRow>
+                    <DetailRow label={t('receipt.paidInCash')}>
+                      <Money
+                        value={transaction.intakeCashAmount}
+                        currency={transaction.fromCurrency}
+                      />
+                    </DetailRow>
+                  </>
+                )}
               {/* Where the coins went, and from which wallet. The address is
                   shown whole: a shortened one cannot be checked against
                   anything, and checking it is the only reason to print it. */}
