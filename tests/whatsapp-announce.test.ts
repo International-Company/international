@@ -3,18 +3,12 @@ import './support/test-env.ts';
 
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import {
-  composeDeal,
-  composeDeletion,
-  priceOf,
-  titleOf,
-  type AnnouncedDeal,
-} from '../src/modules/whatsapp/announce.ts';
+import { composeDeletion, titleOf, type AnnouncedDeal } from '../src/modules/whatsapp/announce.ts';
 
 /**
- * What the WhatsApp group reads for each deal. Pinned: buying and selling
- * said plainly, the price per unit of what was traded, the transfer spelled
- * out when there is one, and nothing printed for a field the deal lacks.
+ * What the WhatsApp group reads when a deal is deleted. Pinned: buying and
+ * selling said plainly, with the reason and who deleted it. The deal itself
+ * is written by the share message, pinned in its own tests.
  */
 
 const UNIT = 100_000_000n;
@@ -46,38 +40,6 @@ describe('the WhatsApp announcement', () => {
     assert.equal(titleOf(deal()), 'شراء USD');
     assert.equal(titleOf(deal({ fromCurrency: 'ILS', toCurrency: 'USD' })), 'بيع USD');
     assert.equal(titleOf(deal({ type: 'USDT_SALE' })), 'بيع USDT');
-  });
-
-  it('prices per unit of what was traded', () => {
-    assert.equal(priceOf(deal()), '3.65');
-    // A USDT sale: 365 shekels for 100 coins.
-    assert.equal(
-      priceOf(
-        deal({ fromCurrency: 'ILS', fromAmount: 365n * UNIT, toCurrency: 'USDT', toAmount: 100n * UNIT }),
-      ),
-      '3.65',
-    );
-  });
-
-  it('writes the deal, the transfer and the teller, and skips what is missing', () => {
-    const text = composeDeal(
-      deal({
-        counterpartyName: 'محمد',
-        payoutBankAmount: 365n * UNIT,
-        payoutBankChannel: 'بنك فلسطين',
-        payoutAccount: '0599000000',
-        status: 'PENDING_TRANSFER',
-      }),
-    );
-    assert.match(text, /شراء USD/);
-    assert.match(text, /العميل: محمد/);
-    assert.match(text, /دفع العميل: 100 USD/);
-    assert.match(text, /استلم العميل: 365 ILS/);
-    assert.match(text, /يُحوَّل له: 365 ILS — بنك فلسطين — 0599000000/);
-    assert.match(text, /بانتظار التحويل/);
-    assert.match(text, /التلر: أحمد · 12:05/);
-    assert.doesNotMatch(text, /الهاتف/);
-    assert.doesNotMatch(text, /ملاحظة/);
   });
 
   it('announces a deletion with its reason', () => {

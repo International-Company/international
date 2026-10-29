@@ -6,12 +6,17 @@ import { createLogger } from '@/core/logger/logger';
 import { HOME_CURRENCY } from '@/lib/home-currency';
 import { TRANSACTION_TYPE_META, type TransactionType } from '@/modules/exchange/transaction-types';
 import * as settings from '@/modules/settings/settings.service';
+import { shareable } from '@/modules/exchange/share.service';
 import { isLinked, sendText } from './whatsapp.service';
 
 /**
  * Every deal, to the office's WhatsApp group, the moment it is recorded — and
  * every deletion, so the group never holds a deal that no longer stands
  * without being told.
+ *
+ * A deal is written exactly as the office shares one by hand: the number, the
+ * name, the bank or wallet, the amount, a line each with a blank between — the
+ * same words the share button produces, so the two can never drift apart.
  *
  * After the posting and apart from it: a group that could not be reached is
  * logged, never a deal that failed. And only when the manager has switched it
@@ -54,52 +59,6 @@ export function titleOf(deal: Pick<AnnouncedDeal, 'type' | 'fromCurrency' | 'toC
         : `تصريف ${deal.fromCurrency} ← ${deal.toCurrency}`;
   }
   return TRANSACTION_TYPE_META[deal.type as TransactionType]?.nameAr ?? deal.type;
-}
-
-/** The price per unit of what was traded: USDT if it is in the deal, else the foreign side. */
-export function priceOf(
-  deal: Pick<AnnouncedDeal, 'fromCurrency' | 'fromAmount' | 'toCurrency' | 'toAmount'>,
-): string | null {
-  if (deal.fromCurrency === deal.toCurrency || deal.fromAmount <= 0n || deal.toAmount <= 0n) {
-    return null;
-  }
-  const goodsIsFrom =
-    deal.fromCurrency === 'USDT' ||
-    (deal.toCurrency !== 'USDT' && deal.fromCurrency !== HOME_CURRENCY);
-  const goods = goodsIsFrom ? deal.fromAmount : deal.toAmount;
-  const other = goodsIsFrom ? deal.toAmount : deal.fromAmount;
-  return (Number(other) / Number(goods)).toFixed(4).replace(/\.?0+$/, '');
-}
-
-export function composeDeal(deal: AnnouncedDeal): string {
-  const who = deal.customer?.fullNameAr || deal.counterpartyName;
-  const phone = deal.customer?.phone || deal.counterpartyPhone;
-  const price = priceOf(deal);
-  const time = new Intl.DateTimeFormat('en-GB', {
-    hour: '2-digit',
-    minute: '2-digit',
-    timeZone: 'Asia/Gaza',
-  }).format(deal.createdAt);
-
-  const lines = [
-    `🟢 *${titleOf(deal)}*`,
-    `المرجع: ${deal.reference}`,
-    who ? `العميل: ${who}` : null,
-    phone ? `الهاتف: ${phone}` : null,
-    `دفع العميل: ${figure(deal.fromAmount)} ${deal.fromCurrency}`,
-    `استلم العميل: ${figure(deal.toAmount)} ${deal.toCurrency}`,
-    price ? `السعر: ${price}` : null,
-    deal.intakeBrokerAmount > 0n
-      ? `دُفع بتحويل: ${figure(deal.intakeBrokerAmount)} ${deal.fromCurrency}${deal.intakeBankChannel ? ` — ${deal.intakeBankChannel}` : ''}`
-      : null,
-    deal.payoutBankAmount > 0n
-      ? `يُحوَّل له: ${figure(deal.payoutBankAmount)} ${deal.toCurrency}${deal.payoutBankChannel ? ` — ${deal.payoutBankChannel}` : ''}${deal.payoutAccount ? ` — ${deal.payoutAccount}` : ''}`
-      : null,
-    deal.status === 'PENDING_TRANSFER' ? '⏳ بانتظار التحويل' : null,
-    deal.notes?.trim() ? `ملاحظة: ${deal.notes.trim()}` : null,
-    `التلر: ${deal.createdBy?.fullNameAr ?? '—'} · ${time}`,
-  ];
-  return lines.filter((line): line is string => Boolean(line)).join('\n');
 }
 
 export function composeDeletion(
@@ -159,13 +118,10 @@ export function registerWhatsappSubscribers(): void {
   on('transaction.posted', 'whatsapp-announce-deal', async ({ transactionId }) => {
     const group = await target();
     if (!group) return;
-    const deal = await prisma.transaction.findUnique({
-      where: { id: transactionId },
-      select: DEAL_SELECT,
-    });
-    if (!deal) return;
-    await sendText(group, composeDeal(deal)).catch((error) =>
-      log.warn('Could not announce a deal', { reference: deal.reference, error }),
+    const message = await shareable(transactionId, 'ar').catch(() => null);
+    if (!message?.text) return;
+    await sendText(group, message.text).catch((error) =>
+      log.warn('Could not announce a deal', { reference: message.reference, error }),
     );
   });
 
