@@ -129,6 +129,18 @@ export function kindLabel(type: string): string {
 }
 
 /**
+ * Whether the group hears of a deal at all.
+ *
+ * An exchange handed over entirely in cash is finished at the counter: the
+ * customer walked away with the notes and there is nothing for anyone in the
+ * group to send. So only an exchange with a transfer in it is written — in
+ * whole or in part. Every other kind is written as before.
+ */
+export function announced(deal: { type: string; bankPayout: boolean }): boolean {
+  return deal.type !== 'EXCHANGE' || deal.bankPayout;
+}
+
+/**
  * The deal's message, once the deal can be read.
  *
  * The event fires when the deal is written, but a screen like the exchange
@@ -182,6 +194,7 @@ export async function announceDeal(
 
   const message = await settled(transactionId, deps.load, deps.pause ?? 500);
   if (!message?.text) return 'NOT_FOUND';
+  if (!announced(message)) return 'SKIPPED';
 
   let sent: SentMessage;
   try {
@@ -231,7 +244,10 @@ export function registerWhatsappSubscribers(): void {
           select: { reverseReason: true, createdBy: { select: { fullNameAr: true } } },
         }),
       ]);
-      if (!deal) return;
+      // A deal the group never heard of is not deleted in front of it either.
+      if (!deal || !announced({ type: deal.type, bankPayout: deal.payoutBankAmount > 0n })) {
+        return;
+      }
       await sendText(
         group,
         composeDeletion(

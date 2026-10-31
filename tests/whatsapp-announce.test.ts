@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
   announceDeal,
+  announced,
   composeDeletion,
   kindLabel,
   titleOf,
@@ -65,7 +66,9 @@ describe('announcing a deal to the group', () => {
   const GROUP = '120363000000000000@g.us';
   const TEXT = '0597085125\n\nفادي ابو حجر\n\nبال باي\n\n290 شيكل';
 
-  function harness(over: Partial<AnnounceDeps> & { type?: string; failOn?: number } = {}) {
+  function harness(
+    over: Partial<AnnounceDeps> & { type?: string; bankPayout?: boolean; failOn?: number } = {},
+  ) {
     const sent: { jid: string; text: string; quotedId: string | null }[] = [];
     let n = 0;
     const deps: AnnounceDeps = {
@@ -73,6 +76,7 @@ describe('announcing a deal to the group', () => {
       load: async () => ({
         reference: 'TXN-1',
         type: over.type ?? 'EXCHANGE',
+        bankPayout: over.bankPayout ?? true,
         companyName: '',
         text: TEXT,
         phone: null,
@@ -143,7 +147,14 @@ describe('announcing a deal to the group', () => {
       load: async () => {
         reads += 1;
         if (reads < 3) throw Object.assign(new Error('not found'), { code: 'NOT_FOUND' });
-        return { reference: 'TXN-1', type: 'EXCHANGE', companyName: '', text: TEXT, phone: null };
+        return {
+          reference: 'TXN-1',
+          type: 'EXCHANGE',
+          bankPayout: true,
+          companyName: '',
+          text: TEXT,
+          phone: null,
+        };
       },
     });
     assert.equal(await announceDeal('t1', deps), 'SENT');
@@ -159,6 +170,26 @@ describe('announcing a deal to the group', () => {
     });
     assert.equal(await announceDeal('t1', deps), 'NOT_FOUND');
     assert.equal(sent.length, 0);
+  });
+
+  it('keeps an exchange handed over in cash out of the group', async () => {
+    const { deps, sent } = harness({ bankPayout: false });
+    assert.equal(await announceDeal('t1', deps), 'SKIPPED');
+    assert.equal(sent.length, 0);
+  });
+
+  it('still writes a USDT receipt paid out in cash', async () => {
+    const { deps, sent } = harness({ type: 'USDT_RECEIVE', bankPayout: false });
+    assert.equal(await announceDeal('t1', deps), 'SENT');
+    assert.equal(sent.length, 2);
+  });
+
+  it('decides by kind and by how it was handed over', () => {
+    assert.equal(announced({ type: 'EXCHANGE', bankPayout: false }), false);
+    // A split payout has a transfer in it.
+    assert.equal(announced({ type: 'EXCHANGE', bankPayout: true }), true);
+    assert.equal(announced({ type: 'USDT_RECEIVE', bankPayout: false }), true);
+    assert.equal(announced({ type: 'USDT_SEND', bankPayout: false }), true);
   });
 
   it('sends nothing when the office has not switched it on', async () => {

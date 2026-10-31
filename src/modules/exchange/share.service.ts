@@ -61,6 +61,8 @@ export interface Shareable {
   reference: string;
   /** What kind of deal it was, for whoever needs to say so beside the text. */
   type: string;
+  /** Whether any of it is handed over by transfer rather than across the counter. */
+  bankPayout: boolean;
   /** The letterhead of the PDF. Not in the message: the message is the deal. */
   companyName: string;
   text: string;
@@ -207,6 +209,7 @@ export async function shareable(
   return {
     reference: transaction.reference,
     type: transaction.type,
+    bankPayout: transaction.payoutBankAmount > 0n,
     companyName: company ?? '',
     // A blank line between each, the way the office types them.
     text: lines.join('\n\n'),
