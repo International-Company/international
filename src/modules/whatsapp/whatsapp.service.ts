@@ -3,6 +3,8 @@ import makeWASocket, {
   Browsers,
   DisconnectReason,
   fetchLatestBaileysVersion,
+  normalizeMessageContent,
+  type WAMessage,
   type WASocket,
 } from '@whiskeysockets/baileys';
 import QRCode from 'qrcode';
@@ -38,7 +40,22 @@ interface Holder {
   retry: ReturnType<typeof setTimeout> | null;
   /** Bumped whenever a socket is replaced, so a stale one's events are ignored. */
   generation: number;
+  /** Who is told of a message arriving — kept here so a reconnect keeps them. */
+  listeners?: Listener[];
 }
+
+/** A text message someone else wrote, in a chat the linked number is in. */
+export interface IncomingText {
+  chat: string;
+  text: string;
+  /** The sender as WhatsApp addressed them — a phone JID, or an anonymous @lid. */
+  sender: string | null;
+  /** Their phone JID when WhatsApp said it outright. */
+  senderPhone: string | null;
+  message: WAMessage;
+}
+
+type Listener = (incoming: IncomingText) => Promise<void> | void;
 
 const globalForWhatsapp = globalThis as unknown as { __ifmsWhatsapp?: Holder };
 const holder: Holder = (globalForWhatsapp.__ifmsWhatsapp ??= {
@@ -89,6 +106,38 @@ async function open(): Promise<void> {
     ...(version ? { version } : {}),
   });
   holder.sock = sock;
+
+  /*
+   * Messages as they arrive — "notify", not the history WhatsApp replays on
+   * connecting, so a command typed while the server was down is not answered
+   * hours later. The bot's own messages are never read back.
+   */
+  sock.ev.on('messages.upsert', ({ messages, type }) => {
+    if (generation !== holder.generation || type !== 'notify') return;
+    for (const message of messages) {
+      if (message.key.fromMe || !message.key.remoteJid) continue;
+      const content = normalizeMessageContent(message.message);
+      const text = content?.conversation ?? content?.extendedTextMessage?.text ?? null;
+      if (!text) continue;
+      const sender = message.key.participant ?? message.key.remoteJid;
+      const phone =
+        message.key.participantPn ??
+        message.key.senderPn ??
+        (sender?.endsWith('@s.whatsapp.net') ? sender : null);
+      const incoming: IncomingText = {
+        chat: message.key.remoteJid,
+        text,
+        sender: sender ?? null,
+        senderPhone: phone ?? null,
+        message,
+      };
+      for (const listener of holder.listeners ?? []) {
+        void Promise.resolve()
+          .then(() => listener(incoming))
+          .catch((error) => log.error('A WhatsApp message handler failed', { error }));
+      }
+    }
+  });
 
   sock.ev.on('creds.update', () => {
     void saveCreds().catch((error) => log.error('Could not save the session', { error }));
@@ -230,6 +279,25 @@ export async function groups(): Promise<{ id: string; name: string; size: number
     .sort((a, b) => a.name.localeCompare(b.name, 'ar'));
 }
 
+/** Tells `listener` of every text message others write where the number is. */
+export function onIncomingText(listener: Listener): void {
+  (holder.listeners ??= []).push(listener);
+}
+
+/**
+ * A group member's phone JID, when WhatsApp hid it behind an anonymous @lid —
+ * which it now does in many groups. The group's own member list pairs the two.
+ */
+export async function memberPhone(group: string, member: string): Promise<string | null> {
+  if (member.endsWith('@s.whatsapp.net')) return member;
+  const metadata = await linked().groupMetadata(group);
+  const found = metadata.participants.find(
+    (participant) => participant.id === member || participant.lid === member,
+  );
+  if (found?.jid) return found.jid;
+  return found?.id.endsWith('@s.whatsapp.net') ? found.id : null;
+}
+
 export function isLinked(): boolean {
   return holder.status === 'CONNECTED' && holder.sock !== null;
 }
@@ -243,7 +311,7 @@ export type SentMessage = Awaited<ReturnType<WASocket['sendMessage']>>;
 export async function sendText(
   jid: string,
   text: string,
-  quoted?: SentMessage,
+  quoted?: WAMessage,
 ): Promise<SentMessage> {
   return linked().sendMessage(jid, { text }, quoted ? { quoted } : undefined);
 }

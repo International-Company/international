@@ -411,6 +411,22 @@ export const SETTINGS: SettingDefinition[] = [
       'عند تفعيله تُرسل كل عملية إلى المجموعة المختارة أعلاه فور تسجيلها، وكذلك كل حذف. يحتاج ربط الرقم واختيار المجموعة.',
   },
   {
+    key: 'whatsapp.reportCode', category: 'whatsapp', type: 'string', defaultValue: '#جرد',
+    labelEn: 'Report code', labelAr: 'رمز طلب الجرد',
+    descriptionEn:
+      'Written in the group followed by a teller’s name — «#جرد أحمد» — the bot answers with that teller’s cash and deals today. Only from the numbers below.',
+    descriptionAr:
+      'يُكتب في المجموعة ثم اسم التلر — مثل «#جرد أحمد» — فيرد البوت بصندوق التلر وعملياته اليوم. فقط من الأرقام أدناه.',
+  },
+  {
+    key: 'whatsapp.reportNumbers', category: 'whatsapp', type: 'string', defaultValue: '',
+    labelEn: 'Numbers allowed to ask', labelAr: 'الأرقام المسموح لها طلب الجرد',
+    descriptionEn:
+      'Separated by commas, e.g. 0597000000, 0599000000. Empty means nobody; anyone else typing the code is ignored.',
+    descriptionAr:
+      'تُفصل بفواصل، مثل 0597000000, 0599000000. فارغ يعني لا أحد، وأي رقم آخر يكتب الرمز يتجاهله البوت.',
+  },
+  {
     key: 'whatsapp.groupId', category: 'whatsapp', type: 'string', defaultValue: '', hidden: true,
     labelEn: 'WhatsApp group', labelAr: 'مجموعة الواتساب',
     descriptionEn: 'Chosen from the list of the linked number’s groups', descriptionAr: 'تُختار من مجموعات الرقم المرتبط',
