@@ -1,6 +1,8 @@
 import 'server-only';
+import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { Resvg } from '@resvg/resvg-js';
+import { BRAND } from '@/app/_shell/brand';
 import { formatAmount, KIND_WORDS, type TellerDay } from './report-command';
 
 /**
@@ -16,6 +18,22 @@ const FONTS = ['Tajawal-Regular.ttf', 'Tajawal-Bold.ttf'].map((file) =>
   path.join(process.cwd(), 'src', 'assets', 'fonts', file),
 );
 
+/**
+ * The office's logo, as the page embeds it — read once. A logo that cannot be
+ * read leaves the heading without it rather than the report unsent.
+ */
+let logo: string | null | undefined;
+function logoDataUri(): string | null {
+  if (logo !== undefined) return logo;
+  try {
+    const file = readFileSync(path.join(process.cwd(), 'public', BRAND.logo));
+    logo = `data:image/png;base64,${file.toString('base64')}`;
+  } catch {
+    logo = null;
+  }
+  return logo;
+}
+
 const WIDTH = 900;
 const PAD = 36;
 const RIGHT = WIDTH - PAD;
@@ -27,8 +45,10 @@ const COLOR = {
   ink: '#111827',
   soft: '#6b7280',
   rule: '#e5e7eb',
-  brand: '#0f766e',
-  brandSoft: '#ccfbf1',
+  brand: '#123a8f',
+  brandSoft: '#e0e9ff',
+  /** The heading's quieter line, on the brand blue. */
+  onBrand: '#c9d8ff',
   stripe: '#f9fafb',
   warn: '#b45309',
   danger: '#b91c1c',
@@ -105,27 +125,49 @@ function table(
 }
 
 /** The SVG the picture is drawn from — exported so a test can read what it says. */
-export function reportSvg(day: TellerDay, office = ''): string {
+export function reportSvg(day: TellerDay, office = '', logoUri: string | null = null): string {
   const parts: string[] = [];
   let y = PAD;
 
-  // Heading.
-  parts.push(`<rect x="0" y="0" width="${WIDTH}" height="120" fill="${COLOR.brand}"/>`);
+  // Heading: the report on the right, the office's mark on the left.
+  const HEAD = 150;
+  parts.push(`<rect x="0" y="0" width="${WIDTH}" height="${HEAD}" fill="${COLOR.brand}"/>`);
   parts.push(
-    text({ x: RIGHT, y: 58, text: `جرد ${day.teller}`, size: 38, bold: true, color: '#ffffff' }),
+    text({ x: RIGHT, y: 68, text: `جرد ${day.teller}`, size: 40, bold: true, color: '#ffffff' }),
   );
   parts.push(
     text({
       x: RIGHT,
-      y: 98,
+      y: 110,
       text: `${day.day}  —  حتى الساعة ${day.asOf}`,
       size: 22,
-      color: '#ccfbf1',
+      color: COLOR.onBrand,
     }),
   );
-  if (office)
-    parts.push(text({ x: PAD, y: 58, text: office, size: 20, color: '#ccfbf1', anchor: 'start' }));
-  y = 160;
+  const mark = 118;
+  if (logoUri) {
+    // A white disc behind it, so the logo's blue rim does not melt into the heading.
+    parts.push(
+      `<circle cx="${PAD - 8 + mark / 2}" cy="${HEAD / 2}" r="${mark / 2 + 3}" fill="#ffffff"/>`,
+    );
+    parts.push(
+      `<image x="${PAD - 8}" y="${(HEAD - mark) / 2}" width="${mark}" height="${mark}" href="${logoUri}"/>`,
+    );
+  }
+  if (office) {
+    parts.push(
+      text({
+        x: logoUri ? PAD + mark + 6 : PAD,
+        y: HEAD / 2 + 8,
+        text: office,
+        size: 22,
+        bold: true,
+        color: '#ffffff',
+        anchor: 'start',
+      }),
+    );
+  }
+  y = HEAD + 44;
 
   // The box.
   parts.push(text({ x: RIGHT, y, text: 'الصندوق', size: 28, bold: true }));
@@ -212,7 +254,7 @@ export function reportSvg(day: TellerDay, office = ''): string {
 
 /** The picture itself, as a PNG, drawn at twice the size for a sharp phone screen. */
 export function reportImage(day: TellerDay, office = ''): Buffer {
-  const rendered = new Resvg(reportSvg(day, office), {
+  const rendered = new Resvg(reportSvg(day, office, logoDataUri()), {
     font: { fontFiles: FONTS, loadSystemFonts: false, defaultFontFamily: 'Tajawal' },
     fitTo: { mode: 'width', value: WIDTH * 2 },
     background: COLOR.card,
