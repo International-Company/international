@@ -75,9 +75,11 @@ describe('the report command', () => {
   });
 
   it('writes amounts whole when whole, grouped by thousands', () => {
-    assert.equal(formatAmount({ currency: 'ILS', amount: 12_500n * UNIT }), '12,500 ILS');
-    assert.equal(formatAmount({ currency: 'USD', amount: 150_050_000_000n }), '1,500.5 USD');
-    assert.equal(formatAmount({ currency: 'ILS', amount: -30n * UNIT }), '-30 ILS');
+    assert.equal(formatAmount({ currency: 'ILS', amount: 12_500n * UNIT }), '12,500 شيكل');
+    assert.equal(formatAmount({ currency: 'USD', amount: 150_050_000_000n }), '1,500.5 دولار');
+    assert.equal(formatAmount({ currency: 'JOD', amount: -30n * UNIT }), '-30 دينار');
+    // A currency without a word keeps its code.
+    assert.equal(formatAmount({ currency: 'USDT', amount: 5n * UNIT }), '5 USDT');
   });
 
   it('says the box and the deals', () => {
@@ -114,8 +116,10 @@ describe('the report command', () => {
     };
     const text = composeReport(day);
     assert.match(text, /📊 جرد سامي/);
-    assert.match(text, /ILS: افتتاح 5,000 ILS \| داخل 3,650 ILS \| خارج 1,460 ILS/);
-    assert.match(text, /المتبقي: \*7,190 ILS\*/);
+    assert.match(text, /شيكل: افتتاح 5,000 شيكل \| داخل 3,650 شيكل \| خارج 1,460 شيكل/);
+    assert.match(text, /المتبقي: \*7,190 شيكل\*/);
+    // Whole words: «USDT» stays as it is.
+    assert.doesNotMatch(text, /\bILS\b|\bUSD\b/);
     assert.doesNotMatch(text, /JOD/);
     assert.match(text, /شراء \(صرافة\): 2 عمليات/);
     assert.match(text, /استلام يواس: 1 عملية/);
@@ -270,8 +274,11 @@ describe('the report as a picture', () => {
   it('says the same figures, a box below zero in red', () => {
     const svg = reportSvg(day, 'انترنشونال');
     assert.match(svg, /جرد سامي/);
-    assert.match(svg, /300 USD/);
-    assert.match(svg, /fill="#b91c1c"[^>]*>-1,095 ILS</);
+    // The figure and its currency word drawn apart, so they read right to left.
+    assert.match(svg, />300</);
+    assert.match(svg, />دولار</);
+    assert.match(svg, /fill="#b91c1c"[^>]*>-1,095</);
+    assert.doesNotMatch(svg, /USD|ILS/);
     assert.doesNotMatch(svg, /\*/);
   });
 

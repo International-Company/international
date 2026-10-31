@@ -86,13 +86,29 @@ export interface Amount {
   amount: bigint;
 }
 
-/** 1,250 or 1,250.5 — whole when it is whole, never more than two places. */
+/** A currency as the office says it: دولار, not USD. Any other keeps its code. */
+const CURRENCY_WORDS: Record<string, string> = {
+  USD: 'دولار',
+  ILS: 'شيكل',
+  JOD: 'دينار',
+};
+
+export function currencyWord(code: string): string {
+  return CURRENCY_WORDS[code] ?? code;
+}
+
+/** 1,250 دولار or 1,250.5 شيكل — whole when it is whole, never more than two places. */
 export function formatAmount({ currency, amount }: Amount): string {
+  return `${formatFigure(amount)} ${currencyWord(currency)}`;
+}
+
+/** The figure alone: 1,250 or -1,250.5. */
+export function formatFigure(amount: bigint): string {
   const negative = amount < 0n;
   const [whole = '0', fraction = ''] = toDecimalString(negative ? -amount : amount, 2).split('.');
   const grouped = whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
   const cents = fraction.replace(/0+$/, '');
-  return `${negative ? '-' : ''}${grouped}${cents ? `.${cents}` : ''} ${currency}`;
+  return `${negative ? '-' : ''}${grouped}${cents ? `.${cents}` : ''}`;
 }
 
 const list = (amounts: Amount[]) => amounts.map(formatAmount).join(' + ') || '—';
@@ -130,7 +146,7 @@ export function composeReport(day: TellerDay): string {
     for (const row of cash) {
       const at = (amount: bigint) => formatAmount({ currency: row.currency, amount });
       lines.push(
-        `${row.currency}: افتتاح ${at(row.opening)} | داخل ${at(row.in)} | خارج ${at(row.out)}`,
+        `${currencyWord(row.currency)}: افتتاح ${at(row.opening)} | داخل ${at(row.in)} | خارج ${at(row.out)}`,
         `   المتبقي: *${at(row.closing)}*`,
       );
     }

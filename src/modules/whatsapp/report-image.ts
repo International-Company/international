@@ -3,7 +3,13 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { Resvg } from '@resvg/resvg-js';
 import { BRAND } from '@/app/_shell/brand';
-import { formatAmount, KIND_WORDS, type TellerDay } from './report-command';
+import {
+  currencyWord,
+  formatFigure,
+  KIND_WORDS,
+  type Amount,
+  type TellerDay,
+} from './report-command';
 
 /**
  * The teller's day as a picture, for the group.
@@ -71,11 +77,35 @@ interface Text {
 const text = ({ x, y, text: value, size = 22, bold, color = COLOR.ink, anchor = 'end' }: Text) =>
   `<text x="${x}" y="${y}" font-size="${size}" font-weight="${bold ? 700 : 400}" fill="${color}" text-anchor="${anchor}">${escape(value)}</text>`;
 
+/**
+ * One line in a cell. An amount carries its currency word apart from its
+ * figure, because the two cannot share a line of text: a figure after an
+ * Arabic word is taken into the Arabic run by the bidi rules, so no order of
+ * writing puts «5,000» to the right of «شيكل». Drawn as two pieces — the
+ * figure at the column's edge, the word in a fixed slot beside it — it reads
+ * «5,000 شيكل» right to left, and the words line up down the column.
+ */
+interface Line {
+  text: string;
+  unit?: string;
+  /** The figure that matters in its row. */
+  strong?: boolean;
+}
+
+/** Room left for a figure before its currency word. */
+const FIGURE_SLOT = 118;
+
+const amount = (value: Amount, strong = false): Line => ({
+  text: formatFigure(value.amount),
+  unit: currencyWord(value.currency),
+  strong,
+});
+
 /** A table: a header row, then rows that may run to several lines each. */
 function table(
   top: number,
   columns: { title: string; right: number }[],
-  rows: string[][][],
+  rows: (string | Line)[][][],
 ): { svg: string; bottom: number } {
   const parts: string[] = [];
   parts.push(
@@ -102,20 +132,23 @@ function table(
       );
     }
     row.forEach((cell, column) => {
-      cell.forEach((line, n) => {
-        // A leading * marks the figure that matters in its row.
-        const strong = line.startsWith('*');
-        parts.push(
-          text({
-            x: columns[column]!.right,
-            y: y + LINE * (n + 1) - 4,
-            text: strong ? line.slice(1) : line,
-            size: 21,
-            bold: column === 0 || strong,
-            // A box below zero is the one figure nobody should miss.
-            color: strong ? (line.startsWith('*-') ? COLOR.danger : COLOR.brand) : COLOR.ink,
-          }),
-        );
+      cell.forEach((entry, n) => {
+        const line = typeof entry === 'string' ? { text: entry } : entry;
+        const right = columns[column]!.right;
+        const at = y + LINE * (n + 1) - 4;
+        // A box below zero is the one figure nobody should miss.
+        const color = line.strong
+          ? line.text.startsWith('-')
+            ? COLOR.danger
+            : COLOR.brand
+          : COLOR.ink;
+        const bold = column === 0 || line.strong;
+        parts.push(text({ x: right, y: at, text: line.text, size: 21, bold, color }));
+        if (line.unit) {
+          parts.push(
+            text({ x: right - FIGURE_SLOT, y: at, text: line.unit, size: 19, color: COLOR.soft }),
+          );
+        }
       });
     });
     y += height;
@@ -180,7 +213,6 @@ export function reportSvg(day: TellerDay, office = '', logoUri: string | null = 
     parts.push(text({ x: RIGHT, y, text: 'لا حركة نقدية اليوم', color: COLOR.soft }));
     y += 20;
   } else {
-    const at = (currency: string, amount: bigint) => formatAmount({ currency, amount });
     const box = table(
       y,
       [
@@ -191,11 +223,11 @@ export function reportSvg(day: TellerDay, office = '', logoUri: string | null = 
         { title: 'المتبقي', right: RIGHT - 690 + 20 },
       ],
       cash.map((row) => [
-        [row.currency],
-        [at(row.currency, row.opening)],
-        [at(row.currency, row.in)],
-        [at(row.currency, row.out)],
-        [`*${at(row.currency, row.closing)}`],
+        [currencyWord(row.currency)],
+        [formatFigure(row.opening)],
+        [formatFigure(row.in)],
+        [formatFigure(row.out)],
+        [{ text: formatFigure(row.closing), strong: true }],
       ]),
     );
     parts.push(box.svg);
@@ -235,8 +267,8 @@ export function reportSvg(day: TellerDay, office = '', logoUri: string | null = 
       groups.map((group) => [
         [KIND_WORDS[group.kind]],
         [String(group.count)],
-        group.received.length ? group.received.map(formatAmount) : ['—'],
-        group.paid.length ? group.paid.map(formatAmount) : ['—'],
+        group.received.length ? group.received.map((value) => amount(value)) : ['—'],
+        group.paid.length ? group.paid.map((value) => amount(value)) : ['—'],
       ]),
     );
     parts.push(deals.svg);
