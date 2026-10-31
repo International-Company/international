@@ -9,7 +9,7 @@ import { MONEY_SCALE } from '@/core/money/money';
  * service, the reconciliation logic or the UI.
  */
 
-export type Network = 'TRON' | 'ETHEREUM' | 'BSC' | 'MANUAL';
+export type Network = 'TRON' | 'ETHEREUM' | 'BSC' | 'BINANCE' | 'MANUAL';
 
 export interface ChainTransfer {
   txHash: string;
@@ -24,6 +24,8 @@ export interface ChainTransfer {
   confirmations: number;
   status: 'PENDING' | 'CONFIRMED' | 'FAILED';
   networkFee: bigint;
+  /** What the provider knows that an address does not say — a Binance payer's name. */
+  memo?: string | null;
 }
 
 export interface TransferPage {

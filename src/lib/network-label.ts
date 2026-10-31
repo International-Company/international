@@ -9,6 +9,8 @@ const LABELS: Record<string, string> = {
   TRON: 'TRC20 (TRON)',
   ETHEREUM: 'ERC20 (Ethereum)',
   BSC: 'BEP20 (BSC)',
+  // Not a chain: a transfer inside Binance, to the office's Binance ID.
+  BINANCE: 'Binance Pay',
 };
 
 export function networkLabel(network: string): string {

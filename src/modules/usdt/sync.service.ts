@@ -8,7 +8,7 @@ import * as audit from '@/modules/audit/audit.service';
 import * as notifications from '@/modules/notifications/notifications.service';
 import { nextReference } from '@/modules/sequence/reference';
 import * as settings from '@/modules/settings/settings.service';
-import { providerFor, type ChainTransfer } from './providers';
+import { providerForWallet, type ChainTransfer } from './providers';
 import { maskAddress } from './wallet.service';
 import { containsInsensitive } from '@/core/db/search';
 
@@ -51,7 +51,7 @@ export async function syncWallet(
     return { walletId, fetched: 0, created: 0, updated: 0, balance: null, status: 'OK' };
   }
 
-  const provider = providerFor(wallet.network);
+  const provider = await providerForWallet(wallet, db);
 
   const run = await db.walletSyncRun.create({
     data: { walletId, provider: provider.name, status: 'RUNNING' },
@@ -234,6 +234,7 @@ async function ingestTransfer(
       confirmations: transfer.confirmations,
       networkFee: transfer.networkFee,
       status,
+      notes: transfer.memo ?? null,
     },
   });
 

@@ -1570,6 +1570,8 @@ model Wallet {
 
   transactions    ChainTransaction[]
   snapshots       WalletSnapshot[]
+  /// A Binance account's read-only key. Its own table so loading a wallet never loads it.
+  credential      WalletCredential?
   syncRuns        WalletSyncRun[]
   depositRequests UsdtDepositRequest[]
   /// Withdrawals the branch promised to send from this wallet.
@@ -2137,4 +2139,18 @@ model WhatsappAuth {
   updatedAt DateTime @updatedAt
 
   @@map("whatsapp_auth")
+}
+
+/// The API key a Binance wallet is read with — read-only at Binance, and
+/// encrypted here (AES-256-GCM under AUTH_SECRET), the key as well as the
+/// secret. Kept apart from `Wallet` because a wallet row travels to screens,
+/// and a relation is only ever loaded by asking for it by name.
+model WalletCredential {
+  walletId  String   @id
+  wallet    Wallet   @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  apiKey    String
+  apiSecret String
+  updatedAt DateTime @updatedAt
+
+  @@map("wallet_credentials")
 }

@@ -73,6 +73,9 @@ export function WalletsView({
     isCounterAddress: false,
     counterSortOrder: 0,
     isActive: true,
+    /** A replacement Binance key. Blank keeps the one stored. */
+    apiKey: '',
+    apiSecret: '',
   });
 
   const openEdit = (wallet: WalletRow) => {
@@ -86,6 +89,8 @@ export function WalletsView({
       isCounterAddress: wallet.isCounterAddress,
       counterSortOrder: wallet.counterSortOrder ?? 0,
       isActive: wallet.isActive,
+      apiKey: '',
+      apiSecret: '',
     });
     setEditing(wallet);
   };
@@ -102,7 +107,10 @@ export function WalletsView({
     notifyOnIncoming: true,
     notifyOnOutgoing: true,
     autoCreateTransaction: true,
+    apiKey: '',
+    apiSecret: '',
   });
+  const binance = form.network === 'BINANCE';
 
   const canManage = permissions.includes('usdt.wallet.manage');
   const canSync = permissions.includes('usdt.wallet.sync');
@@ -130,13 +138,18 @@ export function WalletsView({
   const sync = async (walletId: string) => {
     setSyncing(walletId);
     try {
-      const result = await api.post<{ created: number; updated: number; status: string }>(
+      const result = await api.post<{
+        created: number;
+        updated: number;
+        status: string;
+        error?: string;
+      }>(
         `/api/usdt/wallets/${walletId}`,
         { action: 'sync' },
       );
 
       if (result.status === 'ERROR') {
-        toast.error(t('usdt.status.ERROR'), t('usdt.providerNotConfigured'));
+        toast.error(t('usdt.status.ERROR'), result.error || t('usdt.providerNotConfigured'));
       } else {
         toast.success(t('common.saved'), `${result.created} ${t('usdt.transactions')}`);
       }
@@ -156,7 +169,12 @@ export function WalletsView({
     setError(null);
     setBusy(true);
     try {
-      await api.patch(`/api/usdt/wallets/${editing.id}`, editForm);
+      const { apiKey, apiSecret, ...rest } = editForm;
+      // The key travels only when a new one was typed.
+      await api.patch(
+        `/api/usdt/wallets/${editing.id}`,
+        apiKey.trim() || apiSecret.trim() ? { ...rest, apiKey, apiSecret } : rest,
+      );
       toast.success(t('common.saved'), editForm.label);
       setEditing(null);
       router.refresh();
@@ -198,10 +216,12 @@ export function WalletsView({
     setError(null);
     setBusy(true);
     try {
-      await api.post('/api/usdt/wallets', form);
+      // The key goes only with a Binance wallet; no other network carries one.
+      const { apiKey: _key, apiSecret: _secret, ...chain } = form;
+      await api.post('/api/usdt/wallets', binance ? form : chain);
       toast.success(t('common.saved'), form.label);
       setAdding(false);
-      setForm({ ...form, label: '', labelAr: '', address: '' });
+      setForm({ ...form, label: '', labelAr: '', address: '', apiKey: '', apiSecret: '' });
       router.refresh();
     } catch (caught) {
       setError(
@@ -429,6 +449,17 @@ export function WalletsView({
             </Field>
           </FormGrid>
 
+          {editing?.network === 'BINANCE' && (
+            <div className="space-y-2 rounded-[var(--radius-control)] bg-surface-sunken p-3">
+              <p className="text-xs text-content-secondary">{t('usdt.binanceReplaceKey')}</p>
+              <BinanceKeyFields
+                apiKey={editForm.apiKey}
+                apiSecret={editForm.apiSecret}
+                onChange={(keys) => setEditForm({ ...editForm, ...keys })}
+              />
+            </div>
+          )}
+
           <FormGrid columns={2}>
             <Field label={t('usdt.minConfirmations')} hint={t('usdt.minConfirmationsHint')}>
               {(props) => (
@@ -499,7 +530,12 @@ export function WalletsView({
             <Button
               variant="primary"
               loading={busy}
-              disabled={!form.label || !form.labelAr || !form.address}
+              disabled={
+                !form.label ||
+                !form.labelAr ||
+                !form.address ||
+                (binance && (!form.apiKey.trim() || !form.apiSecret.trim()))
+              }
               onClick={() => void create()}
             >
               {t('common.create')}
@@ -546,18 +582,47 @@ export function WalletsView({
             )}
           </Field>
 
-          <Field label={t('usdt.address')} required hint={t('validation.invalidAddress')}>
+          <Field
+            label={binance ? t('usdt.binanceId') : t('usdt.address')}
+            required
+            hint={binance ? t('usdt.binanceIdHint') : t('validation.invalidAddress')}
+          >
             {(props) => (
               <Input
                 {...props}
                 value={form.address}
                 onChange={(event) => setForm({ ...form, address: event.target.value.trim() })}
                 dir="ltr"
+                inputMode={binance ? 'numeric' : undefined}
                 className="font-mono text-xs"
               />
             )}
           </Field>
 
+          {/*
+            Read-only, said before the key is asked for: the key the office
+            makes for this can list and read and nothing else, so even this
+            server holding it cannot move a cent.
+          */}
+          {binance && (
+            <>
+              <Alert tone="primary" title={t('usdt.binanceKeyTitle')}>
+                <ol className="mt-1 list-decimal space-y-0.5 ps-4">
+                  <li>{t('usdt.binanceKeyStep1')}</li>
+                  <li>{t('usdt.binanceKeyStep2')}</li>
+                  <li>{t('usdt.binanceKeyStep3')}</li>
+                </ol>
+              </Alert>
+              <BinanceKeyFields
+                apiKey={form.apiKey}
+                apiSecret={form.apiSecret}
+                onChange={(keys) => setForm({ ...form, ...keys })}
+                required
+              />
+            </>
+          )}
+
+          {!binance && (
           <Field label={t('usdt.minConfirmations')}>
             {(props) => (
               <NumberInput
@@ -569,6 +634,7 @@ export function WalletsView({
               />
             )}
           </Field>
+          )}
 
           <Checkbox
             checked={form.autoCreateTransaction}
@@ -594,6 +660,51 @@ export function WalletsView({
         </div>
       </Dialog>
     </div>
+  );
+}
+
+/** A Binance key and its secret, typed as passwords and never echoed back. */
+function BinanceKeyFields({
+  apiKey,
+  apiSecret,
+  onChange,
+  required,
+}: {
+  apiKey: string;
+  apiSecret: string;
+  onChange: (keys: { apiKey: string; apiSecret: string }) => void;
+  required?: boolean;
+}) {
+  const { t } = useLocale();
+  return (
+    <FormGrid columns={2}>
+      <Field label={t('usdt.binanceApiKey')} required={required}>
+        {(props) => (
+          <Input
+            {...props}
+            type="password"
+            autoComplete="off"
+            value={apiKey}
+            onChange={(event) => onChange({ apiKey: event.target.value.trim(), apiSecret })}
+            dir="ltr"
+            className="font-mono text-xs"
+          />
+        )}
+      </Field>
+      <Field label={t('usdt.binanceApiSecret')} required={required}>
+        {(props) => (
+          <Input
+            {...props}
+            type="password"
+            autoComplete="off"
+            value={apiSecret}
+            onChange={(event) => onChange({ apiKey, apiSecret: event.target.value.trim() })}
+            dir="ltr"
+            className="font-mono text-xs"
+          />
+        )}
+      </Field>
+    </FormGrid>
   );
 }
 

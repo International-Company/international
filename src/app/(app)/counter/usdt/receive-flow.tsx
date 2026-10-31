@@ -626,15 +626,18 @@ export function ReceiveFlow({
                         the customer owns TronScan, which is exactly why it
                         settles the argument.
                       */}
-                      <a
-                        href={arrival.explorerUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex min-h-9 items-center gap-1.5 rounded-[var(--radius-control)] border border-border-base px-3 text-sm text-content-secondary transition-colors hover:border-primary hover:text-primary-text"
-                      >
-                        <ExternalLink className="size-4" />
-                        {t('receive.openExplorer')}
-                      </a>
+                      {/* A Binance Pay transfer has no public record to open. */}
+                      {arrival.explorerUrl && (
+                        <a
+                          href={arrival.explorerUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex min-h-9 items-center gap-1.5 rounded-[var(--radius-control)] border border-border-base px-3 text-sm text-content-secondary transition-colors hover:border-primary hover:text-primary-text"
+                        >
+                          <ExternalLink className="size-4" />
+                          {t('receive.openExplorer')}
+                        </a>
+                      )}
 
                       {arrival.ready && (
                         <Button size="sm" onClick={() => open(arrival)} className="ms-auto">

@@ -24,6 +24,9 @@ const patchSchema = z.object({
   autoCreateTransaction: z.boolean().optional(),
   isCounterAddress: z.boolean().optional(),
   counterSortOrder: z.number().int().min(0).max(999).optional(),
+  /** A replacement read-only key for a Binance wallet, proved before it is kept. */
+  apiKey: z.string().max(200).optional(),
+  apiSecret: z.string().max(200).optional(),
 });
 
 export const PATCH = route<z.infer<typeof patchSchema>, unknown, z.infer<typeof paramsSchema>>({

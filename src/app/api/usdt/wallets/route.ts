@@ -25,8 +25,9 @@ export const GET = route<unknown, z.infer<typeof querySchema>>({
 const createSchema = z.object({
   label: z.string().min(1).max(120),
   labelAr: z.string().min(1).max(120),
-  network: z.enum(['TRON', 'ETHEREUM', 'BSC', 'MANUAL']),
-  address: z.string().min(8).max(120),
+  network: z.enum(['TRON', 'ETHEREUM', 'BSC', 'BINANCE', 'MANUAL']),
+  // A Binance ID is shorter than any chain address; each network checks its own.
+  address: z.string().min(6).max(120),
   contractAddress: z.string().max(120).nullable().optional(),
   tokenSymbol: z.string().max(12).default('USDT'),
   isWatchOnly: z.boolean().default(true),
@@ -34,6 +35,9 @@ const createSchema = z.object({
   notifyOnIncoming: z.boolean().default(true),
   notifyOnOutgoing: z.boolean().default(true),
   autoCreateTransaction: z.boolean().default(true),
+  /** A Binance wallet's read-only key. Required for one, refused for any other. */
+  apiKey: z.string().max(200).nullish(),
+  apiSecret: z.string().max(200).nullish(),
 });
 
 export const POST = route<z.infer<typeof createSchema>>({

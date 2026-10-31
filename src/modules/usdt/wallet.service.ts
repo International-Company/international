@@ -4,8 +4,14 @@ import { errors } from '@/core/errors/app-error';
 import { createLogger } from '@/core/logger/logger';
 import { toDecimalString } from '@/core/money/money';
 import { emitAsync } from '@/core/events/bus';
+import { encryptSecret } from '@/core/security/crypto';
 import * as audit from '@/modules/audit/audit.service';
-import { providerFor, strictProviderFor } from './providers';
+import {
+  BinanceProvider,
+  providerFor,
+  strictProviderFor,
+  WALLET_KEY_PURPOSE,
+} from './providers';
 
 /**
  * Monitored wallets.
@@ -39,6 +45,41 @@ export interface CreateWalletInput {
   notifyOnOutgoing?: boolean;
   autoCreateTransaction?: boolean;
   linkToLedger?: boolean;
+  /** A Binance account's read-only API key. */
+  apiKey?: string | null;
+  apiSecret?: string | null;
+}
+
+/**
+ * Proves a Binance key before it is kept.
+ *
+ * A key typed wrong, without read permission, or refused from the server's
+ * location would otherwise be stored and fail quietly on every poll, and the
+ * counter would simply see nothing arrive. Asked here, the manager is told why
+ * while the key is still in front of them.
+ */
+async function checkedBinanceKey(apiKey?: string | null, apiSecret?: string | null) {
+  const key = apiKey?.trim() ?? '';
+  const secret = apiSecret?.trim() ?? '';
+  if (!key || !secret) {
+    throw errors.precondition(
+      'A Binance wallet needs its API key and secret',
+      'errors.binanceNoKey',
+    );
+  }
+  try {
+    await new BinanceProvider({ apiKey: key, apiSecret: secret }).fetchBalance('');
+  } catch (error) {
+    throw errors.precondition(
+      `Binance did not accept the key: ${error instanceof Error ? error.message : String(error)}`,
+      'errors.binanceKeyRefused',
+      { detail: error instanceof Error ? error.message : String(error) },
+    );
+  }
+  return {
+    apiKey: encryptSecret(key, WALLET_KEY_PURPOSE),
+    apiSecret: encryptSecret(secret, WALLET_KEY_PURPOSE),
+  };
 }
 
 export async function createWallet(
@@ -55,6 +96,10 @@ export async function createWallet(
       { path: 'address', message: `Not a valid ${input.network} address` },
     ]);
   }
+
+  // Checked before the transaction: it is a call to Binance, not to the database.
+  const binance = input.network === 'BINANCE';
+  const credential = binance ? await checkedBinanceKey(input.apiKey, input.apiSecret) : null;
 
   return withTransaction(async (tx) => {
     const tokenSymbol = input.tokenSymbol ?? 'USDT';
@@ -95,13 +140,15 @@ export async function createWallet(
         contractAddress: input.contractAddress ?? null,
         tokenSymbol,
         isWatchOnly: input.isWatchOnly ?? true,
-        minConfirmations: input.minConfirmations ?? 19,
+        // A Pay transfer is final when it appears; there is nothing to wait for.
+        minConfirmations: binance ? 1 : (input.minConfirmations ?? 19),
         notifyOnIncoming: input.notifyOnIncoming ?? true,
         notifyOnOutgoing: input.notifyOnOutgoing ?? true,
         autoCreateTransaction: input.autoCreateTransaction ?? true,
         drawerId,
         lastSyncStatus: 'NEVER',
         createdById: actor.id,
+        ...(credential ? { credential: { create: credential } } : {}),
       },
     });
 
@@ -140,9 +187,23 @@ export async function updateWallet(
   actor: Actor,
   db: DbClient = prisma,
 ) {
+  // A new Binance key is proved before anything is written, as on creation.
+  const rekey = Boolean(input.apiKey?.trim() || input.apiSecret?.trim());
+  const credential = rekey ? await checkedBinanceKey(input.apiKey, input.apiSecret) : null;
+
   return withTransaction(async (tx) => {
     const existing = await tx.wallet.findUnique({ where: { id } });
     if (!existing) throw errors.notFound('Wallet', id);
+    if (credential && existing.network !== 'BINANCE') {
+      throw errors.precondition('Only a Binance wallet carries an API key');
+    }
+    if (credential) {
+      await tx.walletCredential.upsert({
+        where: { walletId: id },
+        create: { walletId: id, ...credential },
+        update: credential,
+      });
+    }
 
     // The address identifies the wallet. Changing it would silently reattach a
     // history of transfers to a different account holder.
@@ -185,6 +246,8 @@ export async function updateWallet(
       existing as unknown as Record<string, unknown>,
       updated as unknown as Record<string, unknown>,
     );
+    // Said, never shown: the audit names the change and keeps no part of the key.
+    if (credential) changes.changed.push('apiKey');
 
     await audit.record(
       {
