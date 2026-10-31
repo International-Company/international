@@ -99,7 +99,7 @@ const list = (amounts: Amount[]) => amounts.map(formatAmount).join(' + ') || '�
 
 export type CountKind = 'BUY' | 'SELL' | 'USDT_RECEIVE' | 'USDT_SEND';
 
-const KIND_WORDS: Record<CountKind, string> = {
+export const KIND_WORDS: Record<CountKind, string> = {
   BUY: 'شراء (صرافة)',
   SELL: 'بيع (صرافة)',
   USDT_RECEIVE: 'استلام يواس',

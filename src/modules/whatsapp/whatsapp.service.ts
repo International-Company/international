@@ -279,6 +279,20 @@ export async function groups(): Promise<{ id: string; name: string; size: number
     .sort((a, b) => a.name.localeCompare(b.name, 'ar'));
 }
 
+/** Sends a picture, with a line under it, optionally as a reply. */
+export async function sendImage(
+  jid: string,
+  image: Buffer,
+  caption: string,
+  quoted?: WAMessage,
+): Promise<SentMessage> {
+  return linked().sendMessage(
+    jid,
+    { image, caption, mimetype: 'image/png' },
+    quoted ? { quoted } : undefined,
+  );
+}
+
 /** Tells `listener` of every text message others write where the number is. */
 export function onIncomingText(listener: Listener): void {
   (holder.listeners ??= []).push(listener);

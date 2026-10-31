@@ -13,6 +13,7 @@ import {
   type TellerDay,
 } from '../src/modules/whatsapp/report-command.ts';
 import { handleReportCommand, type ReportDeps } from '../src/modules/whatsapp/report.service.ts';
+import { reportImage, reportSvg } from '../src/modules/whatsapp/report-image.ts';
 import type { IncomingText } from '../src/modules/whatsapp/whatsapp.service.ts';
 
 /**
@@ -126,6 +127,7 @@ describe('the report command', () => {
 describe('answering in the group', () => {
   function harness(over: Partial<ReportDeps> = {}) {
     const replies: string[] = [];
+    const pictures: { teller: string; caption: string }[] = [];
     let read = 0;
     const deps: ReportDeps = {
       config: async () => ({ group: GROUP, code: '#جرد', numbers: '0597085125' }),
@@ -146,9 +148,12 @@ describe('answering in the group', () => {
       reply: async (_incoming, text) => {
         replies.push(text);
       },
+      replyImage: async (_incoming, day, caption) => {
+        pictures.push({ teller: day.teller, caption });
+      },
       ...over,
     };
-    return { deps, replies, reads: () => read };
+    return { deps, replies, pictures, reads: () => read };
   }
 
   const message = (text: string, over: Partial<IncomingText> = {}): IncomingText => ({
@@ -160,33 +165,44 @@ describe('answering in the group', () => {
     ...over,
   });
 
-  it('answers a listed number with the teller’s day', async () => {
-    const { deps, replies } = harness();
+  it('answers a listed number with the teller’s day, as a picture', async () => {
+    const { deps, replies, pictures } = harness();
     assert.equal(await handleReportCommand(message('#جرد سامي'), deps), 'REPORTED');
+    assert.equal(replies.length, 0);
+    assert.deepEqual(pictures, [{ teller: 'سامي', caption: 'جرد سامي — 2026-10-31 حتى 14:05' }]);
+  });
+
+  it('sends the same figures as text when the picture fails', async () => {
+    const { deps, replies } = harness({
+      replyImage: async () => {
+        throw new Error('upload failed');
+      },
+    });
+    assert.equal(await handleReportCommand(message('#جرد سامي'), deps), 'REPORTED_AS_TEXT');
     assert.equal(replies.length, 1);
     assert.match(replies[0]!, /جرد سامي/);
     assert.match(replies[0]!, /لم يُدخل التلر رصيد الافتتاح/);
   });
 
   it('is silent to anyone else, and reads nothing', async () => {
-    const { deps, replies, reads } = harness();
+    const { deps, replies, pictures, reads } = harness();
     const stranger = message('#جرد سامي', {
       sender: '970599999999@s.whatsapp.net',
       senderPhone: '970599999999@s.whatsapp.net',
     });
     assert.equal(await handleReportCommand(stranger, deps), 'REFUSED');
-    assert.equal(replies.length, 0);
+    assert.equal(replies.length + pictures.length, 0);
     assert.equal(reads(), 0);
   });
 
   it('finds the number behind a hidden sender', async () => {
-    const { deps, replies } = harness({
+    const { deps, pictures } = harness({
       phoneOf: async (incoming) =>
         incoming.sender === '123456789@lid' ? '970597085125@s.whatsapp.net' : null,
     });
     const hidden = message('#جرد سامي', { sender: '123456789@lid', senderPhone: null });
     assert.equal(await handleReportCommand(hidden, deps), 'REPORTED');
-    assert.equal(replies.length, 1);
+    assert.equal(pictures.length, 1);
   });
 
   it('ignores other chats and other words', async () => {
@@ -231,5 +247,41 @@ describe('answering in the group', () => {
     });
     assert.equal(await handleReportCommand(message('#جرد سامي'), deps), 'REFUSED');
     assert.equal(replies.length, 0);
+  });
+});
+
+describe('the report as a picture', () => {
+  const day: TellerDay = {
+    teller: 'سامي',
+    day: '2026-10-31',
+    asOf: '14:05',
+    openingSet: true,
+    cash: [{ currency: 'ILS', opening: 0n, in: 0n, out: 1095n * UNIT, closing: -1095n * UNIT }],
+    groups: [
+      {
+        kind: 'BUY',
+        count: 2,
+        received: [{ currency: 'USD', amount: 300n * UNIT }],
+        paid: [{ currency: 'ILS', amount: 1095n * UNIT }],
+      },
+    ],
+  };
+
+  it('says the same figures, a box below zero in red', () => {
+    const svg = reportSvg(day, 'انترنشونال');
+    assert.match(svg, /جرد سامي/);
+    assert.match(svg, /300 USD/);
+    assert.match(svg, /fill="#b91c1c"[^>]*>-1,095 ILS</);
+    assert.doesNotMatch(svg, /\*/);
+  });
+
+  it('draws a PNG from the font shipped with the code', () => {
+    const png = reportImage(day);
+    assert.deepEqual([...png.subarray(0, 4)], [0x89, 0x50, 0x4e, 0x47]);
+    assert.ok(png.length > 10_000);
+  });
+
+  it('keeps a name that would break the drawing as text', () => {
+    assert.match(reportSvg({ ...day, teller: 'A <b> & "C"' }), /A &lt;b&gt; &amp; &quot;C&quot;/);
   });
 });

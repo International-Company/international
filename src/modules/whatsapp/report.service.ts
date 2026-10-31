@@ -15,7 +15,14 @@ import {
   type TellerCandidate,
   type TellerDay,
 } from './report-command';
-import { memberPhone, onIncomingText, sendText, type IncomingText } from './whatsapp.service';
+import { reportImage } from './report-image';
+import {
+  memberPhone,
+  onIncomingText,
+  sendImage,
+  sendText,
+  type IncomingText,
+} from './whatsapp.service';
 
 /**
  * «#جرد أحمد» in the office's group, answered with Ahmad's day so far.
@@ -37,10 +44,19 @@ export interface ReportDeps {
   workedToday: () => Promise<string[]>;
   dayOf: (teller: TellerCandidate) => Promise<TellerDay>;
   reply: (incoming: IncomingText, text: string) => Promise<void>;
+  /** The report as a picture; when it cannot be drawn or sent, the text goes instead. */
+  replyImage: (incoming: IncomingText, day: TellerDay, caption: string) => Promise<void>;
 }
 
 export type ReportOutcome =
-  'IGNORED' | 'REFUSED' | 'HELP' | 'NOT_FOUND' | 'AMBIGUOUS' | 'FAILED' | 'REPORTED';
+  | 'IGNORED'
+  | 'REFUSED'
+  | 'HELP'
+  | 'NOT_FOUND'
+  | 'AMBIGUOUS'
+  | 'FAILED'
+  | 'REPORTED'
+  | 'REPORTED_AS_TEXT';
 
 export async function handleReportCommand(
   incoming: IncomingText,
@@ -81,17 +97,29 @@ export async function handleReportCommand(
     return 'AMBIGUOUS';
   }
 
-  let report: string;
+  let day: TellerDay;
   try {
-    report = composeReport(await deps.dayOf(found[0]!));
+    day = await deps.dayOf(found[0]!);
   } catch (error) {
     // Said, so the manager is not left waiting on an answer that is not coming.
     log.error('Could not read a teller’s day for the group', { error });
     await deps.reply(incoming, 'تعذّرت قراءة الجرد الآن، حاول بعد قليل.');
     return 'FAILED';
   }
-  await deps.reply(incoming, report);
-  return 'REPORTED';
+
+  /*
+   * A picture, which reads at a glance as a table does. Should it fail —
+   * drawing or uploading — the same figures go as text, so the manager always
+   * gets an answer.
+   */
+  try {
+    await deps.replyImage(incoming, day, `جرد ${day.teller} — ${day.day} حتى ${day.asOf}`);
+    return 'REPORTED';
+  } catch (error) {
+    log.warn('Could not send the report as a picture; sending it as text', { error });
+  }
+  await deps.reply(incoming, composeReport(day));
+  return 'REPORTED_AS_TEXT';
 }
 
 /** A teller's day so far, read the way their own daily count and cash pages read it. */
@@ -184,6 +212,10 @@ export function registerReportCommand(): void {
       dayOf: tellerDay,
       reply: async (message, text) => {
         await sendText(message.chat, text, message.message);
+      },
+      replyImage: async (message, day, caption) => {
+        const office = (await settings.getString('company.name.ar')).trim();
+        await sendImage(message.chat, reportImage(day, office), caption, message.message);
       },
     });
   });
