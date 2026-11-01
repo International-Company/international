@@ -10,7 +10,11 @@
     "healthcheckTimeout": 120,
     "restartPolicyType": "ON_FAILURE",
     "restartPolicyMaxRetries": 3,
-    "numReplicas": 1,
-    "region": "eu-west"
+    "multiRegionConfig": {
+      "europe-west4-drams3a": {
+        "numReplicas": 1
+      }
+    }
   }
 }
+
