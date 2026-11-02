@@ -7,23 +7,15 @@
   "deploy": {
     "startCommand": "npm run deploy:start",
     "healthcheckPath": "/api/health",
-    "healthcheckTimeout": 60,
-    "restartPolicyType": "ALWAYS",
-    "sleepApplication": false,
-    "ipv6EgressEnabled": true,
-    "overlapSeconds": 10,
+    "healthcheckTimeout": 120,
+    "restartPolicyType": "ON_FAILURE",
     "multiRegionConfig": {
       "europe-west4-drams3a": {
         "numReplicas": 1
       }
-    },
-    "limitOverride": {
-      "containers": {
-        "cpu": 1.0,
-        "memoryBytes": 1073741824
-      }
     }
   }
 }
+
 
 
