@@ -1,5 +1,5 @@
 {
-  "$schema": "https://railway.app/railway.schema.json",
+  "$schema": "https://railway.app",
   "build": {
     "builder": "DOCKERFILE",
     "dockerfilePath": "Dockerfile"
@@ -7,8 +7,11 @@
   "deploy": {
     "startCommand": "npm run deploy:start",
     "healthcheckPath": "/api/health",
-    "healthcheckTimeout": 120,
-    "restartPolicyType": "ON_FAILURE",
+    "healthcheckTimeout": 30,
+    "restartPolicyType": "ALWAYS",
+    "sleepApplication": false,
+    "overlapSeconds": 15,
+    "ipv6EgressEnabled": true,
     "multiRegionConfig": {
       "asia-southeast1-eqsg3a": {
         "numReplicas": 1
@@ -16,6 +19,7 @@
     }
   }
 }
+
 
 
 
