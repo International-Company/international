@@ -1370,6 +1370,98 @@ export function MachineView({
             />
           </div>
 
+          {/*
+            ============ Who it is for ============
+            Above the button, not below it. A transfer cannot be recorded without
+            a name and a number, so they come before the press they are needed for.
+          */}
+          <div className="space-y-3">
+            {customerOpen || customer || quote?.requiresCustomer || throughBank ? (
+              <div className="rounded-2xl bg-surface p-4 ring-1 ring-border-subtle">
+                <div className="mb-3 flex items-center justify-between gap-2">
+                  <p className="text-sm font-medium text-content">
+                    {throughBank
+                      ? t('machine.transferNeedsContact')
+                      : quote?.requiresCustomer
+                        ? t('machine.customerRequiredTitle')
+                        : t('machine.customerOptional')}
+                  </p>
+                  {!quote?.requiresCustomer && !throughBank && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCustomerOpen(false);
+                        setCustomer(null);
+                        setCounterpartyName('');
+                      }}
+                      aria-label={t('common.close')}
+                      className="rounded-full p-1 text-content-tertiary transition-colors hover:bg-surface-sunken hover:text-content"
+                    >
+                      <X className="size-4" />
+                    </button>
+                  )}
+                </div>
+
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {/*
+                    The saved names stay out of the way: a name and a number are
+                    typed. The list returns only where the office's own rule asks
+                    for a registered customer, which typing cannot satisfy.
+                  */}
+                  {(quote?.requiresCustomer || customer) && (
+                    <CustomerPicker
+                      value={customer}
+                      onChange={setCustomer}
+                      permissions={permissions}
+                      required={quote?.requiresCustomer || throughBank}
+                    />
+                  )}
+                  {!customer && (
+                    <Field label={t('transactions.counterpartyName')} required={throughBank}>
+                      {(props) => (
+                        <Input
+                          {...props}
+                          autoComplete="off"
+                          value={counterpartyName}
+                          onChange={(event) => setCounterpartyName(event.target.value)}
+                        />
+                      )}
+                    </Field>
+                  )}
+                  {/*
+                    A registered customer carries his own number; anybody else has
+                    to leave one, because a transfer the office cannot trace to a
+                    person is the one it will be asked about.
+                  */}
+                  {!customer?.phone && (
+                    <Field label={t('transactions.counterpartyPhone')} required={throughBank}>
+                      {(props) => (
+                        <Input
+                          {...props}
+                          type="tel"
+                          dir="ltr"
+                          autoComplete="off"
+                          value={counterpartyPhone}
+                          onChange={(event) => setCounterpartyPhone(event.target.value)}
+                        />
+                      )}
+                    </Field>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setCustomerOpen(true)}
+                className="flex h-11 w-full items-center justify-center gap-2 rounded-2xl border border-dashed border-border-base text-sm text-content-tertiary transition-colors hover:border-primary hover:text-primary-text"
+              >
+                <Plus className="size-4" />
+                {t('machine.attachCustomer')}
+              </button>
+            )}
+
+          </div>
+
           {/* ============ Shortcuts and the action ============ */}
           <div className="space-y-3">
             {config.quickAmounts.length > 0 && (
@@ -1420,84 +1512,6 @@ export function MachineView({
             </button>
           </div>
 
-          {/* ============ Folded away until needed ============ */}
-          <div className="space-y-3">
-            {customerOpen || customer || quote?.requiresCustomer || throughBank ? (
-              <div className="rounded-2xl bg-surface p-4 ring-1 ring-border-subtle">
-                <div className="mb-3 flex items-center justify-between gap-2">
-                  <p className="text-sm font-medium text-content">
-                    {throughBank
-                      ? t('machine.transferNeedsContact')
-                      : quote?.requiresCustomer
-                        ? t('machine.customerRequiredTitle')
-                        : t('machine.customerOptional')}
-                  </p>
-                  {!quote?.requiresCustomer && !throughBank && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setCustomerOpen(false);
-                        setCustomer(null);
-                        setCounterpartyName('');
-                      }}
-                      aria-label={t('common.close')}
-                      className="rounded-full p-1 text-content-tertiary transition-colors hover:bg-surface-sunken hover:text-content"
-                    >
-                      <X className="size-4" />
-                    </button>
-                  )}
-                </div>
-
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <CustomerPicker
-                    value={customer}
-                    onChange={setCustomer}
-                    permissions={permissions}
-                    required={quote?.requiresCustomer || throughBank}
-                  />
-                  {!customer && (
-                    <Field label={t('transactions.counterpartyName')} required={throughBank}>
-                      {(props) => (
-                        <Input
-                          {...props}
-                          value={counterpartyName}
-                          onChange={(event) => setCounterpartyName(event.target.value)}
-                        />
-                      )}
-                    </Field>
-                  )}
-                  {/*
-                    A registered customer carries his own number; anybody else has
-                    to leave one, because a transfer the office cannot trace to a
-                    person is the one it will be asked about.
-                  */}
-                  {!customer?.phone && (
-                    <Field label={t('transactions.counterpartyPhone')} required={throughBank}>
-                      {(props) => (
-                        <Input
-                          {...props}
-                          type="tel"
-                          dir="ltr"
-                          value={counterpartyPhone}
-                          onChange={(event) => setCounterpartyPhone(event.target.value)}
-                        />
-                      )}
-                    </Field>
-                  )}
-                </div>
-              </div>
-            ) : (
-              <button
-                type="button"
-                onClick={() => setCustomerOpen(true)}
-                className="flex h-11 w-full items-center justify-center gap-2 rounded-2xl border border-dashed border-border-base text-sm text-content-tertiary transition-colors hover:border-primary hover:text-primary-text"
-              >
-                <Plus className="size-4" />
-                {t('machine.attachCustomer')}
-              </button>
-            )}
-
-          </div>
         </div>
 
         {/*
