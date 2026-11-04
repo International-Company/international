@@ -8,12 +8,13 @@ import {
   foldName,
   formatAmount,
   matchTellers,
+  moveOf,
   parseCommand,
   senderAllowed,
   type TellerDay,
 } from '../src/modules/whatsapp/report-command.ts';
 import { handleReportCommand, type ReportDeps } from '../src/modules/whatsapp/report.service.ts';
-import { reportImage, reportSvg } from '../src/modules/whatsapp/report-image.ts';
+import { paginate, reportImages, reportSvgs } from '../src/modules/whatsapp/report-image.ts';
 import type { IncomingText } from '../src/modules/whatsapp/whatsapp.service.ts';
 
 /**
@@ -104,13 +105,15 @@ describe('the report command', () => {
           count: 2,
           received: [{ currency: 'USD', amount: 1000n * UNIT }],
           paid: [{ currency: 'ILS', amount: 3650n * UNIT }],
+          moves: [],
         },
-        { kind: 'SELL', count: 0, received: [], paid: [] },
+        { kind: 'SELL', count: 0, received: [], paid: [], moves: [] },
         {
           kind: 'USDT_RECEIVE',
           count: 1,
           received: [{ currency: 'USDT', amount: 400n * UNIT }],
           paid: [{ currency: 'ILS', amount: 1460n * UNIT }],
+          moves: [],
         },
       ],
     };
@@ -255,6 +258,15 @@ describe('answering in the group', () => {
 });
 
 describe('the report as a picture', () => {
+  const move = (over = {}) => ({
+    at: '09:55',
+    goods: { currency: 'USD', amount: 100n * UNIT },
+    price: '3.65',
+    counter: { currency: 'ILS', amount: 365n * UNIT },
+    customer: null as string | null,
+    byBank: false,
+    ...over,
+  });
   const day: TellerDay = {
     teller: 'سامي',
     day: '2026-10-31',
@@ -267,28 +279,146 @@ describe('the report as a picture', () => {
         count: 2,
         received: [{ currency: 'USD', amount: 300n * UNIT }],
         paid: [{ currency: 'ILS', amount: 1095n * UNIT }],
+        moves: [move({ customer: 'فادي ابو حجر', byBank: true }), move({ at: '10:20' })],
+      },
+      {
+        kind: 'USDT_RECEIVE',
+        count: 1,
+        received: [{ currency: 'USDT', amount: 400n * UNIT }],
+        paid: [{ currency: 'USD', amount: 396n * UNIT }],
+        moves: [
+          move({
+            goods: { currency: 'USDT', amount: 400n * UNIT },
+            price: '0.99',
+            counter: { currency: 'USD', amount: 396n * UNIT },
+          }),
+        ],
       },
     ],
   };
-
-  it('says the same figures, a box below zero in red', () => {
-    const svg = reportSvg(day, 'انترنشونال');
-    assert.match(svg, /جرد سامي/);
-    // The figure and its currency word drawn apart, so they read right to left.
-    assert.match(svg, />300</);
-    assert.match(svg, />دولار</);
-    assert.match(svg, /fill="#b91c1c"[^>]*>-1,095</);
-    assert.doesNotMatch(svg, /USD|ILS/);
-    assert.doesNotMatch(svg, /\*/);
+  const many = (n: number) => Array.from({ length: n }, (_, i) => move({ at: String(i) }));
+  const busy = (n: number): TellerDay => ({
+    ...day,
+    groups: [{ ...day.groups[0]!, count: n, moves: many(n) }],
   });
 
-  it('draws a PNG from the font shipped with the code', () => {
-    const png = reportImage(day);
-    assert.deepEqual([...png.subarray(0, 4)], [0x89, 0x50, 0x4e, 0x47]);
-    assert.ok(png.length > 10_000);
+  it('says the same figures, a box below zero in red', () => {
+    const [svg] = reportSvgs(day, 'انترنشونال');
+    // The figure and its currency word drawn apart, so they read right to left.
+    assert.match(svg!, /جرد سامي/);
+    assert.match(svg!, />300</);
+    assert.match(svg!, />دولار</);
+    assert.match(svg!, /fill="#b91c1c"[^>]*>-1,095</);
+    assert.doesNotMatch(svg!, /bUSDb|bILSb/);
+    assert.doesNotMatch(svg!, /\*/);
+  });
+
+  it('lists each deal under its kind, with its price and customer', () => {
+    const [svg] = reportSvgs(day);
+    assert.match(svg!, /حركات الشراء \(صرافة\)/);
+    assert.match(svg!, /شراء يواس \(استلام\)/);
+    assert.doesNotMatch(svg!, /حركات البيع/);
+    assert.match(svg!, />09:55</);
+    assert.match(svg!, />10:20</);
+    assert.match(svg!, />3\.65</);
+    assert.match(svg!, />0\.99</);
+    assert.match(svg!, /بنكي · فادي ابو حجر/);
+  });
+
+  it('keeps an ordinary day on one picture', () => {
+    assert.equal(reportSvgs(day).length, 1);
+  });
+
+  it('runs a long day across pictures, losing no deal and numbering them', () => {
+    const pages = paginate(busy(100));
+    assert.ok(pages.length > 1);
+    const listed = pages.flat().flatMap((part) => part.moves);
+    assert.equal(listed.length, 100);
+    assert.deepEqual(
+      listed.map((entry) => entry.at),
+      many(100).map((entry) => entry.at),
+    );
+    const svgs = reportSvgs(busy(100));
+    assert.equal(svgs.length, pages.length);
+    assert.match(svgs[1]!, /صفحة 2 من/);
+    assert.match(svgs[1]!, /\(تابع\)/);
+    // The box and totals only open the first.
+    assert.match(svgs[0]!, /الصندوق/);
+    assert.doesNotMatch(svgs[1]!, /الصندوق/);
+  });
+
+  it('holds every picture short enough to stay readable', () => {
+    for (const svg of reportSvgs(busy(200))) {
+      const height = Number(/height="(\d+)"/.exec(svg)![1]);
+      assert.ok(height < 2000, `${height}`);
+    }
+  });
+
+  it('draws PNGs from the font shipped with the code', () => {
+    const [png] = reportImages(day);
+    assert.deepEqual([...png!.subarray(0, 4)], [0x89, 0x50, 0x4e, 0x47]);
+    assert.ok(png!.length > 10_000);
   });
 
   it('keeps a name that would break the drawing as text', () => {
-    assert.match(reportSvg({ ...day, teller: 'A <b> & "C"' }), /A &lt;b&gt; &amp; &quot;C&quot;/);
+    const [svg] = reportSvgs({ ...day, teller: 'A <b> & "C"' });
+    assert.match(svg!, /A &lt;b&gt; &amp; &quot;C&quot;/);
+  });
+});
+
+describe('a deal as its list reads it', () => {
+  const deal = {
+    at: '09:55',
+    customer: 'سامي',
+    payoutBank: 0n,
+  };
+
+  it('has the goods on what was handed over when buying', () => {
+    const move = moveOf('BUY', {
+      ...deal,
+      fromCurrency: 'USD',
+      fromAmount: 100n * UNIT,
+      toCurrency: 'ILS',
+      toAmount: 365n * UNIT,
+    });
+    assert.deepEqual(move.goods, { currency: 'USD', amount: 100n * UNIT });
+    assert.deepEqual(move.counter, { currency: 'ILS', amount: 365n * UNIT });
+    assert.equal(move.price, '3.65');
+  });
+
+  it('has the goods on what was taken away when selling', () => {
+    const move = moveOf('SELL', {
+      ...deal,
+      fromCurrency: 'ILS',
+      fromAmount: 370n * UNIT,
+      toCurrency: 'USD',
+      toAmount: 100n * UNIT,
+    });
+    assert.deepEqual(move.goods, { currency: 'USD', amount: 100n * UNIT });
+    assert.equal(move.price, '3.7');
+  });
+
+  it('reads USDT the same way, both directions', () => {
+    const bought = moveOf('USDT_RECEIVE', {
+      ...deal,
+      fromCurrency: 'USDT',
+      fromAmount: 1000n * UNIT,
+      toCurrency: 'USD',
+      toAmount: 990n * UNIT,
+      payoutBank: 990n * UNIT,
+    });
+    assert.equal(bought.goods.currency, 'USDT');
+    assert.equal(bought.price, '0.99');
+    assert.equal(bought.byBank, true);
+
+    const sold = moveOf('USDT_SEND', {
+      ...deal,
+      fromCurrency: 'ILS',
+      fromAmount: 365n * UNIT,
+      toCurrency: 'USDT',
+      toAmount: 100n * UNIT,
+    });
+    assert.equal(sold.goods.currency, 'USDT');
+    assert.equal(sold.price, '3.65');
   });
 });

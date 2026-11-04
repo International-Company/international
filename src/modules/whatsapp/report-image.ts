@@ -7,7 +7,10 @@ import {
   currencyWord,
   formatFigure,
   KIND_WORDS,
+  MOVE_WORDS,
   type Amount,
+  type CountKind,
+  type Move,
   type TellerDay,
 } from './report-command';
 
@@ -106,6 +109,7 @@ function table(
   top: number,
   columns: { title: string; right: number }[],
   rows: (string | Line)[][][],
+  slot = FIGURE_SLOT,
 ): { svg: string; bottom: number } {
   const parts: string[] = [];
   parts.push(
@@ -146,7 +150,7 @@ function table(
         parts.push(text({ x: right, y: at, text: line.text, size: 21, bold, color }));
         if (line.unit) {
           parts.push(
-            text({ x: right - FIGURE_SLOT, y: at, text: line.unit, size: 19, color: COLOR.soft }),
+            text({ x: right - slot, y: at, text: line.unit, size: 19, color: COLOR.soft }),
           );
         }
       });
@@ -157,12 +161,14 @@ function table(
   return { svg: parts.join(''), bottom: y };
 }
 
-/** The SVG the picture is drawn from — exported so a test can read what it says. */
-export function reportSvg(day: TellerDay, office = '', logoUri: string | null = null): string {
+/** The band across the top of every picture, and the page it is when there are several. */
+function heading(
+  day: TellerDay,
+  office: string,
+  logoUri: string | null,
+  page: { index: number; of: number },
+): string[] {
   const parts: string[] = [];
-  let y = PAD;
-
-  // Heading: the report on the right, the office's mark on the left.
   const HEAD = 150;
   parts.push(`<rect x="0" y="0" width="${WIDTH}" height="${HEAD}" fill="${COLOR.brand}"/>`);
   parts.push(
@@ -187,10 +193,11 @@ export function reportSvg(day: TellerDay, office = '', logoUri: string | null = 
       `<image x="${PAD - 8}" y="${(HEAD - mark) / 2}" width="${mark}" height="${mark}" href="${logoUri}"/>`,
     );
   }
+  const left = logoUri ? PAD + mark + 6 : PAD;
   if (office) {
     parts.push(
       text({
-        x: logoUri ? PAD + mark + 6 : PAD,
+        x: left,
         y: HEAD / 2 + 8,
         text: office,
         size: 22,
@@ -200,9 +207,26 @@ export function reportSvg(day: TellerDay, office = '', logoUri: string | null = 
       }),
     );
   }
-  y = HEAD + 44;
+  if (page.of > 1) {
+    parts.push(
+      text({
+        x: left,
+        y: HEAD / 2 + 38,
+        text: `صفحة ${page.index + 1} من ${page.of}`,
+        size: 18,
+        color: COLOR.onBrand,
+        anchor: 'start',
+      }),
+    );
+  }
+  return parts;
+}
 
-  // The box.
+/** What opens the first picture: the box, then each kind's totals. */
+function summary(day: TellerDay, top: number): { parts: string[]; y: number } {
+  const parts: string[] = [];
+  let y = top;
+
   parts.push(text({ x: RIGHT, y, text: 'الصندوق', size: 28, bold: true }));
   y += 16;
   const cash = day.cash.filter(
@@ -246,9 +270,8 @@ export function reportSvg(day: TellerDay, office = '', logoUri: string | null = 
     );
   }
 
-  // The deals.
   y += 62;
-  parts.push(text({ x: RIGHT, y, text: 'العمليات', size: 28, bold: true }));
+  parts.push(text({ x: RIGHT, y, text: 'المجاميع', size: 28, bold: true }));
   y += 16;
   const groups = day.groups.filter((group) => group.count > 0);
   if (groups.length === 0) {
@@ -274,22 +297,127 @@ export function reportSvg(day: TellerDay, office = '', logoUri: string | null = 
     parts.push(deals.svg);
     y = deals.bottom;
   }
-
-  const height = y + PAD + 10;
-  return [
-    `<svg xmlns="http://www.w3.org/2000/svg" width="${WIDTH}" height="${height}" viewBox="0 0 ${WIDTH} ${height}" font-family="Tajawal">`,
-    `<rect width="${WIDTH}" height="${height}" fill="${COLOR.card}"/>`,
-    ...parts,
-    '</svg>',
-  ].join('');
+  return { parts, y };
 }
 
-/** The picture itself, as a PNG, drawn at twice the size for a sharp phone screen. */
-export function reportImage(day: TellerDay, office = ''): Buffer {
-  const rendered = new Resvg(reportSvg(day, office, logoDataUri()), {
-    font: { fontFiles: FONTS, loadSystemFonts: false, defaultFontFamily: 'Tajawal' },
-    fitTo: { mode: 'width', value: WIDTH * 2 },
-    background: COLOR.card,
-  }).render();
-  return rendered.asPng();
+/*
+ * How many lines fit a picture. WhatsApp shrinks a very tall image until its
+ * figures cannot be read, so a long day runs to several rather than one strip.
+ * The first picture leaves room for the box and the totals above its lists.
+ */
+const LINES_ON_FIRST = 22;
+const LINES_ON_REST = 28;
+/** A list's heading and its column titles take about this many lines between them. */
+const LIST_HEADER_LINES = 3;
+
+const NAME_CHARS = 24;
+
+interface ListPart {
+  kind: CountKind;
+  moves: Move[];
+  /** Carries on from the picture before. */
+  continued: boolean;
+}
+
+/** Each kind's deals laid out across pictures, split only where a page runs out. */
+export function paginate(day: TellerDay): ListPart[][] {
+  const pages: ListPart[][] = [[]];
+  let room = LINES_ON_FIRST;
+
+  for (const group of day.groups) {
+    let rest = group.moves;
+    let continued = false;
+    while (rest.length > 0) {
+      // Not worth opening a list for a line or two at the foot of a page.
+      if (room < LIST_HEADER_LINES + 2) {
+        pages.push([]);
+        room = LINES_ON_REST;
+      }
+      const fits = Math.min(rest.length, room - LIST_HEADER_LINES);
+      pages[pages.length - 1]!.push({ kind: group.kind, moves: rest.slice(0, fits), continued });
+      room -= LIST_HEADER_LINES + fits;
+      rest = rest.slice(fits);
+      continued = true;
+    }
+  }
+  return pages;
+}
+
+function list(part: ListPart, top: number): { parts: string[]; y: number } {
+  const parts: string[] = [];
+  let y = top;
+  parts.push(
+    text({
+      x: RIGHT,
+      y,
+      text: part.continued ? `${MOVE_WORDS[part.kind]} (تابع)` : MOVE_WORDS[part.kind],
+      size: 26,
+      bold: true,
+    }),
+  );
+  y += 16;
+  const rows = table(
+    y,
+    [
+      { title: 'الوقت', right: RIGHT - 12 },
+      { title: 'المبلغ', right: RIGHT - 95 },
+      { title: 'السعر', right: RIGHT - 265 },
+      { title: 'المقابل', right: RIGHT - 350 },
+      { title: 'العميل', right: RIGHT - 520 },
+    ],
+    part.moves.map((move) => {
+      const name = move.customer?.trim() ?? '';
+      // Cut without an ellipsis: the bidi rules would carry it to the wrong end of the line.
+      const shown = name.slice(0, NAME_CHARS).trim();
+      return [
+        [move.at],
+        [amount(move.goods)],
+        [move.price ?? '—'],
+        [amount(move.counter)],
+        [[move.byBank ? 'بنكي' : null, shown].filter(Boolean).join(' · ') || '—'],
+      ];
+    }),
+    86,
+  );
+  parts.push(rows.svg);
+  return { parts, y: rows.bottom };
+}
+
+/** Every picture's SVG, in order — exported so a test can read what they say. */
+export function reportSvgs(day: TellerDay, office = '', logoUri: string | null = null): string[] {
+  const pages = paginate(day);
+  return pages.map((lists, index) => {
+    const parts = heading(day, office, logoUri, { index, of: pages.length });
+    let y = 150 + 44;
+    if (index === 0) {
+      const opening = summary(day, y);
+      parts.push(...opening.parts);
+      y = opening.y + 62;
+    }
+    for (const part of lists) {
+      const drawn = list(part, y);
+      parts.push(...drawn.parts);
+      y = drawn.y + 56;
+    }
+    const height = y + PAD - 40;
+    return [
+      `<svg xmlns="http://www.w3.org/2000/svg" width="${WIDTH}" height="${height}" viewBox="0 0 ${WIDTH} ${height}" font-family="Tajawal">`,
+      `<rect width="${WIDTH}" height="${height}" fill="${COLOR.card}"/>`,
+      ...parts,
+      '</svg>',
+    ].join('');
+  });
+}
+
+/** The pictures themselves, as PNGs, drawn at twice the size for a sharp phone screen. */
+export function reportImages(day: TellerDay, office = ''): Buffer[] {
+  return reportSvgs(day, office, logoDataUri()).map((svg) =>
+    new Resvg(svg, {
+      font: { fontFiles: FONTS, loadSystemFonts: false, defaultFontFamily: 'Tajawal' },
+      fitTo: { mode: 'width', value: WIDTH * 2 },
+      background: COLOR.card,
+    })
+      .render()
+      .asPng(),
+  );
 }

@@ -9,13 +9,14 @@ import {
   composeAmbiguous,
   composeHelp,
   composeReport,
+  moveOf,
   matchTellers,
   parseCommand,
   senderAllowed,
   type TellerCandidate,
   type TellerDay,
 } from './report-command';
-import { reportImage } from './report-image';
+import { reportImages } from './report-image';
 import {
   memberPhone,
   onIncomingText,
@@ -158,7 +159,7 @@ export async function tellerDay(teller: TellerCandidate): Promise<TellerDay> {
   return {
     teller: teller.fullNameAr,
     day,
-    asOf: `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`,
+    asOf: clock(now),
     openingSet: ledger.openingSet,
     cash: ledger.closing.map((closing) => ({
       currency: closing.currency,
@@ -172,8 +173,26 @@ export async function tellerDay(teller: TellerCandidate): Promise<TellerDay> {
       count: group.count,
       received: group.received,
       paid: group.paid,
+      moves: group.entries
+        .filter((entry) => !entry.reversed)
+        .map((entry) =>
+          moveOf(group.kind, {
+            at: clock(entry.at),
+            fromCurrency: entry.fromCurrency,
+            fromAmount: entry.fromAmount,
+            toCurrency: entry.toCurrency,
+            toAmount: entry.toAmount,
+            customer: entry.customer,
+            payoutBank: entry.payoutBank,
+          }),
+        ),
     })),
   };
+}
+
+/** An hour of the day, on the server's clock like the day itself. */
+function clock(at: Date): string {
+  return `${String(at.getHours()).padStart(2, '0')}:${String(at.getMinutes()).padStart(2, '0')}`;
 }
 
 let registered = false;
@@ -215,7 +234,16 @@ export function registerReportCommand(): void {
       },
       replyImage: async (message, day, caption) => {
         const office = (await settings.getString('company.name.ar')).trim();
-        await sendImage(message.chat, reportImage(day, office), caption, message.message);
+        // A long day runs to several pictures; the first answers the request.
+        const pages = reportImages(day, office);
+        for (const [index, page] of pages.entries()) {
+          await sendImage(
+            message.chat,
+            page,
+            pages.length > 1 ? `${caption} — ${index + 1} من ${pages.length}` : caption,
+            index === 0 ? message.message : undefined,
+          );
+        }
       },
     });
   });

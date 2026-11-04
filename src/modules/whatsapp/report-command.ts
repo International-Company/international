@@ -122,6 +122,69 @@ export const KIND_WORDS: Record<CountKind, string> = {
   USDT_SEND: 'سحب / بيع يواس',
 };
 
+/** The heading of each kind's own list of deals. */
+export const MOVE_WORDS: Record<CountKind, string> = {
+  BUY: 'حركات الشراء (صرافة)',
+  SELL: 'حركات البيع (صرافة)',
+  USDT_RECEIVE: 'شراء يواس (استلام)',
+  USDT_SEND: 'بيع يواس (سحب وبيع)',
+};
+
+/** One deal in a kind's list. */
+export interface Move {
+  at: string;
+  /** What was bought or sold: the dollars, the coins. */
+  goods: Amount;
+  /** Per unit of the goods, read off the amounts themselves. */
+  price: string | null;
+  /** What it was bought or sold for. */
+  counter: Amount;
+  customer: string | null;
+  /** Paid out by transfer, in whole or in part. */
+  byBank: boolean;
+}
+
+/** A price to four places at most: 3.65, not 3.6500. */
+function priceText(goods: bigint, counter: bigint): string | null {
+  if (goods <= 0n || counter <= 0n) return null;
+  const tenThousandths = (counter * 10_000n + goods / 2n) / goods;
+  const whole = tenThousandths / 10_000n;
+  const fraction = (tenThousandths % 10_000n).toString().padStart(4, '0').replace(/0+$/, '');
+  return fraction ? `${whole}.${fraction}` : whole.toString();
+}
+
+/**
+ * A deal as its kind's list reads it. A purchase has the goods on what the
+ * customer handed over, a sale on what they took away, so the same column means
+ * the same thing in every list.
+ */
+export function moveOf(
+  kind: CountKind,
+  deal: {
+    at: string;
+    fromCurrency: string;
+    fromAmount: bigint;
+    toCurrency: string;
+    toAmount: bigint;
+    customer: string | null;
+    payoutBank: bigint;
+  },
+): Move {
+  const from = { currency: deal.fromCurrency, amount: deal.fromAmount };
+  const to = { currency: deal.toCurrency, amount: deal.toAmount };
+  const goodsFirst = kind === 'BUY' || kind === 'USDT_RECEIVE';
+  const goods = goodsFirst ? from : to;
+  const counter = goodsFirst ? to : from;
+  return {
+    at: deal.at,
+    goods,
+    counter,
+    price: priceText(goods.amount, counter.amount),
+    customer: deal.customer,
+    byBank: deal.payoutBank > 0n,
+  };
+}
+
 export interface TellerDay {
   teller: string;
   day: string;
@@ -129,7 +192,14 @@ export interface TellerDay {
   asOf: string;
   cash: { currency: string; opening: bigint; in: bigint; out: bigint; closing: bigint }[];
   openingSet: boolean;
-  groups: { kind: CountKind; count: number; received: Amount[]; paid: Amount[] }[];
+  groups: {
+    kind: CountKind;
+    count: number;
+    received: Amount[];
+    paid: Amount[];
+    /** Each deal that stands, in the order they were made. */
+    moves: Move[];
+  }[];
 }
 
 /** The answer, as the group reads it. */
@@ -164,6 +234,17 @@ export function composeReport(day: TellerDay): string {
         `   استلم: ${list(group.received)}`,
         `   دفع: ${list(group.paid)}`,
       );
+    }
+    for (const group of active) {
+      lines.push('', `▫️ ${MOVE_WORDS[group.kind]}`);
+      for (const move of group.moves) {
+        const price = move.price ? ` × ${move.price}` : '';
+        const who = move.customer ? ` — ${move.customer}` : '';
+        const bank = move.byBank ? ' — بنكي' : '';
+        lines.push(
+          `${move.at}: ${formatAmount(move.goods)}${price} = ${formatAmount(move.counter)}${bank}${who}`,
+        );
+      }
     }
   }
   return lines.join('\n');
