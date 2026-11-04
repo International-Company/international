@@ -13,7 +13,7 @@ import * as audit from '@/modules/audit/audit.service';
 import { createCustomer } from '@/modules/customers/customers.service';
 import { syncWallet } from './sync.service';
 import { isPercentPair, payoutAtPercent, percentText, validPercent } from './percent-payout';
-import { applyPayoutEdit } from './payout-edit';
+import { applyPayoutEdit, tellerPriceAllowed, withinEditLimit } from './payout-edit';
 import { providerFor } from './providers';
 import * as recognition from './recognition.service';
 
@@ -1136,6 +1136,10 @@ export interface SettleArrivalInput {
   percentBroker?: bigint;
   /** What the customer is paid in all, when the teller changed the computed figure. */
   payoutEdit?: bigint;
+  /** Into shekels: the teller's own price per coin on what is paid in notes. */
+  priceCash?: bigint;
+  /** Into shekels: the teller's own price per coin on what is paid by transfer. */
+  priceBroker?: bigint;
   /** Which of the broker's accounts the transfer is instructed to. */
   payoutChannel?: string | null;
   /** The account on that channel the customer is paid to. Required for a transfer. */
@@ -1303,16 +1307,62 @@ export async function settleArrival(
     };
   };
 
+  /*
+   * The board's price, or the teller's own for this customer. Theirs is applied
+   * over the board rather than instead of it, so the margin given up shows as a
+   * smaller profit, and it is held to the same limit as a changed amount: 3.65
+   * mistyped as 36.5 would pay out ten times the money.
+   */
+  const priceNotes: string[] = [];
+  const atBoard = async (share: bigint, channel: RateChannel, typed: bigint | undefined) => {
+    const board = await quoteExchange(
+      transfer.wallet.tokenSymbol,
+      input.payoutCurrency,
+      share,
+      channel,
+      db,
+    );
+    if (typed === undefined || typed === board.rate) return board;
+    if (!tellerPriceAllowed(input.payoutCurrency)) {
+      throw errors.precondition(
+        'A teller’s own price is only for shekels',
+        'errors.tellerPriceNotHere',
+      );
+    }
+    const limit = await settings.getNumber('usdt.payoutEditLimit', db);
+    if (typed <= 0n) {
+      throw errors.precondition('That price cannot be used', 'errors.tellerPriceInvalid');
+    }
+    if (!withinEditLimit(board.rate, typed, limit)) {
+      throw errors.precondition(
+        'That price is too far from the board',
+        'errors.tellerPriceTooFar',
+        { limit: String(limit) },
+      );
+    }
+    priceNotes.push(
+      `سعر التلر ${channel === 'CASH' ? 'نقدي' : 'بنكي'} ${toDecimalString(typed, 4)} بدل ${toDecimalString(board.rate, 4)}`,
+    );
+    return quoteExchange(
+      transfer.wallet.tokenSymbol,
+      input.payoutCurrency,
+      share,
+      channel,
+      db,
+      typed,
+    );
+  };
+
   const priced = await Promise.all([
     cashShare > 0n
       ? byPercent
         ? atPercent(cashShare, input.percentCash)
-        : quoteExchange(transfer.wallet.tokenSymbol, input.payoutCurrency, cashShare, 'CASH', db)
+        : atBoard(cashShare, 'CASH', input.priceCash)
       : null,
     brokerShare > 0n
       ? byPercent
         ? atPercent(brokerShare, input.percentBroker)
-        : quoteExchange(transfer.wallet.tokenSymbol, input.payoutCurrency, brokerShare, 'BROKER', db)
+        : atBoard(brokerShare, 'BROKER', input.priceBroker)
       : null,
   ]);
   const [cashLeg, brokerLeg] = priced;
@@ -1441,7 +1491,7 @@ export async function settleArrival(
       counterpartyName: input.counterpartyName ?? null,
       counterpartyPhone: input.counterpartyPhone ?? null,
       notes:
-        [percentNote && `النسبة: ${percentNote}`, editNote, input.notes]
+        [percentNote && `النسبة: ${percentNote}`, ...priceNotes, editNote, input.notes]
           .filter(Boolean)
           .join(' — ') || null,
     },

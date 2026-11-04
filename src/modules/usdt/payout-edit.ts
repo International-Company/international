@@ -11,6 +11,11 @@
 
 export type PayoutEditRefusal = 'errors.payoutEditInvalid' | 'errors.payoutEditTooFar';
 
+/** The payout currency a teller may name their own price in. */
+export function tellerPriceAllowed(payoutCurrency: string): boolean {
+  return payoutCurrency.toUpperCase() === 'ILS';
+}
+
 /** Whether a figure is close enough to the computed one. A limit of zero means no limit. */
 export function withinEditLimit(computed: bigint, edited: bigint, limitPercent: number): boolean {
   if (limitPercent <= 0) return true;

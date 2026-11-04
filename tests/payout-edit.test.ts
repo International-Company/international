@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { applyPayoutEdit, withinEditLimit } from '../src/modules/usdt/payout-edit.ts';
+import {
+  applyPayoutEdit,
+  tellerPriceAllowed,
+  withinEditLimit,
+} from '../src/modules/usdt/payout-edit.ts';
 
 /**
  * Changing what a USDT receipt pays. Pinned: the total always equals the figure
@@ -41,6 +45,20 @@ describe('editing what a USDT receipt pays', () => {
     assert.equal(withinEditLimit(1000n * UNIT, 950n * UNIT, 5), true);
     assert.equal(withinEditLimit(1000n * UNIT, 1051n * UNIT, 5), false);
     assert.equal(withinEditLimit(1000n * UNIT, 1025n * UNIT, 2.5), true);
+  });
+
+  it('takes a teller’s own price in shekels only', () => {
+    assert.equal(tellerPriceAllowed('ILS'), true);
+    assert.equal(tellerPriceAllowed('ils'), true);
+    assert.equal(tellerPriceAllowed('USD'), false);
+    assert.equal(tellerPriceAllowed('JOD'), false);
+  });
+
+  it('holds a price to the limit, so 3.65 mistyped as 36.5 is refused', () => {
+    const board = 360_000_000n;
+    assert.equal(withinEditLimit(board, 365_000_000n, 5), true);
+    assert.equal(withinEditLimit(board, 3_650_000_000n, 5), false);
+    assert.equal(withinEditLimit(board, 36_500_000n, 5), false);
   });
 
   it('has no limit when the office sets none', () => {

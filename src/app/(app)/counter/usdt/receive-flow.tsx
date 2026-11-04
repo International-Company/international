@@ -27,9 +27,9 @@ import { CustomerPicker, type CustomerHit } from '@/ui/customer-picker';
 import { PendingTransfersButton } from '@/ui/pending-transfers';
 import { ShareButton } from '@/ui/share';
 import { cn } from '@/ui/utils';
-import { normalizeDigits } from '@/core/money/money';
+import { convert, normalizeDigits } from '@/core/money/money';
 import { payoutAtPercent, validPercent } from '@/modules/usdt/percent-payout';
-import { withinEditLimit } from '@/modules/usdt/payout-edit';
+import { tellerPriceAllowed, withinEditLimit } from '@/modules/usdt/payout-edit';
 
 /**
  * Taking USDT at the window: the address, then the log of what actually landed.
@@ -163,6 +163,9 @@ export function ReceiveFlow({
   const [brokerShare, setBrokerShare] = useState('');
   const [percentCash, setPercentCash] = useState('');
   const [percentBroker, setPercentBroker] = useState('');
+  /** The teller's own shekel price per coin, each way of paying. Empty keeps the board's. */
+  const [priceCash, setPriceCash] = useState('');
+  const [priceBroker, setPriceBroker] = useState('');
   /** The teller's own figure for what is paid in all. Empty keeps the computed one. */
   const [payoutEdit, setPayoutEdit] = useState('');
   const [destination, setDestination] = useState(transferChannels[0] ?? '');
@@ -232,18 +235,22 @@ export function ReceiveFlow({
       return cash === null || broker === null ? null : cash + broker;
     }
 
-    if (mode === 'CASH') return quote.cash ? BigInt(quote.cash.toAmount) : null;
-    if (mode === 'BROKER') return quote.broker ? BigInt(quote.broker.toAmount) : null;
-    if (!quote.cash || !quote.broker) return null;
-
     const coins = BigInt(quote.amount);
-    const share = scaleCoins(brokerShare);
-    if (share <= 0n || share >= coins) return null;
+    const share = mode === 'SPLIT' ? scaleCoins(brokerShare) : mode === 'BROKER' ? coins : 0n;
+    if (mode === 'SPLIT' && (share <= 0n || share >= coins)) return null;
 
-    return (
-      (BigInt(quote.cash.toAmount) * (coins - share)) / coins +
-      (BigInt(quote.broker.toAmount) * share) / coins
-    );
+    // Each part at its own price, as the server converts it: the teller's where
+    // they typed one the limit allows, the board's otherwise.
+    const places = currencies.find((entry) => entry.code === payoutCurrency)?.decimals ?? 2;
+    const leg = (part: bigint, board: Priced['cash'], typed: string) => {
+      if (part === 0n) return 0n;
+      if (!board) return null;
+      const rate = priceToUse(typed, BigInt(board.rate), quote.editLimit);
+      return rate === null ? null : convert(part, rate, places);
+    };
+    const cash = leg(coins - share, quote.cash, priceCash);
+    const broker = leg(share, quote.broker, priceBroker);
+    return cash === null || broker === null ? null : cash + broker;
   })();
 
   /*
@@ -253,8 +260,10 @@ export function ReceiveFlow({
    */
   useEffect(() => {
     setPayoutEdit('');
-  }, [chosen, payoutCurrency, mode, brokerShare, percentCash, percentBroker]);
+  }, [chosen, payoutCurrency, mode, brokerShare, percentCash, percentBroker, priceCash, priceBroker]);
 
+  /** Whether this deal takes a teller's own price: shekels, with a board to start from. */
+  const pricing = quote !== null && !quote.percent && tellerPriceAllowed(payoutCurrency);
   const payoutPlaces = currencies.find((entry) => entry.code === payoutCurrency)?.decimals ?? 2;
   const edited = payoutEdit.trim() ? scaleCoins(payoutEdit) : null;
   const editChanged = edited !== null && payout !== null && edited !== payout;
@@ -419,6 +428,8 @@ export function ReceiveFlow({
         setQuote(result);
         setPercentCash(result.percent?.cash ?? '');
         setPercentBroker(result.percent?.broker ?? '');
+        setPriceCash('');
+        setPriceBroker('');
       })
       .catch(() => {
         if (current) setQuote(null);
@@ -474,6 +485,9 @@ export function ReceiveFlow({
           percentCash: quote?.percent && mode !== 'BROKER' ? percentCash.trim() : undefined,
           percentBroker: quote?.percent && mode !== 'CASH' ? percentBroker.trim() : undefined,
           payoutEdit: editChanged ? payoutEdit.trim() : undefined,
+          // Only a price the teller typed, for a way of paying actually used.
+          priceCash: pricing && mode !== 'BROKER' && priceCash.trim() ? priceCash.trim() : undefined,
+          priceBroker: pricing && mode !== 'CASH' && priceBroker.trim() ? priceBroker.trim() : undefined,
           payoutChannel: mode === 'CASH' ? null : destination,
           payoutAccount: mode === 'CASH' ? null : accountToUse || null,
           customerId: customer?.id ?? null,
@@ -1062,10 +1076,57 @@ export function ReceiveFlow({
               </div>
             )}
 
+            {/*
+              The teller's own price for this customer, in place of the board's,
+              which shows faintly in the field. Left empty, the board stands.
+            */}
+            {pricing && quote && (
+              <div className="grid gap-3 sm:grid-cols-2">
+                {(
+                  [
+                    ['CASH', 'receive.priceCash', priceCash, setPriceCash, quote.cash],
+                    ['BROKER', 'receive.priceBroker', priceBroker, setPriceBroker, quote.broker],
+                  ] as const
+                )
+                  .filter(([way]) => mode === 'SPLIT' || mode === way)
+                  .map(([way, label, value, change, board]) => (
+                    <label key={way} className="block">
+                      <span className="text-xs text-content-tertiary">{t(label)}</span>
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        dir="ltr"
+                        autoComplete="off"
+                        value={value}
+                        placeholder={board ? toPlainAmount(BigInt(board.rate), 4) : undefined}
+                        onChange={(event) => change(cleanAmount(event.target.value, 4))}
+                        className="mt-1 h-11 w-full rounded-[var(--radius-control)] bg-surface-sunken px-3 text-sm font-medium tabular-nums text-content outline-none ring-1 ring-transparent focus:ring-primary"
+                      />
+                      {board && value.trim() && (
+                        <span
+                          className={cn(
+                            'mt-1 block text-xs',
+                            priceToUse(value, BigInt(board.rate), quote.editLimit) === null
+                              ? 'text-danger-text'
+                              : 'text-warning-text',
+                          )}
+                        >
+                          {priceToUse(value, BigInt(board.rate), quote.editLimit) === null
+                            ? t('errors.tellerPriceTooFar', { limit: String(quote.editLimit) })
+                            : t('receive.priceEdited', {
+                                board: toPlainAmount(BigInt(board.rate), 4),
+                              })}
+                        </span>
+                      )}
+                    </label>
+                  ))}
+              </div>
+            )}
+
             <div className="flex items-center justify-between rounded-xl bg-primary-subtle px-3 py-2">
               <span className="text-sm text-content-secondary">{t('arrivals.payout')}</span>
               {finalPayout === null ? (
-                quote?.percent ? (
+                quote ? (
                   <span className="text-lg font-bold text-content-tertiary">—</span>
                 ) : (
                   <Loader2 className="size-4 animate-spin text-content-tertiary" />
@@ -1257,6 +1318,16 @@ export function AddressBlock({
 }
 
 /** A typed USDT figure at the scale the rest of the system speaks. */
+/**
+ * The price a leg goes at: the board's when nothing is typed, the teller's when
+ * it is within the limit, null when what they typed cannot be used.
+ */
+function priceToUse(typed: string, board: bigint, limit: number): bigint | null {
+  if (!typed.trim()) return board;
+  const price = scaleCoins(typed);
+  return price > 0n && withinEditLimit(board, price, limit) ? price : null;
+}
+
 /** What an amount can be as it is typed: digits and one point, Arabic digits included. */
 function cleanAmount(raw: string, places: number): string {
   const cleaned = normalizeDigits(raw)

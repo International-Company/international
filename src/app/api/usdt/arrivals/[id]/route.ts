@@ -32,6 +32,9 @@ const bodySchema = z.object({
   percentBroker: z.string().max(12).optional(),
   /** What the customer is paid in all, when the teller changed the computed figure. */
   payoutEdit: z.string().max(30).optional(),
+  /** Into shekels: the teller's own price per coin, for each way of paying. */
+  priceCash: z.string().max(20).optional(),
+  priceBroker: z.string().max(20).optional(),
   /** Which of the broker's accounts the transfer is instructed to. */
   payoutChannel: z.string().max(80).nullish(),
   /** The account on that channel — a wallet number, a phone, an IBAN. */
@@ -68,6 +71,8 @@ export const POST = route<z.infer<typeof bodySchema>, unknown, z.infer<typeof pa
         percentCash: body.percentCash !== undefined ? parseMoney(body.percentCash) : undefined,
         percentBroker: body.percentBroker !== undefined ? parseMoney(body.percentBroker) : undefined,
         payoutEdit: body.payoutEdit !== undefined ? parseMoney(body.payoutEdit) : undefined,
+        priceCash: body.priceCash !== undefined ? parseMoney(body.priceCash) : undefined,
+        priceBroker: body.priceBroker !== undefined ? parseMoney(body.priceBroker) : undefined,
         payoutChannel: body.payoutChannel ?? null,
         payoutAccount: body.payoutAccount ?? null,
         customerId: body.customerId ?? null,
