@@ -200,21 +200,18 @@ describe('every pending transfer, as one message', () => {
 
 describe('an outgoing remittance', () => {
   it('says what the customer paid, not what the correspondent charges', async () => {
-    const message = await shareable(
-      't1',
-      'ar',
-      fakeDb([
-        row({
-          type: 'REMITTANCE_OUT',
-          fromAmount: 102_000_000_000n,
-          toCurrency: 'USD',
-          toAmount: 101_000_000_000n,
-          payoutBankAmount: 0n,
-          payoutBankChannel: null,
-          payoutAccount: null,
-        }),
-      ]) as never,
-    );
+    const { db } = fakeDb([
+      row({
+        type: 'REMITTANCE_OUT',
+        fromAmount: 102_000_000_000n,
+        toCurrency: 'USD',
+        toAmount: 101_000_000_000n,
+        payoutBankAmount: 0n,
+        payoutBankChannel: null,
+        payoutAccount: null,
+      }),
+    ]);
+    const message = await shareable('t1', 'ar', db as never);
     assert.match(message.text, /1020/);
     assert.doesNotMatch(message.text, /1010/);
   });
