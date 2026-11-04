@@ -8,7 +8,6 @@ import {
   Camera,
   Check,
   Loader2,
-  Plus,
   Printer,
   RotateCcw,
   X,
@@ -22,7 +21,6 @@ import { ShareButton } from '@/ui/share';
 import { AutoPrintToggle, printAfterRecording } from '@/ui/auto-print';
 import { useToast } from '@/ui/overlay';
 import { Field, Input } from '@/ui/form';
-import { CustomerPicker, type CustomerHit } from '@/ui/customer-picker';
 import { cn } from '@/ui/utils';
 import { shrinkPhoto } from '@/ui/proof-photo';
 import { priceRemittance, type FeeKind } from '@/modules/exchange/remittance-pricing';
@@ -116,8 +114,6 @@ export function RemittanceView({
   /** A photo of who the remittance is for. */
   const [beneficiaryPhoto, setBeneficiaryPhoto] = useState<string | null>(null);
 
-  const [customer, setCustomer] = useState<CustomerHit | null>(null);
-  const [customerOpen, setCustomerOpen] = useState(false);
   const [counterpartyName, setCounterpartyName] = useState('');
   const [counterpartyPhone, setCounterpartyPhone] = useState('');
   const [notes, setNotes] = useState('');
@@ -169,8 +165,6 @@ export function RemittanceView({
     setProof(null);
     setBeneficiaryPhoto(null);
     setPaidVia('CASH');
-    setCustomer(null);
-    setCustomerOpen(false);
     setCounterpartyName('');
     setCounterpartyPhone('');
     setNotes('');
@@ -190,9 +184,9 @@ export function RemittanceView({
     margin < 0n ||
     // A name is asked for where someone answers for the money: a remittance paid
     // out here, or one paid by transfer. Sent for notes, it can go without.
-    (nameRequired && !customer && !counterpartyName.trim()) ||
+    (nameRequired && !counterpartyName.trim()) ||
     // A transfer belongs to someone who can be reached; the server insists too.
-    (byTransfer && !customer && !counterpartyPhone.trim());
+    (byTransfer && !counterpartyPhone.trim());
 
   const submit = async () => {
     if (blocked) return;
@@ -204,7 +198,6 @@ export function RemittanceView({
         destination,
         gross: unscale(grossValue),
         net: unscale(netValue),
-        customerId: customer?.id ?? null,
         counterpartyName: counterpartyName.trim() || null,
         counterpartyPhone: counterpartyPhone.trim() || null,
         notes: notes.trim() || null,
@@ -225,8 +218,6 @@ export function RemittanceView({
       setCounterpartyName('');
       setCounterpartyPhone('');
       setNotes('');
-      setCustomer(null);
-      setCustomerOpen(false);
       void loadRecent();
       router.refresh();
     } catch (cause) {
@@ -518,63 +509,31 @@ export function RemittanceView({
         on it is one nobody can chase when the other end says it never arrived.
       */}
       <div className="rounded-2xl bg-surface p-4 ring-1 ring-border-subtle">
-        <div className="mb-3 flex items-center justify-between gap-2">
-          <p className="text-sm font-medium text-content">
-            {outgoing ? t('remittance.beneficiary') : t('remittance.sender')}
-          </p>
-          {customerOpen && (
-            <button
-              type="button"
-              onClick={() => {
-                setCustomerOpen(false);
-                setCustomer(null);
-              }}
-              aria-label={t('common.close')}
-              className="rounded-full p-1 text-content-tertiary transition-colors hover:bg-surface-sunken hover:text-content"
-            >
-              <X className="size-4" />
-            </button>
-          )}
-        </div>
+        <p className="mb-3 text-sm font-medium text-content">
+          {outgoing ? t('remittance.beneficiary') : t('remittance.sender')}
+        </p>
 
         <div className="grid gap-3 sm:grid-cols-2">
-          {customerOpen || customer ? (
-            <CustomerPicker value={customer} onChange={setCustomer} permissions={permissions} />
-          ) : (
-            <button
-              type="button"
-              onClick={() => setCustomerOpen(true)}
-              className="flex h-11 items-center justify-center gap-2 rounded-xl border border-dashed border-border-base text-sm text-content-tertiary transition-colors hover:border-primary hover:text-primary-text sm:col-span-2"
-            >
-              <Plus className="size-4" />
-              {t('machine.attachCustomer')}
-            </button>
-          )}
-
-          {!customer && (
-            <>
-              <Field label={t('remittance.name')} required={nameRequired}>
-                {(props) => (
-                  <Input
-                    {...props}
-                    value={counterpartyName}
-                    onChange={(event) => setCounterpartyName(event.target.value)}
-                  />
-                )}
-              </Field>
-              <Field label={t('remittance.phone')} required={byTransfer}>
-                {(props) => (
-                  <Input
-                    {...props}
-                    dir="ltr"
-                    inputMode="tel"
-                    value={counterpartyPhone}
-                    onChange={(event) => setCounterpartyPhone(event.target.value)}
-                  />
-                )}
-              </Field>
-            </>
-          )}
+          <Field label={t('remittance.name')} required={nameRequired}>
+            {(props) => (
+              <Input
+                {...props}
+                value={counterpartyName}
+                onChange={(event) => setCounterpartyName(event.target.value)}
+              />
+            )}
+          </Field>
+          <Field label={t('remittance.phone')} required={byTransfer}>
+            {(props) => (
+              <Input
+                {...props}
+                dir="ltr"
+                inputMode="tel"
+                value={counterpartyPhone}
+                onChange={(event) => setCounterpartyPhone(event.target.value)}
+              />
+            )}
+          </Field>
 
           <Field label={t('common.notes')} className="sm:col-span-2">
             {(props) => (
