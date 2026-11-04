@@ -27,6 +27,8 @@ import { CustomerPicker, type CustomerHit } from '@/ui/customer-picker';
 import { PendingTransfersButton } from '@/ui/pending-transfers';
 import { ShareButton } from '@/ui/share';
 import { cn } from '@/ui/utils';
+import { normalizeDigits } from '@/core/money/money';
+import { payoutAtPercent, validPercent } from '@/modules/usdt/percent-payout';
 
 /**
  * Taking USDT at the window: the address, then the log of what actually landed.
@@ -80,6 +82,8 @@ interface Priced {
   payoutCurrency: string;
   cash: { toAmount: string; rate: string } | null;
   broker: { toAmount: string; rate: string } | null;
+  /** USDT into dollars: the manager's percentages, to start from. */
+  percent?: { cash: string; broker: string };
 }
 
 interface Arrival {
@@ -154,6 +158,8 @@ export function ReceiveFlow({
   const [quote, setQuote] = useState<Priced | null>(null);
   const [mode, setMode] = useState<Mode>('CASH');
   const [brokerShare, setBrokerShare] = useState('');
+  const [percentCash, setPercentCash] = useState('');
+  const [percentBroker, setPercentBroker] = useState('');
   const [destination, setDestination] = useState(transferChannels[0] ?? '');
   const [counterpartyPhone, setCounterpartyPhone] = useState('');
   const [payoutAccount, setPayoutAccount] = useState('');
@@ -200,6 +206,27 @@ export function ReceiveFlow({
    */
   const payout = (() => {
     if (!quote) return null;
+
+    // USDT into dollars: worked out here as the percentage is typed, with the
+    // same arithmetic the server uses before it posts.
+    if (quote.percent) {
+      const coins = BigInt(quote.amount);
+      const share = mode === 'SPLIT' ? scaleCoins(brokerShare) : mode === 'BROKER' ? coins : 0n;
+      if (share < 0n || share > coins || (mode === 'SPLIT' && (share === 0n || share === coins))) {
+        return null;
+      }
+      const places = currencies.find((entry) => entry.code === payoutCurrency)?.decimals ?? 2;
+      const leg = (part: bigint, typed: string) => {
+        if (part === 0n) return 0n;
+        if (!typed.trim()) return null;
+        const percent = scaleCoins(typed);
+        return validPercent(percent) ? payoutAtPercent(part, percent, places) : null;
+      };
+      const cash = leg(coins - share, percentCash);
+      const broker = leg(share, percentBroker);
+      return cash === null || broker === null ? null : cash + broker;
+    }
+
     if (mode === 'CASH') return quote.cash ? BigInt(quote.cash.toAmount) : null;
     if (mode === 'BROKER') return quote.broker ? BigInt(quote.broker.toAmount) : null;
     if (!quote.cash || !quote.broker) return null;
@@ -366,7 +393,10 @@ export function ReceiveFlow({
     void api
       .get<Priced>(`/api/usdt/arrivals/${chosen.id}?payoutCurrency=${payoutCurrency}`)
       .then((result) => {
-        if (current) setQuote(result);
+        if (!current) return;
+        setQuote(result);
+        setPercentCash(result.percent?.cash ?? '');
+        setPercentBroker(result.percent?.broker ?? '');
       })
       .catch(() => {
         if (current) setQuote(null);
@@ -418,6 +448,9 @@ export function ReceiveFlow({
            * that were never quoted.
            */
           brokerShare: mode === 'SPLIT' ? brokerShare.trim() : undefined,
+          // Only the percentage of a way of paying actually used.
+          percentCash: quote?.percent && mode !== 'BROKER' ? percentCash.trim() : undefined,
+          percentBroker: quote?.percent && mode !== 'CASH' ? percentBroker.trim() : undefined,
           payoutChannel: mode === 'CASH' ? null : destination,
           payoutAccount: mode === 'CASH' ? null : accountToUse || null,
           customerId: customer?.id ?? null,
@@ -789,7 +822,7 @@ export function ReceiveFlow({
               </Alert>
             )}
 
-            <Alert tone="neutral">{t('arrivals.pricedNow')}</Alert>
+            {!quote?.percent && <Alert tone="neutral">{t('arrivals.pricedNow')}</Alert>}
 
             <div className="flex items-center justify-between rounded-xl bg-surface-sunken px-3 py-2">
               <span className="text-sm text-content-secondary">{t('arrivals.arrived')}</span>
@@ -962,10 +995,56 @@ export function ReceiveFlow({
               )}
             </div>
 
+            {/*
+              The office's cut on dollars, each way of paying with its own. Filled
+              in from the manager's settings; the teller changes it when the deal
+              with this customer is different.
+            */}
+            {quote?.percent && (
+              <div className="grid gap-3 sm:grid-cols-2">
+                {mode !== 'BROKER' && (
+                  <label className="block">
+                    <span className="text-xs text-content-tertiary">{t('receive.percentCash')}</span>
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      dir="ltr"
+                      autoComplete="off"
+                      value={percentCash}
+                      onChange={(event) => setPercentCash(cleanPercent(event.target.value))}
+                      required
+                      className="mt-1 h-11 w-full rounded-[var(--radius-control)] bg-surface-sunken px-3 text-sm font-medium tabular-nums text-content outline-none ring-1 ring-transparent focus:ring-primary"
+                    />
+                  </label>
+                )}
+                {mode !== 'CASH' && (
+                  <label className="block">
+                    <span className="text-xs text-content-tertiary">
+                      {t('receive.percentBroker')}
+                    </span>
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      dir="ltr"
+                      autoComplete="off"
+                      value={percentBroker}
+                      onChange={(event) => setPercentBroker(cleanPercent(event.target.value))}
+                      required
+                      className="mt-1 h-11 w-full rounded-[var(--radius-control)] bg-surface-sunken px-3 text-sm font-medium tabular-nums text-content outline-none ring-1 ring-transparent focus:ring-primary"
+                    />
+                  </label>
+                )}
+              </div>
+            )}
+
             <div className="flex items-center justify-between rounded-xl bg-primary-subtle px-3 py-2">
               <span className="text-sm text-content-secondary">{t('arrivals.payout')}</span>
               {payout === null ? (
-                <Loader2 className="size-4 animate-spin text-content-tertiary" />
+                quote?.percent ? (
+                  <span className="text-lg font-bold text-content-tertiary">—</span>
+                ) : (
+                  <Loader2 className="size-4 animate-spin text-content-tertiary" />
+                )
               ) : (
                 <span className="text-lg font-bold tabular-nums">
                   <Money value={payout.toString()} currency={payoutCurrency} />
@@ -1116,6 +1195,15 @@ export function AddressBlock({
 }
 
 /** A typed USDT figure at the scale the rest of the system speaks. */
+/** What a percentage can be as it is typed: digits and one point, Arabic digits included. */
+function cleanPercent(raw: string): string {
+  const cleaned = normalizeDigits(raw)
+    .replace(/[,٫]/g, '.')
+    .replace(/[^\d.]/g, '');
+  const [whole = '', ...rest] = cleaned.split('.');
+  return rest.length > 0 ? `${whole}.${rest.join('').slice(0, 4)}` : whole;
+}
+
 function scaleCoins(value: string): bigint {
   const [whole = '0', fraction = ''] = value.trim().split('.');
   if (!/^\d*$/.test(whole) || !/^\d*$/.test(fraction)) return 0n;

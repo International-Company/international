@@ -391,6 +391,22 @@ export const SETTINGS: SettingDefinition[] = [
     descriptionAr: 'أكبر مبلغ USDT يستطيع التلر تسعيره عند الشباك. القيمة صفر تلغي الحد.',
   },
   {
+    key: 'usdt.usdPercentCash', category: 'usdt', type: 'number', defaultValue: 0, min: 0, max: 99,
+    labelEn: 'USDT for cash dollars: percentage', labelAr: 'نسبة استلام اليواس مقابل دولار نقدي',
+    descriptionEn:
+      'Filled in when USDT is paid out in cash dollars; the teller may change it for the deal. 1 means 1000 USDT pays 990 dollars. Zero fills in nothing, so the teller must type one.',
+    descriptionAr:
+      'تظهر جاهزة عند دفع اليواس بالدولار النقدي، ويستطيع التلر تعديلها للعملية. القيمة 1 تعني أن 1000 يواس تساوي 990 دولاراً. القيمة صفر تبقي الخانة فارغة ليكتبها التلر.',
+  },
+  {
+    key: 'usdt.usdPercentBroker', category: 'usdt', type: 'number', defaultValue: 0, min: 0, max: 99,
+    labelEn: 'USDT for bank dollars: percentage', labelAr: 'نسبة استلام اليواس مقابل دولار بنكي',
+    descriptionEn:
+      'The same, when the dollars are paid by bank transfer. Zero fills in nothing, so the teller must type one.',
+    descriptionAr:
+      'مثلها عند دفع الدولار بتحويل بنكي. القيمة صفر تبقي الخانة فارغة ليكتبها التلر.',
+  },
+  {
     key: 'usdt.counterUniqueAmount', category: 'usdt', type: 'boolean', defaultValue: true,
     labelEn: 'Reserve a distinct amount', labelAr: 'حجز مبلغ مميّز',
     descriptionEn:

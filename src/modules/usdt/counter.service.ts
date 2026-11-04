@@ -12,6 +12,7 @@ import { ceilingFor } from '@/modules/users/counter-limit';
 import * as audit from '@/modules/audit/audit.service';
 import { createCustomer } from '@/modules/customers/customers.service';
 import { syncWallet } from './sync.service';
+import { isPercentPair, payoutAtPercent, percentText, validPercent } from './percent-payout';
 import { providerFor } from './providers';
 import * as recognition from './recognition.service';
 
@@ -1023,6 +1024,11 @@ export async function quoteArrival(
   cash: { toAmount: string; rate: string } | null;
   /** Priced through the broker. Null when no broker rate is published. */
   broker: { toAmount: string; rate: string } | null;
+  /**
+   * For USDT into dollars: the manager's percentages, as a starting point the
+   * teller may change. Blank where the manager has set none. Absent otherwise.
+   */
+  percent?: { cash: string; broker: string };
 }> {
   const transfer = await db.chainTransaction.findUnique({
     where: { id: chainTransactionId },
@@ -1045,6 +1051,27 @@ export async function quoteArrival(
   }
 
   const currency = payoutCurrency.toUpperCase();
+
+  if (isPercentPair(transfer.wallet.tokenSymbol, currency)) {
+    const [cash, broker] = await Promise.all([
+      settings.getNumber('usdt.usdPercentCash', db),
+      settings.getNumber('usdt.usdPercentBroker', db),
+    ]);
+    // There is no board to read: both ways of paying are open, and the screen
+    // works the figure out from the percentage as it is typed.
+    const whole = { toAmount: transfer.amount.toString(), rate: MONEY_FACTOR.toString() };
+    return {
+      amount: transfer.amount.toString(),
+      payoutCurrency: currency,
+      cash: whole,
+      broker: whole,
+      percent: {
+        cash: cash > 0 ? String(cash) : '',
+        broker: broker > 0 ? String(broker) : '',
+      },
+    };
+  }
+
   const price = async (channel: RateChannel) => {
     try {
       const quote = await quoteExchange(
@@ -1097,6 +1124,10 @@ export interface SettleArrivalInput {
    * cannot be the thing divided.
    */
   brokerShare?: bigint;
+  /** USDT into dollars: the percentage taken on what is paid in notes. */
+  percentCash?: bigint;
+  /** USDT into dollars: the percentage taken on what is paid by transfer. */
+  percentBroker?: bigint;
   /** Which of the broker's accounts the transfer is instructed to. */
   payoutChannel?: string | null;
   /** The account on that channel the customer is paid to. Required for a transfer. */
@@ -1237,15 +1268,60 @@ export async function settleArrival(
 
   const cashShare = transfer.amount - brokerShare;
 
+  /*
+   * USDT into dollars is priced at a percentage the teller confirms, each way
+   * of paying with its own. The percentage comes from the request and is
+   * checked here: it is a price, and the screen is not trusted to have held to
+   * it. What it takes off the coins is the office's profit on the deal.
+   */
+  const byPercent = isPercentPair(transfer.wallet.tokenSymbol, input.payoutCurrency);
+  const atPercent = async (share: bigint, percent: bigint | undefined) => {
+    if (percent === undefined) {
+      throw errors.precondition('Say what percentage applies', 'errors.percentRequired');
+    }
+    if (!validPercent(percent)) {
+      throw errors.precondition('That percentage cannot be used', 'errors.percentOutOfRange');
+    }
+    const target = await db.currency.findUnique({
+      where: { code: input.payoutCurrency },
+      select: { decimals: true },
+    });
+    const toAmount = payoutAtPercent(share, percent, target?.decimals ?? 2);
+    return {
+      toAmount,
+      profit: share - toAmount,
+      rate: (toAmount * MONEY_FACTOR) / share,
+      rateId: null as string | null,
+    };
+  };
+
   const priced = await Promise.all([
     cashShare > 0n
-      ? quoteExchange(transfer.wallet.tokenSymbol, input.payoutCurrency, cashShare, 'CASH', db)
+      ? byPercent
+        ? atPercent(cashShare, input.percentCash)
+        : quoteExchange(transfer.wallet.tokenSymbol, input.payoutCurrency, cashShare, 'CASH', db)
       : null,
     brokerShare > 0n
-      ? quoteExchange(transfer.wallet.tokenSymbol, input.payoutCurrency, brokerShare, 'BROKER', db)
+      ? byPercent
+        ? atPercent(brokerShare, input.percentBroker)
+        : quoteExchange(transfer.wallet.tokenSymbol, input.payoutCurrency, brokerShare, 'BROKER', db)
       : null,
   ]);
   const [cashLeg, brokerLeg] = priced;
+
+  // The percentage is kept with the deal: the rate alone only implies it.
+  const percentNote = byPercent
+    ? [
+        cashLeg && input.percentCash !== undefined
+          ? `نقدي ${percentText(input.percentCash)}%`
+          : null,
+        brokerLeg && input.percentBroker !== undefined
+          ? `بنكي ${percentText(input.percentBroker)}%`
+          : null,
+      ]
+        .filter(Boolean)
+        .join(' · ')
+    : '';
 
   const toAmount = (cashLeg?.toAmount ?? 0n) + (brokerLeg?.toAmount ?? 0n);
   const profit = (cashLeg?.profit ?? 0n) + (brokerLeg?.profit ?? 0n);
@@ -1322,7 +1398,7 @@ export async function settleArrival(
       profitAmount: profit,
       counterpartyName: input.counterpartyName ?? null,
       counterpartyPhone: input.counterpartyPhone ?? null,
-      notes: input.notes ?? null,
+      notes: [percentNote && `النسبة: ${percentNote}`, input.notes].filter(Boolean).join(' — ') || null,
     },
     actor,
     db,

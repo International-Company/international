@@ -27,6 +27,9 @@ const bodySchema = z.object({
   mode: z.enum(counter.PAYOUT_MODES).default('CASH'),
   /** For a split: how much of the arrived USDT settles through the broker. */
   brokerShare: z.string().optional(),
+  /** USDT into dollars: the percentage taken on each way of paying. */
+  percentCash: z.string().max(12).optional(),
+  percentBroker: z.string().max(12).optional(),
   /** Which of the broker's accounts the transfer is instructed to. */
   payoutChannel: z.string().max(80).nullish(),
   /** The account on that channel — a wallet number, a phone, an IBAN. */
@@ -60,6 +63,8 @@ export const POST = route<z.infer<typeof bodySchema>, unknown, z.infer<typeof pa
         payoutCurrency: body.payoutCurrency.toUpperCase(),
         mode: body.mode,
         brokerShare: body.brokerShare !== undefined ? parseMoney(body.brokerShare) : undefined,
+        percentCash: body.percentCash !== undefined ? parseMoney(body.percentCash) : undefined,
+        percentBroker: body.percentBroker !== undefined ? parseMoney(body.percentBroker) : undefined,
         payoutChannel: body.payoutChannel ?? null,
         payoutAccount: body.payoutAccount ?? null,
         customerId: body.customerId ?? null,
