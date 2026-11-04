@@ -221,6 +221,53 @@ export async function send(input: SendInput, actor: Actor, db: DbClient = prisma
   }, db);
 }
 
+/**
+ * A remittance written down from what the teller types: the notes taken and the
+ * correspondent's price, with a free note. Moves the same balances as `send`, so
+ * the drawer and the correspondent stay right, but takes no destination and is
+ * not announced to the group; it shows in the teller's count.
+ */
+export async function recordCash(
+  input: {
+    currency: string;
+    branchId: string;
+    collected: bigint;
+    cost: bigint;
+    notes?: string | null;
+  },
+  actor: Actor,
+  db: DbClient = prisma,
+) {
+  if (input.collected <= 0n || input.cost <= 0n) {
+    throw errors.precondition('Amount must be greater than zero', 'errors.amountNotPositive');
+  }
+  if (input.cost > input.collected) {
+    throw errors.precondition(
+      `Charging ${toDecimalString(input.cost, 2)} to collect ${toDecimalString(input.collected, 2)} loses money on the transfer`,
+      'errors.remittanceBelowCost',
+    );
+  }
+  return transactions.record(
+    {
+      type: 'REMITTANCE_OUT',
+      branchId: input.branchId,
+      customerId: null,
+      fromCurrency: input.currency,
+      fromAmount: input.collected,
+      toCurrency: input.currency,
+      toAmount: input.cost,
+      rate: 100000000n,
+      profitAmount: input.collected - input.cost,
+      counterpartyName: null,
+      counterpartyPhone: null,
+      notes: input.notes?.trim() || null,
+    },
+    actor,
+    db,
+    { unannounced: true },
+  );
+}
+
 /** The photo, or the words for why it cannot be kept. */
 function readProof_(base64: string) {
   const image = readProofImage(base64);

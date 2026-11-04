@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import {
   ArrowDownLeft,
   ArrowUpRight,
+  ClipboardPen,
   Camera,
   Check,
   Loader2,
@@ -85,6 +86,8 @@ export function RemittanceView({
   const toast = useToast();
 
   const [direction, setDirection] = useState<Direction>('OUT');
+  /** Only writing down what was taken, rather than a whole remittance. */
+  const [quick, setQuick] = useState(false);
   const [currency, setCurrency] = useState(config.currencies[0]?.code ?? 'ILS');
   const [destination, setDestination] = useState(config.destinations[0] ?? '');
 
@@ -273,6 +276,50 @@ export function RemittanceView({
 
   const canPrice = permissions.includes('exchange.rate.manage');
 
+  const tabs = (
+    <div dir="rtl" className="grid grid-cols-3 gap-2 rounded-2xl bg-surface-sunken p-1.5">
+      {(['OUT', 'IN', 'QUICK'] as const).map((option) => {
+        const chosen = option === 'QUICK' ? quick : !quick && direction === option;
+        const Icon =
+          option === 'OUT' ? ArrowUpRight : option === 'IN' ? ArrowDownLeft : ClipboardPen;
+        return (
+          <button
+            key={option}
+            type="button"
+            onClick={() => {
+              setQuick(option === 'QUICK');
+              if (option !== 'QUICK') setDirection(option);
+              setDone(null);
+            }}
+            aria-pressed={chosen}
+            className={cn(
+              'flex min-h-12 items-center justify-center gap-1.5 rounded-xl px-1 text-sm font-semibold transition-colors',
+              chosen
+                ? 'bg-surface text-content shadow-[var(--shadow-sm)]'
+                : 'text-content-tertiary hover:text-content-secondary',
+            )}
+          >
+            <Icon className="size-4 shrink-0" />
+            {option === 'OUT'
+              ? t('remittance.outgoing')
+              : option === 'IN'
+                ? t('remittance.incoming')
+                : t('remittance.quick')}
+          </button>
+        );
+      })}
+    </div>
+  );
+
+  if (quick) {
+    return (
+      <div className="mx-auto w-full max-w-xl space-y-4">
+        {tabs}
+        <QuickRemittance currencies={config.currencies} />
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-4">
     <form
@@ -282,33 +329,7 @@ export function RemittanceView({
       }}
       className="mx-auto w-full max-w-xl space-y-4"
     >
-      {/* ============ Which way it is going ============ */}
-      <div dir="rtl" className="grid grid-cols-2 gap-2 rounded-2xl bg-surface-sunken p-1.5">
-        {(['OUT', 'IN'] as const).map((option) => (
-          <button
-            key={option}
-            type="button"
-            onClick={() => {
-              setDirection(option);
-              setDone(null);
-            }}
-            aria-pressed={direction === option}
-            className={cn(
-              'flex h-12 items-center justify-center gap-2 rounded-xl text-sm font-semibold transition-colors',
-              direction === option
-                ? 'bg-surface text-content shadow-[var(--shadow-sm)]'
-                : 'text-content-tertiary hover:text-content-secondary',
-            )}
-          >
-            {option === 'OUT' ? (
-              <ArrowUpRight className="size-4" />
-            ) : (
-              <ArrowDownLeft className="size-4" />
-            )}
-            {option === 'OUT' ? t('remittance.outgoing') : t('remittance.incoming')}
-          </button>
-        ))}
-      </div>
+      {tabs}
 
       {/* ============ Where, and in what ============ */}
       <div className="grid gap-3 rounded-2xl bg-surface p-4 ring-1 ring-border-subtle sm:grid-cols-2">
@@ -617,6 +638,129 @@ export function RemittanceView({
         />
       )}
     </div>
+  );
+}
+
+/**
+ * Only writing down what was taken for remittances: what was typed is what is
+ * recorded, with no destination, no price list and no message to the group.
+ */
+function QuickRemittance({ currencies }: { currencies: Config['currencies'] }) {
+  const { t, ln } = useLocale();
+  const router = useRouter();
+  const toast = useToast();
+
+  const [currency, setCurrency] = useState(currencies[0]?.code ?? 'ILS');
+  const [received, setReceived] = useState('');
+  const [cost, setCost] = useState('');
+  const [note, setNote] = useState('');
+  const [posting, setPosting] = useState(false);
+  const receivedRef = useRef<HTMLInputElement>(null);
+
+  const decimals = currencies.find((entry) => entry.code === currency)?.decimals ?? 2;
+  const receivedValue = scaleAmount(received);
+  const costValue = scaleAmount(cost);
+  const belowCost = costValue > receivedValue && receivedValue > 0n;
+
+  const submit = async () => {
+    if (receivedValue <= 0n || costValue <= 0n || belowCost) return;
+    setPosting(true);
+    try {
+      const result = await api.post<{ reference: string }>('/api/exchange/remittance/quick', {
+        currency,
+        received: unscale(receivedValue),
+        cost: unscale(costValue),
+        notes: note.trim() || null,
+      });
+      toast.success(t('remittance.recorded'), result.reference);
+      setReceived('');
+      setCost('');
+      setNote('');
+      receivedRef.current?.focus();
+      router.refresh();
+    } catch (cause) {
+      toast.error(
+        t('errors.title'),
+        cause instanceof ApiError
+          ? say(t, cause.messageKey, cause.params) || cause.message
+          : t('errors.generic'),
+      );
+    } finally {
+      setPosting(false);
+    }
+  };
+
+  return (
+    <form
+      onSubmit={(event) => {
+        event.preventDefault();
+        void submit();
+      }}
+      className="space-y-4"
+    >
+      <label className="block rounded-2xl bg-surface p-4 ring-1 ring-border-subtle">
+        <span className="text-xs text-content-tertiary">{t('remittance.currency')}</span>
+        <select
+          value={currency}
+          onChange={(event) => setCurrency(event.target.value)}
+          className="mt-1 h-12 w-full rounded-xl bg-surface-sunken px-3 text-base font-medium text-content outline-none ring-1 ring-transparent focus:ring-primary"
+        >
+          {currencies.map((entry) => (
+            <option key={entry.code} value={entry.code}>
+              {entry.code} — {ln(entry as unknown as Record<string, unknown>, 'name')}
+            </option>
+          ))}
+        </select>
+      </label>
+
+      <section className="space-y-2 rounded-3xl bg-surface p-2 shadow-[var(--shadow-lg)] ring-1 ring-border-subtle">
+        <AmountRow
+          label={t('remittance.quickReceived')}
+          hint={t('remittance.quickReceivedHint')}
+          code={currency}
+          decimals={decimals}
+          value={received}
+          onType={(raw) => setReceived(sanitiseAmount(raw, decimals))}
+          inputRef={receivedRef}
+          hero
+        />
+        <AmountRow
+          label={t('remittance.correspondentCharges')}
+          hint={t('remittance.correspondentChargesHint')}
+          code={currency}
+          decimals={decimals}
+          value={cost}
+          onType={(raw) => setCost(sanitiseAmount(raw, decimals))}
+        />
+      </section>
+
+      {belowCost && (
+        <p role="alert" className="text-sm text-danger-text">
+          {t('errors.remittanceBelowCost')}
+        </p>
+      )}
+
+      <div className="rounded-2xl bg-surface p-4 ring-1 ring-border-subtle">
+        <Field label={t('common.notes')}>
+          {(props) => (
+            <Input
+              {...props}
+              value={note}
+              onChange={(event) => setNote(event.target.value)}
+            />
+          )}
+        </Field>
+      </div>
+
+      <button
+        type="submit"
+        disabled={receivedValue <= 0n || costValue <= 0n || belowCost || posting}
+        className="flex h-14 w-full items-center justify-center gap-2 rounded-2xl bg-primary text-base font-semibold text-white shadow-[var(--shadow-md)] transition-all duration-150 hover:bg-primary-hover active:scale-[0.98] disabled:opacity-40 disabled:shadow-none disabled:active:scale-100"
+      >
+        {posting ? <Loader2 className="size-5 animate-spin" /> : <Check className="size-5" />}
+        {t('remittance.quickRecord')}
+      </button>
+    </form>
   );
 }
 

@@ -149,13 +149,14 @@ const methodList = (amounts: MethodAmount[]) =>
     )
     .join(' + ') || '—';
 
-export type CountKind = 'BUY' | 'SELL' | 'USDT_RECEIVE' | 'USDT_SEND';
+export type CountKind = 'BUY' | 'SELL' | 'USDT_RECEIVE' | 'USDT_SEND' | 'REMITTANCE_OUT';
 
 export const KIND_WORDS: Record<CountKind, string> = {
   BUY: 'شراء (صرافة)',
   SELL: 'بيع (صرافة)',
   USDT_RECEIVE: 'استلام يواس',
   USDT_SEND: 'سحب / بيع يواس',
+  REMITTANCE_OUT: 'حوالات صادرة',
 };
 
 /** The heading of each kind's own list of deals. */
@@ -164,6 +165,7 @@ export const MOVE_WORDS: Record<CountKind, string> = {
   SELL: 'حركات البيع (صرافة)',
   USDT_RECEIVE: 'شراء يواس (استلام)',
   USDT_SEND: 'بيع يواس (سحب وبيع)',
+  REMITTANCE_OUT: 'الحوالات الصادرة',
 };
 
 /** One deal in a kind's list. */
@@ -209,14 +211,15 @@ export function moveOf(
 ): Move {
   const from = { currency: deal.fromCurrency, amount: deal.fromAmount };
   const to = { currency: deal.toCurrency, amount: deal.toAmount };
-  const goodsFirst = kind === 'BUY' || kind === 'USDT_RECEIVE';
+  const goodsFirst = kind === 'BUY' || kind === 'USDT_RECEIVE' || kind === 'REMITTANCE_OUT';
   const goods = goodsFirst ? from : to;
   const counter = goodsFirst ? to : from;
   return {
     at: deal.at,
     goods,
     counter,
-    price: priceText(goods.amount, counter.amount),
+    // One currency on both sides: there is no price to read, only the gap.
+    price: kind === 'REMITTANCE_OUT' ? null : priceText(goods.amount, counter.amount),
     customer: deal.customer,
     byBank: deal.intakeBank > 0n || deal.payoutBank > 0n,
   };

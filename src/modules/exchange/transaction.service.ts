@@ -89,6 +89,8 @@ export interface RecordOptions {
   createdBy?: string;
   /** Tells no one. For a deal being moved, not a new one: see `moveToTeller`. */
   quiet?: boolean;
+  /** Keeps it from the group; the office's own alerts still hear of it. */
+  unannounced?: boolean;
 }
 
 export interface RecordedTransaction {
@@ -415,6 +417,7 @@ export async function record(
       reference: recorded.reference,
       type: input.type,
       actorId: actor.id,
+      unannounced: options.unannounced,
     });
   }
 

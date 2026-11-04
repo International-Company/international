@@ -363,6 +363,40 @@ describe('the report as a picture', () => {
     assert.deepEqual(parts.at(-1)!.totals!.goods, [{ currency: 'USD', amount: 10_000n * UNIT }]);
   });
 
+  it('lists sent remittances with what was taken and the correspondent’s price', () => {
+    const [svg] = reportSvgs({
+      ...day,
+      groups: [
+        {
+          kind: 'REMITTANCE_OUT',
+          count: 1,
+          received: [{ currency: 'ILS', amount: 1000n * UNIT }],
+          paid: [],
+          receivedBank: [],
+          paidBank: [],
+          moves: [
+            moveOf('REMITTANCE_OUT', {
+              at: '11:00',
+              fromCurrency: 'ILS',
+              fromAmount: 1000n * UNIT,
+              toCurrency: 'ILS',
+              toAmount: 980n * UNIT,
+              customer: 'حوالات الصباح',
+              intakeBank: 0n,
+              payoutBank: 0n,
+            }),
+          ],
+        },
+      ],
+    });
+    assert.match(svg!, /حوالات صادرة/);
+    assert.match(svg!, />1,000<\/text><text[^>]*>شيكل نقدي</);
+    assert.match(svg!, /تسعيرة المراسل/);
+    assert.match(svg!, />980</);
+    assert.match(svg!, /حوالات الصباح/);
+    assert.doesNotMatch(svg!, />1\.02</);
+  });
+
   it('keeps a total on the page of its last deal, however the deals fall', () => {
     for (let n = 1; n < 80; n += 1) {
       const parts = paginate(busy(n)).flat();

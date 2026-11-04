@@ -19,7 +19,14 @@ const log = createLogger('events');
 export interface DomainEvents {
   'transaction.created': { transactionId: string; reference: string; type: string; actorId: string };
   'transaction.submitted': { transactionId: string; reference: string; actorId: string };
-  'transaction.posted': { transactionId: string; reference: string; type: string; actorId: string };
+  'transaction.posted': {
+    transactionId: string;
+    reference: string;
+    type: string;
+    actorId: string;
+    /** Written down only: the group is not told. */
+    unannounced?: boolean;
+  };
   'transaction.proofAdded': { transactionId: string; proofId: string };
   'transaction.reversed': { transactionId: string; reversalId: string; actorId: string };
 

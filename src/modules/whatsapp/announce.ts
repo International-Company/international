@@ -279,7 +279,8 @@ export function registerWhatsappSubscribers(): void {
   if (registered) return;
   registered = true;
 
-  on('transaction.posted', 'whatsapp-announce-deal', async ({ transactionId }) => {
+  on('transaction.posted', 'whatsapp-announce-deal', async ({ transactionId, unannounced }) => {
+    if (unannounced) return;
     await announceDeal(transactionId, {
       target,
       load: (id) => shareable(id, 'ar'),
