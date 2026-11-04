@@ -1413,6 +1413,7 @@ const en = {
     intakeInto: 'Paid into the office’s account',
     intakeTransferHint: 'At the bank rate, and the customer takes cash. Name and phone are required.',
     intakeSplit: 'Both',
+    intakeSplitNeedsShare: 'Type the bank amount to work out what the customer receives.',
     intakeBankLeg: 'By transfer',
     intakeCashLeg: 'In cash',
     intakeSplitHint:

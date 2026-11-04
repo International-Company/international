@@ -1149,6 +1149,12 @@ export function MachineView({
                   {intakeShareTooBig && (
                     <p className="mt-1 text-xs text-danger-text">{t('machine.intakeSplitTooBig')}</p>
                   )}
+                  {/* Says why the payout reads zero and the button will not press. */}
+                  {bothWays && legs.from > 0n && !intakeSplit && !intakeShareTooBig && (
+                    <p className="mt-1 text-xs font-medium text-warning-text">
+                      {t('machine.intakeSplitNeedsShare')}
+                    </p>
+                  )}
                 </>
               )}
             </div>

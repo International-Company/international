@@ -1412,6 +1412,7 @@ const ar: Dictionary = {
     intakeInto: 'حوّل إلى حساب المكتب',
     intakeTransferHint: 'بسعر البنك، ويستلم العميل نقداً. اسمه ورقم هاتفه مطلوبان.',
     intakeSplit: 'مزدوج',
+    intakeSplitNeedsShare: 'اكتب المبلغ البنكي لحساب ما يستلمه العميل.',
     intakeBankLeg: 'بنكي',
     intakeCashLeg: 'نقدي',
     intakeSplitHint:
