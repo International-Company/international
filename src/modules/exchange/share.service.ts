@@ -83,6 +83,7 @@ const SHARE_SELECT = {
   reference: true,
   type: true,
   status: true,
+  fromAmount: true,
   toCurrency: true,
   toAmount: true,
   payoutBankAmount: true,
@@ -96,6 +97,8 @@ const SHARE_SELECT = {
 } as const;
 
 type ShareRow = {
+  type: string;
+  fromAmount: bigint;
   toCurrency: string;
   toAmount: bigint;
   payoutBankAmount: bigint;
@@ -155,8 +158,18 @@ function composeLines(transaction: ShareRow, locale: Locale, unit: string): stri
       : transaction.customer.fullNameEn
     : transaction.counterpartyName;
 
+  /*
+   * The figure the message is about. An outgoing remittance says what the
+   * customer paid: its other figure is what the correspondent charges the office,
+   * which is the office's own business. One currency on both sides, so the unit
+   * holds either way.
+   */
   const paid =
-    transaction.payoutBankAmount > 0n ? transaction.payoutBankAmount : transaction.toAmount;
+    transaction.type === 'REMITTANCE_OUT'
+      ? transaction.fromAmount
+      : transaction.payoutBankAmount > 0n
+        ? transaction.payoutBankAmount
+        : transaction.toAmount;
   const amount =
     transaction.toCurrency === 'USDT'
       ? toDecimalString(paid, 2).replace(/\.00$/, '')
