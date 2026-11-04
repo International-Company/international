@@ -1456,7 +1456,6 @@ const ar: Dictionary = {
     payoutBankLeg: 'بنكياً',
     payoutBankShort: 'رصيد بنك {currency} يحمل {available}.',
     pendingTransfer: 'بانتظار التحويل',
-    attachCustomer: 'إرفاق عميل',
     board: 'اللوحة',
     currency: 'العملة',
     weBuy: 'نشتري',

@@ -1457,7 +1457,6 @@ const en = {
     payoutBankLeg: 'By transfer',
     payoutBankShort: 'The {currency} bank balance holds {available}.',
     pendingTransfer: 'Awaiting transfer',
-    attachCustomer: 'Attach a customer',
     board: 'The Board',
     currency: 'Currency',
     weBuy: 'We buy',

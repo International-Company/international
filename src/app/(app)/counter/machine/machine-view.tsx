@@ -19,7 +19,6 @@ import {
   ChevronLeft,
   History,
   Loader2,
-  Plus,
   Printer,
   RotateCcw,
   Star,
@@ -195,7 +194,6 @@ export function MachineView({
   const [counterpartyName, setCounterpartyName] = useState('');
   const [counterpartyPhone, setCounterpartyPhone] = useState('');
   const [customer, setCustomer] = useState<CustomerHit | null>(null);
-  const [customerOpen, setCustomerOpen] = useState(false);
   const [recent, setRecent] = useState<RecentRow[]>([]);
   /** The entry the teller asked to delete, while he confirms it. */
   const [removing, setRemoving] = useState<RecentRow | null>(null);
@@ -441,7 +439,6 @@ export function MachineView({
     setCounterpartyName('');
     setCounterpartyPhone('');
     setCustomer(null);
-    setCustomerOpen(false);
     setChannel('CASH');
     setBrokerShare('');
     setDestination(config.transferChannels[0] ?? '');
@@ -710,7 +707,6 @@ export function MachineView({
       setCounterpartyName('');
       setCounterpartyPhone('');
       setCustomer(null);
-      setCustomerOpen(false);
       // Spent. Leaving it on screen would invite a second press at a price that
       // no longer exists.
       setApproval(null);
@@ -1385,7 +1381,7 @@ export function MachineView({
             a name and a number, so they come before the press they are needed for.
           */}
           <div className="space-y-3">
-            {customerOpen || customer || quote?.requiresCustomer || throughBank ? (
+            {(customer || quote?.requiresCustomer || throughBank) && (
               <div className="rounded-2xl bg-surface p-4 ring-1 ring-border-subtle">
                 <div className="mb-3 flex items-center justify-between gap-2">
                   <p className="text-sm font-medium text-content">
@@ -1399,7 +1395,6 @@ export function MachineView({
                     <button
                       type="button"
                       onClick={() => {
-                        setCustomerOpen(false);
                         setCustomer(null);
                         setCounterpartyName('');
                       }}
@@ -1458,15 +1453,6 @@ export function MachineView({
                   )}
                 </div>
               </div>
-            ) : (
-              <button
-                type="button"
-                onClick={() => setCustomerOpen(true)}
-                className="flex h-11 w-full items-center justify-center gap-2 rounded-2xl border border-dashed border-border-base text-sm text-content-tertiary transition-colors hover:border-primary hover:text-primary-text"
-              >
-                <Plus className="size-4" />
-                {t('machine.attachCustomer')}
-              </button>
             )}
 
           </div>
