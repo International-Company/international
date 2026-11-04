@@ -1566,6 +1566,8 @@ const ar: Dictionary = {
     logEmpty: 'لم يصل شيء بعد.',
     openExplorer: 'افتح في TronScan',
     from: 'من',
+    adjust: 'تعديل السعر أو المبلغ',
+    addCustomer: '+ إضافة عميل (اختياري)',
     priceCash: 'سعر التلر نقدي — اختياري',
     priceBroker: 'سعر التلر بنكي — اختياري',
     priceEdited: 'بدل سعر اللوحة {board}.',

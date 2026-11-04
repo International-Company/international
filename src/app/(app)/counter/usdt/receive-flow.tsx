@@ -128,6 +128,9 @@ type Recognised =
     }
   | { status: 'SHARED'; customers: number; marked?: boolean };
 
+/** Where this browser keeps the currency its teller last paid in. */
+const LAST_CURRENCY_KEY = 'ifms.receive.lastCurrency';
+
 /** How often the log refreshes itself while a customer is waiting. */
 const POLL_MS = 10_000;
 
@@ -168,6 +171,9 @@ export function ReceiveFlow({
   /** The teller's own shekel price per coin, each way of paying. Empty keeps the board's. */
   const [priceCash, setPriceCash] = useState('');
   const [priceBroker, setPriceBroker] = useState('');
+  /** The rarely needed fields, folded away until asked for. */
+  const [adjusting, setAdjusting] = useState(false);
+  const [customerAsked, setCustomerAsked] = useState(false);
   /** The teller's own figure for what is paid in all. Empty keeps the computed one. */
   const [payoutEdit, setPayoutEdit] = useState('');
   const [destination, setDestination] = useState(transferChannels[0] ?? '');
@@ -369,6 +375,19 @@ export function ReceiveFlow({
 
   const open = (arrival: Arrival) => {
     setDone(null);
+    setAdjusting(false);
+    setCustomerAsked(false);
+    // The last deal's price must not read as this one's while its own is fetched.
+    setQuote(null);
+
+    // The currency this teller last paid in: most of a counter's day is one.
+    try {
+      const last = window.localStorage.getItem(LAST_CURRENCY_KEY);
+      if (last && currencies.some((entry) => entry.code === last)) setPayoutCurrency(last);
+    } catch {
+      // Private window or blocked storage: the first currency is a fine default.
+    }
+
     setCounterpartyName('');
     setCounterpartyPhone('');
     setSaveCustomer(true);
@@ -472,6 +491,29 @@ export function ReceiveFlow({
     (!accountToUse ||
       (!customer && (!counterpartyName.trim() || !counterpartyPhone.trim())));
 
+  // Open while there is anything typed in it: a price must never be hidden and still apply.
+  const adjustOpen = adjusting || Boolean(priceCash || priceBroker || payoutEdit);
+  const showCustomer = customerAsked || transferring || Boolean(customer);
+  const ready = payout !== null && !missingForTransfer && !editRefused;
+
+  /*
+   * A deal with nothing left to ask is one key away: the teller looks, and presses
+   * Enter. Once, when it becomes ready, so typing in a field is never interrupted.
+   */
+  const focused = useRef<string | null>(null);
+  useEffect(() => {
+    if (!chosen) {
+      focused.current = null;
+      return;
+    }
+    if (!ready || focused.current === chosen.id) return;
+    focused.current = chosen.id;
+    const frame = requestAnimationFrame(() => {
+      document.querySelector<HTMLButtonElement>('button[form=settle-arrival]')?.focus();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [chosen, ready]);
+
   const record = async () => {
     if (!chosen) return;
     setRecording(true);
@@ -505,6 +547,11 @@ export function ReceiveFlow({
       );
       toast.success(t('receive.recorded'), created.reference);
       setDone(created);
+      try {
+        window.localStorage.setItem(LAST_CURRENCY_KEY, payoutCurrency);
+      } catch {
+        // Only a convenience.
+      }
       void loadRecent();
       setChosen(null);
       setCustomer(null);
@@ -859,9 +906,14 @@ export function ReceiveFlow({
               type="submit"
               form="settle-arrival"
               loading={recording}
-              disabled={payout === null || missingForTransfer || editRefused}
+              disabled={!ready}
             >
               {t('receive.record')}
+              {finalPayout !== null && (
+                <span className="ms-2 font-bold tabular-nums ltr-content">
+                  {toPlainAmount(finalPayout, payoutPlaces)} {payoutCurrency}
+                </span>
+              )}
             </Button>
           </>
         }
@@ -876,9 +928,7 @@ export function ReceiveFlow({
             className="space-y-3"
             onSubmit={(event) => {
               event.preventDefault();
-              if (payout !== null && !missingForTransfer && !editRefused && !recording) {
-                void record();
-              }
+              if (ready && !recording) void record();
             }}
           >
             {chosen.recognised?.status === 'KNOWN' && (
@@ -909,8 +959,6 @@ export function ReceiveFlow({
                   : t('receive.shared', { count: chosen.recognised.customers })}
               </Alert>
             )}
-
-            {!quote?.percent && <Alert tone="neutral">{t('arrivals.pricedNow')}</Alert>}
 
             <div className="flex items-center justify-between rounded-xl bg-surface-sunken px-3 py-2">
               <span className="text-sm text-content-secondary">{t('arrivals.arrived')}</span>
@@ -1090,7 +1138,7 @@ export function ReceiveFlow({
             */}
             {quote?.percent && (
               <div className="grid gap-3 sm:grid-cols-2">
-                {mode !== 'BROKER' && (
+                {mode !== 'BROKER' && (adjustOpen || !percentCash.trim()) && (
                   <label className="block">
                     <span className="text-xs text-content-tertiary">{t('receive.percentCash')}</span>
                     <input
@@ -1105,7 +1153,7 @@ export function ReceiveFlow({
                     />
                   </label>
                 )}
-                {mode !== 'CASH' && (
+                {mode !== 'CASH' && (adjustOpen || !percentBroker.trim()) && (
                   <label className="block">
                     <span className="text-xs text-content-tertiary">
                       {t('receive.percentBroker')}
@@ -1129,7 +1177,7 @@ export function ReceiveFlow({
               The teller's own price for this customer, in place of the board's,
               which shows faintly in the field. Left empty, the board stands.
             */}
-            {pricing && quote && (
+            {pricing && quote && adjustOpen && (
               <div className="grid gap-3 sm:grid-cols-2">
                 {(
                   [
@@ -1191,7 +1239,16 @@ export function ReceiveFlow({
               The figure the bot will write, and the one the office pays: the
               books follow it. Offered once there is a computed figure to change.
             */}
-            {payout !== null && (
+            {payout !== null && !adjustOpen && (
+              <button
+                type="button"
+                onClick={() => setAdjusting(true)}
+                className="text-sm text-primary-text hover:underline"
+              >
+                {t('receive.adjust')}
+              </button>
+            )}
+            {payout !== null && adjustOpen && (
               <label className="block">
                 <span className="text-xs text-content-tertiary">
                   {t('receive.payoutEdit', { currency: payoutCurrency })}
@@ -1229,15 +1286,26 @@ export function ReceiveFlow({
               this, typing half a name and pressing Enter would record the
               transfer for nobody.
             */}
-            <div
-              onKeyDown={(event) => {
-                if (event.key === 'Enter') event.preventDefault();
-              }}
-            >
-              <CustomerPicker value={customer} onChange={setCustomer} permissions={permissions} />
-            </div>
+            {!showCustomer && (
+              <button
+                type="button"
+                onClick={() => setCustomerAsked(true)}
+                className="block text-sm text-primary-text hover:underline"
+              >
+                {t('receive.addCustomer')}
+              </button>
+            )}
+            {showCustomer && (
+              <div
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') event.preventDefault();
+                }}
+              >
+                <CustomerPicker value={customer} onChange={setCustomer} permissions={permissions} />
+              </div>
+            )}
 
-            {!customer && (
+            {showCustomer && !customer && (
               <>
                 <div className="grid gap-3 sm:grid-cols-2">
                   <Field label={t('transactions.counterpartyName')} required={transferring}>

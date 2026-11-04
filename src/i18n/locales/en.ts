@@ -1567,6 +1567,8 @@ const en = {
     logEmpty: 'Nothing has arrived yet.',
     openExplorer: 'Open on TronScan',
     from: 'From',
+    adjust: 'Change the price or amount',
+    addCustomer: '+ Add a customer (optional)',
     priceCash: 'Teller’s cash price — optional',
     priceBroker: 'Teller’s bank price — optional',
     priceEdited: 'In place of the board’s {board}.',
