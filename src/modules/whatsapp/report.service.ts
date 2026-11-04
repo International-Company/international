@@ -168,27 +168,32 @@ export async function tellerDay(teller: TellerCandidate): Promise<TellerDay> {
       out: flows.get(closing.currency)?.out ?? 0n,
       closing: closing.amount,
     })),
-    groups: count.groups.map((group) => ({
-      kind: group.kind,
-      count: group.count,
-      received: group.received,
-      paid: group.paid,
-      moves: group.entries
-        .filter((entry) => !entry.reversed)
-        .map((entry) =>
-          moveOf(group.kind, {
-            at: clock(entry.at),
-            fromCurrency: entry.fromCurrency,
-            fromAmount: entry.fromAmount,
-            toCurrency: entry.toCurrency,
-            toAmount: entry.toAmount,
-            customer: entry.customer,
-            payoutBank: entry.payoutBank,
-          }),
-        ),
-    })),
+    // The exchange first, then the coins, each buying before selling.
+    groups: [...count.groups]
+      .sort((a, b) => REPORT_ORDER.indexOf(a.kind) - REPORT_ORDER.indexOf(b.kind))
+      .map((group) => ({
+        kind: group.kind,
+        count: group.count,
+        received: group.received,
+        paid: group.paid,
+        moves: group.entries
+          .filter((entry) => !entry.reversed)
+          .map((entry) =>
+            moveOf(group.kind, {
+              at: clock(entry.at),
+              fromCurrency: entry.fromCurrency,
+              fromAmount: entry.fromAmount,
+              toCurrency: entry.toCurrency,
+              toAmount: entry.toAmount,
+              customer: entry.customer,
+              payoutBank: entry.payoutBank,
+            }),
+          ),
+      })),
   };
 }
+
+const REPORT_ORDER = ['BUY', 'SELL', 'USDT_RECEIVE', 'USDT_SEND'];
 
 /** An hour of the day, on the server's clock like the day itself. */
 function clock(at: Date): string {
