@@ -26,6 +26,7 @@ import { DateText, Money } from '@/ui/display';
 import { CustomerPicker, type CustomerHit } from '@/ui/customer-picker';
 import { PendingTransfersButton } from '@/ui/pending-transfers';
 import { ShareButton } from '@/ui/share';
+import { AutoPrintToggle, printAfterRecording } from '@/ui/auto-print';
 import { cn } from '@/ui/utils';
 import { convert, normalizeDigits } from '@/core/money/money';
 import { payoutAtPercent, validPercent } from '@/modules/usdt/percent-payout';
@@ -546,6 +547,7 @@ export function ReceiveFlow({
         },
       );
       toast.success(t('receive.recorded'), created.reference);
+      printAfterRecording(created.id, permissions);
       setDone(created);
       try {
         window.localStorage.setItem(LAST_CURRENCY_KEY, payoutCurrency);
@@ -666,6 +668,7 @@ export function ReceiveFlow({
                       >
                         {t('transactions.printReceipt')}
                       </Button>
+                      <AutoPrintToggle />
                       <ShareButton transactionId={done.id} variant="secondary" />
                     </>
                   )}

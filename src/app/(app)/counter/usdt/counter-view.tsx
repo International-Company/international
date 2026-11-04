@@ -22,6 +22,7 @@ import { say } from '@/lib/failure';
 import { QrCode } from '@/core/qr/qr-code';
 import { Alert, Badge, Button, Card, CardBody, CardHeader } from '@/ui/primitives';
 import { ShareButton } from '@/ui/share';
+import { printAfterRecording } from '@/ui/auto-print';
 import { ReceiveFlow } from './receive-flow';
 import { ConfirmDialog, useToast } from '@/ui/overlay';
 import { Textarea } from '@/ui/form';
@@ -178,6 +179,7 @@ export function CounterView({
         { action: 'complete' },
       );
       toast.success(t('counter.settled'), result.transaction.reference);
+      printAfterRecording(result.transaction.id, permissions);
       setActive((current) =>
         current ? { ...current, status: 'COMPLETED', transaction: result.transaction } : current,
       );

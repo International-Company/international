@@ -11,6 +11,7 @@ import { Alert, Button } from '@/ui/primitives';
 import { useToast } from '@/ui/overlay';
 import { Money } from '@/ui/display';
 import { ShareButton } from '@/ui/share';
+import { AutoPrintToggle, printAfterRecording } from '@/ui/auto-print';
 
 /**
  * Cash out of a customer's wallet, or cash into it.
@@ -105,6 +106,7 @@ export function WalletOps({
         counterpartyPhone: phone.trim(),
       });
       toast.success(t('walletOps.recorded'), result.reference);
+      printAfterRecording(result.id, permissions);
       setDone(result);
       setAmount('');
       setFee('');
@@ -150,6 +152,7 @@ export function WalletOps({
                 >
                   {t('transactions.printReceipt')}
                 </Button>
+                <AutoPrintToggle />
                 <ShareButton transactionId={done.id} variant="secondary" />
               </>
             )}

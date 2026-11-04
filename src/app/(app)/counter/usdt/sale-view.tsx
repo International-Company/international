@@ -9,6 +9,7 @@ import { api, ApiError, queryString } from '@/lib/api-client';
 import { say } from '@/lib/failure';
 import { Button } from '@/ui/primitives';
 import { ShareButton } from '@/ui/share';
+import { AutoPrintToggle, printAfterRecording } from '@/ui/auto-print';
 import { useToast } from '@/ui/overlay';
 import { Field, Input } from '@/ui/form';
 import { CustomerPicker, type CustomerHit } from '@/ui/customer-picker';
@@ -134,6 +135,7 @@ export function SaleView({
         notes: notes.trim() || null,
       });
       toast.success(t('usdtSale.recorded'), result.reference);
+      printAfterRecording(result.id, permissions);
       setDone(result);
       clear();
       router.refresh();
@@ -336,6 +338,7 @@ export function SaleView({
               <Button size="sm" variant="ghost" icon={<Printer />} onClick={() => print(done.id)}>
                 {t('transactions.printReceipt')}
               </Button>
+              <AutoPrintToggle />
               <ShareButton transactionId={done.id} />
             </span>
           )}

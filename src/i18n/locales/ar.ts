@@ -2113,6 +2113,7 @@ const ar: Dictionary = {
     received: 'المستلم',
     delivered: 'المسلّم',
     transferred: 'المحوّل للعميل',
+    autoPrint: 'طباعة تلقائية على هذا الجهاز',
     rate: 'السعر',
     commission: 'العمولة',
     total: 'الإجمالي',

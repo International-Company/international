@@ -19,6 +19,7 @@ import { api, ApiError, queryString } from '@/lib/api-client';
 import { say } from '@/lib/failure';
 import { Button } from '@/ui/primitives';
 import { ShareButton } from '@/ui/share';
+import { AutoPrintToggle, printAfterRecording } from '@/ui/auto-print';
 import { useToast } from '@/ui/overlay';
 import { Field, Input } from '@/ui/form';
 import { CustomerPicker, type CustomerHit } from '@/ui/customer-picker';
@@ -210,6 +211,7 @@ export function RemittanceView({
       });
 
       toast.success(t('remittance.recorded'), result.reference);
+      printAfterRecording(result.id, permissions);
       setDone(result);
       setGross('');
       setNet('');
@@ -535,6 +537,7 @@ export function RemittanceView({
               <Button size="sm" variant="ghost" icon={<Printer />} onClick={() => print(done.id)}>
                 {t('transactions.printReceipt')}
               </Button>
+              <AutoPrintToggle />
               <ShareButton transactionId={done.id} />
             </span>
           )}

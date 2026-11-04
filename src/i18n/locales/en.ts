@@ -2114,6 +2114,7 @@ const en = {
     received: 'Received',
     delivered: 'Delivered',
     transferred: 'Transferred to the customer',
+    autoPrint: 'Print automatically on this device',
     rate: 'Rate',
     commission: 'Commission',
     total: 'Total',

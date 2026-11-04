@@ -34,6 +34,7 @@ import { describeFailure, say } from '@/lib/failure';
 import { api, ApiError, queryString } from '@/lib/api-client';
 import { Button } from '@/ui/primitives';
 import { ShareButton } from '@/ui/share';
+import { AutoPrintToggle, printAfterRecording } from '@/ui/auto-print';
 import { Dialog, DropdownMenu, useToast } from '@/ui/overlay';
 import { Field, Input, MoneyInput, Textarea } from '@/ui/form';
 import { Money } from '@/ui/display';
@@ -702,6 +703,7 @@ export function MachineView({
       );
 
       toast.success(t('machine.recorded'), result.reference);
+      printAfterRecording(result.id, permissions);
       setDone(result);
       setAmount('');
       setQuote(null);
@@ -1359,6 +1361,7 @@ export function MachineView({
                     >
                       {t('transactions.printReceipt')}
                     </Button>
+                    <AutoPrintToggle />
                     <ShareButton transactionId={done.id} />
                   </span>
                 )}
