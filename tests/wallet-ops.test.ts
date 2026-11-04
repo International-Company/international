@@ -63,7 +63,7 @@ describe('the machine’s types', () => {
   });
 
   it('leave a remittance and USDT pinned as they were', () => {
-    assert.deepEqual(balancesFor('REMITTANCE_OUT'), { intake: 'CASH', payout: 'CORRESPONDENT' });
+    assert.deepEqual(balancesFor('REMITTANCE_OUT'), { intake: null, payout: 'CORRESPONDENT' });
     assert.deepEqual(balancesFor('USDT_RECEIVE'), { intake: 'CASH', payout: null });
     assert.deepEqual(balancesFor('USDT_SEND'), { intake: null, payout: 'CASH' });
   });

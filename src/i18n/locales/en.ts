@@ -717,6 +717,7 @@ const en = {
     savePrice: 'Save price',
     proof: 'Payment proof',
     proofAttach: 'Attach a photo of the payment (optional)',
+    proofAttachTransfer: 'Attach a photo of the customer’s transfer (optional)',
     proofReady: 'It is kept with the remittance and sent with its message to the group.',
     noDestinations: 'No destinations have been set',
     noDestinationsHint:

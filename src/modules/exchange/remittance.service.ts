@@ -5,6 +5,7 @@ import { toDecimalString } from '@/core/money/money';
 import { emitAsync } from '@/core/events/bus';
 import * as audit from '@/modules/audit/audit.service';
 import * as settings from '@/modules/settings/settings.service';
+import { transferChannels } from './machine.service';
 import { MAX_PROOFS, readProofImage } from './proof-image';
 import * as transactions from './transaction.service';
 import type { Actor } from './transaction.service';
@@ -45,6 +46,8 @@ export async function destinations(db: DbClient = prisma): Promise<string[]> {
 
 export interface RemittanceConfig {
   destinations: string[];
+  /** The office's accounts a customer can pay into. */
+  transferChannels: string[];
   /** The price list, for the screen to work a sum out from. */
   prices: {
     id: string;
@@ -65,8 +68,9 @@ export interface RemittanceConfig {
  * USDT reaches the branch by a different road with its own screen.
  */
 export async function config(db: DbClient = prisma): Promise<RemittanceConfig> {
-  const [list, prices, currencies] = await Promise.all([
+  const [list, channels, prices, currencies] = await Promise.all([
     destinations(db),
+    transferChannels(db),
     db.remittancePrice.findMany({
       orderBy: [{ destination: 'asc' }, { currency: 'asc' }],
       select: {
@@ -86,7 +90,7 @@ export async function config(db: DbClient = prisma): Promise<RemittanceConfig> {
     }),
   ]);
 
-  return { destinations: list, prices, currencies };
+  return { destinations: list, transferChannels: channels, prices, currencies };
 }
 
 interface Common {
@@ -104,6 +108,8 @@ export interface SendInput extends Common {
   collected: bigint;
   /** What the correspondent charges for it — their published price. */
   cost: bigint;
+  /** The customer paid by transfer, into this one of the office's accounts. Otherwise notes. */
+  intakeChannel?: string | null;
   /** A photo of what the customer paid, as base64. */
   proof?: string | null;
 }
@@ -155,6 +161,16 @@ export async function send(input: SendInput, actor: Actor, db: DbClient = prisma
 
   const image = input.proof ? readProof_(input.proof) : null;
 
+  // Paid by transfer: the money landed on the office's account, not in the till.
+  const intakeChannel = input.intakeChannel?.trim() || null;
+  if (intakeChannel && !(await transferChannels(db)).includes(intakeChannel)) {
+    throw errors.precondition(
+      `${intakeChannel} is not an account the counter offers`,
+      'errors.transferChannelUnknown',
+      { channel: intakeChannel },
+    );
+  }
+
   /*
    * One transaction, so the deal and its photo are visible together. The bot is
    * told of the deal as it is written and waits for it to commit, so by the time
@@ -172,6 +188,8 @@ export async function send(input: SendInput, actor: Actor, db: DbClient = prisma
         fromAmount: input.collected,
         toCurrency: input.currency,
         toAmount: input.cost,
+        intake: intakeChannel ? { cash: 0n, broker: input.collected } : undefined,
+        intakeChannel,
         rate: 100000000n,
         profitAmount: input.collected - input.cost,
         counterpartyName: input.counterpartyName ?? null,

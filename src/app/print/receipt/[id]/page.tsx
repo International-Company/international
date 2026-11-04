@@ -314,6 +314,21 @@ export default async function ReceiptPage({ params }: { params: Promise<{ id: st
                   )}
 
                   {/*
+                    Paid wholly by transfer: the paper says into which account.
+                    A wallet service names its own above.
+                  */}
+                  {!isWallet &&
+                    transaction.intakeBrokerAmount > 0n &&
+                    transaction.intakeCashAmount === 0n && (
+                      <tr>
+                        <td className="py-1">{t('receipt.paidByTransfer')}</td>
+                        <td className="py-1 text-end font-semibold">
+                          {transaction.intakeBankChannel ?? '—'}
+                        </td>
+                      </tr>
+                    )}
+
+                  {/*
                     Paid both ways: the customer's money came part by transfer,
                     part in notes, and the paper says how much each way.
                   */}

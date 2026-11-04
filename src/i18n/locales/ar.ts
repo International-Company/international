@@ -719,6 +719,7 @@ const ar: Dictionary = {
     savePrice: 'حفظ التسعيرة',
     proof: 'إثبات الدفع',
     proofAttach: 'إرفاق صورة إثبات الدفع (اختياري)',
+    proofAttachTransfer: 'إرفاق صورة تحويل الزبون (اختياري)',
     proofReady: 'ستُحفظ مع الحوالة وتُرسل مع رسالتها إلى المجموعة.',
     noDestinations: 'لا توجد وجهات معرّفة',
     noDestinationsHint:

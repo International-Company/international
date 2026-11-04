@@ -56,6 +56,7 @@ interface Currency {
 
 interface Config {
   destinations: string[];
+  transferChannels: string[];
   prices: PriceRow[];
   currencies: Currency[];
 }
@@ -106,6 +107,9 @@ export function RemittanceView({
    * always differ from the list.
    */
   const [sum, setSum] = useState('');
+  /** How the customer pays: notes across the counter, or a transfer to an office account. */
+  const [paidVia, setPaidVia] = useState<'CASH' | 'TRANSFER'>('CASH');
+  const [intakeChannel, setIntakeChannel] = useState(config.transferChannels[0] ?? '');
   /** A photo of what the customer paid, shrunk and ready to send. */
   const [proof, setProof] = useState<string | null>(null);
   const [readingProof, setReadingProof] = useState(false);
@@ -130,6 +134,7 @@ export function RemittanceView({
   const margin = grossValue - netValue;
 
   const outgoing = direction === 'OUT';
+  const byTransfer = outgoing && paidVia === 'TRANSFER';
   const canSeeMargin = permissions.includes('exchange.margin.view');
 
   // The teller's own last few, in the direction they are working in — a lost
@@ -159,6 +164,7 @@ export function RemittanceView({
     setNet('');
     setSum('');
     setProof(null);
+    setPaidVia('CASH');
     setCustomer(null);
     setCustomerOpen(false);
     setCounterpartyName('');
@@ -178,7 +184,9 @@ export function RemittanceView({
     grossValue <= 0n ||
     netValue <= 0n ||
     margin < 0n ||
-    (!customer && !counterpartyName.trim());
+    (!customer && !counterpartyName.trim()) ||
+    // A transfer belongs to someone who can be reached; the server insists too.
+    (byTransfer && !customer && !counterpartyPhone.trim());
 
   const submit = async () => {
     if (blocked) return;
@@ -194,6 +202,7 @@ export function RemittanceView({
         counterpartyName: counterpartyName.trim() || null,
         counterpartyPhone: counterpartyPhone.trim() || null,
         notes: notes.trim() || null,
+        intakeChannel: byTransfer ? intakeChannel : null,
         proof: outgoing ? proof : null,
       });
 
@@ -203,6 +212,7 @@ export function RemittanceView({
       setNet('');
       setSum('');
       setProof(null);
+      setPaidVia('CASH');
       setCounterpartyName('');
       setCounterpartyPhone('');
       setNotes('');
@@ -418,6 +428,55 @@ export function RemittanceView({
         </p>
       )}
 
+      {/* ============ How the customer pays ============ */}
+      {outgoing && (
+        <div className="rounded-2xl bg-surface p-3 ring-1 ring-border-subtle">
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-xs font-medium text-content-secondary">
+              {t('machine.intakeTitle')}
+            </span>
+            <div dir="ltr" className="flex gap-1 rounded-full bg-surface-sunken p-1">
+              {(['CASH', 'TRANSFER'] as const).map((option) => (
+                <button
+                  key={option}
+                  type="button"
+                  aria-pressed={paidVia === option}
+                  disabled={option === 'TRANSFER' && config.transferChannels.length === 0}
+                  onClick={() => {
+                    setPaidVia(option);
+                    setDone(null);
+                  }}
+                  className={cn(
+                    'h-9 rounded-full px-4 text-sm font-medium transition-colors disabled:opacity-40',
+                    paidVia === option
+                      ? 'bg-surface text-content shadow-[var(--shadow-sm)]'
+                      : 'text-content-tertiary hover:text-content-secondary',
+                  )}
+                >
+                  {option === 'CASH' ? t('machine.intakeCash') : t('machine.intakeTransfer')}
+                </button>
+              ))}
+            </div>
+          </div>
+          {byTransfer && (
+            <label className="mt-3 block">
+              <span className="text-xs text-content-tertiary">{t('machine.intakeInto')}</span>
+              <select
+                value={intakeChannel}
+                onChange={(event) => setIntakeChannel(event.target.value)}
+                className="mt-1 h-12 w-full rounded-xl bg-surface-sunken px-3 text-base font-medium text-content outline-none ring-1 ring-transparent focus:ring-primary"
+              >
+                {config.transferChannels.map((entry) => (
+                  <option key={entry} value={entry}>
+                    {entry}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+        </div>
+      )}
+
       {/* ============ A photo of what the customer paid ============ */}
       {outgoing && (
         <div className="flex items-center gap-3 rounded-2xl bg-surface p-3 ring-1 ring-border-subtle">
@@ -444,7 +503,7 @@ export function RemittanceView({
           ) : (
             <label className="flex min-h-11 flex-1 cursor-pointer items-center gap-2 text-sm text-content-secondary transition-colors hover:text-primary-text">
               {readingProof ? <Loader2 className="size-5 animate-spin" /> : <Camera className="size-5" />}
-              {t('remittance.proofAttach')}
+              {byTransfer ? t('remittance.proofAttachTransfer') : t('remittance.proofAttach')}
               <input
                 type="file"
                 accept="image/*"
@@ -528,7 +587,7 @@ export function RemittanceView({
                   />
                 )}
               </Field>
-              <Field label={t('remittance.phone')}>
+              <Field label={t('remittance.phone')} required={byTransfer}>
                 {(props) => (
                   <Input
                     {...props}
