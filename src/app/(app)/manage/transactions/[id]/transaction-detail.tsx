@@ -11,6 +11,7 @@ import {
   Pencil,
   Printer,
   Undo2,
+  UserRoundCheck,
 } from 'lucide-react';
 import { useLocale } from '@/i18n/provider';
 import { api, ApiError } from '@/lib/api-client';
@@ -18,7 +19,7 @@ import { say } from '@/lib/failure';
 import { Alert, Badge, Button, Card, CardBody, CardHeader, DetailRow } from '@/ui/primitives';
 import { ShareButton } from '@/ui/share';
 import { ConfirmDialog, Dialog, useToast } from '@/ui/overlay';
-import { Field, Input, Textarea } from '@/ui/form';
+import { Field, Input, Select, Textarea } from '@/ui/form';
 import { DateText, Money, Rate, StatusBadge } from '@/ui/display';
 import { cn } from '@/ui/utils';
 
@@ -55,6 +56,7 @@ interface TransactionData {
   notes: string | null;
   createdAt: string;
   createdById: string;
+  transferConfirmedAt: string | null;
   counterpartyName: string | null;
   counterpartyPhone: string | null;
   intakeBankChannel: string | null;
@@ -88,10 +90,13 @@ interface AuditEntry {
 export function TransactionDetail({
   transaction,
   history,
+  tellers,
   permissions,
 }: {
   transaction: TransactionData;
   history: AuditEntry[];
+  /** Who a deal can be moved to; empty for anyone who cannot move one. */
+  tellers: { id: string; fullNameAr: string; fullNameEn: string }[];
   permissions: string[];
 }) {
   const { t, ln } = useLocale();
@@ -108,15 +113,54 @@ export function TransactionDetail({
     permissions.includes('exchange.transaction.reverse');
 
   /*
+   * Handing a deal to the teller it belonged to. Offered on what the machine
+   * records and not on a transfer already sent; the rest — an earlier day, say —
+   * the server refuses in words, rather than the button silently not being here.
+   */
+  const [moving, setMoving] = useState(false);
+  const [tellerId, setTellerId] = useState('');
+  const others = tellers.filter((teller) => teller.id !== transaction.createdById);
+  const canMove =
+    canReverse &&
+    ['EXCHANGE', 'WALLET_CASHOUT', 'WALLET_TOPUP'].includes(transaction.type) &&
+    !transaction.transferConfirmedAt &&
+    others.length > 0;
+
+  const move = async () => {
+    setBusy(true);
+    try {
+      const moved = await api.post<{ id: string; reference: string }>(
+        `/api/manage/transactions/${transaction.id}`,
+        { action: 'moveToTeller', tellerId },
+      );
+      toast.success(t('transactions.moved'), moved.reference);
+      setMoving(false);
+      router.push(`/manage/transactions/${moved.id}`);
+    } catch (cause) {
+      toast.error(
+        t('errors.title'),
+        cause instanceof ApiError
+          ? say(t, cause.messageKey, cause.params) || cause.message
+          : t('errors.generic'),
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  /*
    * Editing covers only what never moved money. There is no way to change an
    * amount here: a wrong figure is reversed and the trade recorded again, so a
    * drawer only ever moves by a whole transaction somebody can point to.
    */
-  const canEdit =
-    !transaction.reversalOf && permissions.includes('exchange.transaction.edit');
+  const canEdit = !transaction.reversalOf && permissions.includes('exchange.transaction.edit');
 
   const [editing, setEditing] = useState(false);
-  const [details, setDetails] = useState({ counterpartyName: '', counterpartyPhone: '', notes: '' });
+  const [details, setDetails] = useState({
+    counterpartyName: '',
+    counterpartyPhone: '',
+    notes: '',
+  });
 
   const openEditor = () => {
     setDetails({
@@ -152,8 +196,7 @@ export function TransactionDetail({
   };
 
   const canConfirmTransfer =
-    transaction.status === 'PENDING_TRANSFER' &&
-    permissions.includes('exchange.transfer.confirm');
+    transaction.status === 'PENDING_TRANSFER' && permissions.includes('exchange.transfer.confirm');
 
   const confirmTransfer = async () => {
     setBusy(true);
@@ -238,9 +281,7 @@ export function TransactionDetail({
             actions={
               <div className="flex flex-wrap items-center gap-2">
                 <StatusBadge status={transaction.status} />
-                <Badge tone="neutral">
-                  {t(`transactions.type.${transaction.type}` as never)}
-                </Badge>
+                <Badge tone="neutral">{t(`transactions.type.${transaction.type}` as never)}</Badge>
               </div>
             }
           />
@@ -396,6 +437,19 @@ export function TransactionDetail({
                   {t('transactions.editDetails')}
                 </Button>
               )}
+              {canMove && (
+                <Button
+                  variant="secondary"
+                  fullWidth
+                  icon={<UserRoundCheck />}
+                  onClick={() => {
+                    setTellerId(others[0]?.id ?? '');
+                    setMoving(true);
+                  }}
+                >
+                  {t('transactions.moveToTeller')}
+                </Button>
+              )}
               {canReverse && (
                 <Button
                   variant="danger"
@@ -447,7 +501,9 @@ export function TransactionDetail({
                 );
               })}
               {transaction.movements.length === 0 && (
-                <li className="px-4 py-6 text-sm text-content-secondary">{t('common.noResults')}</li>
+                <li className="px-4 py-6 text-sm text-content-secondary">
+                  {t('common.noResults')}
+                </li>
               )}
             </ul>
           </Card>
@@ -494,6 +550,32 @@ export function TransactionDetail({
           rows={3}
           required
         />
+      </ConfirmDialog>
+
+      {/* --- A deal recorded on the wrong account ------------------------ */}
+      <ConfirmDialog
+        open={moving}
+        onClose={() => setMoving(false)}
+        onConfirm={() => void move()}
+        title={t('transactions.moveToTeller')}
+        message={t('transactions.moveHint', { reference: transaction.reference })}
+        confirmLabel={t('transactions.moveConfirm')}
+        cancelLabel={t('common.cancel')}
+        loading={busy}
+      >
+        <Field label={t('transactions.moveTeller')} required>
+          {(props) => (
+            <Select
+              {...props}
+              options={others.map((teller) => ({
+                value: teller.id,
+                label: ln(teller, 'fullName'),
+              }))}
+              value={tellerId}
+              onChange={(event) => setTellerId(event.target.value)}
+            />
+          )}
+        </Field>
       </ConfirmDialog>
 
       {/* --- The parts that never moved money ---------------------------- */}

@@ -21,6 +21,8 @@ export const GET = route<unknown, unknown, z.infer<typeof paramsSchema>>({
 const bodySchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('reverse'), reason: z.string().min(3).max(500) }),
   z.object({ action: z.literal('confirmTransfer') }),
+  // Checked in the service, like the rest: only someone who may reverse may move.
+  z.object({ action: z.literal('moveToTeller'), tellerId: z.string().min(1) }),
   // No amount correction: a posted figure that is wrong is reversed and the
   // trade recorded again, so the drawer only ever moves by a whole transaction.
   z.object({
@@ -42,6 +44,8 @@ export const POST = route<z.infer<typeof bodySchema>, unknown, z.infer<typeof pa
         return transactions.reverse(params.id, body.reason, actor);
       case 'confirmTransfer':
         return transactions.confirmTransfer(params.id, actor);
+      case 'moveToTeller':
+        return transactions.moveToTeller(params.id, body.tellerId, actor);
       case 'edit':
         return transactions.updateDetails(
           params.id,

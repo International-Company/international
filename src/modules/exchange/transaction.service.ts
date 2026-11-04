@@ -84,6 +84,13 @@ export interface RecordInput {
   notes?: string | null;
 }
 
+export interface RecordOptions {
+  /** Whose deal this is, and whose cash it moves, when not the person recording it. */
+  createdBy?: string;
+  /** Tells no one. For a deal being moved, not a new one: see `moveToTeller`. */
+  quiet?: boolean;
+}
+
 export interface RecordedTransaction {
   id: string;
   reference: string;
@@ -102,6 +109,7 @@ export async function record(
   input: RecordInput,
   actor: Actor,
   db: DbClient = prisma,
+  options: RecordOptions = {},
 ): Promise<RecordedTransaction> {
   if (input.fromAmount <= 0n || input.toAmount <= 0n) {
     throw errors.precondition('Amount must be greater than zero', 'errors.amountNotPositive');
@@ -260,7 +268,7 @@ export async function record(
         counterpartyPhone: input.counterpartyPhone ?? null,
         notes: input.notes ?? null,
         businessDayId: day.id,
-        createdById: actor.id,
+        createdById: options.createdBy ?? actor.id,
       },
     });
 
@@ -286,7 +294,7 @@ export async function record(
      * counted this morning and will hand back tonight; anyone else out of the
      * treasury. Resolved once, here, so both sides of the transaction agree.
      */
-    const cashOwner = await cashOwnerFor(actor.id, tx);
+    const cashOwner = await cashOwnerFor(options.createdBy ?? actor.id, tx);
 
     const sideLegs = (
       side: BalanceSide,
@@ -401,12 +409,14 @@ export async function record(
     return { id: row.id, reference, status: row.status as TransactionStatus };
   }, db);
 
-  emitAsync('transaction.posted', {
-    transactionId: recorded.id,
-    reference: recorded.reference,
-    type: input.type,
-    actorId: actor.id,
-  });
+  if (!options.quiet) {
+    emitAsync('transaction.posted', {
+      transactionId: recorded.id,
+      reference: recorded.reference,
+      type: input.type,
+      actorId: actor.id,
+    });
+  }
 
   log.info('Transaction recorded', { reference: recorded.reference, type: input.type });
 
@@ -426,6 +436,7 @@ export async function reverse(
   reason: string,
   actor: Actor,
   db: DbClient = prisma,
+  options: { quiet?: boolean } = {},
 ): Promise<{ reversalId: string; reference: string }> {
   if (!reason.trim()) {
     throw errors.validation([{ path: 'reason', message: 'A reason is required to reverse' }]);
@@ -559,6 +570,20 @@ export async function reverse(
     });
 
     /*
+     * Whose cash it was. A deal on a teller's shift moved their drawer, so
+     * undoing it has to move that drawer back; left to the default it moved the
+     * treasury instead, and both were wrong by the size of the deal. Once that
+     * shift has closed the teller has handed their cash over, so it comes back
+     * to the treasury, which is where it now is.
+     */
+    const movedCash = await tx.drawerMovement.findFirst({
+      where: { transactionId: id, drawer: { kind: 'CASH' } },
+      select: { drawer: { select: { ownerKey: true } } },
+    });
+    const tellerId = movedCash ? drawers.ownerTellerId(movedCash.drawer.ownerKey) : null;
+    const cashOwner = tellerId ? await cashOwnerFor(tellerId, tx) : drawers.TREASURY;
+
+    /*
      * Every leg goes back to the balance it came from.
      *
      * Returning a split wholly to cash would quietly move money between the
@@ -581,10 +606,21 @@ export async function reverse(
         businessDayId: day.id,
       };
       if (side === 'NONE') return [];
-      if (side) return [{ ...common, kind: side, amount: total }];
+      if (side) {
+        return [
+          {
+            ...common,
+            kind: side,
+            amount: total,
+            owner: side === 'CASH' ? cashOwner : undefined,
+          },
+        ];
+      }
 
       return [
-        ...(legs.cash > 0n ? [{ ...common, kind: 'CASH' as const, amount: legs.cash }] : []),
+        ...(legs.cash > 0n
+          ? [{ ...common, kind: 'CASH' as const, amount: legs.cash, owner: cashOwner }]
+          : []),
         ...(legs.broker > 0n
           ? [{ ...common, kind: 'BROKER' as const, amount: legs.broker, account }]
           : []),
@@ -633,15 +669,158 @@ export async function reverse(
     return { reversalId: reversal.id, reference, originalReference: original.reference };
   }, db);
 
-  emitAsync('transaction.reversed', {
-    transactionId: id,
-    reversalId: result.reversalId,
-    actorId: actor.id,
-  });
+  if (!options.quiet) {
+    emitAsync('transaction.reversed', {
+      transactionId: id,
+      reversalId: result.reversalId,
+      actorId: actor.id,
+    });
+  }
 
   log.warn('Transaction reversed', { original: result.originalReference, reversal: result.reference });
 
   return { reversalId: result.reversalId, reference: result.reference };
+}
+
+// ---------------------------------------------------------------------------
+// Moving a deal to the teller it belonged to
+// ---------------------------------------------------------------------------
+
+const MACHINE_PERMISSION = 'exchange.machine.use';
+
+/** The people a deal can be moved to: active, and able to work the machine. */
+export async function movableTellers(db: DbClient = prisma) {
+  return db.user.findMany({
+    where: {
+      status: 'ACTIVE',
+      roles: { some: { role: { permissions: { some: { permission: { key: MACHINE_PERMISSION } } } } } },
+    },
+    orderBy: { fullNameAr: 'asc' },
+    select: { id: true, fullNameAr: true, fullNameEn: true },
+  });
+}
+
+export type MoveRefusal =
+  | 'errors.moveNotMachineDeal'
+  | 'errors.notPosted'
+  | 'errors.cannotReverseReversal'
+  | 'errors.ownReverseSent'
+  | 'errors.moveSameTeller'
+  | 'errors.moveOldDay';
+
+/**
+ * Why a deal cannot be moved, or null when it can. A deal whose transfer has
+ * left the bank is refused because undoing it would record the money as still
+ * owed; one from an earlier day because it would land in today and leave the
+ * day it belongs to unchanged.
+ */
+export function moveRefusal(
+  deal: {
+    type: string;
+    status: string;
+    reversalOfId: string | null;
+    transferConfirmedAt: Date | null;
+    createdById: string;
+    businessDayId: string | null;
+  },
+  tellerId: string,
+  openDayId: string,
+): MoveRefusal | null {
+  if (!(MACHINE_TYPES as readonly string[]).includes(deal.type)) return 'errors.moveNotMachineDeal';
+  if (deal.reversalOfId) return 'errors.cannotReverseReversal';
+  if (deal.status !== 'POSTED' && deal.status !== 'PENDING_TRANSFER') return 'errors.notPosted';
+  if (deal.transferConfirmedAt) return 'errors.ownReverseSent';
+  if (deal.createdById === tellerId) return 'errors.moveSameTeller';
+  if (deal.businessDayId !== openDayId) return 'errors.moveOldDay';
+  return null;
+}
+
+/**
+ * Hands a deal recorded on the wrong account to the teller it belonged to.
+ *
+ * The cash is why this is not a change of name: a deal moved the drawer of
+ * whoever recorded it, so the books only agree if that drawer is put back and
+ * the teller's is moved instead. So it is the two things the system already
+ * trusts — a reversal and a recording — done as one, at the same figures and
+ * the same price, not the board's price now.
+ *
+ * Quiet, unlike either of those alone. Nothing happened at the counter: the
+ * customer has their money and any transfer is still owed once, so telling the
+ * WhatsApp group of a deletion and a new deal would only invite someone to send
+ * it twice. The audit says what happened, and who did it.
+ */
+export async function moveToTeller(
+  id: string,
+  tellerId: string,
+  actor: Actor,
+  db: DbClient = prisma,
+): Promise<RecordedTransaction> {
+  if (!actor.permissions.includes('exchange.transaction.reverse')) {
+    throw errors.forbidden('exchange.transaction.reverse');
+  }
+
+  const moved = await withTransaction(async (tx) => {
+    const original = await tx.transaction.findUnique({ where: { id } });
+    if (!original) throw errors.notFound('Transaction', id);
+
+    const teller = (await movableTellers(tx)).find((user) => user.id === tellerId);
+    if (!teller) {
+      throw errors.precondition('That person cannot work the machine', 'errors.moveNotTeller');
+    }
+
+    const day = await requireOpenDay(original.branchId, new Date(), tx, actor);
+    const refusal = moveRefusal(original, tellerId, day.id);
+    if (refusal) throw errors.precondition(`This deal cannot be moved: ${refusal}`, refusal);
+
+    const reason = `نقل إلى ${teller.fullNameAr}`;
+    await reverse(id, reason, actor, tx, { quiet: true });
+
+    const posted = await record(
+      {
+        type: original.type as TransactionType,
+        branchId: original.branchId,
+        fromCurrency: original.fromCurrency,
+        fromAmount: original.fromAmount,
+        toCurrency: original.toCurrency,
+        toAmount: original.toAmount,
+        intake: { cash: original.intakeCashAmount, broker: original.intakeBrokerAmount },
+        intakeChannel: original.intakeBankChannel,
+        payout: { cash: original.payoutCashAmount, bank: original.payoutBankAmount },
+        payoutChannel: original.payoutBankChannel,
+        payoutAccount: original.payoutAccount,
+        rate: original.rate,
+        rateId: original.rateId,
+        profitAmount: original.profitAmount,
+        customerId: original.customerId,
+        counterpartyName: original.counterpartyName,
+        counterpartyPhone: original.counterpartyPhone,
+        notes: original.notes,
+      },
+      actor,
+      tx,
+      { createdBy: teller.id, quiet: true },
+    );
+
+    await audit.record(
+      {
+        action: 'UPDATE',
+        module: 'exchange',
+        entityType: 'Transaction',
+        entityId: posted.id,
+        summaryEn: `Moved ${original.reference} to ${teller.fullNameEn} as ${posted.reference}`,
+        summaryAr: `نقل العملية ${original.reference} إلى ${teller.fullNameAr} بالرقم ${posted.reference}`,
+        actor,
+        before: { reference: original.reference, createdById: original.createdById },
+        after: { reference: posted.reference, createdById: teller.id },
+      },
+      tx,
+    );
+
+    return { posted, from: original.reference };
+  }, db);
+
+  log.info('Deal moved to a teller', { from: moved.from, to: moved.posted.reference });
+  return moved.posted;
 }
 
 // ---------------------------------------------------------------------------

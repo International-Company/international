@@ -309,6 +309,12 @@ const en = {
     reprintReceipt: 'Reprint receipt',
     reverse: 'Reverse',
     reverseTitle: 'Reverse transaction',
+    moveToTeller: 'Move to teller',
+    moveTeller: 'Teller',
+    moveConfirm: 'Move deal',
+    moveHint:
+      '{reference} is recorded under the teller at the same amounts and price, with a new number, and their drawer moves instead of the current one. Nothing is sent to the WhatsApp group, and the old receipt is no longer valid.',
+    moved: 'Deal moved',
     reverseWarning:
       'Reversing posts a mirror-image entry. Both the original and the reversal stay visible in the ledger permanently.',
     reverseReason: 'Reason for reversal',
@@ -2238,6 +2244,10 @@ const en = {
     alreadyPosted: 'This transaction is already posted',
     alreadyReversed: 'This transaction has already been reversed',
     homeCurrencyBase: 'The shekel is never the base. Publish it as {pair}: how many shekels one unit is.',
+    moveNotMachineDeal: 'Only exchange machine deals can be moved',
+    moveSameTeller: 'This deal is already under that teller',
+    moveOldDay: 'Only deals from the open day can be moved, because the move is dated today',
+    moveNotTeller: 'That person does not work the exchange machine',
     ownReverseSent: 'The transfer in this exchange was already sent — only the manager can undo it',
     ownReverseOldDay: 'This exchange is from an earlier day — only the manager can undo it',
     dayNotOpen: 'No business day is open — open the day first',
