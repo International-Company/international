@@ -12,6 +12,10 @@ export const MAX_PROOF_BYTES = 3 * 1024 * 1024;
 /** How many photos one deal can carry. */
 export const MAX_PROOFS = 5;
 
+/** What a photo shows: what the customer paid, or who the remittance is for. */
+export const PROOF_KINDS = ['PAYMENT', 'BENEFICIARY'] as const;
+export type ProofKind = (typeof PROOF_KINDS)[number];
+
 export type ProofRefusal = 'errors.proofImageInvalid' | 'errors.proofImageTooLarge';
 
 export function readProofImage(base64: string): { bytes: Buffer; mimeType: string } | ProofRefusal {

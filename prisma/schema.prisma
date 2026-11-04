@@ -2175,12 +2175,14 @@ model RemittancePrice {
   @@map("remittance_prices")
 }
 
-/// A photo of what a customer paid for a remittance. In the database rather than
-/// on disk, because the server's disk does not survive a deploy.
+/// A photo a remittance carries: PAYMENT, of what the customer paid, or BENEFICIARY,
+/// of who it is for. In the database rather than on disk, because the server's disk
+/// does not survive a deploy.
 model TransactionProof {
   id            String      @id @default(cuid())
   transactionId String
   transaction   Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  kind          String      @default("PAYMENT")
   mimeType      String
   size          Int
   data          Bytes

@@ -6,7 +6,7 @@ import { emitAsync } from '@/core/events/bus';
 import * as audit from '@/modules/audit/audit.service';
 import * as settings from '@/modules/settings/settings.service';
 import { transferChannels } from './machine.service';
-import { MAX_PROOFS, readProofImage } from './proof-image';
+import { MAX_PROOFS, readProofImage, type ProofKind } from './proof-image';
 import * as transactions from './transaction.service';
 import type { Actor } from './transaction.service';
 
@@ -112,6 +112,8 @@ export interface SendInput extends Common {
   intakeChannel?: string | null;
   /** A photo of what the customer paid, as base64. */
   proof?: string | null;
+  /** A photo of who the remittance is for, as base64. */
+  beneficiary?: string | null;
 }
 
 export interface ReceiveInput extends Common {
@@ -159,7 +161,11 @@ export async function send(input: SendInput, actor: Actor, db: DbClient = prisma
     );
   }
 
-  const image = input.proof ? readProof_(input.proof) : null;
+  // Both read before anything is written: a bad photo records no deal.
+  const photos = [
+    { kind: 'PAYMENT' as const, base64: input.proof },
+    { kind: 'BENEFICIARY' as const, base64: input.beneficiary },
+  ].flatMap(({ kind, base64 }) => (base64 ? [{ kind, image: readProof_(base64) }] : []));
 
   // Paid by transfer: the money landed on the office's account, not in the till.
   const intakeChannel = input.intakeChannel?.trim() || null;
@@ -199,10 +205,11 @@ export async function send(input: SendInput, actor: Actor, db: DbClient = prisma
       actor,
       tx,
     );
-    if (image) {
+    for (const { kind, image } of photos) {
       await tx.transactionProof.create({
         data: {
           transactionId: posted.id,
+          kind,
           mimeType: image.mimeType,
           size: image.bytes.length,
           data: new Uint8Array(image.bytes),
@@ -227,7 +234,12 @@ function readProof_(base64: string) {
  * A photo added once the remittance is already recorded: the customer's proof
  * often arrives after they have paid. Only for someone who can read the deal.
  */
-export async function addProof(transactionId: string, base64: string, actor: Actor) {
+export async function addProof(
+  transactionId: string,
+  base64: string,
+  actor: Actor,
+  kind: ProofKind = 'PAYMENT',
+) {
   const deal = await transactions.getById(transactionId, actor);
   if (deal.type !== 'REMITTANCE_OUT' || deal.status === 'REVERSED') {
     throw errors.precondition(
@@ -245,6 +257,7 @@ export async function addProof(transactionId: string, base64: string, actor: Act
   const proof = await prisma.transactionProof.create({
     data: {
       transactionId,
+      kind,
       mimeType: image.mimeType,
       size: image.bytes.length,
       data: new Uint8Array(image.bytes),
@@ -257,8 +270,8 @@ export async function addProof(transactionId: string, base64: string, actor: Act
     module: 'exchange',
     entityType: 'Transaction',
     entityId: transactionId,
-    summaryEn: `Attached a payment photo to ${deal.reference}`,
-    summaryAr: `إرفاق صورة إثبات الدفع بالعملية ${deal.reference}`,
+    summaryEn: `Attached a ${kind === 'PAYMENT' ? 'payment' : 'beneficiary'} photo to ${deal.reference}`,
+    summaryAr: `إرفاق صورة ${kind === 'PAYMENT' ? 'دليل الدفع' : 'بيانات المستفيد'} بالعملية ${deal.reference}`,
     actor,
   });
   emitAsync('transaction.proofAdded', { transactionId, proofId: proof.id });
@@ -270,7 +283,7 @@ export function listProofs(transactionId: string, db: DbClient = prisma) {
   return db.transactionProof.findMany({
     where: { transactionId },
     orderBy: { createdAt: 'asc' },
-    select: { id: true, createdAt: true },
+    select: { id: true, kind: true, createdAt: true },
   });
 }
 

@@ -34,6 +34,8 @@ const bodySchema = z.object({
   intakeChannel: z.string().max(80).nullish(),
   /** A photo of what the customer paid, shrunk by the screen, as base64. */
   proof: z.string().max(6_000_000).nullish(),
+  /** A photo of who the remittance is for, the same way. */
+  beneficiary: z.string().max(6_000_000).nullish(),
 });
 
 export const POST = route<z.infer<typeof bodySchema>>({
@@ -60,6 +62,7 @@ export const POST = route<z.infer<typeof bodySchema>>({
           cost: parseMoney(body.net),
           intakeChannel: body.intakeChannel ?? null,
           proof: body.proof ?? null,
+          beneficiary: body.beneficiary ?? null,
         },
         actor,
       );

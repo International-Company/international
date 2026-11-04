@@ -99,7 +99,7 @@ export function TransactionDetail({
   transaction: TransactionData;
   history: AuditEntry[];
   /** Photos of what the customer paid. */
-  proofs: { id: string; createdAt: string }[];
+  proofs: { id: string; kind: string; createdAt: string }[];
   /** Who a deal can be moved to; empty for anyone who cannot move one. */
   tellers: { id: string; fullNameAr: string; fullNameEn: string }[];
   permissions: string[];
@@ -139,7 +139,7 @@ export function TransactionDetail({
     permissions.includes('exchange.remittance.use') &&
     proofs.length < 5;
 
-  const addProof = async (file: File | undefined) => {
+  const addProof = async (file: File | undefined, kind: 'PAYMENT' | 'BENEFICIARY') => {
     if (!file) return;
     setAddingProof(true);
     try {
@@ -148,7 +148,7 @@ export function TransactionDetail({
         toast.error(t('errors.title'), t('errors.proofImageInvalid'));
         return;
       }
-      await api.post(`/api/manage/transactions/${transaction.id}/proofs`, { image });
+      await api.post(`/api/manage/transactions/${transaction.id}/proofs`, { image, kind });
       toast.success(t('common.saved'));
       router.refresh();
     } catch (cause) {
@@ -503,49 +503,59 @@ export function TransactionDetail({
             </CardBody>
           </Card>
 
-          {/* --- Photos of what the customer paid ------------------------- */}
-          {(proofs.length > 0 || canAddProof) && (
-            <Card>
-              <CardHeader title={t('remittance.proof')} />
-              <CardBody className="space-y-3">
-                {proofs.length > 0 && (
-                  <div className="grid grid-cols-3 gap-2">
-                    {proofs.map((proof) => (
-                      <a
-                        key={proof.id}
-                        href={`/api/manage/transactions/${transaction.id}/proofs/${proof.id}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                      >
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img
-                          src={`/api/manage/transactions/${transaction.id}/proofs/${proof.id}`}
-                          alt={t('remittance.proof')}
-                          className="aspect-square w-full rounded-lg object-cover ring-1 ring-border-subtle"
+          {/* --- The photos a remittance carries ------------------------- */}
+          {(proofs.length > 0 || canAddProof) &&
+            (
+              [
+                ['PAYMENT', t('remittance.proof'), t('remittance.proofAttach')],
+                ['BENEFICIARY', t('remittance.beneficiaryDetails'), t('remittance.beneficiaryAttach')],
+              ] as const
+            ).map(([kind, title, attach]) => {
+              const own = proofs.filter((proof) => proof.kind === kind);
+              if (own.length === 0 && !canAddProof) return null;
+              return (
+                <Card key={kind}>
+                  <CardHeader title={title} />
+                  <CardBody className="space-y-3">
+                    {own.length > 0 && (
+                      <div className="grid grid-cols-3 gap-2">
+                        {own.map((proof) => (
+                          <a
+                            key={proof.id}
+                            href={`/api/manage/transactions/${transaction.id}/proofs/${proof.id}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                          >
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img
+                              src={`/api/manage/transactions/${transaction.id}/proofs/${proof.id}`}
+                              alt={title}
+                              className="aspect-square w-full rounded-lg object-cover ring-1 ring-border-subtle"
+                            />
+                          </a>
+                        ))}
+                      </div>
+                    )}
+                    {canAddProof && (
+                      <label className="flex min-h-10 cursor-pointer items-center justify-center gap-2 rounded-[var(--radius-control)] border border-border-base px-2 text-center text-sm text-content-secondary transition-colors hover:border-primary hover:text-primary-text">
+                        <Camera className="size-4 shrink-0" />
+                        {addingProof ? t('common.loading') : attach}
+                        <input
+                          type="file"
+                          accept="image/*"
+                          className="sr-only"
+                          disabled={addingProof}
+                          onChange={(event) => {
+                            void addProof(event.target.files?.[0], kind);
+                            event.target.value = '';
+                          }}
                         />
-                      </a>
-                    ))}
-                  </div>
-                )}
-                {canAddProof && (
-                  <label className="flex min-h-10 cursor-pointer items-center justify-center gap-2 rounded-[var(--radius-control)] border border-border-base text-sm text-content-secondary transition-colors hover:border-primary hover:text-primary-text">
-                    <Camera className="size-4" />
-                    {addingProof ? t('common.loading') : t('remittance.proofAttach')}
-                    <input
-                      type="file"
-                      accept="image/*"
-                      className="sr-only"
-                      disabled={addingProof}
-                      onChange={(event) => {
-                        void addProof(event.target.files?.[0]);
-                        event.target.value = '';
-                      }}
-                    />
-                  </label>
-                )}
-              </CardBody>
-            </Card>
-          )}
+                      </label>
+                    )}
+                  </CardBody>
+                </Card>
+              );
+            })}
 
           {/* --- What it did to the drawers ------------------------------ */}
           <Card>

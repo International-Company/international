@@ -93,6 +93,40 @@ describe('announcing a deal to the group', () => {
     return { deps, sent };
   }
 
+  it('puts the proof of payment with the deal and the beneficiary’s details in a reply', async () => {
+    const shots: { kind: string; caption: string; quotedId: string | null }[] = [];
+    const { deps, sent } = harness({
+      photos: async () => [
+        { data: new Uint8Array(1), mimeType: 'image/jpeg', kind: 'PAYMENT' },
+        { data: new Uint8Array(1), mimeType: 'image/jpeg', kind: 'BENEFICIARY' },
+      ],
+      sendPhoto: async (_jid, photo, caption, quoted) => {
+        shots.push({ kind: photo.kind, caption, quotedId: quoted?.key?.id ?? null });
+        return { key: { id: `shot-${shots.length}` } } as never;
+      },
+    });
+    assert.equal(await announceDeal('t1', deps), 'SENT');
+    assert.deepEqual(shots, [
+      { kind: 'PAYMENT', caption: TEXT, quotedId: null },
+      { kind: 'BENEFICIARY', caption: 'بيانات المستفيد', quotedId: 'shot-1' },
+    ]);
+    assert.equal(sent.length, 1, 'only the label goes as words');
+  });
+
+  it('still counts as sent when the second photo fails', async () => {
+    const { deps } = harness({
+      photos: async () => [
+        { data: new Uint8Array(1), mimeType: 'image/jpeg', kind: 'PAYMENT' },
+        { data: new Uint8Array(1), mimeType: 'image/jpeg', kind: 'BENEFICIARY' },
+      ],
+      sendPhoto: async (_jid, photo) => {
+        if (photo.kind === 'BENEFICIARY') throw new Error('upload failed');
+        return { key: { id: 'shot-1' } } as never;
+      },
+    });
+    assert.equal(await announceDeal('t1', deps), 'SENT');
+  });
+
   it('sends the deal, then replies to it with «صرافة»', async () => {
     const { deps, sent } = harness();
     assert.equal(await announceDeal('t1', deps), 'SENT');

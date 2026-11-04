@@ -166,17 +166,29 @@ async function settled(
   return null;
 }
 
+export interface DealPhoto {
+  data: Uint8Array;
+  mimeType: string;
+  kind: string;
+}
+
+const PHOTO_WORDS: Record<string, string> = {
+  PAYMENT: 'دليل الدفع',
+  BENEFICIARY: 'بيانات المستفيد',
+};
+
 export interface AnnounceDeps {
   /** The group to write to, or null when nothing should be sent. */
   target: () => Promise<string | null>;
   load: (id: string) => Promise<Shareable>;
   send: (jid: string, text: string, quoted?: SentMessage) => Promise<SentMessage>;
-  /** A photo the deal carries, to go with its message. */
-  photo?: (id: string) => Promise<{ data: Uint8Array; mimeType: string } | null>;
+  /** The photos the deal carries, the one to go with its message first. */
+  photos?: (id: string) => Promise<DealPhoto[]>;
   sendPhoto?: (
     jid: string,
-    photo: { data: Uint8Array; mimeType: string },
+    photo: DealPhoto,
     caption: string,
+    quoted?: SentMessage,
   ) => Promise<SentMessage>;
   /** Between attempts to read a deal not yet committed. */
   pause?: number;
@@ -208,10 +220,11 @@ export async function announceDeal(
    * be read or sent never costs the group the deal: it goes as words instead.
    */
   let sent: SentMessage | undefined;
-  if (deps.photo && deps.sendPhoto) {
+  let photos: DealPhoto[] = [];
+  if (deps.photos && deps.sendPhoto) {
     try {
-      const photo = await deps.photo(transactionId);
-      if (photo) sent = await deps.sendPhoto(group, photo, message.text);
+      photos = await deps.photos(transactionId);
+      if (photos[0]) sent = await deps.sendPhoto(group, photos[0], message.text);
     } catch (error) {
       log.warn('Could not send a deal’s photo; sending its words', {
         reference: message.reference,
@@ -232,21 +245,31 @@ export async function announceDeal(
     return 'NO_REPLY';
   }
 
+  let outcome: AnnounceOutcome = 'SENT';
   try {
     await deps.send(group, kindLabel(message.type), sent);
   } catch (error) {
     log.warn('Could not label a deal', { reference: message.reference, error });
-    return 'NO_REPLY';
+    outcome = 'NO_REPLY';
   }
-  return 'SENT';
+
+  // The rest as replies to the deal, each saying what it is.
+  for (const photo of photos.slice(1)) {
+    await deps
+      .sendPhoto?.(group, photo, PHOTO_WORDS[photo.kind] ?? '', sent)
+      .catch((error) =>
+        log.warn('Could not send one of a deal’s photos', { reference: message.reference, error }),
+      );
+  }
+  return outcome;
 }
 
-/** The first photo a deal carries, or nothing. */
-function firstProof(transactionId: string) {
-  return prisma.transactionProof.findFirst({
+/** A deal's photos, what was paid before who it is for. */
+function dealPhotos(transactionId: string) {
+  return prisma.transactionProof.findMany({
     where: { transactionId },
-    orderBy: { createdAt: 'asc' },
-    select: { data: true, mimeType: true },
+    orderBy: [{ kind: 'desc' }, { createdAt: 'asc' }],
+    select: { data: true, mimeType: true, kind: true },
   });
 }
 
@@ -261,9 +284,9 @@ export function registerWhatsappSubscribers(): void {
       target,
       load: (id) => shareable(id, 'ar'),
       send: sendText,
-      photo: firstProof,
-      sendPhoto: (jid, photo, caption) =>
-        sendImage(jid, Buffer.from(photo.data), caption, undefined, photo.mimeType),
+      photos: dealPhotos,
+      sendPhoto: (jid, photo, caption, quoted) =>
+        sendImage(jid, Buffer.from(photo.data), caption, quoted, photo.mimeType),
     });
   });
 
@@ -275,14 +298,14 @@ export function registerWhatsappSubscribers(): void {
       shareable(transactionId, 'ar'),
       prisma.transactionProof.findUnique({
         where: { id: proofId },
-        select: { data: true, mimeType: true },
+        select: { data: true, mimeType: true, kind: true },
       }),
     ]);
     if (!proof) return;
     await sendImage(
       group,
       Buffer.from(proof.data),
-      `إثبات دفع\n\n${message.text}`,
+      `${PHOTO_WORDS[proof.kind] ?? ''}\n\n${message.text}`,
       undefined,
       proof.mimeType,
     ).catch((error) =>
