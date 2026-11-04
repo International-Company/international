@@ -2097,7 +2097,7 @@ const en = {
     licenseNo: 'Licence no.',
     disclaimer:
       'This receipt confirms the transaction detailed above. Please retain it for your records.',
-    verify: 'Scan to verify this receipt',
+    qrTitle: 'Receipt details',
     payoutChannel: 'Bank / wallet',
     payoutAccount: 'Account no.',
     byTransfer: 'By transfer',

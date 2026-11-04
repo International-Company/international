@@ -1,5 +1,4 @@
 import type { Metadata } from 'next';
-import { headers } from 'next/headers';
 import { notFound } from 'next/navigation';
 import { requirePermission } from '@/modules/auth/context';
 import { getTranslator } from '@/i18n/server';
@@ -10,7 +9,7 @@ import * as audit from '@/modules/audit/audit.service';
 import { formatDateTime } from '@/i18n/format';
 import { BRAND } from '@/app/_shell/brand';
 import { QrCode } from '@/core/qr/qr-code';
-import { verificationToken } from '@/modules/exchange/receipt-verify';
+import { receiptQrText } from '@/modules/exchange/receipt-qr';
 import { AutoPrint } from './auto-print';
 
 export const metadata: Metadata = { title: 'Receipt', robots: { index: false } };
@@ -112,16 +111,14 @@ export default async function ReceiptPage({ params }: { params: Promise<{ id: st
     transaction.counterpartyPhone ||
     null;
 
-  /*
-   * The QR opens this receipt's verification page on whatever address the
-   * office reached the system on — read from the request rather than from
-   * configuration, so it is right without anybody having to set it.
-   */
-  const requestHeaders = await headers();
-  const host = requestHeaders.get('x-forwarded-host') ?? requestHeaders.get('host') ?? '';
-  const proto =
-    requestHeaders.get('x-forwarded-proto') ?? (host.startsWith('localhost') ? 'http' : 'https');
-  const verifyUrl = `${proto}://${host}/verify/${encodeURIComponent(verificationToken(transaction.reference))}`;
+  // The deal as plain text, never a link: see `receipt-qr`.
+  const qrText = receiptQrText({
+    company: companyName,
+    number: receipt?.number ?? transaction.reference,
+    when: formatDateTime(transaction.createdAt, locale),
+    paid: { amount: transaction.fromAmount, currency: transaction.fromCurrency },
+    received: { amount: transaction.toAmount, currency: transaction.toCurrency },
+  });
   const copyLabels = [t('receipt.originalCopy'), t('receipt.officeCopy')];
 
   return (
@@ -390,13 +387,13 @@ export default async function ReceiptPage({ params }: { params: Promise<{ id: st
               </p>
             )}
 
-            {/* --- Verification: scanned by staff to check this paper against the books --- */}
+            {/* --- The deal again, for a phone: it holds more than a link, so it is larger --- */}
             <div className={`flex flex-col items-center ${roll ? 'mt-2' : 'mt-4'}`}>
               <QrCode
-                value={verifyUrl}
+                value={qrText}
                 level="M"
-                size={roll ? 96 : 110}
-                title={t('receipt.verify')}
+                size={roll ? 128 : 130}
+                title={t('receipt.qrTitle')}
               />
             </div>
 

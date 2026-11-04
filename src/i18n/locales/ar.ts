@@ -2095,7 +2095,7 @@ const ar: Dictionary = {
     officeCopy: 'نسخة المكتب',
     licenseNo: 'رقم الترخيص',
     disclaimer: 'يؤكد هذا الإيصال العملية الموضحة أعلاه. يُرجى الاحتفاظ به.',
-    verify: 'امسح للتحقق من الإيصال',
+    qrTitle: 'بيانات الإيصال',
     payoutChannel: 'البنك / المحفظة',
     payoutAccount: 'رقم الحساب',
     byTransfer: 'بالتحويل',
