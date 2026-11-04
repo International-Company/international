@@ -3,7 +3,7 @@ import { prisma } from '@/core/db/prisma';
 import { createLogger } from '@/core/logger/logger';
 import { dayBounds, formatDayKey } from '@/core/time/day-key';
 import { cashLedger } from '@/modules/exchange/cash-ledger.service';
-import { dailyCount } from '@/modules/exchange/daily-count.service';
+import { dailyCount, type CountEntry } from '@/modules/exchange/daily-count.service';
 import * as settings from '@/modules/settings/settings.service';
 import {
   composeAmbiguous,
@@ -13,6 +13,7 @@ import {
   matchTellers,
   parseCommand,
   senderAllowed,
+  sumAmounts,
   type TellerCandidate,
   type TellerDay,
 } from './report-command';
@@ -176,8 +177,19 @@ export async function tellerDay(teller: TellerCandidate): Promise<TellerDay> {
         count: group.count,
         received: group.received,
         paid: group.paid,
-        moves: group.entries
-          .filter((entry) => !entry.reversed)
+        receivedBank: sumAmounts(
+          standing(group.entries).map((entry) => ({
+            currency: entry.fromCurrency,
+            amount: entry.intakeBank,
+          })),
+        ),
+        paidBank: sumAmounts(
+          standing(group.entries).map((entry) => ({
+            currency: entry.toCurrency,
+            amount: entry.payoutBank,
+          })),
+        ),
+        moves: standing(group.entries)
           .map((entry) =>
             moveOf(group.kind, {
               at: clock(entry.at),
@@ -186,6 +198,7 @@ export async function tellerDay(teller: TellerCandidate): Promise<TellerDay> {
               toCurrency: entry.toCurrency,
               toAmount: entry.toAmount,
               customer: entry.customer,
+              intakeBank: entry.intakeBank,
               payoutBank: entry.payoutBank,
             }),
           ),
@@ -194,6 +207,8 @@ export async function tellerDay(teller: TellerCandidate): Promise<TellerDay> {
 }
 
 const REPORT_ORDER = ['BUY', 'SELL', 'USDT_RECEIVE', 'USDT_SEND'];
+
+const standing = (entries: CountEntry[]) => entries.filter((entry) => !entry.reversed);
 
 /** An hour of the day, on the server's clock like the day itself. */
 function clock(at: Date): string {

@@ -105,20 +105,33 @@ describe('the report command', () => {
           count: 2,
           received: [{ currency: 'USD', amount: 1000n * UNIT }],
           paid: [{ currency: 'ILS', amount: 3650n * UNIT }],
+          receivedBank: [],
+          paidBank: [{ currency: 'ILS', amount: 650n * UNIT }],
           moves: [],
         },
-        { kind: 'SELL', count: 0, received: [], paid: [], moves: [] },
+        {
+          kind: 'SELL',
+          count: 0,
+          received: [],
+          paid: [],
+          receivedBank: [],
+          paidBank: [],
+          moves: [],
+        },
         {
           kind: 'USDT_RECEIVE',
           count: 1,
           received: [{ currency: 'USDT', amount: 400n * UNIT }],
           paid: [{ currency: 'ILS', amount: 1460n * UNIT }],
+          receivedBank: [],
+          paidBank: [],
           moves: [],
         },
       ],
     };
     const text = composeReport(day);
     assert.match(text, /📊 جرد سامي/);
+    assert.match(text, /دفع: 3,000 شيكل نقدي \+ 650 شيكل بنكي/);
     assert.match(text, /شيكل: افتتاح 5,000 شيكل \| داخل 3,650 شيكل \| خارج 1,460 شيكل/);
     assert.match(text, /المتبقي: \*7,190 شيكل\*/);
     // Whole words: «USDT» stays as it is.
@@ -278,7 +291,9 @@ describe('the report as a picture', () => {
         kind: 'BUY',
         count: 2,
         received: [{ currency: 'USD', amount: 300n * UNIT }],
-        paid: [{ currency: 'ILS', amount: 1095n * UNIT }],
+        paid: [{ currency: 'ILS', amount: 730n * UNIT }],
+        receivedBank: [],
+        paidBank: [{ currency: 'ILS', amount: 365n * UNIT }],
         moves: [move({ customer: 'فادي ابو حجر', byBank: true }), move({ at: '10:20' })],
       },
       {
@@ -286,6 +301,8 @@ describe('the report as a picture', () => {
         count: 1,
         received: [{ currency: 'USDT', amount: 400n * UNIT }],
         paid: [{ currency: 'USD', amount: 396n * UNIT }],
+        receivedBank: [],
+        paidBank: [],
         moves: [
           move({
             goods: { currency: 'USDT', amount: 400n * UNIT },
@@ -323,6 +340,36 @@ describe('the report as a picture', () => {
     assert.match(svg!, />3\.65</);
     assert.match(svg!, />0\.99</);
     assert.match(svg!, /بنكي · فادي ابو حجر/);
+  });
+
+  it('tells cash from bank in the totals, and leaves the coins as they are', () => {
+    const [svg] = reportSvgs(day);
+    assert.match(svg!, />365<\/text><text[^>]*>شيكل نقدي</);
+    assert.match(svg!, />365<\/text><text[^>]*>شيكل بنكي</);
+    assert.match(svg!, />400<\/text><text[^>]*>USDT</);
+  });
+
+  it('ends each list with its sums, once, even across pictures', () => {
+    const [svg] = reportSvgs(day);
+    assert.equal(svg!.match(/>مجموع</g)?.length, 2);
+    assert.match(svg!, />200<\/text><text[^>]*>دولار</);
+    assert.match(svg!, />730<\/text><text[^>]*>شيكل</);
+
+    const pages = paginate(busy(100));
+    const parts = pages.flat();
+    assert.equal(parts.filter((part) => part.totals).length, 1);
+    assert.ok(parts.at(-1)!.totals);
+    assert.ok(parts.at(-1)!.moves.length > 0, 'a total does not go over alone');
+    assert.deepEqual(parts.at(-1)!.totals!.goods, [{ currency: 'USD', amount: 10_000n * UNIT }]);
+  });
+
+  it('keeps a total on the page of its last deal, however the deals fall', () => {
+    for (let n = 1; n < 80; n += 1) {
+      const parts = paginate(busy(n)).flat();
+      assert.equal(parts.reduce((sum, part) => sum + part.moves.length, 0), n);
+      assert.equal(parts.filter((part) => part.totals).length, 1);
+      assert.ok(parts.at(-1)!.totals && parts.at(-1)!.moves.length > 0, `${n} deals`);
+    }
   });
 
   it('keeps an ordinary day on one picture', () => {
@@ -370,6 +417,7 @@ describe('a deal as its list reads it', () => {
   const deal = {
     at: '09:55',
     customer: 'سامي',
+    intakeBank: 0n,
     payoutBank: 0n,
   };
 

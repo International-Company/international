@@ -38,6 +38,8 @@ export interface CountEntry {
   fromAmount: bigint;
   toCurrency: string;
   toAmount: bigint;
+  /** What the customer paid by transfer rather than in notes. */
+  intakeBank: bigint;
   /** What the customer was paid by transfer rather than in notes. */
   payoutBank: bigint;
   payoutChannel: string | null;
@@ -102,6 +104,7 @@ export async function dailyCount(
       fromAmount: true,
       toCurrency: true,
       toAmount: true,
+      intakeBrokerAmount: true,
       payoutBankAmount: true,
       payoutBankChannel: true,
       counterpartyName: true,
@@ -135,6 +138,7 @@ export async function dailyCount(
       fromAmount: deal.fromAmount,
       toCurrency: deal.toCurrency,
       toAmount: deal.toAmount,
+      intakeBank: deal.intakeBrokerAmount,
       payoutBank: deal.payoutBankAmount,
       payoutChannel: deal.payoutBankChannel,
       reversed,

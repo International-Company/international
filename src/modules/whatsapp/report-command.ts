@@ -113,6 +113,42 @@ export function formatFigure(amount: bigint): string {
 
 const list = (amounts: Amount[]) => amounts.map(formatAmount).join(' + ') || '—';
 
+/** Amounts added up per currency, in the order each first appears. */
+export function sumAmounts(amounts: Amount[]): Amount[] {
+  const totals = new Map<string, bigint>();
+  for (const { currency, amount } of amounts) {
+    totals.set(currency, (totals.get(currency) ?? 0n) + amount);
+  }
+  return [...totals].map(([currency, amount]) => ({ currency, amount }));
+}
+
+export const METHOD_WORDS = { CASH: 'نقدي', BANK: 'بنكي' } as const;
+
+/** Part of a side's total, and how it moved. Coins are neither notes nor a transfer. */
+export interface MethodAmount extends Amount {
+  method: keyof typeof METHOD_WORDS | null;
+}
+
+/** A side's total told apart: the bank's share as recorded, the rest in notes. */
+export function byMethod(total: Amount[], bank: Amount[]): MethodAmount[] {
+  return total.flatMap(({ currency, amount }): MethodAmount[] => {
+    if (currency === 'USDT') return [{ currency, amount, method: null }];
+    const viaBank = bank.find((entry) => entry.currency === currency)?.amount ?? 0n;
+    const parts: MethodAmount[] = [
+      { currency, amount: amount - viaBank, method: 'CASH' },
+      { currency, amount: viaBank, method: 'BANK' },
+    ];
+    return parts.filter((part) => part.amount > 0n);
+  });
+}
+
+const methodList = (amounts: MethodAmount[]) =>
+  amounts
+    .map((entry) =>
+      entry.method ? `${formatAmount(entry)} ${METHOD_WORDS[entry.method]}` : formatAmount(entry),
+    )
+    .join(' + ') || '—';
+
 export type CountKind = 'BUY' | 'SELL' | 'USDT_RECEIVE' | 'USDT_SEND';
 
 export const KIND_WORDS: Record<CountKind, string> = {
@@ -140,7 +176,7 @@ export interface Move {
   /** What it was bought or sold for. */
   counter: Amount;
   customer: string | null;
-  /** Paid out by transfer, in whole or in part. */
+  /** Paid or paid out by transfer, in whole or in part. */
   byBank: boolean;
 }
 
@@ -167,6 +203,7 @@ export function moveOf(
     toCurrency: string;
     toAmount: bigint;
     customer: string | null;
+    intakeBank: bigint;
     payoutBank: bigint;
   },
 ): Move {
@@ -181,7 +218,7 @@ export function moveOf(
     counter,
     price: priceText(goods.amount, counter.amount),
     customer: deal.customer,
-    byBank: deal.payoutBank > 0n,
+    byBank: deal.intakeBank > 0n || deal.payoutBank > 0n,
   };
 }
 
@@ -197,6 +234,9 @@ export interface TellerDay {
     count: number;
     received: Amount[];
     paid: Amount[];
+    /** The shares of those that went through the bank. */
+    receivedBank: Amount[];
+    paidBank: Amount[];
     /** Each deal that stands, in the order they were made. */
     moves: Move[];
   }[];
@@ -231,8 +271,8 @@ export function composeReport(day: TellerDay): string {
     for (const group of active) {
       lines.push(
         `${KIND_WORDS[group.kind]}: ${group.count} ${group.count === 1 ? 'عملية' : 'عمليات'}`,
-        `   استلم: ${list(group.received)}`,
-        `   دفع: ${list(group.paid)}`,
+        `   استلم: ${methodList(byMethod(group.received, group.receivedBank))}`,
+        `   دفع: ${methodList(byMethod(group.paid, group.paidBank))}`,
       );
     }
     for (const group of active) {
@@ -245,6 +285,9 @@ export function composeReport(day: TellerDay): string {
           `${move.at}: ${formatAmount(move.goods)}${price} = ${formatAmount(move.counter)}${bank}${who}`,
         );
       }
+      const goods = sumAmounts(group.moves.map((move) => move.goods));
+      const counter = sumAmounts(group.moves.map((move) => move.counter));
+      lines.push(`المجموع: ${list(goods)} = ${list(counter)}`);
     }
   }
   return lines.join('\n');

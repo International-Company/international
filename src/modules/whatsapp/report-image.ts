@@ -4,12 +4,16 @@ import path from 'node:path';
 import { Resvg } from '@resvg/resvg-js';
 import { BRAND } from '@/app/_shell/brand';
 import {
+  byMethod,
   currencyWord,
   formatFigure,
   KIND_WORDS,
+  METHOD_WORDS,
   MOVE_WORDS,
+  sumAmounts,
   type Amount,
   type CountKind,
+  type MethodAmount,
   type Move,
   type TellerDay,
 } from './report-command';
@@ -104,12 +108,21 @@ const amount = (value: Amount, strong = false): Line => ({
   strong,
 });
 
-/** A table: a header row, then rows that may run to several lines each. */
+/** An amount with how it moved beside its currency word: «5,000 شيكل بنكي». */
+const methodAmount = (value: MethodAmount): Line => ({
+  text: formatFigure(value.amount),
+  unit: value.method
+    ? `${currencyWord(value.currency)} ${METHOD_WORDS[value.method]}`
+    : currencyWord(value.currency),
+});
+
+/** A table: a header row, then rows that may run to several lines each, the last perhaps a total. */
 function table(
   top: number,
   columns: { title: string; right: number }[],
   rows: (string | Line)[][][],
   slot = FIGURE_SLOT,
+  totalled = false,
 ): { svg: string; bottom: number } {
   const parts: string[] = [];
   parts.push(
@@ -130,9 +143,10 @@ function table(
   let y = top + LINE + 10;
   rows.forEach((row, index) => {
     const height = Math.max(...row.map((cell) => cell.length), 1) * LINE + 12;
-    if (index % 2 === 1) {
+    const total = totalled && index === rows.length - 1;
+    if (total || index % 2 === 1) {
       parts.push(
-        `<rect x="${PAD}" y="${y}" width="${WIDTH - 2 * PAD}" height="${height}" fill="${COLOR.stripe}"/>`,
+        `<rect x="${PAD}" y="${y}" width="${WIDTH - 2 * PAD}" height="${height}" fill="${total ? COLOR.brandSoft : COLOR.stripe}"/>`,
       );
     }
     row.forEach((cell, column) => {
@@ -222,6 +236,11 @@ function heading(
   return parts;
 }
 
+const sideLines = (total: Amount[], bank: Amount[]): (string | Line)[] => {
+  const parts = byMethod(total, bank);
+  return parts.length ? parts.map(methodAmount) : ['—'];
+};
+
 /** What opens the first picture: the box, then each kind's totals. */
 function summary(day: TellerDay, top: number): { parts: string[]; y: number } {
   const parts: string[] = [];
@@ -290,8 +309,8 @@ function summary(day: TellerDay, top: number): { parts: string[]; y: number } {
       groups.map((group) => [
         [KIND_WORDS[group.kind]],
         [String(group.count)],
-        group.received.length ? group.received.map((value) => amount(value)) : ['—'],
-        group.paid.length ? group.paid.map((value) => amount(value)) : ['—'],
+        sideLines(group.received, group.receivedBank),
+        sideLines(group.paid, group.paidBank),
       ]),
     );
     parts.push(deals.svg);
@@ -317,6 +336,8 @@ interface ListPart {
   moves: Move[];
   /** Carries on from the picture before. */
   continued: boolean;
+  /** The whole list's sums, on the part that ends it. */
+  totals?: { goods: Amount[]; counter: Amount[] };
 }
 
 /** Each kind's deals laid out across pictures, split only where a page runs out. */
@@ -325,17 +346,31 @@ export function paginate(day: TellerDay): ListPart[][] {
   let room = LINES_ON_FIRST;
 
   for (const group of day.groups) {
+    const totals = {
+      goods: sumAmounts(group.moves.map((move) => move.goods)),
+      counter: sumAmounts(group.moves.map((move) => move.counter)),
+    };
+    const totalLines = Math.max(totals.goods.length, totals.counter.length);
     let rest = group.moves;
     let continued = false;
     while (rest.length > 0) {
-      // Not worth opening a list for a line or two at the foot of a page.
-      if (room < LIST_HEADER_LINES + 2) {
+      // Not worth opening a list for a line or two at the foot of a page, and
+      // a total never goes over alone: its last deal goes with it.
+      const least = rest.length === 1 ? 1 + totalLines : 2;
+      if (room < LIST_HEADER_LINES + least) {
         pages.push([]);
         room = LINES_ON_REST;
       }
-      const fits = Math.min(rest.length, room - LIST_HEADER_LINES);
-      pages[pages.length - 1]!.push({ kind: group.kind, moves: rest.slice(0, fits), continued });
-      room -= LIST_HEADER_LINES + fits;
+      const space = room - LIST_HEADER_LINES;
+      const ends = rest.length + totalLines <= space;
+      const fits = ends ? rest.length : Math.min(rest.length - 1, space);
+      pages[pages.length - 1]!.push({
+        kind: group.kind,
+        moves: rest.slice(0, fits),
+        continued,
+        ...(ends ? { totals } : {}),
+      });
+      room -= LIST_HEADER_LINES + fits + (ends ? totalLines : 0);
       rest = rest.slice(fits);
       continued = true;
     }
@@ -365,19 +400,34 @@ function list(part: ListPart, top: number): { parts: string[]; y: number } {
       { title: 'المقابل', right: RIGHT - 350 },
       { title: 'العميل', right: RIGHT - 520 },
     ],
-    part.moves.map((move) => {
-      const name = move.customer?.trim() ?? '';
-      // Cut without an ellipsis: the bidi rules would carry it to the wrong end of the line.
-      const shown = name.slice(0, NAME_CHARS).trim();
-      return [
-        [move.at],
-        [amount(move.goods)],
-        [move.price ?? '—'],
-        [amount(move.counter)],
-        [[move.byBank ? 'بنكي' : null, shown].filter(Boolean).join(' · ') || '—'],
-      ];
-    }),
+    [
+      ...part.moves.map((move) => {
+        const name = move.customer?.trim() ?? '';
+        // Cut without an ellipsis: the bidi rules would carry it to the wrong end of the line.
+        const shown = name.slice(0, NAME_CHARS).trim();
+        return [
+          [move.at],
+          [amount(move.goods)],
+          [move.price ?? '—'],
+          [amount(move.counter)],
+          [[move.byBank ? 'بنكي' : null, shown].filter(Boolean).join(' · ') || '—'],
+        ];
+      }),
+      ...(part.totals
+        ? [
+            [
+              // The short word: the time column is narrow, and the sum beside it can run long.
+              ['مجموع'],
+              part.totals.goods.map((value) => amount(value, true)),
+              [],
+              part.totals.counter.map((value) => amount(value, true)),
+              [],
+            ],
+          ]
+        : []),
+    ],
     86,
+    Boolean(part.totals),
   );
   parts.push(rows.svg);
   return { parts, y: rows.bottom };
