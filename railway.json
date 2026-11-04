@@ -13,7 +13,7 @@
     "overlapSeconds": 15,
     "ipv6EgressEnabled": true,
     "multiRegionConfig": {
-      "asia-southeast1-eqsg3a": {
+      "europe-west4-drams3a": {
         "numReplicas": 1
       }
     }
