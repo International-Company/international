@@ -19,7 +19,11 @@ export const GET = route<unknown, z.infer<typeof querySchema>>({
   permissions: ['usdt.counter.use'],
   querySchema,
   handler: async ({ query }) => {
-    const arrivals = await counter.unclaimedArrivals({ sync: query.sync !== 'false' });
+    // Enough that a busy address cannot push another's arrivals off the screen's tabs.
+    const arrivals = await counter.unclaimedArrivals({
+      sync: query.sync !== 'false',
+      limit: 200,
+    });
     return arrivals.map((arrival) => ({
       ...arrival,
       amount: arrival.amount.toString(),

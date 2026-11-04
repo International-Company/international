@@ -153,6 +153,8 @@ export function ReceiveFlow({
   const [walletId, setWalletId] = useState(addresses[0]?.id ?? '');
   const [arrivals, setArrivals] = useState<Arrival[] | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  /** Which address's arrivals are shown: one wallet's id, or all of them. */
+  const [logWallet, setLogWallet] = useState('ALL');
 
   const [chosen, setChosen] = useState<Arrival | null>(null);
   const [payoutCurrency, setPayoutCurrency] = useState(currencies[0]?.code ?? 'ILS');
@@ -203,6 +205,11 @@ export function ReceiveFlow({
   const print = (id: string) => window.open(`/print/receipt/${id}`, '_blank');
 
   const wallet = addresses.find((entry) => entry.id === walletId);
+
+  const shownArrivals =
+    logWallet === 'ALL'
+      ? arrivals
+      : (arrivals ?? []).filter((arrival) => arrival.wallet.id === logWallet);
 
   /*
    * What the customer walks away with, worked out from the two prices the
@@ -619,18 +626,60 @@ export function ReceiveFlow({
               </Alert>
             )}
 
+            {/*
+              One tab per address, each with what is waiting on it, so a teller
+              whose customer used a particular address can look only there.
+            */}
+            {addresses.length > 1 && (
+              <div role="tablist" className="flex flex-wrap gap-1.5">
+                {[
+                  { id: 'ALL', label: t('common.all'), count: arrivals?.length ?? 0 },
+                  ...addresses.map((entry) => ({
+                    id: entry.id,
+                    label: `${ln(entry, 'label')} · ${networkLabel(entry.network)}`,
+                    count: (arrivals ?? []).filter((arrival) => arrival.wallet.id === entry.id)
+                      .length,
+                  })),
+                ].map((tab) => (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    role="tab"
+                    aria-selected={logWallet === tab.id}
+                    onClick={() => setLogWallet(tab.id)}
+                    className={cn(
+                      'inline-flex min-h-9 items-center gap-1.5 rounded-full px-3 text-sm font-medium transition-colors',
+                      logWallet === tab.id
+                        ? 'bg-primary text-content-inverse'
+                        : 'bg-surface-sunken text-content-secondary hover:text-content',
+                    )}
+                  >
+                    <span>{tab.label}</span>
+                    <span
+                      className={cn(
+                        'tabular-nums',
+                        logWallet === tab.id ? 'opacity-80' : 'text-content-tertiary',
+                      )}
+                    >
+                      {tab.count}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
+
             {arrivals === null ? (
               <div className="flex justify-center py-8">
                 <Loader2 className="size-5 animate-spin text-content-tertiary" />
               </div>
-            ) : arrivals.length === 0 ? (
+            ) : shownArrivals?.length === 0 ? (
               <div className="flex flex-col items-center gap-2 py-8 text-center">
                 <Inbox className="size-8 text-content-tertiary" />
                 <p className="text-sm text-content-secondary">{t('receive.logEmpty')}</p>
               </div>
             ) : (
               <ul className="divide-border-subtle divide-y">
-                {arrivals.map((arrival) => (
+                {shownArrivals?.map((arrival) => (
                   <li key={arrival.id} className="space-y-2 py-3">
                     <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
                       <span className="text-lg font-bold text-content tabular-nums">
