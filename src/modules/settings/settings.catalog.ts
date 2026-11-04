@@ -391,6 +391,14 @@ export const SETTINGS: SettingDefinition[] = [
     descriptionAr: 'أكبر مبلغ USDT يستطيع التلر تسعيره عند الشباك. القيمة صفر تلغي الحد.',
   },
   {
+    key: 'usdt.payoutEditLimit', category: 'usdt', type: 'number', defaultValue: 5, min: 0, max: 100,
+    labelEn: 'Limit on changing a USDT payout (%)', labelAr: 'حد تعديل مبلغ استلام اليواس (%)',
+    descriptionEn:
+      'How far from the computed figure a teller may change what a USDT receipt pays, so a typing slip is refused rather than paid. Zero removes the limit.',
+    descriptionAr:
+      'أقصى فرق يستطيع التلر به تعديل المبلغ المحسوب عند استلام اليواس، حتى يُرفض خطأ الكتابة بدل دفعه. القيمة صفر تلغي الحد.',
+  },
+  {
     key: 'usdt.usdPercentCash', category: 'usdt', type: 'number', defaultValue: 0, min: 0, max: 99,
     labelEn: 'USDT for cash dollars: percentage', labelAr: 'نسبة استلام اليواس مقابل دولار نقدي',
     descriptionEn:

@@ -29,6 +29,7 @@ import { ShareButton } from '@/ui/share';
 import { cn } from '@/ui/utils';
 import { normalizeDigits } from '@/core/money/money';
 import { payoutAtPercent, validPercent } from '@/modules/usdt/percent-payout';
+import { withinEditLimit } from '@/modules/usdt/payout-edit';
 
 /**
  * Taking USDT at the window: the address, then the log of what actually landed.
@@ -84,6 +85,8 @@ interface Priced {
   broker: { toAmount: string; rate: string } | null;
   /** USDT into dollars: the manager's percentages, to start from. */
   percent?: { cash: string; broker: string };
+  /** How far the teller may change the computed figure, in percent. Zero: no limit. */
+  editLimit: number;
 }
 
 interface Arrival {
@@ -160,6 +163,8 @@ export function ReceiveFlow({
   const [brokerShare, setBrokerShare] = useState('');
   const [percentCash, setPercentCash] = useState('');
   const [percentBroker, setPercentBroker] = useState('');
+  /** The teller's own figure for what is paid in all. Empty keeps the computed one. */
+  const [payoutEdit, setPayoutEdit] = useState('');
   const [destination, setDestination] = useState(transferChannels[0] ?? '');
   const [counterpartyPhone, setCounterpartyPhone] = useState('');
   const [payoutAccount, setPayoutAccount] = useState('');
@@ -240,6 +245,23 @@ export function ReceiveFlow({
       (BigInt(quote.broker.toAmount) * share) / coins
     );
   })();
+
+  /*
+   * The figure that will be paid, recorded and written by the bot: the teller's
+   * when they typed one. A typed figure belongs to the sum it was typed against,
+   * so changing how the deal is paid clears it rather than leaving it standing.
+   */
+  useEffect(() => {
+    setPayoutEdit('');
+  }, [chosen, payoutCurrency, mode, brokerShare, percentCash, percentBroker]);
+
+  const payoutPlaces = currencies.find((entry) => entry.code === payoutCurrency)?.decimals ?? 2;
+  const edited = payoutEdit.trim() ? scaleCoins(payoutEdit) : null;
+  const editChanged = edited !== null && payout !== null && edited !== payout;
+  const editTooFar =
+    editChanged && !withinEditLimit(payout, edited, quote?.editLimit ?? 0);
+  const editRefused = edited !== null && (edited <= 0n || editTooFar);
+  const finalPayout = edited !== null && !editRefused ? edited : payout;
 
   // One read of the chain at a time. A slow provider would otherwise have the
   // timer stack a second request on the first, and a third on both.
@@ -451,6 +473,7 @@ export function ReceiveFlow({
           // Only the percentage of a way of paying actually used.
           percentCash: quote?.percent && mode !== 'BROKER' ? percentCash.trim() : undefined,
           percentBroker: quote?.percent && mode !== 'CASH' ? percentBroker.trim() : undefined,
+          payoutEdit: editChanged ? payoutEdit.trim() : undefined,
           payoutChannel: mode === 'CASH' ? null : destination,
           payoutAccount: mode === 'CASH' ? null : accountToUse || null,
           customerId: customer?.id ?? null,
@@ -773,7 +796,7 @@ export function ReceiveFlow({
               type="submit"
               form="settle-arrival"
               loading={recording}
-              disabled={payout === null || missingForTransfer}
+              disabled={payout === null || missingForTransfer || editRefused}
             >
               {t('receive.record')}
             </Button>
@@ -790,7 +813,9 @@ export function ReceiveFlow({
             className="space-y-3"
             onSubmit={(event) => {
               event.preventDefault();
-              if (payout !== null && !missingForTransfer && !recording) void record();
+              if (payout !== null && !missingForTransfer && !editRefused && !recording) {
+                void record();
+              }
             }}
           >
             {chosen.recognised?.status === 'KNOWN' && (
@@ -1039,7 +1064,7 @@ export function ReceiveFlow({
 
             <div className="flex items-center justify-between rounded-xl bg-primary-subtle px-3 py-2">
               <span className="text-sm text-content-secondary">{t('arrivals.payout')}</span>
-              {payout === null ? (
+              {finalPayout === null ? (
                 quote?.percent ? (
                   <span className="text-lg font-bold text-content-tertiary">—</span>
                 ) : (
@@ -1047,10 +1072,47 @@ export function ReceiveFlow({
                 )
               ) : (
                 <span className="text-lg font-bold tabular-nums">
-                  <Money value={payout.toString()} currency={payoutCurrency} />
+                  <Money value={finalPayout.toString()} currency={payoutCurrency} />
                 </span>
               )}
             </div>
+
+            {/*
+              The figure the bot will write, and the one the office pays: the
+              books follow it. Offered once there is a computed figure to change.
+            */}
+            {payout !== null && (
+              <label className="block">
+                <span className="text-xs text-content-tertiary">
+                  {t('receive.payoutEdit', { currency: payoutCurrency })}
+                </span>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  dir="ltr"
+                  autoComplete="off"
+                  value={payoutEdit}
+                  placeholder={toPlainAmount(payout, payoutPlaces)}
+                  onChange={(event) =>
+                    setPayoutEdit(cleanAmount(event.target.value, payoutPlaces))
+                  }
+                  className="mt-1 h-11 w-full rounded-[var(--radius-control)] bg-surface-sunken px-3 text-sm font-medium tabular-nums text-content outline-none ring-1 ring-transparent focus:ring-primary"
+                />
+                {editRefused ? (
+                  <span className="mt-1 block text-xs text-danger-text">
+                    {editTooFar
+                      ? t('errors.payoutEditTooFar', { limit: String(quote?.editLimit ?? 0) })
+                      : t('errors.payoutEditInvalid')}
+                  </span>
+                ) : editChanged ? (
+                  <span className="mt-1 block text-xs text-warning-text">
+                    {t('receive.payoutEdited', {
+                      computed: `${toPlainAmount(payout, payoutPlaces)} ${payoutCurrency}`,
+                    })}
+                  </span>
+                ) : null}
+              </label>
+            )}
 
             {/*
               Enter inside the search is a search, not a settlement. Without
@@ -1195,13 +1257,22 @@ export function AddressBlock({
 }
 
 /** A typed USDT figure at the scale the rest of the system speaks. */
-/** What a percentage can be as it is typed: digits and one point, Arabic digits included. */
-function cleanPercent(raw: string): string {
+/** What an amount can be as it is typed: digits and one point, Arabic digits included. */
+function cleanAmount(raw: string, places: number): string {
   const cleaned = normalizeDigits(raw)
     .replace(/[,٫]/g, '.')
     .replace(/[^\d.]/g, '');
   const [whole = '', ...rest] = cleaned.split('.');
-  return rest.length > 0 ? `${whole}.${rest.join('').slice(0, 4)}` : whole;
+  return rest.length > 0 && places > 0 ? `${whole}.${rest.join('').slice(0, places)}` : whole;
+}
+
+const cleanPercent = (raw: string) => cleanAmount(raw, 4);
+
+/** A scaled amount as plain digits, for a field: 985.5, or 985 when whole. */
+function toPlainAmount(scaled: bigint, places: number): string {
+  const digits = scaled.toString().padStart(9, '0');
+  const fraction = digits.slice(-8).slice(0, places).replace(/0+$/, '');
+  return `${digits.slice(0, -8)}${fraction ? `.${fraction}` : ''}`;
 }
 
 function scaleCoins(value: string): bigint {

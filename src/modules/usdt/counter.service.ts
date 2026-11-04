@@ -1,7 +1,7 @@
 import 'server-only';
 import { prisma, withTransaction, type DbClient } from '@/core/db/prisma';
 import { errors } from '@/core/errors/app-error';
-import { convert, MONEY_FACTOR, toDecimalString } from '@/core/money/money';
+import { convert, MONEY_FACTOR, roundToDecimals, toDecimalString } from '@/core/money/money';
 import { createLogger } from '@/core/logger/logger';
 import { nextReference } from '@/modules/sequence/reference';
 import { quoteExchange, type RateChannel } from '@/modules/exchange/rates.service';
@@ -13,6 +13,7 @@ import * as audit from '@/modules/audit/audit.service';
 import { createCustomer } from '@/modules/customers/customers.service';
 import { syncWallet } from './sync.service';
 import { isPercentPair, payoutAtPercent, percentText, validPercent } from './percent-payout';
+import { applyPayoutEdit } from './payout-edit';
 import { providerFor } from './providers';
 import * as recognition from './recognition.service';
 
@@ -1029,6 +1030,8 @@ export async function quoteArrival(
    * teller may change. Blank where the manager has set none. Absent otherwise.
    */
   percent?: { cash: string; broker: string };
+  /** How far from the computed figure the teller may change it, in percent. Zero: no limit. */
+  editLimit: number;
 }> {
   const transfer = await db.chainTransaction.findUnique({
     where: { id: chainTransactionId },
@@ -1051,6 +1054,7 @@ export async function quoteArrival(
   }
 
   const currency = payoutCurrency.toUpperCase();
+  const editLimit = await settings.getNumber('usdt.payoutEditLimit', db);
 
   if (isPercentPair(transfer.wallet.tokenSymbol, currency)) {
     const [cash, broker] = await Promise.all([
@@ -1069,6 +1073,7 @@ export async function quoteArrival(
         cash: cash > 0 ? String(cash) : '',
         broker: broker > 0 ? String(broker) : '',
       },
+      editLimit,
     };
   }
 
@@ -1096,6 +1101,7 @@ export async function quoteArrival(
     payoutCurrency: currency,
     cash,
     broker,
+    editLimit,
   };
 }
 
@@ -1128,6 +1134,8 @@ export interface SettleArrivalInput {
   percentCash?: bigint;
   /** USDT into dollars: the percentage taken on what is paid by transfer. */
   percentBroker?: bigint;
+  /** What the customer is paid in all, when the teller changed the computed figure. */
+  payoutEdit?: bigint;
   /** Which of the broker's accounts the transfer is instructed to. */
   payoutChannel?: string | null;
   /** The account on that channel the customer is paid to. Required for a transfer. */
@@ -1323,8 +1331,41 @@ export async function settleArrival(
         .join(' · ')
     : '';
 
-  const toAmount = (cashLeg?.toAmount ?? 0n) + (brokerLeg?.toAmount ?? 0n);
-  const profit = (cashLeg?.profit ?? 0n) + (brokerLeg?.profit ?? 0n);
+  const computedTotal = (cashLeg?.toAmount ?? 0n) + (brokerLeg?.toAmount ?? 0n);
+
+  /*
+   * The teller's own figure, when they changed it. It changes the deal and not
+   * only the message, so the books, the receipt and the group all say what is
+   * paid; what it gives or takes comes out of the office's profit. The computed
+   * figure stays on the record beside it.
+   */
+  let payCash = cashLeg?.toAmount ?? 0n;
+  let payBank = brokerLeg?.toAmount ?? 0n;
+  let editNote = '';
+  if (input.payoutEdit !== undefined) {
+    const target = await db.currency.findUnique({
+      where: { code: input.payoutCurrency },
+      select: { decimals: true },
+    });
+    const edited = roundToDecimals(input.payoutEdit, target?.decimals ?? 2);
+    if (edited !== computedTotal) {
+      const limit = await settings.getNumber('usdt.payoutEditLimit', db);
+      const applied = applyPayoutEdit({ cash: payCash, bank: payBank }, edited, limit);
+      if (typeof applied === 'string') {
+        throw errors.precondition(
+          `That amount cannot be paid: ${applied}`,
+          applied,
+          { limit: String(limit) },
+        );
+      }
+      payCash = applied.cash;
+      payBank = applied.bank;
+      editNote = `عدّل التلر المبلغ من ${toDecimalString(computedTotal, 2)} إلى ${toDecimalString(edited, 2)}`;
+    }
+  }
+
+  const toAmount = payCash + payBank;
+  const profit = (cashLeg?.profit ?? 0n) + (brokerLeg?.profit ?? 0n) - (toAmount - computedTotal);
 
   /*
    * Where the transfer is instructed to, checked against the list the manager
@@ -1367,7 +1408,8 @@ export async function settleArrival(
    * that describes the trade they made. `rateId` points at a published row only
    * when exactly one was used.
    */
-  const single = brokerLeg === null ? cashLeg : cashLeg === null ? brokerLeg : null;
+  const single =
+    editNote !== '' ? null : brokerLeg === null ? cashLeg : cashLeg === null ? brokerLeg : null;
   const rate =
     single?.rate ?? (transfer.amount > 0n ? (toAmount * MONEY_FACTOR) / transfer.amount : 0n);
 
@@ -1390,7 +1432,7 @@ export async function settleArrival(
       fromAmount: transfer.amount,
       toCurrency: input.payoutCurrency,
       toAmount,
-      payout: { cash: cashLeg?.toAmount ?? 0n, bank: brokerLeg?.toAmount ?? 0n },
+      payout: { cash: payCash, bank: payBank },
       payoutChannel: account,
       payoutAccount: payoutAccount || null,
       rate,
@@ -1398,7 +1440,10 @@ export async function settleArrival(
       profitAmount: profit,
       counterpartyName: input.counterpartyName ?? null,
       counterpartyPhone: input.counterpartyPhone ?? null,
-      notes: [percentNote && `النسبة: ${percentNote}`, input.notes].filter(Boolean).join(' — ') || null,
+      notes:
+        [percentNote && `النسبة: ${percentNote}`, editNote, input.notes]
+          .filter(Boolean)
+          .join(' — ') || null,
     },
     actor,
     db,
@@ -1443,7 +1488,13 @@ export async function settleArrival(
     summaryEn: `Settled arrival ${transfer.txHash} as ${created.reference}: ${toDecimalString(transfer.amount, 2)} ${transfer.wallet.tokenSymbol} paid out as ${toDecimalString(toAmount, 2)} ${input.payoutCurrency} via ${mode.toLowerCase()}${account ? ` to ${account}` : ''}`,
     summaryAr: `صرف تحويل واصل ${transfer.txHash} بالعملية ${created.reference}: ${toDecimalString(transfer.amount, 2)} ${transfer.wallet.tokenSymbol} مقابل ${toDecimalString(toAmount, 2)} ${input.payoutCurrency}${account ? ` عبر ${account}` : ''}`,
     actor,
-    after: { transactionReference: created.reference, transactionId: created.id },
+    after: {
+      transactionReference: created.reference,
+      transactionId: created.id,
+      ...(editNote
+        ? { computedPayout: computedTotal.toString(), paidPayout: toAmount.toString() }
+        : {}),
+    },
   });
 
   log.info('Arrival settled', { txHash: transfer.txHash, transaction: created.reference });
