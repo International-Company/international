@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { CalendarDays, ChevronLeft, ChevronRight, ClipboardList, Wallet } from 'lucide-react';
 import { useLocale } from '@/i18n/provider';
 import { formatDate } from '@/i18n/format';
@@ -286,79 +286,146 @@ export function MyCashLedger({
             ))}
           </div>
 
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[46rem] border-collapse text-sm">
-              <thead>
-                <tr className="bg-surface-sunken text-xs text-content-secondary">
-                  <th className="px-2 py-2 text-start font-medium">{t('cashLedger.colTime')}</th>
-                  <th className="px-2 py-2 text-start font-medium">{t('cashLedger.colDeal')}</th>
-                  <th className="px-2 py-2 text-end font-medium">{t('cashLedger.colAmount')}</th>
-                  <th className="px-2 py-2 text-end font-medium">{t('cashLedger.colPrice')}</th>
-                  <th className="px-2 py-2 text-end font-medium">{t('cashLedger.colIn')}</th>
-                  <th className="px-2 py-2 text-end font-medium">{t('cashLedger.colOut')}</th>
-                  <th className="px-2 py-2 text-end font-medium">{t('cashLedger.colBox')}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {entries.map((entry) => {
-                  const struck = entry.reversed || entry.reversal;
-                  return (
-                    <tr
-                      key={entry.id}
-                      className={cn(
-                        'border-t border-border-subtle align-top',
-                        struck && 'bg-danger-subtle/20',
-                      )}
-                    >
-                      <td className="px-2 py-2 tabular-nums ltr-content">
+          {/*
+            Seven columns cannot share a phone: scrolled sideways, the figures
+            that matter sat cut off at the edge. Where the table does not fit,
+            each deal is a card with the same figures, named; the table takes
+            over once there is room for all of it.
+          */}
+          <div className="@container">
+            <ul className="divide-y divide-border-subtle @3xl:hidden">
+              {entries.map((entry) => {
+                const struck = entry.reversed || entry.reversal;
+                const line = (label: string, value: ReactNode) => (
+                  <div className="flex items-start justify-between gap-3">
+                    <dt className="text-xs text-content-secondary">{label}</dt>
+                    <dd className="min-w-0 text-end tabular-nums">{value}</dd>
+                  </div>
+                );
+                return (
+                  <li
+                    key={entry.id}
+                    className={cn('space-y-2 py-3 text-sm', struck && 'bg-danger-subtle/20')}
+                  >
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                      <span className="font-medium tabular-nums ltr-content">
                         {new Date(entry.at).toLocaleTimeString('en-GB', {
                           hour: '2-digit',
                           minute: '2-digit',
                         })}
-                      </td>
-                      <td className="px-2 py-2">
-                        <div className="flex flex-wrap items-center gap-1">
-                          {sideBadge(entry)}
-                          {entry.reversal && (
-                            <Badge tone="danger">{t('cashLedger.reversal')}</Badge>
+                      </span>
+                      {sideBadge(entry)}
+                      {entry.reversal && <Badge tone="danger">{t('cashLedger.reversal')}</Badge>}
+                      {entry.reversed && <Badge tone="danger">{t('machine.deletedBadge')}</Badge>}
+                      <span className="ms-auto min-w-0 break-all font-mono text-[11px] text-content-tertiary ltr-content">
+                        {entry.reference}
+                      </span>
+                    </div>
+                    <dl className="space-y-1">
+                      {line(
+                        t('cashLedger.colAmount'),
+                        <span
+                          className={cn(
+                            'font-semibold',
+                            struck && 'text-content-tertiary line-through',
                           )}
-                          {entry.reversed && (
-                            <Badge tone="danger">{t('machine.deletedBadge')}</Badge>
+                        >
+                          {entry.foreign ? (
+                            <Money value={entry.foreign.amount} currency={entry.foreign.currency} />
+                          ) : (
+                            <Money value={entry.fromAmount} currency={entry.fromCurrency} />
                           )}
-                        </div>
-                        <span className="mt-0.5 block font-mono text-[11px] text-content-tertiary ltr-content">
-                          {entry.reference}
-                        </span>
-                      </td>
-                      <td
+                        </span>,
+                      )}
+                      {line(
+                        t('cashLedger.colPrice'),
+                        <span className="ltr-content">{priceOf(entry) ?? '—'}</span>,
+                      )}
+                      {line(t('cashLedger.colIn'), amounts(entry.cashIn, 'text-success-text'))}
+                      {line(t('cashLedger.colOut'), amounts(entry.cashOut, 'text-danger-text'))}
+                      {line(
+                        t('cashLedger.colBox'),
+                        <span className="text-xs font-semibold">{amounts(entry.running)}</span>,
+                      )}
+                    </dl>
+                  </li>
+                );
+              })}
+            </ul>
+            <div className="hidden overflow-x-auto @3xl:block">
+              <table className="w-full min-w-[46rem] border-collapse text-sm">
+                <thead>
+                  <tr className="bg-surface-sunken text-xs text-content-secondary">
+                    <th className="px-2 py-2 text-start font-medium">{t('cashLedger.colTime')}</th>
+                    <th className="px-2 py-2 text-start font-medium">{t('cashLedger.colDeal')}</th>
+                    <th className="px-2 py-2 text-end font-medium">{t('cashLedger.colAmount')}</th>
+                    <th className="px-2 py-2 text-end font-medium">{t('cashLedger.colPrice')}</th>
+                    <th className="px-2 py-2 text-end font-medium">{t('cashLedger.colIn')}</th>
+                    <th className="px-2 py-2 text-end font-medium">{t('cashLedger.colOut')}</th>
+                    <th className="px-2 py-2 text-end font-medium">{t('cashLedger.colBox')}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {entries.map((entry) => {
+                    const struck = entry.reversed || entry.reversal;
+                    return (
+                      <tr
+                        key={entry.id}
                         className={cn(
-                          'px-2 py-2 text-end font-semibold tabular-nums',
-                          struck && 'text-content-tertiary line-through',
+                          'border-t border-border-subtle align-top',
+                          struck && 'bg-danger-subtle/20',
                         )}
                       >
-                        {entry.foreign ? (
-                          <Money value={entry.foreign.amount} currency={entry.foreign.currency} />
-                        ) : (
-                          <Money value={entry.fromAmount} currency={entry.fromCurrency} />
-                        )}
-                      </td>
-                      <td className="px-2 py-2 text-end tabular-nums ltr-content">
-                        {priceOf(entry) ?? '—'}
-                      </td>
-                      <td className="px-2 py-2 text-end tabular-nums">
-                        {amounts(entry.cashIn, 'text-success-text')}
-                      </td>
-                      <td className="px-2 py-2 text-end tabular-nums">
-                        {amounts(entry.cashOut, 'text-danger-text')}
-                      </td>
-                      <td className="px-2 py-2 text-end text-xs font-semibold tabular-nums">
-                        {amounts(entry.running)}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                        <td className="px-2 py-2 tabular-nums ltr-content">
+                          {new Date(entry.at).toLocaleTimeString('en-GB', {
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })}
+                        </td>
+                        <td className="px-2 py-2">
+                          <div className="flex flex-wrap items-center gap-1">
+                            {sideBadge(entry)}
+                            {entry.reversal && (
+                              <Badge tone="danger">{t('cashLedger.reversal')}</Badge>
+                            )}
+                            {entry.reversed && (
+                              <Badge tone="danger">{t('machine.deletedBadge')}</Badge>
+                            )}
+                          </div>
+                          <span className="mt-0.5 block font-mono text-[11px] text-content-tertiary ltr-content">
+                            {entry.reference}
+                          </span>
+                        </td>
+                        <td
+                          className={cn(
+                            'px-2 py-2 text-end font-semibold tabular-nums',
+                            struck && 'text-content-tertiary line-through',
+                          )}
+                        >
+                          {entry.foreign ? (
+                            <Money value={entry.foreign.amount} currency={entry.foreign.currency} />
+                          ) : (
+                            <Money value={entry.fromAmount} currency={entry.fromCurrency} />
+                          )}
+                        </td>
+                        <td className="px-2 py-2 text-end tabular-nums ltr-content">
+                          {priceOf(entry) ?? '—'}
+                        </td>
+                        <td className="px-2 py-2 text-end tabular-nums">
+                          {amounts(entry.cashIn, 'text-success-text')}
+                        </td>
+                        <td className="px-2 py-2 text-end tabular-nums">
+                          {amounts(entry.cashOut, 'text-danger-text')}
+                        </td>
+                        <td className="px-2 py-2 text-end text-xs font-semibold tabular-nums">
+                          {amounts(entry.running)}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           </div>
         </>
       )}

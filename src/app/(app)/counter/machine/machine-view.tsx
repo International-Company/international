@@ -813,7 +813,9 @@ export function MachineView({
           void submit();
         }}
         className={cn(
-          'mx-auto grid w-full max-w-xl gap-6',
+          // A column that may shrink. Left to size itself, it took the width of
+          // the widest thing inside and pushed the page past the screen.
+          'mx-auto grid w-full max-w-xl grid-cols-[minmax(0,1fr)] gap-6',
           // Measured against the space the page actually has, not the window:
           // with the sidebar open, a wide screen can still be a narrow page.
           '@4xl:max-w-6xl @4xl:grid-cols-[minmax(0,30rem)_minmax(0,1fr)] @4xl:items-start',
@@ -1743,10 +1745,38 @@ function AmountRow({
    */
   const display = active ? value : value === '' ? zero : formatScaled(value, decimals);
 
+  /*
+   * The whole figure, always. A teller reads this aloud, so a large amount on a
+   * narrow phone must shrink rather than lose its last digits inside the field.
+   * The class sets the size it would like; this only ever takes it down, and
+   * never below the 16px under which mobile Safari zooms on focus.
+   */
+  useLayoutEffect(() => {
+    const node = field.current;
+    if (!node) return;
+    const fit = () => {
+      node.style.fontSize = '';
+      if (node.scrollWidth <= node.clientWidth) return;
+      const size = parseFloat(getComputedStyle(node).fontSize);
+      const fitted = Math.floor((size * node.clientWidth) / node.scrollWidth);
+      node.style.fontSize = `${Math.max(16, fitted)}px`;
+    };
+    fit();
+    // Again when the row changes width: a phone turned, a sidebar closed.
+    let width = node.clientWidth;
+    const watcher = new ResizeObserver(() => {
+      if (node.clientWidth === width) return;
+      width = node.clientWidth;
+      fit();
+    });
+    watcher.observe(node);
+    return () => watcher.disconnect();
+  }, [display]);
+
   return (
     <div
       className={cn(
-        'rounded-[1.35rem] px-5 transition-colors duration-150',
+        'rounded-[1.35rem] px-3 transition-colors duration-150 min-[400px]:px-5',
         hero ? 'py-6' : 'py-5',
         active ? 'bg-primary-subtle' : 'bg-surface-sunken',
       )}
@@ -1763,7 +1793,7 @@ function AmountRow({
         anyone should have to hit while a customer waits.
       */}
       <div
-        className="mt-3 flex cursor-text items-center gap-3 py-1"
+        className="mt-3 flex cursor-text items-center gap-2 py-1 min-[400px]:gap-3"
         onClick={(event) => {
           if (event.target === event.currentTarget) field.current?.focus();
         }}
@@ -1845,9 +1875,9 @@ function AmountRow({
           inputMode="decimal"
           autoComplete="off"
           /*
-           * Sets its own size, and never drops below 20px — comfortably past
-           * the point where mobile Safari zooms — so the global 16px guard for
-           * small fields would only shrink it. See `globals.css`.
+           * Sets its own size, and never drops below 16px — the point where
+           * mobile Safari zooms — so the global guard for small fields has
+           * nothing to add. See `globals.css`.
            */
           data-zoom-safe=""
           aria-current={active}
@@ -1864,8 +1894,10 @@ function AmountRow({
           }}
           onChange={(event) => onType(event.target.value)}
           className={cn(
-            'min-w-0 flex-1 bg-transparent text-end tabular-nums tracking-tight outline-none',
-            'placeholder:text-content-tertiary transition-[font-size] duration-100',
+            // No width of its own: a field asks for twenty characters at this
+            // font size, which is wider than a phone. It takes what the row leaves.
+            'w-0 min-w-0 flex-1 bg-transparent text-end tabular-nums tracking-tight outline-none',
+            'placeholder:text-content-tertiary',
             hero ? 'font-bold text-primary-text' : 'font-semibold text-content',
             amountSize(display || zero, Boolean(hero)),
           )}

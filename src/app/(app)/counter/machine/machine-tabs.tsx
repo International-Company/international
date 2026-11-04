@@ -51,7 +51,8 @@ export function MachineTabs({
             disabled={entry.key !== 'EXCHANGE' && channels.length === 0}
             onClick={() => setTab(entry.key)}
             className={cn(
-              'h-10 flex-1 rounded-xl px-2 text-sm font-medium transition-colors disabled:opacity-40',
+              // A label that wraps on a narrow phone grows the tab, not out of it.
+              'min-h-10 min-w-0 flex-1 rounded-xl px-2 py-1 text-sm font-medium leading-tight transition-colors disabled:opacity-40',
               tab === entry.key
                 ? 'bg-surface text-content shadow-[var(--shadow-sm)]'
                 : 'text-content-tertiary hover:text-content-secondary',
