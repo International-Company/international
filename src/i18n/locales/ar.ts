@@ -2090,6 +2090,7 @@ const ar: Dictionary = {
     customer: 'المستفيد',
     received: 'المستلم',
     delivered: 'المسلّم',
+    transferred: 'المحوّل للعميل',
     rate: 'السعر',
     commission: 'العمولة',
     total: 'الإجمالي',

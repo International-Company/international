@@ -10,6 +10,7 @@ import { formatDateTime } from '@/i18n/format';
 import { BRAND } from '@/app/_shell/brand';
 import { QrCode } from '@/core/qr/qr-code';
 import { receiptQrText } from '@/modules/exchange/receipt-qr';
+import { isWalletType } from '@/modules/exchange/transaction-types';
 import { AutoPrint } from './auto-print';
 
 export const metadata: Metadata = { title: 'Receipt', robots: { index: false } };
@@ -102,6 +103,9 @@ export default async function ReceiptPage({ params }: { params: Promise<{ id: st
   }
 
   const isExchange = transaction.toCurrency !== transaction.fromCurrency;
+  // One currency on both sides, so no rate to print: the fee is the gap between them.
+  const isWallet = isWalletType(transaction.type);
+  const walletFee = transaction.fromAmount - transaction.toAmount;
 
   // Paid out by bank or wallet transfer, in whole or in part.
   const bankPayout = transaction.payoutBankAmount > 0n && !transaction.payoutAddress;
@@ -270,6 +274,42 @@ export default async function ReceiptPage({ params }: { params: Promise<{ id: st
                           {toDecimalString(transaction.toAmount, 2)} {transaction.toCurrency}
                         </td>
                       </tr>
+                    </>
+                  )}
+
+                  {/*
+                    A wallet service: what the customer handed over, the fee, and
+                    what they got for it. On a top-up that is the transfer, whose
+                    wallet is named below; on a cash-out, the notes.
+                  */}
+                  {isWallet && (
+                    <>
+                      {walletFee > 0n && (
+                        <tr>
+                          <td className="py-1">{t('receipt.commission')}</td>
+                          <td className="py-1 text-end" dir="ltr">
+                            {toDecimalString(walletFee, 2)} {transaction.toCurrency}
+                          </td>
+                        </tr>
+                      )}
+                      <tr className={`border-t ${rule}`}>
+                        <td className="py-1 font-semibold">
+                          {transaction.type === 'WALLET_TOPUP'
+                            ? t('receipt.transferred')
+                            : t('receipt.delivered')}
+                        </td>
+                        <td className="py-1 text-end font-bold" dir="ltr">
+                          {toDecimalString(transaction.toAmount, 2)} {transaction.toCurrency}
+                        </td>
+                      </tr>
+                      {transaction.type === 'WALLET_CASHOUT' && transaction.intakeBankChannel && (
+                        <tr>
+                          <td className="py-1">{t('receipt.payoutChannel')}</td>
+                          <td className="py-1 text-end font-semibold">
+                            {transaction.intakeBankChannel}
+                          </td>
+                        </tr>
+                      )}
                     </>
                   )}
 

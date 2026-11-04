@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Check } from 'lucide-react';
+import { Check, Printer } from 'lucide-react';
 import { useLocale } from '@/i18n/provider';
 import { api } from '@/lib/api-client';
 import { describeFailure } from '@/lib/failure';
@@ -140,7 +140,18 @@ export function WalletOps({
           <div className="flex flex-wrap items-center gap-2">
             <span className="font-mono ltr-content">{done.reference}</span>
             {permissions.includes('exchange.receipt.print') && (
-              <ShareButton transactionId={done.id} variant="secondary" />
+              <>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="secondary"
+                  icon={<Printer />}
+                  onClick={() => window.open(`/print/receipt/${done.id}`, '_blank')}
+                >
+                  {t('transactions.printReceipt')}
+                </Button>
+                <ShareButton transactionId={done.id} variant="secondary" />
+              </>
             )}
           </div>
         </Alert>

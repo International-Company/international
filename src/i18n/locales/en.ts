@@ -2091,6 +2091,7 @@ const en = {
     customer: 'Beneficiary',
     received: 'Received',
     delivered: 'Delivered',
+    transferred: 'Transferred to the customer',
     rate: 'Rate',
     commission: 'Commission',
     total: 'Total',
