@@ -135,6 +135,7 @@ export function RemittanceView({
 
   const outgoing = direction === 'OUT';
   const byTransfer = outgoing && paidVia === 'TRANSFER';
+  const nameRequired = !outgoing || byTransfer;
   const canSeeMargin = permissions.includes('exchange.margin.view');
 
   // The teller's own last few, in the direction they are working in — a lost
@@ -184,7 +185,9 @@ export function RemittanceView({
     grossValue <= 0n ||
     netValue <= 0n ||
     margin < 0n ||
-    (!customer && !counterpartyName.trim()) ||
+    // A name is asked for where someone answers for the money: a remittance paid
+    // out here, or one paid by transfer. Sent for notes, it can go without.
+    (nameRequired && !customer && !counterpartyName.trim()) ||
     // A transfer belongs to someone who can be reached; the server insists too.
     (byTransfer && !customer && !counterpartyPhone.trim());
 
@@ -578,7 +581,7 @@ export function RemittanceView({
 
           {!customer && (
             <>
-              <Field label={t('remittance.name')} required>
+              <Field label={t('remittance.name')} required={nameRequired}>
                 {(props) => (
                   <Input
                     {...props}
