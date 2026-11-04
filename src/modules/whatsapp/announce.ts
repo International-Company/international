@@ -7,7 +7,7 @@ import { HOME_CURRENCY } from '@/lib/home-currency';
 import { TRANSACTION_TYPE_META, type TransactionType } from '@/modules/exchange/transaction-types';
 import * as settings from '@/modules/settings/settings.service';
 import { shareable, type Shareable } from '@/modules/exchange/share.service';
-import { isLinked, sendText, type SentMessage } from './whatsapp.service';
+import { isLinked, sendImage, sendText, type SentMessage } from './whatsapp.service';
 
 /**
  * Every deal, to the office's WhatsApp group, the moment it is recorded — and
@@ -171,6 +171,13 @@ export interface AnnounceDeps {
   target: () => Promise<string | null>;
   load: (id: string) => Promise<Shareable>;
   send: (jid: string, text: string, quoted?: SentMessage) => Promise<SentMessage>;
+  /** A photo the deal carries, to go with its message. */
+  photo?: (id: string) => Promise<{ data: Uint8Array; mimeType: string } | null>;
+  sendPhoto?: (
+    jid: string,
+    photo: { data: Uint8Array; mimeType: string },
+    caption: string,
+  ) => Promise<SentMessage>;
   /** Between attempts to read a deal not yet committed. */
   pause?: number;
 }
@@ -196,9 +203,26 @@ export async function announceDeal(
   if (!message?.text) return 'NOT_FOUND';
   if (!announced(message)) return 'SKIPPED';
 
-  let sent: SentMessage;
+  /*
+   * The deal's photo goes with its message, as the caption. A photo that cannot
+   * be read or sent never costs the group the deal: it goes as words instead.
+   */
+  let sent: SentMessage | undefined;
+  if (deps.photo && deps.sendPhoto) {
+    try {
+      const photo = await deps.photo(transactionId);
+      if (photo) sent = await deps.sendPhoto(group, photo, message.text);
+    } catch (error) {
+      log.warn('Could not send a deal’s photo; sending its words', {
+        reference: message.reference,
+        error,
+      });
+      sent = undefined;
+    }
+  }
+
   try {
-    sent = await deps.send(group, message.text);
+    sent ??= await deps.send(group, message.text);
   } catch (error) {
     log.warn('Could not announce a deal', { reference: message.reference, error });
     return 'SEND_FAILED';
@@ -217,6 +241,15 @@ export async function announceDeal(
   return 'SENT';
 }
 
+/** The first photo a deal carries, or nothing. */
+function firstProof(transactionId: string) {
+  return prisma.transactionProof.findFirst({
+    where: { transactionId },
+    orderBy: { createdAt: 'asc' },
+    select: { data: true, mimeType: true },
+  });
+}
+
 let registered = false;
 
 export function registerWhatsappSubscribers(): void {
@@ -228,7 +261,33 @@ export function registerWhatsappSubscribers(): void {
       target,
       load: (id) => shareable(id, 'ar'),
       send: sendText,
+      photo: firstProof,
+      sendPhoto: (jid, photo, caption) =>
+        sendImage(jid, Buffer.from(photo.data), caption, undefined, photo.mimeType),
     });
+  });
+
+  // A photo added after the deal went out: the group gets it, saying which deal.
+  on('transaction.proofAdded', 'whatsapp-announce-proof', async ({ transactionId, proofId }) => {
+    const group = await target();
+    if (!group) return;
+    const [message, proof] = await Promise.all([
+      shareable(transactionId, 'ar'),
+      prisma.transactionProof.findUnique({
+        where: { id: proofId },
+        select: { data: true, mimeType: true },
+      }),
+    ]);
+    if (!proof) return;
+    await sendImage(
+      group,
+      Buffer.from(proof.data),
+      `إثبات دفع\n\n${message.text}`,
+      undefined,
+      proof.mimeType,
+    ).catch((error) =>
+      log.warn('Could not send a payment photo', { reference: message.reference, error }),
+    );
   });
 
   on(

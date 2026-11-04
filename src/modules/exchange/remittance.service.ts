@@ -1,8 +1,11 @@
 import 'server-only';
-import { prisma, type DbClient } from '@/core/db/prisma';
+import { prisma, withTransaction, type DbClient } from '@/core/db/prisma';
 import { errors } from '@/core/errors/app-error';
 import { toDecimalString } from '@/core/money/money';
+import { emitAsync } from '@/core/events/bus';
+import * as audit from '@/modules/audit/audit.service';
 import * as settings from '@/modules/settings/settings.service';
+import { MAX_PROOFS, readProofImage } from './proof-image';
 import * as transactions from './transaction.service';
 import type { Actor } from './transaction.service';
 
@@ -42,6 +45,16 @@ export async function destinations(db: DbClient = prisma): Promise<string[]> {
 
 export interface RemittanceConfig {
   destinations: string[];
+  /** The price list, for the screen to work a sum out from. */
+  prices: {
+    id: string;
+    destination: string;
+    currency: string;
+    chargeKind: string;
+    chargeValue: bigint;
+    costKind: string;
+    costValue: bigint;
+  }[];
   currencies: { code: string; nameEn: string; nameAr: string; symbol: string; decimals: number }[];
 }
 
@@ -52,8 +65,20 @@ export interface RemittanceConfig {
  * USDT reaches the branch by a different road with its own screen.
  */
 export async function config(db: DbClient = prisma): Promise<RemittanceConfig> {
-  const [list, currencies] = await Promise.all([
+  const [list, prices, currencies] = await Promise.all([
     destinations(db),
+    db.remittancePrice.findMany({
+      orderBy: [{ destination: 'asc' }, { currency: 'asc' }],
+      select: {
+        id: true,
+        destination: true,
+        currency: true,
+        chargeKind: true,
+        chargeValue: true,
+        costKind: true,
+        costValue: true,
+      },
+    }),
     db.currency.findMany({
       where: { isActive: true, kind: 'FIAT' },
       orderBy: { sortOrder: 'asc' },
@@ -61,7 +86,7 @@ export async function config(db: DbClient = prisma): Promise<RemittanceConfig> {
     }),
   ]);
 
-  return { destinations: list, currencies };
+  return { destinations: list, prices, currencies };
 }
 
 interface Common {
@@ -79,6 +104,8 @@ export interface SendInput extends Common {
   collected: bigint;
   /** What the correspondent charges for it — their published price. */
   cost: bigint;
+  /** A photo of what the customer paid, as base64. */
+  proof?: string | null;
 }
 
 export interface ReceiveInput extends Common {
@@ -126,26 +153,118 @@ export async function send(input: SendInput, actor: Actor, db: DbClient = prisma
     );
   }
 
-  return transactions.record(
-    {
-      type: 'REMITTANCE_OUT',
-      branchId: input.branchId,
-      customerId: input.customerId ?? null,
-      // Same currency on both sides. What the customer paid, and what the
-      // correspondent is owed; the difference is the margin.
-      fromCurrency: input.currency,
-      fromAmount: input.collected,
-      toCurrency: input.currency,
-      toAmount: input.cost,
-      rate: 100000000n,
-      profitAmount: input.collected - input.cost,
-      counterpartyName: input.counterpartyName ?? null,
-      counterpartyPhone: input.counterpartyPhone ?? null,
-      notes: [input.destination.trim(), input.notes?.trim()].filter(Boolean).join(' — '),
+  const image = input.proof ? readProof_(input.proof) : null;
+
+  /*
+   * One transaction, so the deal and its photo are visible together. The bot is
+   * told of the deal as it is written and waits for it to commit, so by the time
+   * it can read the deal it can read the photo as well.
+   */
+  return withTransaction(async (tx) => {
+    const posted = await transactions.record(
+      {
+        type: 'REMITTANCE_OUT',
+        branchId: input.branchId,
+        customerId: input.customerId ?? null,
+        // Same currency on both sides. What the customer paid, and what the
+        // correspondent is owed; the difference is the margin.
+        fromCurrency: input.currency,
+        fromAmount: input.collected,
+        toCurrency: input.currency,
+        toAmount: input.cost,
+        rate: 100000000n,
+        profitAmount: input.collected - input.cost,
+        counterpartyName: input.counterpartyName ?? null,
+        counterpartyPhone: input.counterpartyPhone ?? null,
+        notes: [input.destination.trim(), input.notes?.trim()].filter(Boolean).join(' — '),
+      },
+      actor,
+      tx,
+    );
+    if (image) {
+      await tx.transactionProof.create({
+        data: {
+          transactionId: posted.id,
+          mimeType: image.mimeType,
+          size: image.bytes.length,
+          data: new Uint8Array(image.bytes),
+          createdById: actor.id,
+        },
+      });
+    }
+    return posted;
+  }, db);
+}
+
+/** The photo, or the words for why it cannot be kept. */
+function readProof_(base64: string) {
+  const image = readProofImage(base64);
+  if (typeof image === 'string') {
+    throw errors.precondition('That photo cannot be kept', image);
+  }
+  return image;
+}
+
+/**
+ * A photo added once the remittance is already recorded: the customer's proof
+ * often arrives after they have paid. Only for someone who can read the deal.
+ */
+export async function addProof(transactionId: string, base64: string, actor: Actor) {
+  const deal = await transactions.getById(transactionId, actor);
+  if (deal.type !== 'REMITTANCE_OUT' || deal.status === 'REVERSED') {
+    throw errors.precondition(
+      'Only an outgoing remittance that stands takes a photo',
+      'errors.proofNotHere',
+    );
+  }
+  const image = readProof_(base64);
+  const held = await prisma.transactionProof.count({ where: { transactionId } });
+  if (held >= MAX_PROOFS) {
+    throw errors.precondition(`A deal holds ${MAX_PROOFS} photos`, 'errors.proofTooMany', {
+      maximum: String(MAX_PROOFS),
+    });
+  }
+  const proof = await prisma.transactionProof.create({
+    data: {
+      transactionId,
+      mimeType: image.mimeType,
+      size: image.bytes.length,
+      data: new Uint8Array(image.bytes),
+      createdById: actor.id,
     },
+    select: { id: true },
+  });
+  await audit.record({
+    action: 'UPDATE',
+    module: 'exchange',
+    entityType: 'Transaction',
+    entityId: transactionId,
+    summaryEn: `Attached a payment photo to ${deal.reference}`,
+    summaryAr: `إرفاق صورة إثبات الدفع بالعملية ${deal.reference}`,
     actor,
-    db,
-  );
+  });
+  emitAsync('transaction.proofAdded', { transactionId, proofId: proof.id });
+  return { id: proof.id };
+}
+
+/** The photos a deal carries, without their bytes. */
+export function listProofs(transactionId: string, db: DbClient = prisma) {
+  return db.transactionProof.findMany({
+    where: { transactionId },
+    orderBy: { createdAt: 'asc' },
+    select: { id: true, createdAt: true },
+  });
+}
+
+/** One photo, to someone who can read the deal it belongs to. */
+export async function readProof(transactionId: string, proofId: string, actor: Actor) {
+  await transactions.getById(transactionId, actor);
+  const proof = await prisma.transactionProof.findFirst({
+    where: { id: proofId, transactionId },
+    select: { mimeType: true, data: true },
+  });
+  if (!proof) throw errors.notFound('Proof', proofId);
+  return proof;
 }
 
 /**

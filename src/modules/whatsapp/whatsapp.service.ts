@@ -285,10 +285,11 @@ export async function sendImage(
   image: Buffer,
   caption: string,
   quoted?: WAMessage,
+  mimetype = 'image/png',
 ): Promise<SentMessage> {
   return linked().sendMessage(
     jid,
-    { image, caption, mimetype: 'image/png' },
+    { image, caption, mimetype },
     quoted ? { quoted } : undefined,
   );
 }

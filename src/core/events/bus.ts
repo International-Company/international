@@ -20,6 +20,7 @@ export interface DomainEvents {
   'transaction.created': { transactionId: string; reference: string; type: string; actorId: string };
   'transaction.submitted': { transactionId: string; reference: string; actorId: string };
   'transaction.posted': { transactionId: string; reference: string; type: string; actorId: string };
+  'transaction.proofAdded': { transactionId: string; proofId: string };
   'transaction.reversed': { transactionId: string; reversalId: string; actorId: string };
 
   'rate.changed': { baseCode: string; quoteCode: string; rateId: string; actorId: string };

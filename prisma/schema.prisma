@@ -1163,6 +1163,8 @@ model CustomerDocument {
 
 model Transaction {
   id        String @id @default(cuid())
+  /// Photos of what the customer paid. Their own table, so loading a deal never loads them.
+  proofs    TransactionProof[]
   reference String @unique // TXN-20260808-00001
 
   /// EXCHANGE — cash for cash on the machine.
@@ -2153,4 +2155,38 @@ model WalletCredential {
   updatedAt DateTime @updatedAt
 
   @@map("wallet_credentials")
+}
+
+/// A destination's price, per currency: what the office charges the customer on
+/// top of the sum, and what the correspondent charges the office. A kind is FLAT
+/// or PERCENT, and a value is an amount or a percentage on the 1e8 scale.
+model RemittancePrice {
+  id          String   @id @default(cuid())
+  destination String
+  currency    String
+  chargeKind  String
+  chargeValue BigInt
+  costKind    String
+  costValue   BigInt
+  updatedById String?
+  updatedAt   DateTime @updatedAt
+
+  @@unique([destination, currency])
+  @@map("remittance_prices")
+}
+
+/// A photo of what a customer paid for a remittance. In the database rather than
+/// on disk, because the server's disk does not survive a deploy.
+model TransactionProof {
+  id            String      @id @default(cuid())
+  transactionId String
+  transaction   Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  mimeType      String
+  size          Int
+  data          Bytes
+  createdById   String?
+  createdAt     DateTime    @default(now())
+
+  @@index([transactionId])
+  @@map("transaction_proofs")
 }

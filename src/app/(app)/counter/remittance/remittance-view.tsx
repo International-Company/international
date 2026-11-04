@@ -2,7 +2,17 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ArrowDownLeft, ArrowUpRight, Check, Loader2, Plus, Printer, RotateCcw, X } from 'lucide-react';
+import {
+  ArrowDownLeft,
+  ArrowUpRight,
+  Camera,
+  Check,
+  Loader2,
+  Plus,
+  Printer,
+  RotateCcw,
+  X,
+} from 'lucide-react';
 import { useLocale } from '@/i18n/provider';
 import { normalizeDigits } from '@/core/money/money';
 import { api, ApiError, queryString } from '@/lib/api-client';
@@ -13,6 +23,9 @@ import { useToast } from '@/ui/overlay';
 import { Field, Input } from '@/ui/form';
 import { CustomerPicker, type CustomerHit } from '@/ui/customer-picker';
 import { cn } from '@/ui/utils';
+import { shrinkPhoto } from '@/ui/proof-photo';
+import { priceRemittance, type FeeKind } from '@/modules/exchange/remittance-pricing';
+import { RemittancePrices, type PriceRow } from './remittance-prices';
 
 /**
  * The remittance tool.
@@ -43,6 +56,7 @@ interface Currency {
 
 interface Config {
   destinations: string[];
+  prices: PriceRow[];
   currencies: Currency[];
 }
 
@@ -85,6 +99,16 @@ export function RemittanceView({
    */
   const [gross, setGross] = useState('');
   const [net, setNet] = useState('');
+
+  /*
+   * The sum being sent, when the destination has a price. The two figures below
+   * are worked out from it, and stay open: the deal in front of the teller can
+   * always differ from the list.
+   */
+  const [sum, setSum] = useState('');
+  /** A photo of what the customer paid, shrunk and ready to send. */
+  const [proof, setProof] = useState<string | null>(null);
+  const [readingProof, setReadingProof] = useState(false);
 
   const [customer, setCustomer] = useState<CustomerHit | null>(null);
   const [customerOpen, setCustomerOpen] = useState(false);
@@ -133,6 +157,8 @@ export function RemittanceView({
   const reset = () => {
     setGross('');
     setNet('');
+    setSum('');
+    setProof(null);
     setCustomer(null);
     setCustomerOpen(false);
     setCounterpartyName('');
@@ -168,12 +194,15 @@ export function RemittanceView({
         counterpartyName: counterpartyName.trim() || null,
         counterpartyPhone: counterpartyPhone.trim() || null,
         notes: notes.trim() || null,
+        proof: outgoing ? proof : null,
       });
 
       toast.success(t('remittance.recorded'), result.reference);
       setDone(result);
       setGross('');
       setNet('');
+      setSum('');
+      setProof(null);
       setCounterpartyName('');
       setCounterpartyPhone('');
       setNotes('');
@@ -195,7 +224,59 @@ export function RemittanceView({
 
   const print = (id: string) => window.open(`/print/receipt/${id}`, '_blank');
 
+  // This destination's price in this currency, when the manager has set one.
+  const price = outgoing
+    ? config.prices.find((row) => row.destination === destination && row.currency === currency)
+    : undefined;
+
+  const applySum = useCallback(
+    (typed: string) => {
+      setSum(typed);
+      setDone(null);
+      if (!price) return;
+      const amount = scaleAmount(typed);
+      if (amount <= 0n) {
+        setGross('');
+        setNet('');
+        return;
+      }
+      const worked = priceRemittance(
+        amount,
+        {
+          charge: { kind: price.chargeKind as FeeKind, value: BigInt(price.chargeValue) },
+          cost: { kind: price.costKind as FeeKind, value: BigInt(price.costValue) },
+        },
+        decimals,
+      );
+      setGross(plainAmount(worked.collected));
+      setNet(plainAmount(worked.cost));
+    },
+    [price, decimals],
+  );
+
+  // A different destination or currency prices the same sum again.
+  const priceKey = price?.id ?? '';
+  useEffect(() => {
+    if (sum) applySum(sum);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [priceKey]);
+
+  const pickProof = async (file: File | undefined) => {
+    if (!file) return;
+    setReadingProof(true);
+    try {
+      setProof(await shrinkPhoto(file));
+    } catch {
+      toast.error(t('errors.title'), t('errors.proofImageInvalid'));
+    } finally {
+      setReadingProof(false);
+    }
+  };
+
+  const canPrice = permissions.includes('exchange.rate.manage');
+
   return (
+    <div className="space-y-4">
     <form
       onSubmit={(event) => {
         event.preventDefault();
@@ -276,6 +357,21 @@ export function RemittanceView({
         </label>
       </div>
 
+      {/*
+        ============ The sum, on this destination's price ============
+        Only with a price to work from. It fills the two figures below it.
+      */}
+      {price && (
+        <AmountRow
+          label={t('remittance.sum')}
+          hint={t('remittance.sumHint')}
+          code={currency}
+          decimals={decimals}
+          value={sum}
+          onType={(raw) => applySum(sanitiseAmount(raw, decimals))}
+        />
+      )}
+
       {/* ============ The two figures ============ */}
       <section className="space-y-2 rounded-3xl bg-surface p-2 shadow-[var(--shadow-lg)] ring-1 ring-border-subtle">
         <AmountRow
@@ -320,6 +416,47 @@ export function RemittanceView({
             {formatScaled(margin.toString(), decimals)} {currency}
           </span>
         </p>
+      )}
+
+      {/* ============ A photo of what the customer paid ============ */}
+      {outgoing && (
+        <div className="flex items-center gap-3 rounded-2xl bg-surface p-3 ring-1 ring-border-subtle">
+          {proof ? (
+            <>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={`data:image/jpeg;base64,${proof}`}
+                alt={t('remittance.proof')}
+                className="size-14 rounded-lg object-cover"
+              />
+              <span className="min-w-0 flex-1 text-sm text-content">
+                {t('remittance.proofReady')}
+              </span>
+              <button
+                type="button"
+                onClick={() => setProof(null)}
+                aria-label={t('common.delete')}
+                className="flex size-9 items-center justify-center rounded-full text-content-tertiary transition-colors hover:bg-surface-sunken hover:text-content"
+              >
+                <X className="size-4" />
+              </button>
+            </>
+          ) : (
+            <label className="flex min-h-11 flex-1 cursor-pointer items-center gap-2 text-sm text-content-secondary transition-colors hover:text-primary-text">
+              {readingProof ? <Loader2 className="size-5 animate-spin" /> : <Camera className="size-5" />}
+              {t('remittance.proofAttach')}
+              <input
+                type="file"
+                accept="image/*"
+                className="sr-only"
+                onChange={(event) => {
+                  void pickProof(event.target.files?.[0]);
+                  event.target.value = '';
+                }}
+              />
+            </label>
+          )}
+        </div>
       )}
 
       {done && (
@@ -477,6 +614,16 @@ export function RemittanceView({
         </div>
       )}
     </form>
+
+      {/* The price list, under the form it feeds, for whoever manages prices. */}
+      {canPrice && config.destinations.length > 0 && (
+        <RemittancePrices
+          prices={config.prices}
+          destinations={config.destinations}
+          currencies={config.currencies.map((entry) => entry.code)}
+        />
+      )}
+    </div>
   );
 }
 
@@ -575,6 +722,13 @@ function scaleAmount(text: string): bigint {
 }
 
 /** The inverse, for putting an amount back on the wire. */
+/** A scaled amount as plain digits for a field: 1020, or 1020.5. */
+function plainAmount(value: bigint): string {
+  const digits = value.toString().padStart(9, '0');
+  const fraction = digits.slice(-8).replace(/0+$/, '');
+  return `${digits.slice(0, -8)}${fraction ? `.${fraction}` : ''}`;
+}
+
 function unscale(value: bigint): string {
   const digits = value.toString().padStart(9, '0');
   return `${digits.slice(0, -8)}.${digits.slice(-8)}`;

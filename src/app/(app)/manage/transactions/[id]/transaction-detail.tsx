@@ -7,6 +7,7 @@ import {
   AlertTriangle,
   ArrowDownLeft,
   ArrowUpRight,
+  Camera,
   Check,
   Pencil,
   Printer,
@@ -22,6 +23,7 @@ import { ConfirmDialog, Dialog, useToast } from '@/ui/overlay';
 import { Field, Input, Select, Textarea } from '@/ui/form';
 import { DateText, Money, Rate, StatusBadge } from '@/ui/display';
 import { cn } from '@/ui/utils';
+import { shrinkPhoto } from '@/ui/proof-photo';
 
 /**
  * One transaction, and what it did to the drawers.
@@ -90,11 +92,14 @@ interface AuditEntry {
 export function TransactionDetail({
   transaction,
   history,
+  proofs,
   tellers,
   permissions,
 }: {
   transaction: TransactionData;
   history: AuditEntry[];
+  /** Photos of what the customer paid. */
+  proofs: { id: string; createdAt: string }[];
   /** Who a deal can be moved to; empty for anyone who cannot move one. */
   tellers: { id: string; fullNameAr: string; fullNameEn: string }[];
   permissions: string[];
@@ -125,6 +130,38 @@ export function TransactionDetail({
     ['EXCHANGE', 'WALLET_CASHOUT', 'WALLET_TOPUP'].includes(transaction.type) &&
     !transaction.transferConfirmedAt &&
     others.length > 0;
+
+  const [addingProof, setAddingProof] = useState(false);
+  const canAddProof =
+    transaction.type === 'REMITTANCE_OUT' &&
+    transaction.status !== 'REVERSED' &&
+    !transaction.reversalOf &&
+    permissions.includes('exchange.remittance.use') &&
+    proofs.length < 5;
+
+  const addProof = async (file: File | undefined) => {
+    if (!file) return;
+    setAddingProof(true);
+    try {
+      const image = await shrinkPhoto(file).catch(() => null);
+      if (!image) {
+        toast.error(t('errors.title'), t('errors.proofImageInvalid'));
+        return;
+      }
+      await api.post(`/api/manage/transactions/${transaction.id}/proofs`, { image });
+      toast.success(t('common.saved'));
+      router.refresh();
+    } catch (cause) {
+      toast.error(
+        t('errors.title'),
+        cause instanceof ApiError
+          ? say(t, cause.messageKey, cause.params) || cause.message
+          : t('errors.generic'),
+      );
+    } finally {
+      setAddingProof(false);
+    }
+  };
 
   const move = async () => {
     setBusy(true);
@@ -465,6 +502,50 @@ export function TransactionDetail({
               )}
             </CardBody>
           </Card>
+
+          {/* --- Photos of what the customer paid ------------------------- */}
+          {(proofs.length > 0 || canAddProof) && (
+            <Card>
+              <CardHeader title={t('remittance.proof')} />
+              <CardBody className="space-y-3">
+                {proofs.length > 0 && (
+                  <div className="grid grid-cols-3 gap-2">
+                    {proofs.map((proof) => (
+                      <a
+                        key={proof.id}
+                        href={`/api/manage/transactions/${transaction.id}/proofs/${proof.id}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={`/api/manage/transactions/${transaction.id}/proofs/${proof.id}`}
+                          alt={t('remittance.proof')}
+                          className="aspect-square w-full rounded-lg object-cover ring-1 ring-border-subtle"
+                        />
+                      </a>
+                    ))}
+                  </div>
+                )}
+                {canAddProof && (
+                  <label className="flex min-h-10 cursor-pointer items-center justify-center gap-2 rounded-[var(--radius-control)] border border-border-base text-sm text-content-secondary transition-colors hover:border-primary hover:text-primary-text">
+                    <Camera className="size-4" />
+                    {addingProof ? t('common.loading') : t('remittance.proofAttach')}
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="sr-only"
+                      disabled={addingProof}
+                      onChange={(event) => {
+                        void addProof(event.target.files?.[0]);
+                        event.target.value = '';
+                      }}
+                    />
+                  </label>
+                )}
+              </CardBody>
+            </Card>
+          )}
 
           {/* --- What it did to the drawers ------------------------------ */}
           <Card>

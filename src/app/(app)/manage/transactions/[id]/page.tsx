@@ -5,6 +5,7 @@ import { requirePagePermission } from '@/modules/auth/context';
 import { getTranslator } from '@/i18n/server';
 import { getById, movableTellers } from '@/modules/exchange/transaction.service';
 import { historyFor } from '@/modules/audit/audit.service';
+import { listProofs } from '@/modules/exchange/remittance.service';
 import { isAppError } from '@/core/errors/app-error';
 import { toJsonSafe } from '@/core/http/json';
 import { PageHeader } from '@/ui/primitives';
@@ -31,6 +32,7 @@ export default async function TransactionPage({ params }: { params: Promise<{ id
   }
 
   const history = await historyFor('Transaction', id);
+  const proofs = await listProofs(id);
   // Only for whoever can act on it: a teller has no reason to read the staff list.
   const tellers = session.user.permissions.includes('exchange.transaction.reverse')
     ? await movableTellers()
@@ -54,6 +56,7 @@ export default async function TransactionPage({ params }: { params: Promise<{ id
         transaction={toJsonSafe(transaction)}
         history={toJsonSafe(history)}
         tellers={tellers}
+        proofs={toJsonSafe(proofs)}
         permissions={session.user.permissions}
       />
     </div>

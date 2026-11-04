@@ -30,6 +30,8 @@ const bodySchema = z.object({
   counterpartyName: z.string().max(200).nullish(),
   counterpartyPhone: z.string().max(40).nullish(),
   notes: z.string().max(1000).nullish(),
+  /** A photo of what the customer paid, shrunk by the screen, as base64. */
+  proof: z.string().max(6_000_000).nullish(),
 });
 
 export const POST = route<z.infer<typeof bodySchema>>({
@@ -50,7 +52,12 @@ export const POST = route<z.infer<typeof bodySchema>>({
 
     if (body.direction === 'OUT') {
       return remittances.send(
-        { ...common, collected: parseMoney(body.gross), cost: parseMoney(body.net) },
+        {
+          ...common,
+          collected: parseMoney(body.gross),
+          cost: parseMoney(body.net),
+          proof: body.proof ?? null,
+        },
         actor,
       );
     }
