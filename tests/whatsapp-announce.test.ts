@@ -127,6 +127,19 @@ describe('announcing a deal to the group', () => {
     assert.equal(await announceDeal('t1', deps), 'SENT');
   });
 
+  it('asks for the group of the deal’s own type', async () => {
+    const asked: string[] = [];
+    const { deps } = harness({
+      target: async (type) => {
+        asked.push(type);
+        return GROUP;
+      },
+    });
+    assert.equal(await announceDeal('t1', deps), 'SENT');
+    assert.equal(asked.length, 1);
+    assert.equal(asked[0], 'EXCHANGE');
+  });
+
   it('sends the deal, then replies to it with «صرافة»', async () => {
     const { deps, sent } = harness();
     assert.equal(await announceDeal('t1', deps), 'SENT');

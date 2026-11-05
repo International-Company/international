@@ -7,6 +7,7 @@ import { HOME_CURRENCY } from '@/lib/home-currency';
 import { TRANSACTION_TYPE_META, type TransactionType } from '@/modules/exchange/transaction-types';
 import * as settings from '@/modules/settings/settings.service';
 import { shareable, type Shareable } from '@/modules/exchange/share.service';
+import { groupFor, parseRoutes } from './group-routes';
 import { isLinked, sendImage, sendText, type SentMessage } from './whatsapp.service';
 
 /**
@@ -104,10 +105,14 @@ const DEAL_SELECT = {
   createdBy: { select: { fullNameAr: true } },
 } as const;
 
-/** The group to write to, or null when the office has not asked for it. */
-async function target(): Promise<string | null> {
+/** The group to write to about a deal of this type, or null when the office has not asked for it. */
+async function target(type: string): Promise<string | null> {
   if (!(await settings.getBoolean('whatsapp.enabled'))) return null;
-  const group = (await settings.getString('whatsapp.groupId')).trim();
+  const group = groupFor(
+    type,
+    parseRoutes(await settings.getString('whatsapp.groupRoutes')),
+    (await settings.getString('whatsapp.groupId')).trim(),
+  );
   if (!group || !isLinked()) return null;
   return group;
 }
@@ -178,8 +183,8 @@ const PHOTO_WORDS: Record<string, string> = {
 };
 
 export interface AnnounceDeps {
-  /** The group to write to, or null when nothing should be sent. */
-  target: () => Promise<string | null>;
+  /** The group to write to about a deal of this type, or null when nothing should be sent. */
+  target: (type: string) => Promise<string | null>;
   load: (id: string) => Promise<Shareable>;
   send: (jid: string, text: string, quoted?: SentMessage) => Promise<SentMessage>;
   /** The photos the deal carries, the one to go with its message first. */
@@ -208,12 +213,12 @@ export async function announceDeal(
   transactionId: string,
   deps: AnnounceDeps,
 ): Promise<AnnounceOutcome> {
-  const group = await deps.target();
-  if (!group) return 'SKIPPED';
-
   const message = await settled(transactionId, deps.load, deps.pause ?? 500);
   if (!message?.text) return 'NOT_FOUND';
   if (!announced(message)) return 'SKIPPED';
+
+  const group = await deps.target(message.type);
+  if (!group) return 'SKIPPED';
 
   /*
    * The deal's photo goes with its message, as the caption. A photo that cannot
@@ -293,8 +298,6 @@ export function registerWhatsappSubscribers(): void {
 
   // A photo added after the deal went out: the group gets it, saying which deal.
   on('transaction.proofAdded', 'whatsapp-announce-proof', async ({ transactionId, proofId }) => {
-    const group = await target();
-    if (!group) return;
     const [message, proof] = await Promise.all([
       shareable(transactionId, 'ar'),
       prisma.transactionProof.findUnique({
@@ -303,6 +306,8 @@ export function registerWhatsappSubscribers(): void {
       }),
     ]);
     if (!proof) return;
+    const group = await target(message.type);
+    if (!group) return;
     await sendImage(
       group,
       Buffer.from(proof.data),
@@ -318,8 +323,6 @@ export function registerWhatsappSubscribers(): void {
     'transaction.reversed',
     'whatsapp-announce-deletion',
     async ({ transactionId, reversalId }) => {
-      const group = await target();
-      if (!group) return;
       const [deal, reversal] = await Promise.all([
         prisma.transaction.findUnique({ where: { id: transactionId }, select: DEAL_SELECT }),
         prisma.transaction.findUnique({
@@ -331,6 +334,8 @@ export function registerWhatsappSubscribers(): void {
       if (!deal || !announced({ type: deal.type, bankPayout: deal.payoutBankAmount > 0n })) {
         return;
       }
+      const group = await target(deal.type);
+      if (!group) return;
       await sendText(
         group,
         composeDeletion(

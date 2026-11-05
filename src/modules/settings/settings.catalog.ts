@@ -460,6 +460,11 @@ export const SETTINGS: SettingDefinition[] = [
     labelEn: 'WhatsApp group name', labelAr: 'اسم مجموعة الواتساب',
     descriptionEn: 'Kept for display', descriptionAr: 'للعرض فقط',
   },
+  {
+    key: 'whatsapp.groupRoutes', category: 'whatsapp', type: 'string', defaultValue: '', hidden: true,
+    labelEn: 'WhatsApp groups by kind of deal', labelAr: 'مجموعات الواتساب حسب نوع العملية',
+    descriptionEn: 'Chosen on the WhatsApp panel', descriptionAr: 'تُختار من لوحة الواتساب',
+  },
 
   // --- Notifications -------------------------------------------------------
   {

@@ -5,13 +5,18 @@ import { Link2, Link2Off, Loader2, MessageCircle, Send, Users } from 'lucide-rea
 import { useLocale } from '@/i18n/provider';
 import { api, ApiError } from '@/lib/api-client';
 import { say } from '@/lib/failure';
+import {
+  ROUTE_CATEGORIES,
+  type GroupRoutes,
+  type RouteCategory,
+} from '@/modules/whatsapp/group-routes';
 import { Badge, Button } from '@/ui/primitives';
 import { ConfirmDialog, useToast } from '@/ui/overlay';
 
 /**
  * The office's WhatsApp number: linked by scanning a QR from the phone, then
- * pointed at one of its groups. Every deal goes there once the switch below
- * this panel is on.
+ * pointed at its groups. Every deal goes to the main group, or to its kind's own
+ * group if it has one, once the switch below this panel is on.
  *
  * Polled quickly while a QR is up — it changes every twenty seconds or so,
  * and the moment it is scanned the panel should say so — and slowly after.
@@ -27,6 +32,7 @@ interface Link {
   error: string | null;
   groupId: string;
   groupName: string;
+  routes: GroupRoutes;
   enabled: boolean;
 }
 
@@ -43,6 +49,8 @@ export function WhatsappPanel({ canManage }: { canManage: boolean }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [groups, setGroups] = useState<Group[] | null>(null);
   const [chosen, setChosen] = useState('');
+  /** The number's groups, once the manager opens the routes to change them. */
+  const [routeGroups, setRouteGroups] = useState<Group[] | null>(null);
   const [confirmUnlink, setConfirmUnlink] = useState(false);
 
   const load = useCallback(async () => {
@@ -104,6 +112,22 @@ export function WhatsappPanel({ canManage }: { canManage: boolean }) {
     if (!group) return;
     await act({ action: 'group', id: group.id, name: group.name }, t('whatsapp.groupSaved'));
     setGroups(null);
+  };
+
+  const openRoutes = async () => {
+    setBusy('routes');
+    try {
+      setRouteGroups(await api.get<Group[]>('/api/admin/whatsapp/groups'));
+    } catch (cause) {
+      failure(cause);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const saveRoute = (category: RouteCategory, id: string) => {
+    const name = routeGroups?.find((group) => group.id === id)?.name ?? '';
+    void act({ action: 'route', category, id, name }, t('whatsapp.groupSaved'));
   };
 
   if (!link) {
@@ -216,7 +240,7 @@ export function WhatsappPanel({ canManage }: { canManage: boolean }) {
                 >
                   {link.groupId ? t('whatsapp.changeGroup') : t('whatsapp.chooseGroup')}
                 </Button>
-                {link.groupId && (
+                {(link.groupId || Object.keys(link.routes).length > 0) && (
                   <Button
                     size="sm"
                     variant="ghost"
@@ -259,6 +283,63 @@ export function WhatsappPanel({ canManage }: { canManage: boolean }) {
           {!link.enabled && link.groupId && (
             <p className="text-xs text-warning-text">{t('whatsapp.switchOff')}</p>
           )}
+
+          {/* --- Which group hears of which deals ------------------------------- */}
+          <div className="space-y-2 border-t border-border-subtle pt-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="text-sm font-semibold text-content">{t('whatsapp.routes')}</span>
+              {canManage &&
+                (routeGroups === null ? (
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    loading={busy === 'routes'}
+                    onClick={() => void openRoutes()}
+                  >
+                    {t('whatsapp.routesChange')}
+                  </Button>
+                ) : (
+                  <Button size="sm" variant="ghost" onClick={() => setRouteGroups(null)}>
+                    {t('common.close')}
+                  </Button>
+                ))}
+            </div>
+            {ROUTE_CATEGORIES.map((category) => {
+              const route = link.routes[category];
+              return (
+                <div key={category} className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-sm text-content-secondary">
+                    {t(`whatsapp.route.${category}`)}
+                  </span>
+                  {routeGroups === null ? (
+                    <span className="text-sm font-medium text-content">
+                      {route?.name || t('whatsapp.routeMain')}
+                    </span>
+                  ) : (
+                    <select
+                      aria-label={t(`whatsapp.route.${category}`)}
+                      value={route?.id ?? ''}
+                      disabled={busy === 'route'}
+                      onChange={(event) => saveRoute(category, event.target.value)}
+                      className="h-10 min-w-0 flex-1 rounded-xl bg-surface-sunken px-3 text-sm font-medium text-content outline-none ring-1 ring-border-subtle focus:ring-primary sm:max-w-xs"
+                    >
+                      <option value="">{t('whatsapp.routeMain')}</option>
+                      {/* A group the number has since left still shows what is set. */}
+                      {route && !routeGroups.some((group) => group.id === route.id) && (
+                        <option value={route.id}>{route.name}</option>
+                      )}
+                      {routeGroups.map((group) => (
+                        <option key={group.id} value={group.id}>
+                          {group.name} ({group.size})
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </div>
+              );
+            })}
+            <p className="text-xs text-content-tertiary">{t('whatsapp.routesHint')}</p>
+          </div>
         </div>
       )}
 
