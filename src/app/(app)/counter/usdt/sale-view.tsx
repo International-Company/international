@@ -12,7 +12,6 @@ import { ShareButton } from '@/ui/share';
 import { AutoPrintToggle, printAfterRecording } from '@/ui/auto-print';
 import { useToast } from '@/ui/overlay';
 import { Field, Input, Textarea } from '@/ui/form';
-import { CustomerPicker, type CustomerHit } from '@/ui/customer-picker';
 import { PhotoField } from '@/ui/photo-field';
 import { saleCoins } from '@/modules/usdt/sale-sums';
 import { cn } from '@/ui/utils';
@@ -71,7 +70,6 @@ export function SaleView({
   const [price, setPrice] = useState('');
   const [mode, setMode] = useState<Mode>('CASH');
   const [account, setAccount] = useState(transferChannels[0] ?? '');
-  const [customer, setCustomer] = useState<CustomerHit | null>(null);
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [notes, setNotes] = useState('');
@@ -117,8 +115,8 @@ export function SaleView({
     total <= 0n ||
     (mode === 'BROKER' &&
       (!account ||
-        (!customer && (!name.trim() || !phone.trim())) ||
-        (customer && !customer.phone && !phone.trim())));
+        !name.trim() ||
+        !phone.trim()));
 
   const clear = () => {
     setTyped('RECEIVED');
@@ -126,7 +124,6 @@ export function SaleView({
     setUsdt('');
     setPrice('');
     setMode('CASH');
-    setCustomer(null);
     setName('');
     setPhone('');
     setNotes('');
@@ -152,8 +149,7 @@ export function SaleView({
         price: price.trim(),
         mode,
         intakeChannel: mode === 'BROKER' ? account : null,
-        customerId: customer?.id ?? null,
-        counterpartyName: customer ? null : name.trim() || null,
+        counterpartyName: name.trim() || null,
         counterpartyPhone: phone.trim() || null,
         notes: notes.trim() || null,
         transferPhoto,
@@ -196,6 +192,51 @@ export function SaleView({
         <NotebookPen className="mt-0.5 size-4 shrink-0 text-warning-text" />
         {t('usdtSale.hint')}
       </p>
+
+      {/* ============ How they paid ============ */}
+      <div className="rounded-2xl bg-surface p-3 ring-1 ring-border-subtle">
+        <div className="flex items-center justify-between gap-3">
+          <span className="text-xs font-medium text-content-secondary">{t('withdraw.paidBy')}</span>
+          <div className="flex gap-1 rounded-full bg-surface-sunken p-1">
+            {(['CASH', 'BROKER'] as const).map((option) => (
+              <button
+                key={option}
+                type="button"
+                onClick={() => {
+                  setMode(option);
+                  setDone(null);
+                }}
+                aria-pressed={mode === option}
+                className={cn(
+                  'h-9 rounded-full px-4 text-sm font-medium transition-colors',
+                  mode === option
+                    ? 'bg-surface text-content shadow-[var(--shadow-sm)]'
+                    : 'text-content-tertiary hover:text-content-secondary',
+                )}
+              >
+                {option === 'CASH' ? t('machine.payoutCash') : t('machine.payoutBank')}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {mode === 'BROKER' && (
+          <label className="mt-3 block">
+            <span className="text-xs text-content-tertiary">{t('withdraw.paidInto')}</span>
+            <select
+              value={account}
+              onChange={(event) => setAccount(event.target.value)}
+              className="mt-1 h-12 w-full rounded-xl bg-surface-sunken px-3 text-base font-medium text-content outline-none ring-1 ring-transparent focus:ring-primary"
+            >
+              {transferChannels.map((entry) => (
+                <option key={entry} value={entry}>
+                  {entry}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+      </div>
 
       {/* ============ What came in, the price, the coins it buys ============ */}
       <section className="space-y-2 rounded-3xl bg-surface p-2 shadow-[var(--shadow-lg)] ring-1 ring-border-subtle">
@@ -287,62 +328,15 @@ export function SaleView({
         </div>
       </section>
 
-      {/* ============ How they paid ============ */}
-      <div className="rounded-2xl bg-surface p-3 ring-1 ring-border-subtle">
-        <div className="flex items-center justify-between gap-3">
-          <span className="text-xs font-medium text-content-secondary">{t('withdraw.paidBy')}</span>
-          <div className="flex gap-1 rounded-full bg-surface-sunken p-1">
-            {(['CASH', 'BROKER'] as const).map((option) => (
-              <button
-                key={option}
-                type="button"
-                onClick={() => {
-                  setMode(option);
-                  setDone(null);
-                }}
-                aria-pressed={mode === option}
-                className={cn(
-                  'h-9 rounded-full px-4 text-sm font-medium transition-colors',
-                  mode === option
-                    ? 'bg-surface text-content shadow-[var(--shadow-sm)]'
-                    : 'text-content-tertiary hover:text-content-secondary',
-                )}
-              >
-                {option === 'CASH' ? t('machine.payoutCash') : t('machine.payoutBank')}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {mode === 'BROKER' && (
-          <label className="mt-3 block">
-            <span className="text-xs text-content-tertiary">{t('withdraw.paidInto')}</span>
-            <select
-              value={account}
-              onChange={(event) => setAccount(event.target.value)}
-              className="mt-1 h-12 w-full rounded-xl bg-surface-sunken px-3 text-base font-medium text-content outline-none ring-1 ring-transparent focus:ring-primary"
-            >
-              {transferChannels.map((entry) => (
-                <option key={entry} value={entry}>
-                  {entry}
-                </option>
-              ))}
-            </select>
-          </label>
-        )}
-      </div>
-
       {/* ============ Who bought ============ */}
-      <div className="grid gap-3 rounded-2xl bg-surface p-4 ring-1 ring-border-subtle sm:grid-cols-2">
-        <CustomerPicker value={customer} onChange={setCustomer} permissions={permissions} />
-        {!customer && (
-          <Field label={t('transactions.counterpartyName')} required={mode === 'BROKER'}>
+      <section className="space-y-3 rounded-2xl bg-surface p-4 ring-1 ring-border-subtle">
+        <h3 className="text-sm font-semibold text-content">{t('usdtSale.customerSection')}</h3>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Field label={t('usdtSale.customerName')} required={mode === 'BROKER'}>
             {(props) => (
               <Input {...props} value={name} onChange={(event) => setName(event.target.value)} />
             )}
           </Field>
-        )}
-        {(!customer || !customer.phone) && (
           <Field label={t('usdtSale.phone')} required={mode === 'BROKER'}>
             {(props) => (
               <Input
@@ -354,32 +348,17 @@ export function SaleView({
               />
             )}
           </Field>
-        )}
-        <div className="sm:col-span-2">
-          <Field label={t('usdtSale.notes')} hint={t('usdtSale.notesHint')}>
-            {(props) => (
-              <Input {...props} value={notes} onChange={(event) => setNotes(event.target.value)} />
-            )}
-          </Field>
         </div>
-      </div>
+        <Field label={t('usdtSale.notes')} hint={t('usdtSale.notesHint')}>
+          {(props) => (
+            <Input {...props} value={notes} onChange={(event) => setNotes(event.target.value)} />
+          )}
+        </Field>
+      </section>
 
-      {/* ============ The customer's transfer, and where the coins go ============ */}
-      <div className="grid gap-3 sm:grid-cols-2">
-        <PhotoField
-          label={t('usdtSale.transferPhoto')}
-          attach={t('usdtSale.transferPhotoAttach')}
-          value={transferPhoto}
-          onChange={setTransferPhoto}
-        />
-        <PhotoField
-          label={t('usdtSale.addressPhoto')}
-          attach={t('usdtSale.addressPhotoAttach')}
-          value={addressPhoto}
-          onChange={setAddressPhoto}
-        />
-      </div>
-      <div className="rounded-2xl bg-surface p-4 ring-1 ring-border-subtle">
+      {/* ============ Where the coins go, and the customer's transfer ============ */}
+      <section className="space-y-3 rounded-2xl bg-surface p-4 ring-1 ring-border-subtle">
+        <h3 className="text-sm font-semibold text-content">{t('usdtSale.addressSection')}</h3>
         <Field label={t('usdtSale.addressText')} hint={t('usdtSale.addressTextHint')}>
           {(props) => (
             <Textarea
@@ -394,7 +373,21 @@ export function SaleView({
             />
           )}
         </Field>
-      </div>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <PhotoField
+            label={t('usdtSale.transferPhoto')}
+            attach={t('usdtSale.transferPhotoAttach')}
+            value={transferPhoto}
+            onChange={setTransferPhoto}
+          />
+          <PhotoField
+            label={t('usdtSale.addressPhoto')}
+            attach={t('usdtSale.addressPhotoAttach')}
+            value={addressPhoto}
+            onChange={setAddressPhoto}
+          />
+        </div>
+      </section>
 
       {done && (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-success-subtle px-4 py-3 ring-1 ring-success-border">
