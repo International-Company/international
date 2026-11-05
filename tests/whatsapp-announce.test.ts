@@ -159,6 +159,7 @@ describe('announcing a deal to the group', () => {
   it('names every kind of deal the counter records', () => {
     assert.equal(kindLabel('EXCHANGE'), 'صرافة');
     assert.equal(kindLabel('WALLET_CASHOUT'), 'صرافة');
+    assert.equal(kindLabel('WALLET_TOPUP'), 'إيداع في محفظة');
     assert.equal(kindLabel('USDT_RECEIVE'), 'استلام يواس');
     assert.equal(kindLabel('USDT_SEND'), 'سحب يواس');
     assert.equal(kindLabel('USDT_SALE'), 'بيع يواس');

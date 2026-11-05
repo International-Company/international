@@ -126,7 +126,7 @@ async function target(type: string): Promise<string | null> {
 const KIND_LABEL: Record<string, string> = {
   EXCHANGE: 'صرافة',
   WALLET_CASHOUT: 'صرافة',
-  WALLET_TOPUP: 'صرافة',
+  WALLET_TOPUP: 'إيداع في محفظة',
   USDT_RECEIVE: 'استلام يواس',
   USDT_SEND: 'سحب يواس',
   USDT_SALE: 'بيع يواس',
