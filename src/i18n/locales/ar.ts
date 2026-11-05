@@ -1379,8 +1379,8 @@ const ar: Dictionary = {
 
   dailyCount: {
     title: 'الجرد اليومي',
-    subtitle: 'عملياتك في اليوم: اليواس والصرافة وتيكتوك. اضغط على أي صنف لترى عملياته فقط.',
-    tab: { USDT: 'اليواس', EXCHANGE: 'الصرافة', TIKTOK: 'تيكتوك' },
+    subtitle: 'عملياتك في اليوم: اليواس والصرافة والمحافظ وتيكتوك. اضغط على أي صنف لترى عملياته فقط.',
+    tab: { USDT: 'اليواس', EXCHANGE: 'الصرافة', WALLET: 'المحافظ', TIKTOK: 'تيكتوك' },
     tiktok: {
       title: 'سحب تيكتوك',
       withdrawn: 'سحبت',
@@ -1393,19 +1393,28 @@ const ar: Dictionary = {
       USDT_SEND: 'بيع / إرسال USDT',
       BUY: 'شراء عملات',
       SELL: 'بيع عملات',
+      WALLET_TOPUP: 'إيداع في محفظة',
     },
-    short: { USDT_RECEIVE: 'استلام', USDT_SEND: 'بيع', BUY: 'شراء', SELL: 'بيع' },
+    short: {
+      USDT_RECEIVE: 'استلام',
+      USDT_SEND: 'بيع',
+      BUY: 'شراء',
+      SELL: 'بيع',
+      WALLET_TOPUP: 'إيداع',
+    },
     goods: {
       USDT_RECEIVE: 'استلمت',
       USDT_SEND: 'بعت',
       BUY: 'اشتريت',
       SELL: 'بعت',
+      WALLET_TOPUP: 'أودعت',
     },
     counter: {
       USDT_RECEIVE: 'سلّمت مقابلها',
       USDT_SEND: 'قبضت مقابلها',
       BUY: 'دفعت مقابلها',
       SELL: 'قبضت مقابلها',
+      WALLET_TOPUP: 'قبضت مقابلها',
     },
     all: 'الكل',
     search: 'ابحث باسم العميل أو المرجع',

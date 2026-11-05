@@ -6,7 +6,8 @@ import type { Actor } from './transaction.service';
 
 /**
  * الجرد اليومي — a teller's day, sorted the way he counts it: USDT taken in,
- * USDT sent out, foreign currency bought, foreign currency sold. Each kind on
+ * USDT sent out, foreign currency bought, foreign currency sold, money put into
+ * customers' wallets. Each kind on
  * its own, with what came in and what went out under it, and every deal of
  * that kind listed beneath.
  *
@@ -19,9 +20,9 @@ import type { Actor } from './transaction.service';
  * is not listed: it is the same deal read backwards.
  */
 
-export type CountKind = 'USDT_RECEIVE' | 'USDT_SEND' | 'BUY' | 'SELL';
+export type CountKind = 'USDT_RECEIVE' | 'USDT_SEND' | 'BUY' | 'SELL' | 'WALLET_TOPUP';
 
-export const COUNT_KINDS: CountKind[] = ['USDT_RECEIVE', 'USDT_SEND', 'BUY', 'SELL'];
+export const COUNT_KINDS: CountKind[] = ['USDT_RECEIVE', 'USDT_SEND', 'BUY', 'SELL', 'WALLET_TOPUP'];
 
 export interface CountAmount {
   currency: string;
@@ -65,7 +66,7 @@ export interface DailyCount {
 
 /** Which list a deal belongs in, or none: remittances are counted elsewhere. */
 export function kindOf(type: string, fromCurrency: string): CountKind | null {
-  if (type === 'USDT_RECEIVE' || type === 'USDT_SEND') return type;
+  if (type === 'USDT_RECEIVE' || type === 'USDT_SEND' || type === 'WALLET_TOPUP') return type;
   // A sale only recorded is still coins out for money in: it counts with the sends.
   if (type === 'USDT_SALE') return 'USDT_SEND';
   if (type !== 'EXCHANGE') return null;
@@ -90,7 +91,7 @@ export async function dailyCount(
     where: {
       createdById: actor.id,
       reversalOfId: null,
-      type: { in: ['EXCHANGE', 'USDT_RECEIVE', 'USDT_SEND', 'USDT_SALE'] },
+      type: { in: ['EXCHANGE', 'USDT_RECEIVE', 'USDT_SEND', 'USDT_SALE', 'WALLET_TOPUP'] },
       createdAt: { gte: input.from, lte: input.to },
     },
     orderBy: { createdAt: 'asc' },

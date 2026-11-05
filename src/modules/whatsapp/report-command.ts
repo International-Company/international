@@ -149,13 +149,20 @@ const methodList = (amounts: MethodAmount[]) =>
     )
     .join(' + ') || '—';
 
-export type CountKind = 'BUY' | 'SELL' | 'USDT_RECEIVE' | 'USDT_SEND' | 'REMITTANCE_OUT';
+export type CountKind =
+  | 'BUY'
+  | 'SELL'
+  | 'USDT_RECEIVE'
+  | 'USDT_SEND'
+  | 'WALLET_TOPUP'
+  | 'REMITTANCE_OUT';
 
 export const KIND_WORDS: Record<CountKind, string> = {
   BUY: 'شراء (صرافة)',
   SELL: 'بيع (صرافة)',
   USDT_RECEIVE: 'استلام يواس',
   USDT_SEND: 'سحب / بيع يواس',
+  WALLET_TOPUP: 'إيداع في محفظة',
   REMITTANCE_OUT: 'حوالات صادرة',
 };
 
@@ -165,6 +172,7 @@ export const MOVE_WORDS: Record<CountKind, string> = {
   SELL: 'حركات البيع (صرافة)',
   USDT_RECEIVE: 'شراء يواس (استلام)',
   USDT_SEND: 'بيع يواس (سحب وبيع)',
+  WALLET_TOPUP: 'الإيداع في محفظة',
   REMITTANCE_OUT: 'الحوالات الصادرة',
 };
 
@@ -219,7 +227,10 @@ export function moveOf(
     goods,
     counter,
     // One currency on both sides: there is no price to read, only the gap.
-    price: kind === 'REMITTANCE_OUT' ? null : priceText(goods.amount, counter.amount),
+    price:
+      kind === 'REMITTANCE_OUT' || kind === 'WALLET_TOPUP'
+        ? null
+        : priceText(goods.amount, counter.amount),
     customer: deal.customer,
     byBank: deal.intakeBank > 0n || deal.payoutBank > 0n,
   };

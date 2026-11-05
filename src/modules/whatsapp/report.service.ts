@@ -210,7 +210,7 @@ export async function tellerDay(teller: TellerCandidate): Promise<TellerDay> {
   };
 }
 
-const REPORT_ORDER = ['BUY', 'SELL', 'USDT_RECEIVE', 'USDT_SEND'];
+const REPORT_ORDER = ['BUY', 'SELL', 'USDT_RECEIVE', 'USDT_SEND', 'WALLET_TOPUP'];
 
 /**
  * The remittances a teller sent today that stand. Nothing is listed as paid out:

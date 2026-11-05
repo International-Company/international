@@ -392,12 +392,13 @@ function list(part: ListPart, top: number): { parts: string[]; y: number } {
   );
   y += 16;
   const remittance = part.kind === 'REMITTANCE_OUT';
+  const wallet = part.kind === 'WALLET_TOPUP';
   const rows = table(
     y,
     [
       { title: 'الوقت', right: RIGHT - 12 },
-      { title: remittance ? 'استلمنا' : 'المبلغ', right: RIGHT - 95 },
-      { title: remittance ? '' : 'السعر', right: RIGHT - 265 },
+      { title: remittance ? 'استلمنا' : wallet ? 'أودعنا' : 'المبلغ', right: RIGHT - 95 },
+      { title: remittance || wallet ? '' : 'السعر', right: RIGHT - 265 },
       { title: remittance ? 'تسعيرة المراسل' : 'المقابل', right: RIGHT - 350 },
       { title: remittance ? 'ملاحظة' : 'العميل', right: RIGHT - 520 },
     ],
@@ -409,7 +410,7 @@ function list(part: ListPart, top: number): { parts: string[]; y: number } {
         return [
           [move.at],
           [amount(move.goods)],
-          remittance ? [] : [move.price ?? '—'],
+          remittance || wallet ? [] : [move.price ?? '—'],
           [amount(move.counter)],
           [[move.byBank ? 'بنكي' : null, shown].filter(Boolean).join(' · ') || '—'],
         ];

@@ -397,6 +397,43 @@ describe('the report as a picture', () => {
     assert.doesNotMatch(svg!, />1\.02</);
   });
 
+  it('lists wallet top-ups: what went in, what was taken, and their sums', () => {
+    const top = moveOf('WALLET_TOPUP', {
+      at: '12:42',
+      fromCurrency: 'ILS',
+      fromAmount: 1515n * UNIT,
+      toCurrency: 'ILS',
+      toAmount: 1500n * UNIT,
+      customer: 'اسامة',
+      intakeBank: 0n,
+      payoutBank: 1500n * UNIT,
+    });
+    assert.equal(top.goods.amount, 1500n * UNIT, 'what went into the wallet');
+    assert.equal(top.counter.amount, 1515n * UNIT, 'what the customer handed over');
+    assert.equal(top.price, null, 'the gap is a fee');
+    assert.equal(top.byBank, true);
+    const [svg] = reportSvgs({
+      ...day,
+      groups: [
+        {
+          kind: 'WALLET_TOPUP',
+          count: 2,
+          received: [{ currency: 'ILS', amount: 3030n * UNIT }],
+          paid: [{ currency: 'ILS', amount: 3000n * UNIT }],
+          receivedBank: [],
+          paidBank: [{ currency: 'ILS', amount: 3000n * UNIT }],
+          moves: [top, top],
+        },
+      ],
+    });
+    assert.match(svg!, /الإيداع في محفظة/);
+    assert.match(svg!, /أودعنا/);
+    assert.match(svg!, />3,000<\/text><text[^>]*>شيكل بنكي</);
+    assert.match(svg!, />3,030<\/text><text[^>]*>شيكل نقدي</);
+    assert.equal(svg!.match(/>مجموع</g)?.length, 1);
+    assert.doesNotMatch(svg!, />1\.01</);
+  });
+
   it('keeps a total on the page of its last deal, however the deals fall', () => {
     for (let n = 1; n < 80; n += 1) {
       const parts = paginate(busy(n)).flat();
