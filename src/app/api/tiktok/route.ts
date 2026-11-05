@@ -9,8 +9,9 @@ export const GET = route({
 });
 
 const bodySchema = z.object({
-  currency: z.string().min(2).max(8),
   amount: z.string(),
+  rate: z.string(),
+  account: z.string().max(60),
   beneficiaryName: z.string().max(MAX_NAME),
   channel: z.string().max(80),
   /** The photo, shrunk by the screen, as base64. The service checks what it is. */
@@ -23,8 +24,9 @@ export const POST = route<z.infer<typeof bodySchema>>({
   handler: async ({ body, actor }) =>
     record(
       {
-        currency: body.currency.toUpperCase(),
         amount: parseMoney(body.amount),
+        rate: parseMoney(body.rate),
+        account: body.account,
         beneficiaryName: body.beneficiaryName,
         channel: body.channel,
         photo: body.photo,

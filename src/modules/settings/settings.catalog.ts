@@ -162,6 +162,14 @@ export const SETTINGS: SettingDefinition[] = [
       'مفصولة بفواصل. الجهات التي يجوز إرسال التسليم البنكي إليها — يختار التلر واحدة وتُثبَّت على العملية. حذف اسم يمنع عرضه دون أن يمسّ حوالات أُرسلت عبره.',
   },
   {
+    key: 'tiktok.usdRate', category: 'machine', type: 'money', defaultValue: '0',
+    labelEn: 'TikTok dollar price', labelAr: 'سعر دولار تيكتوك',
+    descriptionEn:
+      'Shekels per dollar, filled in on the TikTok screen. The teller may change it for the withdrawal in front of them.',
+    descriptionAr:
+      'كم شيكل لكل دولار، ويظهر تلقائياً في شاشة تيكتوك. يمكن للتلر تغييره للعملية التي أمامه.',
+  },
+  {
     key: 'transfers.commissionRates', category: 'machine', type: 'string', defaultValue: '',
     labelEn: 'Commission per account', labelAr: 'عمولة كل حساب',
     descriptionEn:

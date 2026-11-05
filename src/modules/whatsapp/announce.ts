@@ -329,13 +329,12 @@ export function registerWhatsappSubscribers(): void {
     if (!group) return;
     const row = await prisma.tiktokWithdrawal.findUnique({
       where: { id: withdrawalId },
-      include: { createdBy: { select: { fullNameAr: true } } },
     });
     if (!row) return;
     await sendImage(
       group,
       Buffer.from(row.data),
-      composeWithdrawal({ ...row, teller: row.createdBy.fullNameAr }),
+      composeWithdrawal(row),
       undefined,
       row.mimeType,
     ).catch((error) => log.warn('Could not send a TikTok withdrawal', { withdrawalId, error }));
@@ -346,10 +345,17 @@ export function registerWhatsappSubscribers(): void {
     if (!group) return;
     const row = await prisma.tiktokWithdrawal.findUnique({
       where: { id: withdrawalId },
-      select: { amount: true, currency: true, beneficiaryName: true, channel: true },
+      select: {
+        amount: true,
+        currency: true,
+        account: true,
+        beneficiaryName: true,
+        channel: true,
+        payoutAmount: true,
+      },
     });
     if (!row) return;
-    await sendText(group, composeWithdrawalDeleted({ ...row, teller: null }, by)).catch((error) =>
+    await sendText(group, composeWithdrawalDeleted(row, by)).catch((error) =>
       log.warn('Could not announce a TikTok deletion', { withdrawalId, error }),
     );
   });

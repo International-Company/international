@@ -36,6 +36,18 @@ export class MoneyError extends Error {
 const DECIMAL_PATTERN = /^-?\d+(\.\d+)?$/;
 
 /**
+ * A cash amount as the office writes it in a transfer: whole, with the first
+ * figure after the point deciding — six or more rounds up, five or less is
+ * dropped. 915.6 is 916; 915.5 is 915. USDT keeps its fraction: coins sent
+ * are exact.
+ */
+export function wholeAmount(scaled: bigint): bigint {
+  const whole = scaled / 100_000_000n;
+  const tenths = (scaled % 100_000_000n) / 10_000_000n;
+  return tenths >= 6n ? whole + 1n : whole;
+}
+
+/**
  * Parses a human-entered decimal string into scaled minor units.
  * Accepts Arabic-Indic digits, thousands separators and a leading sign.
  *

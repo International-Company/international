@@ -3,35 +3,56 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Camera, Check, ImagePlus, Loader2, Trash2, X } from 'lucide-react';
 import { useLocale } from '@/i18n/provider';
-import { normalizeDigits } from '@/core/money/money';
+import { normalizeDigits, parseMoney } from '@/core/money/money';
 import { api, ApiError } from '@/lib/api-client';
 import { say } from '@/lib/failure';
 import { ConfirmDialog, useToast } from '@/ui/overlay';
 import { Field, Input } from '@/ui/form';
 import { shrinkPhoto } from '@/ui/proof-photo';
+import { tiktokPayout } from '@/modules/tiktok/tiktok-message';
 
 /**
- * Writing down a TikTok withdrawal: a photo, who it is for beneath it, how it is
- * sent and how much. Nothing here touches a balance; the bot carries it to the group.
+ * Writing down a TikTok withdrawal: a photo, then where it goes and to whom, the
+ * dollars withdrawn and the price they are handed over at in shekels. Nothing here
+ * touches a balance; the bot carries it to the group.
  */
 
 interface Row {
   id: string;
   currency: string;
   amountText: string;
+  rateText: string | null;
+  payoutText: string | null;
+  account: string;
   beneficiaryName: string;
   channel: string;
   createdAt: string;
   createdBy: { fullNameAr: string; fullNameEn: string };
 }
 
+/** Keeps only what a decimal can be. */
+const decimal = (raw: string) =>
+  normalizeDigits(raw)
+    .replace(/[,٫٬]/g, '.')
+    .replace(/[^\d.]/g, '')
+    .replace(/(\..*)\./g, '$1');
+
+/** A typed decimal as the scaled integer, or nothing while it is still being typed. */
+function scaled(text: string): bigint {
+  try {
+    return parseMoney(text);
+  } catch {
+    return 0n;
+  }
+}
+
 export function TiktokView({
-  currencies,
   channels,
+  defaultRate,
   permissions,
 }: {
-  currencies: { code: string; nameEn: string; nameAr: string }[];
   channels: string[];
+  defaultRate: string;
   permissions: string[];
 }) {
   const { t, ln, locale } = useLocale();
@@ -39,10 +60,11 @@ export function TiktokView({
 
   const [photo, setPhoto] = useState<string | null>(null);
   const [reading, setReading] = useState(false);
+  const [account, setAccount] = useState('');
   const [beneficiaryName, setBeneficiaryName] = useState('');
   const [channel, setChannel] = useState(channels[0] ?? '');
   const [amount, setAmount] = useState('');
-  const [currency, setCurrency] = useState(currencies[0]?.code ?? 'ILS');
+  const [rate, setRate] = useState(defaultRate);
   const [posting, setPosting] = useState(false);
   const [rows, setRows] = useState<Row[]>([]);
   const [deleting, setDeleting] = useState<Row | null>(null);
@@ -81,16 +103,22 @@ export function TiktokView({
     }
   };
 
+  const payout = tiktokPayout(scaled(amount), scaled(rate));
   const ready =
-    Boolean(photo) && beneficiaryName.trim().length > 0 && Boolean(channel) && Number(amount) > 0;
+    Boolean(photo) &&
+    account.trim().length > 0 &&
+    beneficiaryName.trim().length > 0 &&
+    Boolean(channel) &&
+    payout > 0n;
 
   const submit = async () => {
     if (!ready || posting) return;
     setPosting(true);
     try {
-      await api.post('/api/tiktok', { currency, amount, beneficiaryName, channel, photo });
+      await api.post('/api/tiktok', { amount, rate, account, beneficiaryName, channel, photo });
       toast.success(t('tiktok.recorded'));
       setPhoto(null);
+      setAccount('');
       setBeneficiaryName('');
       setAmount('');
       void load();
@@ -172,14 +200,16 @@ export function TiktokView({
 
         {/* ============ Who it is for, how it is sent, and how much ============ */}
         <div className="space-y-3 rounded-2xl bg-surface p-4 ring-1 ring-border-subtle">
-          <Field label={t('tiktok.beneficiaryName')} required>
+          <Field label={t('tiktok.account')} required>
             {(props) => (
               <Input
                 {...props}
-                maxLength={200}
+                dir="ltr"
+                inputMode="tel"
+                maxLength={60}
                 autoComplete="off"
-                value={beneficiaryName}
-                onChange={(event) => setBeneficiaryName(event.target.value)}
+                value={account}
+                onChange={(event) => setAccount(event.target.value)}
               />
             )}
           </Field>
@@ -207,6 +237,18 @@ export function TiktokView({
             }
           </Field>
 
+          <Field label={t('tiktok.beneficiaryName')} required>
+            {(props) => (
+              <Input
+                {...props}
+                maxLength={200}
+                autoComplete="off"
+                value={beneficiaryName}
+                onChange={(event) => setBeneficiaryName(event.target.value)}
+              />
+            )}
+          </Field>
+
           <div className="grid gap-3 sm:grid-cols-2">
             <Field label={t('tiktok.amount')} required>
               {(props) => (
@@ -216,34 +258,32 @@ export function TiktokView({
                   inputMode="decimal"
                   autoComplete="off"
                   value={amount}
-                  onChange={(event) =>
-                    setAmount(
-                      normalizeDigits(event.target.value)
-                        .replace(/[,٫٬]/g, '.')
-                        .replace(/[^\d.]/g, '')
-                        .replace(/(\..*)\./g, '$1'),
-                    )
-                  }
+                  onChange={(event) => setAmount(decimal(event.target.value))}
                 />
               )}
             </Field>
-            <Field label={t('remittance.currency')}>
+            <Field label={t('tiktok.rate')} required>
               {(props) => (
-                <select
+                <Input
                   {...props}
-                  value={currency}
-                  onChange={(event) => setCurrency(event.target.value)}
-                  className="h-11 w-full rounded-xl bg-surface-sunken px-3 text-base font-medium text-content outline-none ring-1 ring-transparent focus:ring-primary"
-                >
-                  {currencies.map((entry) => (
-                    <option key={entry.code} value={entry.code}>
-                      {entry.code} — {ln(entry, 'name')}
-                    </option>
-                  ))}
-                </select>
+                  dir="ltr"
+                  inputMode="decimal"
+                  autoComplete="off"
+                  value={rate}
+                  onChange={(event) => setRate(decimal(event.target.value))}
+                />
               )}
             </Field>
           </div>
+
+          {payout > 0n && (
+            <p className="flex items-center justify-between rounded-xl bg-surface-sunken px-4 py-3 text-sm text-content-secondary">
+              {t('tiktok.payout')}
+              <span className="text-xl font-bold tabular-nums text-content">
+                {(payout / 100_000_000n).toString()} ILS
+              </span>
+            </p>
+          )}
         </div>
 
         <button
@@ -282,9 +322,10 @@ export function TiktokView({
                 <div className="min-w-0 flex-1">
                   <p className="ltr-content text-start text-sm font-semibold tabular-nums text-content">
                     {row.amountText} {row.currency}
+                    {row.payoutText && ` × ${row.rateText} = ${row.payoutText} ILS`}
                   </p>
                   <p className="truncate text-sm text-content-secondary">
-                    {[row.beneficiaryName, row.channel].filter(Boolean).join(' · ')}
+                    {[row.account, row.channel, row.beneficiaryName].filter(Boolean).join(' · ')}
                   </p>
                   <p className="mt-1 text-xs text-content-tertiary">
                     {ln(row.createdBy, 'fullName')} ·{' '}

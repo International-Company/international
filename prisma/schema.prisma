@@ -2176,16 +2176,19 @@ model RemittancePrice {
   @@map("remittance_prices")
 }
 
-/// A TikTok withdrawal written down: a photo, who it is for, how it is sent and how
-/// much. Moves no balance. Deleting one marks it, so the audit trail keeps what it
-/// refers to. The name keeps its old column, so earlier records still read; those
-/// have no channel.
+/// A TikTok withdrawal written down: a photo, who it is for, how it is sent, the
+/// dollars withdrawn and the shekels they come to at the price of the day. Moves no
+/// balance. Deleting one marks it, so the audit trail keeps what it refers to. The
+/// name keeps its old column, so earlier records still read; those lack the rest.
 model TiktokWithdrawal {
   id          String    @id @default(cuid())
   currency    String
   amount      BigInt
   beneficiaryName String @map("details")
   channel     String    @default("")
+  account     String    @default("")
+  rate        BigInt    @default(0)
+  payoutAmount BigInt   @default(0)
   mimeType    String
   size        Int
   data        Bytes

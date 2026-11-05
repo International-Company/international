@@ -1,7 +1,7 @@
 import 'server-only';
 import { prisma, type DbClient } from '@/core/db/prisma';
 import { errors } from '@/core/errors/app-error';
-import { toDecimalString } from '@/core/money/money';
+import { wholeAmount, toDecimalString } from '@/core/money/money';
 import type { Locale } from '@/i18n/config';
 import * as settings from '@/modules/settings/settings.service';
 import * as audit from '@/modules/audit/audit.service';
@@ -186,18 +186,6 @@ function composeLines(transaction: ShareRow, locale: Locale, unit: string): stri
         : transaction.payoutAddress
       : null,
   ].filter((line): line is string => Boolean(line?.trim()));
-}
-
-/**
- * A cash amount as the office writes it in a transfer: whole, with the first
- * figure after the point deciding — six or more rounds up, five or less is
- * dropped. 915.6 is 916; 915.5 is 915. USDT keeps its fraction: coins sent
- * are exact.
- */
-export function wholeAmount(scaled: bigint): bigint {
-  const whole = scaled / 100_000_000n;
-  const tenths = (scaled % 100_000_000n) / 10_000_000n;
-  return tenths >= 6n ? whole + 1n : whole;
 }
 
 export async function shareable(

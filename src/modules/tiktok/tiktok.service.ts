@@ -1,16 +1,18 @@
 import 'server-only';
 import { prisma } from '@/core/db/prisma';
 import { errors } from '@/core/errors/app-error';
+import { normalizeDigits } from '@/core/money/money';
 import { emitAsync } from '@/core/events/bus';
 import * as audit from '@/modules/audit/audit.service';
 import { transferChannels } from '@/modules/exchange/machine.service';
 import { readProofImage } from '@/modules/exchange/proof-image';
 import type { Actor } from '@/modules/exchange/transaction.service';
 import { formatAmount, formatFigure } from '@/modules/whatsapp/report-command';
+import { rateText, tiktokPayout } from './tiktok-message';
 
 /**
- * TikTok withdrawals, written down: a photo, who it is for, how it is sent and
- * how much.
+ * TikTok withdrawals, written down: a photo, who it is for, how it is sent, the
+ * dollars withdrawn and the shekels handed over for them.
  *
  * Kept apart from the transactions because it moves no balance. The drawers and
  * the count know nothing of it, so a record here can never put them out.
@@ -22,8 +24,9 @@ const seesAll = (actor: Actor) => actor.permissions.includes('exchange.transacti
 
 export async function record(
   input: {
-    currency: string;
     amount: bigint;
+    rate: bigint;
+    account: string;
     beneficiaryName: string;
     channel: string;
     photo: string;
@@ -32,6 +35,14 @@ export async function record(
 ) {
   if (input.amount <= 0n) {
     throw errors.precondition('Amount must be greater than zero', 'errors.amountNotPositive');
+  }
+  const payoutAmount = tiktokPayout(input.amount, input.rate);
+  if (input.rate <= 0n || payoutAmount <= 0n) {
+    throw errors.precondition('Give the price', 'errors.tiktokRateRequired');
+  }
+  const account = normalizeDigits(input.account).trim();
+  if (!account) {
+    throw errors.precondition('Say where it goes', 'errors.tiktokAccountRequired');
   }
   const beneficiaryName = input.beneficiaryName.trim();
   if (!beneficiaryName) {
@@ -45,20 +56,16 @@ export async function record(
       { channel },
     );
   }
-  const currency = await prisma.currency.findFirst({
-    where: { code: input.currency, isActive: true, kind: 'FIAT' },
-    select: { code: true },
-  });
-  if (!currency) {
-    throw errors.precondition(`${input.currency} is not offered`, 'errors.tiktokCurrencyUnknown');
-  }
   const image = readProofImage(input.photo);
   if (typeof image === 'string') throw errors.precondition('That photo cannot be kept', image);
 
   const row = await prisma.tiktokWithdrawal.create({
     data: {
-      currency: currency.code,
+      currency: 'USD',
       amount: input.amount,
+      rate: input.rate,
+      payoutAmount,
+      account,
       beneficiaryName,
       channel,
       mimeType: image.mimeType,
@@ -68,7 +75,7 @@ export async function record(
     },
     select: { id: true },
   });
-  const figure = formatAmount({ currency: currency.code, amount: input.amount });
+  const figure = `${formatAmount({ currency: 'USD', amount: input.amount })} = ${formatAmount({ currency: 'ILS', amount: payoutAmount })}`;
   await audit.record({
     action: 'CREATE',
     module: 'tiktok',
@@ -92,13 +99,22 @@ export async function list(actor: Actor) {
       id: true,
       currency: true,
       amount: true,
+      rate: true,
+      payoutAmount: true,
+      account: true,
       beneficiaryName: true,
       channel: true,
       createdAt: true,
       createdBy: { select: { fullNameAr: true, fullNameEn: true } },
     },
   });
-  return rows.map(({ amount, ...row }) => ({ ...row, amountText: formatFigure(amount) }));
+  return rows.map(({ amount, rate, payoutAmount, ...row }) => ({
+    ...row,
+    amountText: formatFigure(amount),
+    // Nothing for a record from before the shekels.
+    rateText: rate > 0n ? rateText(rate) : null,
+    payoutText: payoutAmount > 0n ? formatFigure(payoutAmount) : null,
+  }));
 }
 
 async function reachable(id: string, actor: Actor) {
