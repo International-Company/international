@@ -5,7 +5,14 @@
  * an office that chose nothing here goes on exactly as it did.
  */
 
-export const ROUTE_CATEGORIES = ['EXCHANGE', 'USDT', 'USDT_SALE', 'REMITTANCE', 'TIKTOK'] as const;
+export const ROUTE_CATEGORIES = [
+  'EXCHANGE',
+  'USDT',
+  'USDT_SALE',
+  'REMITTANCE',
+  'REMITTANCE_COPY',
+  'TIKTOK',
+] as const;
 export type RouteCategory = (typeof ROUTE_CATEGORIES)[number];
 
 export type GroupRoutes = Partial<Record<RouteCategory, { id: string; name: string }>>;
@@ -27,8 +34,19 @@ const CATEGORY_WORDS: Record<RouteCategory, string> = {
   USDT: 'USDT',
   USDT_SALE: 'بيع USDT',
   REMITTANCE: 'الحوالات',
+  REMITTANCE_COPY: 'رقم الحوالة ومبلغها',
   TIKTOK: 'تيكتوك',
 };
+
+/**
+ * The group a remittance's number and sum also go to, or '' for none. Not the one
+ * it has just gone to: that group has them already.
+ */
+export function copyGroupFor(type: string, routes: GroupRoutes, main: string): string {
+  if (type !== 'REMITTANCE_OUT') return '';
+  const copy = routes.REMITTANCE_COPY?.id ?? '';
+  return copy === groupFor(type, routes, main) ? '' : copy;
+}
 
 /** The stored routes. Anything unreadable counts as none: the main group still hears. */
 export function parseRoutes(raw: string): GroupRoutes {
@@ -67,6 +85,8 @@ export function withRoute(
 
 /** Where a kind goes: its own group, else the USDT group for a sale, else the main one. */
 function routedTo(category: RouteCategory, routes: GroupRoutes, main: string): string {
+  // Sent only where it is asked for: it would say nothing new in the main group.
+  if (category === 'REMITTANCE_COPY') return routes.REMITTANCE_COPY?.id ?? '';
   return (
     routes[category]?.id || (category === 'USDT_SALE' ? routes.USDT?.id : undefined) || main
   );

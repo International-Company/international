@@ -1,6 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  copyGroupFor,
   groupFor,
   groupPlan,
   newlyLinked,
@@ -37,6 +38,20 @@ describe('which group hears of which deals', () => {
     assert.equal(groupFor('USDT_SALE', own, MAIN), 'sales@g.us');
     assert.equal(groupFor('USDT_SEND', own, MAIN), 'coins@g.us', 'the rest of USDT stays put');
     assert.equal(groupFor('USDT_RECEIVE', own, MAIN), 'coins@g.us');
+  });
+
+  it('copies a remittance’s number and sum only where asked, and not to where it just went', () => {
+    assert.equal(copyGroupFor('REMITTANCE_OUT', {}, MAIN), '', 'never to the main group by itself');
+    const copy = { ...routes, REMITTANCE_COPY: { id: 'exec@g.us', name: 'التنفيذ' } };
+    assert.equal(copyGroupFor('REMITTANCE_OUT', copy, MAIN), 'exec@g.us');
+    assert.equal(copyGroupFor('REMITTANCE_IN', copy, MAIN), '', 'only those sent');
+    assert.equal(copyGroupFor('EXCHANGE', copy, MAIN), '');
+    const same = { ...routes, REMITTANCE_COPY: { id: 'remit@g.us', name: 'الحوالات' } };
+    assert.equal(copyGroupFor('REMITTANCE_OUT', same, MAIN), '', 'it has them already');
+    assert.deepEqual(
+      groupPlan(copy, MAIN).find((entry) => entry.id === 'exec@g.us')?.hears,
+      ['رقم الحوالة ومبلغها'],
+    );
   });
 
   it('leaves the other kinds with the main group', () => {

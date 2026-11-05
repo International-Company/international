@@ -5,6 +5,8 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
   announceDeal,
+  composeCopyCancelled,
+  copyNumberAndSum,
   announced,
   composeDeletion,
   kindLabel,
@@ -188,6 +190,61 @@ describe('announcing a deal to the group', () => {
       assert.equal(sent.length, 1);
       assert.equal(sent[0]?.text, TEXT);
       assert.equal(shots[0]?.caption, 'بيانات المستفيد');
+    });
+  });
+
+  describe('a remittance’s number and sum, to their own group', () => {
+    const load = async () => ({
+      reference: 'TXN-1',
+      type: 'REMITTANCE_OUT',
+      bankPayout: false,
+      companyName: '',
+      text: '+201008846989\n\n8130 جنيه',
+      phone: null,
+    });
+
+    it('go as words alone', async () => {
+      const sent: [string, string][] = [];
+      await copyNumberAndSum('t1', {
+        target: async () => 'exec@g.us',
+        load,
+        send: async (jid, text) => {
+          sent.push([jid, text]);
+          return {} as never;
+        },
+        pause: 1,
+      });
+      assert.deepEqual(sent, [['exec@g.us', '+201008846989\n\n8130 جنيه']]);
+    });
+
+    it('go nowhere without a group, and a failure stays quiet', async () => {
+      let sends = 0;
+      const send = async () => {
+        sends += 1;
+        throw new Error('socket closed');
+      };
+      await copyNumberAndSum('t1', { target: async () => null, load, send, pause: 1 });
+      assert.equal(sends, 0);
+      await copyNumberAndSum('t1', { target: async () => 'exec@g.us', load, send, pause: 1 });
+      assert.equal(sends, 1);
+    });
+
+    const deal = {
+      counterpartyPhone: '+201008846989',
+      customer: null,
+      deliveredAmount: 8130n * 100_000_000n,
+      deliveredUnit: 'جنيه',
+    };
+
+    it('are cancelled by the same two lines, saying nothing of what was paid', () => {
+      assert.equal(composeCopyCancelled(deal), '🔴 *حوالة ملغاة*\n\n+201008846989\n\n8130 جنيه');
+    });
+
+    it('cancel nothing for one only written down, which never went there', () => {
+      assert.equal(
+        composeCopyCancelled({ ...deal, counterpartyPhone: null, deliveredAmount: null }),
+        null,
+      );
     });
   });
 

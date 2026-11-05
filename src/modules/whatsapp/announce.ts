@@ -12,7 +12,7 @@ import {
   composeWithdrawalDeleted,
   TIKTOK_DEAL_TYPE,
 } from '@/modules/tiktok/tiktok-message';
-import { groupFor, parseRoutes } from './group-routes';
+import { copyGroupFor, groupFor, parseRoutes } from './group-routes';
 import { isLinked, sendImage, sendText, type SentMessage } from './whatsapp.service';
 
 /**
@@ -104,6 +104,8 @@ const DEAL_SELECT = {
   intakeBankChannel: true,
   counterpartyName: true,
   counterpartyPhone: true,
+  deliveredAmount: true,
+  deliveredUnit: true,
   notes: true,
   createdAt: true,
   customer: { select: { fullNameAr: true, phone: true } },
@@ -120,6 +122,17 @@ async function target(type: string): Promise<string | null> {
   );
   if (!group || !isLinked()) return null;
   return group;
+}
+
+/** The group a deal's number and sum also go to, or null. */
+async function copyTarget(type: string): Promise<string | null> {
+  if (!(await settings.getBoolean('whatsapp.enabled'))) return null;
+  const group = copyGroupFor(
+    type,
+    parseRoutes(await settings.getString('whatsapp.groupRoutes')),
+    (await settings.getString('whatsapp.groupId')).trim(),
+  );
+  return group && isLinked() ? group : null;
 }
 
 /** The word the office uses for each kind of deal, said in the reply. */
@@ -308,6 +321,49 @@ export async function announceDeal(
   return outcome;
 }
 
+/**
+ * A remittance's number and sum on their own, to the group that acts on them. Apart
+ * from the deal's own message, so that neither failing costs the other.
+ */
+export async function copyNumberAndSum(
+  transactionId: string,
+  deps: Pick<AnnounceDeps, 'load' | 'send' | 'pause'> & {
+    target: (type: string) => Promise<string | null>;
+  },
+): Promise<void> {
+  const message = await settled(transactionId, deps.load, deps.pause ?? 500);
+  if (!message?.text) return;
+  const group = await deps.target(message.type);
+  if (!group) return;
+  await deps.send(group, message.text).catch((error) => {
+    log.warn('Could not copy a remittance’s number and sum', {
+      reference: message.reference,
+      error,
+    });
+  });
+}
+
+/**
+ * What the group holding only a number and sum is told when the deal is deleted:
+ * the same two lines, marked. Nothing of what the customer paid or the office charged.
+ * A remittance only written down has no number and went to no such group, so nothing.
+ */
+export function composeCopyCancelled(deal: {
+  counterpartyPhone: string | null;
+  customer: { phone: string | null } | null;
+  deliveredAmount: bigint | null;
+  deliveredUnit: string | null;
+}): string | null {
+  const phone = deal.customer?.phone ?? deal.counterpartyPhone;
+  if (!phone && !deal.deliveredAmount) return null;
+  const sum = deal.deliveredAmount
+    ? `${figure(deal.deliveredAmount)} ${deal.deliveredUnit ?? ''}`.trim()
+    : null;
+  return ['🔴 *حوالة ملغاة*', phone, sum]
+    .filter((line): line is string => Boolean(line))
+    .join('\n\n');
+}
+
 /** A deal's photos, what was paid before who it is for. */
 function dealPhotos(transactionId: string) {
   return prisma.transactionProof.findMany({
@@ -332,6 +388,11 @@ export function registerWhatsappSubscribers(): void {
       photos: dealPhotos,
       sendPhoto: (jid, photo, caption, quoted) =>
         sendImage(jid, Buffer.from(photo.data), caption, quoted, photo.mimeType),
+    });
+    await copyNumberAndSum(transactionId, {
+      target: copyTarget,
+      load: (id) => shareable(id, 'ar'),
+      send: sendText,
     });
   });
 
@@ -421,6 +482,14 @@ export function registerWhatsappSubscribers(): void {
       ).catch((error) =>
         log.warn('Could not announce a deletion', { reference: deal.reference, error }),
       );
+
+      const copyGroup = await copyTarget(deal.type);
+      const cancelled = copyGroup ? composeCopyCancelled(deal) : null;
+      if (copyGroup && cancelled) {
+        await sendText(copyGroup, cancelled).catch((error) =>
+          log.warn('Could not cancel a remittance’s copy', { reference: deal.reference, error }),
+        );
+      }
     },
   );
 }

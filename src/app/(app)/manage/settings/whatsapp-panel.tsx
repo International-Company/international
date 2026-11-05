@@ -315,7 +315,11 @@ export function WhatsappPanel({ canManage }: { canManage: boolean }) {
             {ROUTE_CATEGORIES.map((category) => {
               const route = link.routes[category];
               const unset =
-                category === 'USDT_SALE' ? t('whatsapp.routeSameAsUsdt') : t('whatsapp.routeMain');
+                category === 'USDT_SALE'
+                  ? t('whatsapp.routeSameAsUsdt')
+                  : category === 'REMITTANCE_COPY'
+                    ? t('whatsapp.routeNotSent')
+                    : t('whatsapp.routeMain');
               return (
                 <div key={category} className="flex flex-wrap items-center justify-between gap-2">
                   <span className="text-sm text-content-secondary">

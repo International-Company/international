@@ -2066,11 +2066,13 @@ const en = {
     welcomeConfirmBody: 'It goes now to every linked group, including those that have had it.',
     routesHint: 'Whatever has no group of its own goes to the main one. The count command works in the main group only.',
     routeSameAsUsdt: 'Same group as USDT',
+    routeNotSent: 'Not sent',
     route: {
       EXCHANGE: 'Exchange',
       USDT: 'USDT (receive and send)',
       USDT_SALE: 'USDT sale',
       REMITTANCE: 'Remittances',
+      REMITTANCE_COPY: 'Remittances: number and amount only',
       TIKTOK: 'TikTok',
     },
     noGroups: 'This number is in no group. Add it to the group from the phone, then try again.',
