@@ -401,15 +401,15 @@ export function DailyCountView() {
                 type="button"
                 onClick={() => chooseTab(each)}
                 className={cn(
-                  'flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded-xl px-2 py-2.5 text-sm font-semibold transition-colors sm:flex-none sm:gap-2 sm:px-5',
+                  'flex min-w-0 flex-1 items-center justify-center gap-1 rounded-xl px-1 py-2.5 text-sm font-semibold transition-colors sm:flex-none sm:gap-2 sm:px-5',
                   tab === each
                     ? 'bg-surface text-content shadow-sm'
                     : 'text-content-secondary hover:text-content',
                 )}
               >
-                <Icon className="size-4" />
+                <Icon className="size-4 shrink-0" />
                 {t(`dailyCount.tab.${each}`)}
-                <span className="rounded-full bg-surface-sunken px-2 py-px text-xs tabular-nums">
+                <span className="rounded-full bg-surface-sunken px-1.5 py-px text-xs tabular-nums sm:px-2">
                   {total}
                 </span>
               </button>
@@ -419,15 +419,15 @@ export function DailyCountView() {
             type="button"
             onClick={() => chooseTab('TIKTOK')}
             className={cn(
-              'flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded-xl px-2 py-2.5 text-sm font-semibold transition-colors sm:flex-none sm:gap-2 sm:px-5',
+              'flex min-w-0 flex-1 items-center justify-center gap-1 rounded-xl px-1 py-2.5 text-sm font-semibold transition-colors sm:flex-none sm:gap-2 sm:px-5',
               tab === 'TIKTOK'
                 ? 'bg-surface text-content shadow-sm'
                 : 'text-content-secondary hover:text-content',
             )}
           >
-            <Music2 className="size-4" />
+            <Music2 className="size-4 shrink-0" />
             {t('dailyCount.tab.TIKTOK')}
-            <span className="rounded-full bg-surface-sunken px-2 py-px text-xs tabular-nums">
+            <span className="rounded-full bg-surface-sunken px-1.5 py-px text-xs tabular-nums sm:px-2">
               {tiktok?.count ?? 0}
             </span>
           </button>
