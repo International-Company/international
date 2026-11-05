@@ -370,8 +370,8 @@ export function DailyCountView() {
   return (
     <div className="space-y-4">
       {/* --- The day, and which list ------------------------------------------ */}
-      <div className="flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="grid grid-cols-2 gap-1 rounded-2xl bg-surface-sunken p-1 sm:flex">
+      <div className="flex flex-col-reverse gap-3 2xl:flex-row 2xl:items-center 2xl:justify-between">
+        <div className="grid grid-cols-2 gap-1 rounded-2xl bg-surface-sunken p-1 sm:grid-cols-4 2xl:flex">
           {TABS.map(({ tab: each, icon: Icon, kinds }) => {
             const total = kinds.reduce((sum, k) => sum + (byKind.get(k)?.count ?? 0), 0);
             return (
