@@ -68,6 +68,8 @@ export interface Shareable {
   text: string;
   /** The customer's number, when the transaction carries one. */
   phone: string | null;
+  /** A remittance paid in notes has no proof to show: the bot says what was taken instead. */
+  cashNote?: string | null;
 }
 
 /**
@@ -94,6 +96,7 @@ const SHARE_SELECT = {
   payoutBankChannel: true,
   payoutAccount: true,
   payoutAddress: true,
+  intakeBrokerAmount: true,
   intakeBankChannel: true,
   counterpartyName: true,
   counterpartyPhone: true,
@@ -114,6 +117,7 @@ type ShareRow = {
   payoutBankChannel: string | null;
   payoutAccount: string | null;
   payoutAddress: string | null;
+  intakeBrokerAmount: bigint;
   intakeBankChannel: string | null;
   counterpartyName: string | null;
   counterpartyPhone: string | null;
@@ -274,6 +278,12 @@ export async function shareable(
     // A blank line between each, the way the office types them.
     text: lines.join('\n\n'),
     phone: transaction.customer?.phone ?? transaction.counterpartyPhone ?? null,
+    cashNote:
+      transaction.type === 'REMITTANCE_OUT' && !transaction.intakeBrokerAmount
+        ? locale === 'ar'
+          ? `استلمت ${wholeAmount(transaction.fromAmount)} ${units.get(transaction.toCurrency)} نقدي`
+          : `Received ${wholeAmount(transaction.fromAmount)} ${units.get(transaction.toCurrency)} in cash`
+        : null,
   };
 }
 

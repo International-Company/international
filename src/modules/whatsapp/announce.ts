@@ -249,15 +249,24 @@ export async function announceDeal(
   const bare = BARE.includes(message.type);
   let sent: SentMessage | undefined;
   let photos: DealPhoto[] = [];
+  let rest: DealPhoto[] = [];
   // Whether the words are out. A remittance with both photos holds them for the second.
   let said = false;
+  // Paid in notes there is no transfer to show, so this opens the message in its place.
+  const note = message.cashNote ?? null;
   if (deps.photos && deps.sendPhoto) {
     try {
       photos = await deps.photos(transactionId);
-      if (photos[0]) {
+      rest = photos.slice(1);
+      if (note && photos[0]?.kind !== 'PAYMENT') {
+        sent = await deps.send(group, note);
+        rest = photos;
+      } else if (photos[0]) {
         const holdWords =
-          bare && photos[0].kind === 'PAYMENT' && photos.some((p) => p.kind === 'BENEFICIARY');
-        sent = await deps.sendPhoto(group, photos[0], holdWords ? '' : message.text);
+          bare &&
+          (Boolean(note) ||
+            (photos[0].kind === 'PAYMENT' && photos.some((p) => p.kind === 'BENEFICIARY')));
+        sent = await deps.sendPhoto(group, photos[0], holdWords ? (note ?? '') : message.text);
         said = !holdWords;
       }
     } catch (error) {
@@ -270,7 +279,9 @@ export async function announceDeal(
   }
 
   try {
-    if (!sent) {
+    if (!sent && note) {
+      sent = await deps.send(group, note);
+    } else if (!sent) {
       sent = await deps.send(group, message.text);
       said = true;
     }
@@ -294,7 +305,7 @@ export async function announceDeal(
   }
 
   // The rest as replies to the deal, each saying what it is, or carrying the words held back.
-  for (const photo of photos.slice(1)) {
+  for (const photo of rest) {
     const carries = !said && photo.kind === 'BENEFICIARY';
     try {
       await deps.sendPhoto?.(

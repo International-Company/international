@@ -193,6 +193,80 @@ describe('announcing a deal to the group', () => {
     });
   });
 
+  describe('a remittance paid in notes', () => {
+    const NOTE = 'استلمت 100 شيكل نقدي';
+    const payment = { data: new Uint8Array(1), mimeType: 'image/jpeg', kind: 'PAYMENT' };
+    const who = { data: new Uint8Array(1), mimeType: 'image/jpeg', kind: 'BENEFICIARY' };
+    const run = async (photos: (typeof who)[], failOn?: string) => {
+      const out: { what: string; kind?: string; text: string; quotedId: string | null }[] = [];
+      const { deps } = harness({
+        type: 'REMITTANCE_OUT',
+        load: async () => ({
+          reference: 'TXN-1',
+          type: 'REMITTANCE_OUT',
+          bankPayout: false,
+          companyName: '',
+          text: TEXT,
+          phone: null,
+          cashNote: NOTE,
+        }),
+        send: async (_jid, text, quoted) => {
+          out.push({ what: 'text', text, quotedId: quoted?.key?.id ?? null });
+          return { key: { id: `m${out.length}` } } as never;
+        },
+        photos: async () => photos,
+        sendPhoto: async (_jid, photo, caption, quoted) => {
+          if (photo.kind === failOn) throw new Error('upload failed');
+          out.push({
+            what: 'photo',
+            kind: photo.kind,
+            text: caption,
+            quotedId: quoted?.key?.id ?? null,
+          });
+          return { key: { id: `m${out.length}` } } as never;
+        },
+      });
+      assert.equal(await announceDeal('t1', deps), 'SENT');
+      return out;
+    };
+
+    it('opens by saying what was taken, then the beneficiary in reply with the words', async () => {
+      assert.deepEqual(await run([who]), [
+        { what: 'text', text: NOTE, quotedId: null },
+        { what: 'photo', kind: 'BENEFICIARY', text: TEXT, quotedId: 'm1' },
+      ]);
+    });
+
+    it('says it and then the words, with no photo at all', async () => {
+      assert.deepEqual(await run([]), [
+        { what: 'text', text: NOTE, quotedId: null },
+        { what: 'text', text: TEXT, quotedId: 'm1' },
+      ]);
+    });
+
+    it('says it on a photo of the payment if there is one', async () => {
+      assert.deepEqual(await run([payment, who]), [
+        { what: 'photo', kind: 'PAYMENT', text: NOTE, quotedId: null },
+        { what: 'photo', kind: 'BENEFICIARY', text: TEXT, quotedId: 'm1' },
+      ]);
+      assert.deepEqual(await run([payment]), [
+        { what: 'photo', kind: 'PAYMENT', text: NOTE, quotedId: null },
+        { what: 'text', text: TEXT, quotedId: 'm1' },
+      ]);
+    });
+
+    it('loses neither when a photo fails', async () => {
+      assert.deepEqual(await run([who], 'BENEFICIARY'), [
+        { what: 'text', text: NOTE, quotedId: null },
+        { what: 'text', text: TEXT, quotedId: 'm1' },
+      ]);
+      assert.deepEqual(await run([payment, who], 'PAYMENT'), [
+        { what: 'text', text: NOTE, quotedId: null },
+        { what: 'photo', kind: 'BENEFICIARY', text: TEXT, quotedId: 'm1' },
+      ]);
+    });
+  });
+
   describe('a remittance’s number and sum, to their own group', () => {
     const load = async () => ({
       reference: 'TXN-1',

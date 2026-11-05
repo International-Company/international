@@ -25,6 +25,7 @@ type Row = {
   type: string;
   fromCurrency?: string;
   fromAmount?: bigint;
+  intakeBrokerAmount?: bigint;
   deliveredAmount?: bigint | null;
   deliveredUnit?: string | null;
   rate?: bigint;
@@ -277,6 +278,26 @@ describe('an outgoing remittance', () => {
     const message = await shareable('t1', 'ar', db as never);
     assert.match(message.text, /1020/);
     assert.doesNotMatch(message.text, /1010/);
+  });
+
+  it('says what was taken when paid in notes, and nothing when paid by transfer', async () => {
+    const sent = (intakeBrokerAmount: bigint) =>
+      fakeDb([
+        row({
+          type: 'REMITTANCE_OUT',
+          status: 'POSTED',
+          fromAmount: 100n * UNIT,
+          toAmount: 90n * UNIT,
+          intakeBrokerAmount,
+          payoutBankAmount: 0n,
+          payoutBankChannel: null,
+          payoutAccount: null,
+        }),
+      ]).db;
+    const cash = await shareable('t1', 'ar', sent(0n) as never);
+    assert.equal(cash.cashNote, 'استلمت 100 شيكل نقدي');
+    assert.doesNotMatch(cash.text, /نقدي/, 'the words themselves stay as they were');
+    assert.equal((await shareable('t1', 'ar', sent(100n * UNIT) as never)).cashNote, null);
   });
 
   it('is the number and what reaches them, with no name', async () => {
