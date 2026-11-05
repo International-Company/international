@@ -3,31 +3,47 @@ import { prisma } from '@/core/db/prisma';
 import { errors } from '@/core/errors/app-error';
 import { emitAsync } from '@/core/events/bus';
 import * as audit from '@/modules/audit/audit.service';
+import { transferChannels } from '@/modules/exchange/machine.service';
 import { readProofImage } from '@/modules/exchange/proof-image';
 import type { Actor } from '@/modules/exchange/transaction.service';
 import { formatAmount, formatFigure } from '@/modules/whatsapp/report-command';
 
 /**
- * TikTok withdrawals, written down: a photo, who it is for and how much.
+ * TikTok withdrawals, written down: a photo, who it is for, how it is sent and
+ * how much.
  *
  * Kept apart from the transactions because it moves no balance. The drawers and
  * the count know nothing of it, so a record here can never put them out.
  */
 
-export const MAX_DETAILS = 2000;
+export const MAX_NAME = 200;
 
 const seesAll = (actor: Actor) => actor.permissions.includes('exchange.transaction.viewAll');
 
 export async function record(
-  input: { currency: string; amount: bigint; details: string; photo: string },
+  input: {
+    currency: string;
+    amount: bigint;
+    beneficiaryName: string;
+    channel: string;
+    photo: string;
+  },
   actor: Actor,
 ) {
   if (input.amount <= 0n) {
     throw errors.precondition('Amount must be greater than zero', 'errors.amountNotPositive');
   }
-  const details = input.details.trim();
-  if (!details) {
-    throw errors.precondition('Say who it is for', 'errors.tiktokDetailsRequired');
+  const beneficiaryName = input.beneficiaryName.trim();
+  if (!beneficiaryName) {
+    throw errors.precondition('Say who it is for', 'errors.tiktokNameRequired');
+  }
+  const channel = input.channel.trim();
+  if (!(await transferChannels()).includes(channel)) {
+    throw errors.precondition(
+      `${channel} is not an account the counter offers`,
+      'errors.transferChannelUnknown',
+      { channel },
+    );
   }
   const currency = await prisma.currency.findFirst({
     where: { code: input.currency, isActive: true, kind: 'FIAT' },
@@ -43,7 +59,8 @@ export async function record(
     data: {
       currency: currency.code,
       amount: input.amount,
-      details,
+      beneficiaryName,
+      channel,
       mimeType: image.mimeType,
       size: image.bytes.length,
       data: new Uint8Array(image.bytes),
@@ -75,7 +92,8 @@ export async function list(actor: Actor) {
       id: true,
       currency: true,
       amount: true,
-      details: true,
+      beneficiaryName: true,
+      channel: true,
       createdAt: true,
       createdBy: { select: { fullNameAr: true, fullNameEn: true } },
     },

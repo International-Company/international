@@ -346,7 +346,7 @@ export function registerWhatsappSubscribers(): void {
     if (!group) return;
     const row = await prisma.tiktokWithdrawal.findUnique({
       where: { id: withdrawalId },
-      select: { amount: true, currency: true, details: true },
+      select: { amount: true, currency: true, beneficiaryName: true, channel: true },
     });
     if (!row) return;
     await sendText(group, composeWithdrawalDeleted({ ...row, teller: null }, by)).catch((error) =>

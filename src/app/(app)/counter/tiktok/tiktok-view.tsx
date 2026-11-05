@@ -7,28 +7,31 @@ import { normalizeDigits } from '@/core/money/money';
 import { api, ApiError } from '@/lib/api-client';
 import { say } from '@/lib/failure';
 import { ConfirmDialog, useToast } from '@/ui/overlay';
-import { Field, Input, Textarea } from '@/ui/form';
+import { Field, Input } from '@/ui/form';
 import { shrinkPhoto } from '@/ui/proof-photo';
 
 /**
- * Writing down a TikTok withdrawal: a photo, who it is for beneath it, and how
- * much. Nothing here touches a balance; the bot carries it to the group.
+ * Writing down a TikTok withdrawal: a photo, who it is for beneath it, how it is
+ * sent and how much. Nothing here touches a balance; the bot carries it to the group.
  */
 
 interface Row {
   id: string;
   currency: string;
   amountText: string;
-  details: string;
+  beneficiaryName: string;
+  channel: string;
   createdAt: string;
   createdBy: { fullNameAr: string; fullNameEn: string };
 }
 
 export function TiktokView({
   currencies,
+  channels,
   permissions,
 }: {
   currencies: { code: string; nameEn: string; nameAr: string }[];
+  channels: string[];
   permissions: string[];
 }) {
   const { t, ln, locale } = useLocale();
@@ -36,7 +39,8 @@ export function TiktokView({
 
   const [photo, setPhoto] = useState<string | null>(null);
   const [reading, setReading] = useState(false);
-  const [details, setDetails] = useState('');
+  const [beneficiaryName, setBeneficiaryName] = useState('');
+  const [channel, setChannel] = useState(channels[0] ?? '');
   const [amount, setAmount] = useState('');
   const [currency, setCurrency] = useState(currencies[0]?.code ?? 'ILS');
   const [posting, setPosting] = useState(false);
@@ -77,16 +81,17 @@ export function TiktokView({
     }
   };
 
-  const ready = Boolean(photo) && details.trim().length > 0 && Number(amount) > 0;
+  const ready =
+    Boolean(photo) && beneficiaryName.trim().length > 0 && Boolean(channel) && Number(amount) > 0;
 
   const submit = async () => {
     if (!ready || posting) return;
     setPosting(true);
     try {
-      await api.post('/api/tiktok', { currency, amount, details, photo });
+      await api.post('/api/tiktok', { currency, amount, beneficiaryName, channel, photo });
       toast.success(t('tiktok.recorded'));
       setPhoto(null);
-      setDetails('');
+      setBeneficiaryName('');
       setAmount('');
       void load();
     } catch (cause) {
@@ -165,18 +170,41 @@ export function TiktokView({
           )}
         </div>
 
-        {/* ============ Who it is for, and how much ============ */}
+        {/* ============ Who it is for, how it is sent, and how much ============ */}
         <div className="space-y-3 rounded-2xl bg-surface p-4 ring-1 ring-border-subtle">
-          <Field label={t('tiktok.details')} required>
+          <Field label={t('tiktok.beneficiaryName')} required>
             {(props) => (
-              <Textarea
+              <Input
                 {...props}
-                rows={4}
-                maxLength={2000}
-                value={details}
-                onChange={(event) => setDetails(event.target.value)}
+                maxLength={200}
+                autoComplete="off"
+                value={beneficiaryName}
+                onChange={(event) => setBeneficiaryName(event.target.value)}
               />
             )}
+          </Field>
+
+          <Field label={t('tiktok.channel')} required>
+            {(props) =>
+              channels.length === 0 ? (
+                <p className="rounded-xl bg-warning-subtle px-3 py-2 text-sm text-content-secondary">
+                  {t('tiktok.noChannels')}
+                </p>
+              ) : (
+                <select
+                  {...props}
+                  value={channel}
+                  onChange={(event) => setChannel(event.target.value)}
+                  className="h-11 w-full rounded-xl bg-surface-sunken px-3 text-base font-medium text-content outline-none ring-1 ring-transparent focus:ring-primary"
+                >
+                  {channels.map((entry) => (
+                    <option key={entry} value={entry}>
+                      {entry}
+                    </option>
+                  ))}
+                </select>
+              )
+            }
           </Field>
 
           <div className="grid gap-3 sm:grid-cols-2">
@@ -255,8 +283,8 @@ export function TiktokView({
                   <p className="ltr-content text-start text-sm font-semibold tabular-nums text-content">
                     {row.amountText} {row.currency}
                   </p>
-                  <p className="line-clamp-2 whitespace-pre-line text-sm text-content-secondary">
-                    {row.details}
+                  <p className="truncate text-sm text-content-secondary">
+                    {[row.beneficiaryName, row.channel].filter(Boolean).join(' · ')}
                   </p>
                   <p className="mt-1 text-xs text-content-tertiary">
                     {ln(row.createdBy, 'fullName')} ·{' '}

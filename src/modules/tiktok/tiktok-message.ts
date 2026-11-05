@@ -7,16 +7,23 @@ export const TIKTOK_DEAL_TYPE = 'TIKTOK_WITHDRAWAL';
 interface Withdrawal {
   amount: bigint;
   currency: string;
-  details: string;
+  beneficiaryName: string;
+  channel: string;
   teller: string | null;
 }
 
-export function composeWithdrawal({ amount, currency, details, teller }: Withdrawal): string {
+export function composeWithdrawal({
+  amount,
+  currency,
+  beneficiaryName,
+  channel,
+  teller,
+}: Withdrawal): string {
   return [
     '*سحب تيكتوك*',
     '',
-    details.trim(),
-    '',
+    `المستفيد: ${beneficiaryName.trim()}`,
+    channel ? `طريقة التحويل: ${channel}` : null,
     `المبلغ: *${formatAmount({ currency, amount })}*`,
     teller ? `التلر: ${teller}` : null,
   ]
@@ -25,14 +32,14 @@ export function composeWithdrawal({ amount, currency, details, teller }: Withdra
 }
 
 export function composeWithdrawalDeleted(
-  { amount, currency, details }: Withdrawal,
+  { amount, currency, beneficiaryName, channel }: Withdrawal,
   by: string | null,
 ): string {
   return [
     '🔴 *حذف سحب تيكتوك*',
     '',
-    details.trim(),
-    '',
+    `المستفيد: ${beneficiaryName.trim()}`,
+    channel ? `طريقة التحويل: ${channel}` : null,
     `كان: ${formatAmount({ currency, amount })}`,
     by ? `حذفها: ${by}` : null,
   ]

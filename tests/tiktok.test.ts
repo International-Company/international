@@ -10,16 +10,21 @@ const UNIT = 100_000_000n;
 const withdrawal = {
   amount: 250n * UNIT,
   currency: 'USD',
-  details: '  أحمد علي\n0597000000  ',
+  beneficiaryName: '  أحمد علي  ',
+  channel: 'بنك فلسطين',
   teller: 'سامي',
 };
 
 describe('a TikTok withdrawal in the group', () => {
-  it('says what was typed, the amount and who wrote it', () => {
+  it('says who it is for, how it is sent, the amount and who wrote it', () => {
     assert.equal(
       composeWithdrawal(withdrawal),
-      '*سحب تيكتوك*\n\nأحمد علي\n0597000000\n\nالمبلغ: *250 دولار*\nالتلر: سامي',
+      '*سحب تيكتوك*\n\nالمستفيد: أحمد علي\nطريقة التحويل: بنك فلسطين\nالمبلغ: *250 دولار*\nالتلر: سامي',
     );
+  });
+
+  it('leaves the method out of a record from before it was asked for', () => {
+    assert.doesNotMatch(composeWithdrawal({ ...withdrawal, channel: '' }), /طريقة التحويل/);
   });
 
   it('goes without a teller when none can be named', () => {
