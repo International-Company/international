@@ -221,8 +221,8 @@ export interface AnnounceDeps {
 
 export type AnnounceOutcome = 'SKIPPED' | 'NOT_FOUND' | 'SEND_FAILED' | 'NO_REPLY' | 'SENT';
 
-/** A remittance sent goes out as the office writes it: nothing beside its two photos. */
-const BARE: string[] = ['REMITTANCE_OUT'];
+/** These go out as the office writes them: their photos and words, and no label beside. */
+const BARE: string[] = ['REMITTANCE_OUT', 'USDT_SALE'];
 
 /**
  * One deal to the group: its message, then the kind as a reply to it.

@@ -193,6 +193,41 @@ describe('announcing a deal to the group', () => {
     });
   });
 
+  describe('a USDT sale', () => {
+    const photo = (kind: string) => ({ data: new Uint8Array(1), mimeType: 'image/jpeg', kind });
+    const run = async (photos: ReturnType<typeof photo>[]) => {
+      const shots: { kind: string; caption: string; quotedId: string | null }[] = [];
+      const { deps, sent } = harness({
+        type: 'USDT_SALE',
+        photos: async () => photos,
+        sendPhoto: async (_jid, each, caption, quoted) => {
+          shots.push({ kind: each.kind, caption, quotedId: quoted?.key?.id ?? null });
+          return { key: { id: `shot-${shots.length}` } } as never;
+        },
+      });
+      assert.equal(await announceDeal('t1', deps), 'SENT');
+      return { shots, sent };
+    };
+
+    it('is two messages: the transfer with its words, the address in reply', async () => {
+      const { shots, sent } = await run([photo('PAYMENT'), photo('ADDRESS')]);
+      assert.deepEqual(shots, [
+        { kind: 'PAYMENT', caption: TEXT, quotedId: null },
+        { kind: 'ADDRESS', caption: 'عنوان التحويل', quotedId: 'shot-1' },
+      ]);
+      assert.equal(sent.length, 0, 'no «بيع يواس»');
+    });
+
+    it('is one with a single photo, or with none', async () => {
+      const one = await run([photo('ADDRESS')]);
+      assert.equal(one.shots.length, 1);
+      assert.equal(one.shots[0]?.caption, TEXT);
+      assert.equal(one.sent.length, 0);
+      const none = await run([]);
+      assert.deepEqual(none.sent, [{ jid: GROUP, text: TEXT, quotedId: null }]);
+    });
+  });
+
   describe('a remittance paid in notes', () => {
     const NOTE = 'استلمت 100 شيكل نقدي';
     const payment = { data: new Uint8Array(1), mimeType: 'image/jpeg', kind: 'PAYMENT' };
