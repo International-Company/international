@@ -1207,6 +1207,9 @@ model Transaction {
   deliveredAmount BigInt?
   deliveredUnit   String?
 
+  /// Kept from the WhatsApp group when it was recorded, so its deletion is too.
+  unannounced Boolean @default(false)
+
   /// A remittance sent before its correspondent's price was known. Until the price
   /// is written the correspondent is held at the whole sum, and the deal shows no profit.
   pricePending Boolean @default(false)

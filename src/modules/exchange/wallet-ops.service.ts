@@ -85,7 +85,12 @@ export interface WalletOpInput {
   notes?: string | null;
 }
 
-export async function recordWalletOp(input: WalletOpInput, actor: Actor, db: DbClient = prisma) {
+export async function recordWalletOp(
+  input: WalletOpInput,
+  actor: Actor,
+  db: DbClient = prisma,
+  options: { unannounced?: boolean } = {},
+) {
   if (!(await settings.getBoolean('machine.enabled', db))) {
     throw errors.precondition('The exchange machine is switched off', 'errors.machineDisabled');
   }
@@ -184,6 +189,7 @@ export async function recordWalletOp(input: WalletOpInput, actor: Actor, db: DbC
     },
     actor,
     db,
+    options,
   );
 }
 
@@ -194,6 +200,7 @@ export async function recordWalletOp(input: WalletOpInput, actor: Actor, db: DbC
  * Two deals, because that is what happened: a sale, and a top-up the bank has to
  * carry out. Written together, so neither stands without the other. The change is
  * worked out from what the deal really took, not from what the screen last showed.
+ * The top-up stays out of the group: the teller carries it out with the customer there.
  */
 export async function recordExchangeWithChange(
   input: MachineRecordInput,
@@ -230,6 +237,7 @@ export async function recordExchangeWithChange(
       },
       actor,
       tx,
+      { unannounced: true },
     );
     return {
       ...deal,

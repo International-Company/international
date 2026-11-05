@@ -106,6 +106,7 @@ const DEAL_SELECT = {
   counterpartyPhone: true,
   deliveredAmount: true,
   deliveredUnit: true,
+  unannounced: true,
   notes: true,
   createdAt: true,
   customer: { select: { fullNameAr: true, phone: true } },
@@ -478,7 +479,11 @@ export function registerWhatsappSubscribers(): void {
         }),
       ]);
       // A deal the group never heard of is not deleted in front of it either.
-      if (!deal || !announced({ type: deal.type, bankPayout: deal.payoutBankAmount > 0n })) {
+      if (
+        !deal ||
+        deal.unannounced ||
+        !announced({ type: deal.type, bankPayout: deal.payoutBankAmount > 0n })
+      ) {
         return;
       }
       const group = await target(deal.type);

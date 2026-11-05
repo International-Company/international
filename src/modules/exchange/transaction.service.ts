@@ -274,6 +274,7 @@ export async function record(
         rateId: input.rateId ?? null,
         profitAmount: input.profitAmount ?? 0n,
         pricePending: input.pricePending ?? false,
+        unannounced: options.unannounced ?? false,
         deliveredAmount: input.deliveredAmount ?? null,
         deliveredUnit: input.deliveredUnit ?? null,
         counterpartyName: input.counterpartyName ?? null,
