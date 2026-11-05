@@ -22,10 +22,10 @@ const bodySchema = z.object({
    * Receiving: what the correspondent credits, then what the customer is paid.
    *
    * Named for the roles rather than the direction so neither reading can be
-   * mistaken for the other on the wire.
+   * mistaken for the other on the wire. Sending, the second can come later.
    */
   gross: z.string(),
-  net: z.string(),
+  net: z.string().nullish(),
   customerId: z.string().nullish(),
   counterpartyName: z.string().max(200).nullish(),
   counterpartyPhone: z.string().max(40).nullish(),
@@ -54,12 +54,14 @@ export const POST = route<z.infer<typeof bodySchema>>({
       notes: body.notes ?? null,
     };
 
+    const net = parseMoney(body.net ?? '0');
+
     if (body.direction === 'OUT') {
       return remittances.send(
         {
           ...common,
           collected: parseMoney(body.gross),
-          cost: parseMoney(body.net),
+          cost: net > 0n ? net : null,
           intakeChannel: body.intakeChannel ?? null,
           proof: body.proof ?? null,
           beneficiary: body.beneficiary ?? null,
@@ -69,7 +71,7 @@ export const POST = route<z.infer<typeof bodySchema>>({
     }
 
     return remittances.receive(
-      { ...common, credited: parseMoney(body.gross), paid: parseMoney(body.net) },
+      { ...common, credited: parseMoney(body.gross), paid: net },
       actor,
     );
   },

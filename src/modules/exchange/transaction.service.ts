@@ -81,6 +81,8 @@ export interface RecordInput {
   customerId?: string | null;
   counterpartyName?: string | null;
   counterpartyPhone?: string | null;
+  /** A remittance whose correspondent's price is still to be written. */
+  pricePending?: boolean;
   notes?: string | null;
 }
 
@@ -212,7 +214,9 @@ export async function record(
       const named = input.customerId ?? input.counterpartyName?.trim();
       const reachable = customerPhone?.trim() || input.counterpartyPhone?.trim();
 
-      if (!named) {
+      // A customer paying for a remittance by transfer can go without a name:
+      // the proof and the number say whose it was. Their number still has to be there.
+      if (!named && input.type !== 'REMITTANCE_OUT') {
         throw errors.precondition(
           'A transfer needs the name of the person it is for',
           'errors.transferNeedsCustomer',
@@ -266,6 +270,7 @@ export async function record(
         rate: input.rate,
         rateId: input.rateId ?? null,
         profitAmount: input.profitAmount ?? 0n,
+        pricePending: input.pricePending ?? false,
         counterpartyName: input.counterpartyName ?? null,
         counterpartyPhone: input.counterpartyPhone ?? null,
         notes: input.notes ?? null,

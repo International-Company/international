@@ -10,6 +10,7 @@ import {
   KIND_WORDS,
   METHOD_WORDS,
   MOVE_WORDS,
+  NO_PRICE_YET,
   sumAmounts,
   type Amount,
   type CountKind,
@@ -421,7 +422,7 @@ function list(part: ListPart, top: number): { parts: string[]; y: number } {
           [move.at],
           [amount(move.goods)],
           priced ? [move.price ?? '—'] : [],
-          [amount(move.counter)],
+          [move.counter.amount > 0n ? amount(move.counter) : NO_PRICE_YET],
           [[move.byBank ? 'بنكي' : null, shown].filter(Boolean).join(' · ') || '—'],
         ];
       }),

@@ -59,6 +59,8 @@ export interface CountEntry {
   toAmount: bigint;
   /** What the customer paid by transfer rather than in notes. */
   intakeBank: bigint;
+  /** A remittance whose correspondent's price is still to be written. */
+  pricePending: boolean;
   /** What the customer was paid by transfer rather than in notes. */
   payoutBank: bigint;
   payoutChannel: string | null;
@@ -145,6 +147,7 @@ export async function dailyCount(
       payoutBankChannel: true,
       counterpartyName: true,
       notes: true,
+      pricePending: true,
       customer: { select: { fullNameAr: true, fullNameEn: true } },
     },
   });
@@ -180,6 +183,7 @@ export async function dailyCount(
       toCurrency: deal.toCurrency,
       toAmount: deal.toAmount,
       intakeBank: deal.intakeBrokerAmount,
+      pricePending: Boolean(deal.pricePending),
       payoutBank: deal.payoutBankAmount,
       payoutChannel: deal.payoutBankChannel,
       reversed,
@@ -190,7 +194,10 @@ export async function dailyCount(
       deal.fromCurrency,
       (group.inMap.get(deal.fromCurrency) ?? 0n) + deal.fromAmount,
     );
-    group.outMap.set(deal.toCurrency, (group.outMap.get(deal.toCurrency) ?? 0n) + deal.toAmount);
+    // A price not yet written is not a figure yet: the sum it is held at would overstate it.
+    if (!deal.pricePending) {
+      group.outMap.set(deal.toCurrency, (group.outMap.get(deal.toCurrency) ?? 0n) + deal.toAmount);
+    }
   }
 
   const list = (map: Map<string, bigint>): CountAmount[] =>

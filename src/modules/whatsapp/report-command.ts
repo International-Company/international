@@ -113,13 +113,15 @@ export function formatFigure(amount: bigint): string {
 
 const list = (amounts: Amount[]) => amounts.map(formatAmount).join(' + ') || '—';
 
-/** Amounts added up per currency, in the order each first appears. */
+/** Amounts added up per currency, in the order each first appears; a currency at zero is left out. */
 export function sumAmounts(amounts: Amount[]): Amount[] {
   const totals = new Map<string, bigint>();
   for (const { currency, amount } of amounts) {
     totals.set(currency, (totals.get(currency) ?? 0n) + amount);
   }
-  return [...totals].map(([currency, amount]) => ({ currency, amount }));
+  return [...totals]
+    .map(([currency, amount]) => ({ currency, amount }))
+    .filter((total) => total.amount !== 0n);
 }
 
 export const METHOD_WORDS = { CASH: 'نقدي', BANK: 'بنكي' } as const;
@@ -178,6 +180,9 @@ export const MOVE_WORDS: Record<CountKind, string> = {
   REMITTANCE_OUT: 'الحوالات الصادرة',
   REMITTANCE_IN: 'الحوالات الواردة',
 };
+
+/** Said in place of a correspondent's price still to be written. */
+export const NO_PRICE_YET = 'بلا تسعيرة';
 
 /** One deal in a kind's list. */
 export interface Move {
@@ -299,7 +304,7 @@ export function composeReport(day: TellerDay): string {
         const who = move.customer ? ` — ${move.customer}` : '';
         const bank = move.byBank ? ' — بنكي' : '';
         lines.push(
-          `${move.at}: ${formatAmount(move.goods)}${price} = ${formatAmount(move.counter)}${bank}${who}`,
+          `${move.at}: ${formatAmount(move.goods)}${price} = ${move.counter.amount > 0n ? formatAmount(move.counter) : NO_PRICE_YET}${bank}${who}`,
         );
       }
       const goods = sumAmounts(group.moves.map((move) => move.goods));

@@ -18,6 +18,7 @@ type Deal = {
   status?: string;
   from: [string, bigint];
   to: [string, bigint];
+  pricePending?: boolean;
 };
 
 function fakeDb(deals: Deal[]) {
@@ -34,6 +35,7 @@ function fakeDb(deals: Deal[]) {
           fromAmount: deal.from[1],
           toCurrency: deal.to[0],
           toAmount: deal.to[1],
+          pricePending: deal.pricePending ?? false,
           payoutBankAmount: 0n,
           payoutBankChannel: null,
           counterpartyName: null,
@@ -56,6 +58,31 @@ describe('the daily count', () => {
     assert.equal(kindOf('REMITTANCE_IN', 'ILS'), 'REMITTANCE_IN');
     assert.equal(kindOf('WALLET_TOPUP', 'ILS'), 'WALLET_TOPUP');
     assert.equal(kindOf('WALLET_CASHOUT', 'ILS'), null);
+  });
+
+  it('leaves a price not yet written out of the sum, and says which', async () => {
+    const count = await dailyCount(
+      day,
+      teller,
+      fakeDb([
+        { id: 'a', type: 'REMITTANCE_OUT', from: ['ILS', 1000n * UNIT], to: ['ILS', 980n * UNIT] },
+        {
+          id: 'b',
+          type: 'REMITTANCE_OUT',
+          pricePending: true,
+          from: ['ILS', 500n * UNIT],
+          to: ['ILS', 500n * UNIT],
+        },
+      ]),
+    );
+    const sent = count.groups.find((group) => group.kind === 'REMITTANCE_OUT');
+    assert.equal(sent?.count, 2);
+    assert.deepEqual(sent?.received, [{ currency: 'ILS', amount: 1500n * UNIT }]);
+    assert.deepEqual(sent?.paid, [{ currency: 'ILS', amount: 980n * UNIT }]);
+    assert.deepEqual(
+      sent?.entries.map((entry) => entry.pricePending),
+      [false, true],
+    );
   });
 
   it('totals each list, leaving undone deals listed but uncounted', async () => {

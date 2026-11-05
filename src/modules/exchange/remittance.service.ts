@@ -2,6 +2,9 @@ import 'server-only';
 import { prisma, withTransaction, type DbClient } from '@/core/db/prisma';
 import { errors } from '@/core/errors/app-error';
 import { toDecimalString } from '@/core/money/money';
+import * as drawers from '@/modules/drawers/drawer.service';
+import { formatFigure } from '@/modules/whatsapp/report-command';
+import { requireOpenDay } from './business-day.service';
 import { emitAsync } from '@/core/events/bus';
 import * as audit from '@/modules/audit/audit.service';
 import * as settings from '@/modules/settings/settings.service';
@@ -106,8 +109,8 @@ interface Common {
 export interface SendInput extends Common {
   /** What the customer hands over in total, commission included. */
   collected: bigint;
-  /** What the correspondent charges for it — their published price. */
-  cost: bigint;
+  /** What the correspondent charges for it, or nothing when that is not known yet. */
+  cost: bigint | null;
   /** The customer paid by transfer, into this one of the office's accounts. Otherwise notes. */
   intakeChannel?: string | null;
   /** A photo of what the customer paid, as base64. */
@@ -152,11 +155,18 @@ async function check(input: Common, amounts: bigint[], db: DbClient): Promise<vo
  * nowhere.
  */
 export async function send(input: SendInput, actor: Actor, db: DbClient = prisma) {
-  await check(input, [input.collected, input.cost], db);
+  /*
+   * Without a price yet the correspondent is held at the whole sum, the most they
+   * can be owed, so their balance is never understated. `addPrice` gives back the
+   * difference once the price is known, and a reversal mirrors whichever stands.
+   */
+  const pricePending = input.cost === null;
+  const cost = input.cost ?? input.collected;
+  await check(input, [input.collected, cost], db);
 
-  if (input.cost > input.collected) {
+  if (cost > input.collected) {
     throw errors.precondition(
-      `Charging ${toDecimalString(input.cost, 2)} to collect ${toDecimalString(input.collected, 2)} loses money on the transfer`,
+      `Charging ${toDecimalString(cost, 2)} to collect ${toDecimalString(input.collected, 2)} loses money on the transfer`,
       'errors.remittanceBelowCost',
     );
   }
@@ -193,11 +203,12 @@ export async function send(input: SendInput, actor: Actor, db: DbClient = prisma
         fromCurrency: input.currency,
         fromAmount: input.collected,
         toCurrency: input.currency,
-        toAmount: input.cost,
+        toAmount: cost,
+        pricePending,
         intake: intakeChannel ? { cash: 0n, broker: input.collected } : undefined,
         intakeChannel,
         rate: 100000000n,
-        profitAmount: input.collected - input.cost,
+        profitAmount: input.collected - cost,
         counterpartyName: input.counterpartyName ?? null,
         counterpartyPhone: input.counterpartyPhone ?? null,
         notes: [input.destination.trim(), input.notes?.trim()].filter(Boolean).join(' — '),
@@ -266,6 +277,106 @@ export async function recordCash(
     db,
     { unannounced: true },
   );
+}
+
+/** Remittances sent whose price is still to be written: a teller's own, or all for a manager. */
+export async function unpriced(actor: Actor, db: DbClient = prisma) {
+  const rows = await db.transaction.findMany({
+    where: {
+      type: 'REMITTANCE_OUT',
+      pricePending: true,
+      status: { not: 'REVERSED' },
+      ...(actor.permissions.includes('exchange.transaction.viewAll')
+        ? {}
+        : { createdById: actor.id }),
+    },
+    orderBy: { createdAt: 'desc' },
+    take: 50,
+    select: {
+      id: true,
+      reference: true,
+      fromCurrency: true,
+      fromAmount: true,
+      counterpartyName: true,
+      notes: true,
+      createdAt: true,
+      customer: { select: { fullNameAr: true } },
+    },
+  });
+  return rows.map((row) => ({
+    id: row.id,
+    reference: row.reference,
+    currency: row.fromCurrency,
+    amountText: formatFigure(row.fromAmount),
+    who: row.customer?.fullNameAr || row.counterpartyName || row.notes,
+    createdAt: row.createdAt,
+  }));
+}
+
+/**
+ * The correspondent's price, written after the fact. Once only: a price that
+ * turns out wrong is put right as any posted figure is, by reversing the deal.
+ *
+ * The correspondent gets back what they were held at beyond the price, and the
+ * deal takes its profit. That profit counts on the day the deal was recorded.
+ */
+export async function addPrice(id: string, cost: bigint, actor: Actor, db: DbClient = prisma) {
+  // Reading it this way also refuses a deal this person may not see.
+  await transactions.getById(id, actor, db);
+  return withTransaction(async (tx) => {
+    const deal = await tx.transaction.findUnique({ where: { id } });
+    if (!deal) throw errors.notFound('Transaction', id);
+    if (!deal.pricePending || deal.type !== 'REMITTANCE_OUT' || deal.status === 'REVERSED') {
+      throw errors.conflict('This remittance already has its price', 'errors.remittanceHasPrice');
+    }
+    if (cost <= 0n) {
+      throw errors.precondition('Amount must be greater than zero', 'errors.amountNotPositive');
+    }
+    if (cost > deal.fromAmount) {
+      throw errors.precondition(
+        `Charging ${toDecimalString(cost, 2)} to collect ${toDecimalString(deal.fromAmount, 2)} loses money on the transfer`,
+        'errors.remittanceBelowCost',
+      );
+    }
+
+    const day = await requireOpenDay(deal.branchId, new Date(), tx, actor);
+    const margin = deal.fromAmount - cost;
+    await tx.transaction.update({
+      where: { id },
+      data: { toAmount: cost, profitAmount: margin, pricePending: false },
+    });
+    if (margin > 0n) {
+      await drawers.move(
+        [
+          {
+            currency: deal.toCurrency,
+            kind: 'CORRESPONDENT',
+            direction: 'IN',
+            amount: margin,
+            reason: 'TRANSACTION',
+            transactionId: id,
+            businessDayId: day.id,
+          },
+        ],
+        actor,
+        tx,
+      );
+    }
+    const figure = `${toDecimalString(cost, 2)} ${deal.toCurrency}`;
+    await audit.record(
+      {
+        action: 'UPDATE',
+        module: 'exchange',
+        entityType: 'Transaction',
+        entityId: id,
+        summaryEn: `Added the correspondent's price to ${deal.reference}: ${figure}`,
+        summaryAr: `إضافة تسعيرة المراسل إلى ${deal.reference}: ${figure}`,
+        actor,
+      },
+      tx,
+    );
+    return { id };
+  }, db);
 }
 
 /** The photo, or the words for why it cannot be kept. */

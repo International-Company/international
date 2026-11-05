@@ -57,6 +57,7 @@ interface Entry {
   toAmount: string;
   payoutBank: string;
   payoutChannel: string | null;
+  pricePending: boolean;
   reversed: boolean;
 }
 
@@ -631,7 +632,11 @@ export function DailyCountView() {
                               row.reversed && 'text-content-tertiary line-through',
                             )}
                           >
-                            <Money value={other.amount} currency={other.currency} />
+                            {row.pricePending ? (
+                              <Badge tone="warning">{t('remittance.noPriceYet')}</Badge>
+                            ) : (
+                              <Money value={other.amount} currency={other.currency} />
+                            )}
                             {bank && (
                               <span className="block text-[11px] font-normal text-content-tertiary">
                                 {row.payoutChannel ?? t('dailyCount.byTransfer')}

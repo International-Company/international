@@ -434,6 +434,39 @@ describe('the report as a picture', () => {
     assert.doesNotMatch(svg!, />1\.01</);
   });
 
+  it('says a remittance has no price yet, and leaves it out of the sum', () => {
+    const noPrice = moveOf('REMITTANCE_OUT', {
+      at: '11:00',
+      fromCurrency: 'ILS',
+      fromAmount: 1000n * UNIT,
+      toCurrency: 'ILS',
+      toAmount: 0n,
+      customer: null,
+      intakeBank: 0n,
+      payoutBank: 0n,
+    });
+    const priced = { ...noPrice, counter: { currency: 'ILS', amount: 980n * UNIT } };
+    const remittances = (moves: (typeof noPrice)[]): TellerDay => ({
+      ...day,
+      groups: [
+        {
+          kind: 'REMITTANCE_OUT',
+          count: moves.length,
+          received: [{ currency: 'ILS', amount: 1000n * UNIT }],
+          paid: [],
+          receivedBank: [],
+          paidBank: [],
+          moves,
+        },
+      ],
+    });
+    const [mixed] = reportSvgs(remittances([noPrice, priced]));
+    assert.match(mixed!, /بلا تسعيرة/);
+    assert.match(mixed!, />2,000<\/text><text[^>]*>شيكل</);
+    assert.equal(mixed!.match(/>980</g)?.length, 2, 'the deal and the sum: only the priced one');
+    assert.match(composeReport(remittances([noPrice])), /= بلا تسعيرة/);
+  });
+
   it('lists a remittance paid out by what was handed over', () => {
     const paid = moveOf('REMITTANCE_IN', {
       at: '11:00',

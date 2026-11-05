@@ -197,7 +197,8 @@ export async function tellerDay(teller: TellerCandidate): Promise<TellerDay> {
             fromCurrency: entry.fromCurrency,
             fromAmount: entry.fromAmount,
             toCurrency: entry.toCurrency,
-            toAmount: entry.toAmount,
+            // Nothing to say until it is written: it is held at the whole sum till then.
+            toAmount: entry.pricePending ? 0n : entry.toAmount,
             customer: entry.customer,
             intakeBank: entry.intakeBank,
             payoutBank: entry.payoutBank,

@@ -24,6 +24,7 @@ import { cn } from '@/ui/utils';
 import { PhotoField } from '@/ui/photo-field';
 import { priceRemittance, type FeeKind } from '@/modules/exchange/remittance-pricing';
 import { RemittancePrices, type PriceRow } from './remittance-prices';
+import { UnpricedRemittances } from './remittance-unpriced';
 
 /**
  * The remittance tool.
@@ -134,7 +135,7 @@ export function RemittanceView({
 
   const outgoing = direction === 'OUT';
   const byTransfer = outgoing && paidVia === 'TRANSFER';
-  const nameRequired = !outgoing || byTransfer;
+  const nameRequired = !outgoing;
   const canSeeMargin = permissions.includes('exchange.margin.view');
 
   // The teller's own last few, in the direction they are working in — a lost
@@ -181,10 +182,10 @@ export function RemittanceView({
   const blocked =
     !destination ||
     grossValue <= 0n ||
-    netValue <= 0n ||
-    margin < 0n ||
-    // A name is asked for where someone answers for the money: a remittance paid
-    // out here, or one paid by transfer. Sent for notes, it can go without.
+    // Sending, the correspondent's price can follow once it is known.
+    (!outgoing && netValue <= 0n) ||
+    (netValue > 0n && margin < 0n) ||
+    // A name is asked for where someone answers for the money: a remittance paid out here.
     (nameRequired && !counterpartyName.trim()) ||
     // A transfer belongs to someone who can be reached; the server insists too.
     (byTransfer && !counterpartyPhone.trim());
@@ -198,7 +199,7 @@ export function RemittanceView({
         currency,
         destination,
         gross: unscale(grossValue),
-        net: unscale(netValue),
+        net: netValue > 0n ? unscale(netValue) : null,
         counterpartyName: counterpartyName.trim() || null,
         counterpartyPhone: counterpartyPhone.trim() || null,
         notes: notes.trim() || null,
@@ -392,8 +393,8 @@ export function RemittanceView({
       {/* ============ The two figures ============ */}
       <section className="space-y-2 rounded-3xl bg-surface p-2 shadow-[var(--shadow-lg)] ring-1 ring-border-subtle">
         <AmountRow
-          label={outgoing ? t('remittance.customerPays') : t('remittance.correspondentCredits')}
-          hint={outgoing ? t('remittance.customerPaysHint') : t('remittance.correspondentCreditsHint')}
+          label={outgoing ? t('remittance.sentAmount') : t('remittance.correspondentCredits')}
+          hint={outgoing ? t('remittance.sentAmountHint') : t('remittance.correspondentCreditsHint')}
           code={currency}
           decimals={decimals}
           value={gross}
@@ -408,7 +409,7 @@ export function RemittanceView({
         <AmountRow
           label={outgoing ? t('remittance.correspondentCharges') : t('remittance.customerReceives')}
           hint={
-            outgoing ? t('remittance.correspondentChargesHint') : t('remittance.customerReceivesHint')
+            outgoing ? t('remittance.priceLaterHint') : t('remittance.customerReceivesHint')
           }
           code={currency}
           decimals={decimals}
@@ -626,6 +627,8 @@ export function RemittanceView({
         </div>
       )}
     </form>
+
+      {outgoing && <UnpricedRemittances refresh={done?.id ?? null} />}
 
       {/* The price list, under the form it feeds, for whoever manages prices. */}
       {canPrice && config.destinations.length > 0 && (

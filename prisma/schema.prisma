@@ -1202,6 +1202,10 @@ model Transaction {
   /// Spread earned against the mid rate, in toCurrency. Shown to the manager.
   profitAmount BigInt @default(0)
 
+  /// A remittance sent before its correspondent's price was known. Until the price
+  /// is written the correspondent is held at the whole sum, and the deal shows no profit.
+  pricePending Boolean @default(false)
+
   /// The broken price this deal was struck at, if it was one. Present on the
   /// transaction so the concession is read where the deal is read, not only in
   /// a list of approvals somebody has to think to open.
