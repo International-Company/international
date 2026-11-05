@@ -163,11 +163,11 @@ export const SETTINGS: SettingDefinition[] = [
   },
   {
     key: 'tiktok.usdRate', category: 'machine', type: 'money', defaultValue: '0',
-    labelEn: 'TikTok USDT price', labelAr: 'سعر USDT تيكتوك',
+    labelEn: 'TikTok dollar price', labelAr: 'سعر دولار تيكتوك',
     descriptionEn:
-      'Shekels per USDT, filled in on the TikTok screen. The teller may change it for the withdrawal in front of them.',
+      'Shekels per dollar, filled in on the TikTok screen. The teller may change it for the withdrawal in front of them.',
     descriptionAr:
-      'كم شيكل لكل USDT، ويظهر تلقائياً في شاشة تيكتوك. يمكن للتلر تغييره للعملية التي أمامه.',
+      'كم شيكل لكل دولار، ويظهر تلقائياً في شاشة تيكتوك. يمكن للتلر تغييره للعملية التي أمامه.',
   },
   {
     key: 'transfers.commissionRates', category: 'machine', type: 'string', defaultValue: '',

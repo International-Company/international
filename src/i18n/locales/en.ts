@@ -686,7 +686,7 @@ const en = {
 
   tiktok: {
     title: 'TikTok',
-    subtitle: 'TikTok withdrawn in USDT and handed over in shekels. No balance moves.',
+    subtitle: 'TikTok withdrawn in dollars and handed over in shekels. No balance moves.',
     photo: 'Photo of the withdrawal',
     takePhoto: 'Take a photo',
     attachPhoto: 'Attach a photo',
@@ -694,8 +694,8 @@ const en = {
     channel: 'Transfer method',
     noChannels: 'No transfer methods yet. A manager adds them in the exchange machine settings.',
     account: 'Account or phone number',
-    amount: 'How much USDT?',
-    rate: 'USDT price',
+    amount: 'How many dollars?',
+    rate: 'Dollar price',
     payout: 'What the beneficiary receives',
     record: 'Record withdrawal',
     recorded: 'Withdrawal recorded',
@@ -2438,7 +2438,7 @@ const en = {
     tiktokNameRequired: 'Write the beneficiary name',
     remittanceHasPrice: 'This remittance already has its price',
     changeTooLow: 'What you received is no more than the deal comes to: {needed} {currency}',
-    tiktokRateRequired: 'Give the USDT price',
+    tiktokRateRequired: 'Give the dollar price',
     tiktokAccountRequired: 'Give the account or phone number',
     countOwnTill: 'Nobody counts their own till — a count needs a second person',
     tillOnShift: 'This teller is on an open shift — count them by the handover that closes it',
