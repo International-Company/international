@@ -10,6 +10,7 @@ import { ConfirmDialog, useToast } from '@/ui/overlay';
 import { Field, Input } from '@/ui/form';
 import { shrinkPhoto } from '@/ui/proof-photo';
 import { tiktokPayout } from '@/modules/tiktok/tiktok-message';
+import { formatFigure } from '@/modules/whatsapp/report-command';
 
 /**
  * Writing down a TikTok withdrawal: a photo, then where it goes and to whom, the
@@ -249,42 +250,61 @@ export function TiktokView({
             )}
           </Field>
 
-          <div className="grid gap-3 sm:grid-cols-2">
-            <Field label={t('tiktok.amount')} required>
-              {(props) => (
-                <Input
-                  {...props}
-                  dir="ltr"
-                  inputMode="decimal"
-                  autoComplete="off"
-                  value={amount}
-                  onChange={(event) => setAmount(decimal(event.target.value))}
-                />
-              )}
-            </Field>
-            <Field label={t('tiktok.rate')} required>
-              {(props) => (
-                <Input
-                  {...props}
-                  dir="ltr"
-                  inputMode="decimal"
-                  autoComplete="off"
-                  value={rate}
-                  onChange={(event) => setRate(decimal(event.target.value))}
-                />
-              )}
-            </Field>
+        </div>
+
+        {/* ============ The dollars, the price, the shekels ============ */}
+        <section className="space-y-2 rounded-3xl bg-surface p-2 shadow-[var(--shadow-lg)] ring-1 ring-border-subtle">
+          <div className="rounded-[1.35rem] bg-surface-sunken px-5 py-5">
+            <span className="text-xs font-medium text-content-secondary">{t('tiktok.amount')}</span>
+            <div className="mt-3 flex items-center gap-3">
+              <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary text-sm font-bold text-white">
+                $
+              </span>
+              <input
+                type="text"
+                dir="ltr"
+                inputMode="decimal"
+                autoComplete="off"
+                data-zoom-safe=""
+                aria-label={t('tiktok.amount')}
+                value={amount}
+                placeholder="0.00"
+                onFocus={(event) => event.currentTarget.select()}
+                onChange={(event) => setAmount(decimal(event.target.value))}
+                className="min-w-0 flex-1 bg-transparent text-end text-3xl font-bold tabular-nums tracking-tight text-content outline-none placeholder:text-content-tertiary sm:text-4xl"
+              />
+            </div>
           </div>
 
-          {payout > 0n && (
-            <p className="flex items-center justify-between rounded-xl bg-surface-sunken px-4 py-3 text-sm text-content-secondary">
-              {t('tiktok.payout')}
-              <span className="text-xl font-bold tabular-nums text-content">
-                {(payout / 100_000_000n).toString()} ILS
+          <div className="rounded-[1.35rem] bg-surface-sunken px-5 py-4">
+            <span className="text-xs font-medium text-content-secondary">{t('tiktok.rate')}</span>
+            <div className="mt-2 flex items-center gap-3">
+              <span className="flex h-10 shrink-0 items-center rounded-full bg-surface px-4 text-sm font-semibold text-content shadow-[var(--shadow-sm)] ring-1 ring-border-subtle">
+                ILS
               </span>
+              <input
+                type="text"
+                dir="ltr"
+                inputMode="decimal"
+                autoComplete="off"
+                data-zoom-safe=""
+                aria-label={t('tiktok.rate')}
+                value={rate}
+                placeholder="0.0000"
+                onFocus={(event) => event.currentTarget.select()}
+                onChange={(event) => setRate(decimal(event.target.value))}
+                className="min-w-0 flex-1 bg-transparent text-end text-2xl font-semibold tabular-nums text-content outline-none placeholder:text-content-tertiary"
+              />
+            </div>
+          </div>
+
+          <div className="rounded-[1.35rem] bg-primary-subtle px-5 py-6">
+            <span className="text-xs font-medium text-content-secondary">{t('tiktok.payout')}</span>
+            <p className="mt-3 text-end text-4xl font-bold tabular-nums tracking-tight text-primary-text ltr-content sm:text-5xl">
+              {formatFigure(payout)} <span className="text-lg font-semibold">ILS</span>
             </p>
-          )}
-        </div>
+          </div>
+        </section>
 
         <button
           type="submit"
