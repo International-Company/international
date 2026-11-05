@@ -14,7 +14,7 @@ import { formatFigure } from '@/modules/whatsapp/report-command';
 
 /**
  * Writing down a TikTok withdrawal: a photo, then where it goes and to whom, the
- * dollars withdrawn and the price they are handed over at in shekels. Nothing here
+ * USDT withdrawn and the price it is handed over at in shekels. Nothing here
  * touches a balance; the bot carries it to the group.
  */
 
@@ -252,13 +252,13 @@ export function TiktokView({
 
         </div>
 
-        {/* ============ The dollars, the price, the shekels ============ */}
+        {/* ============ The USDT, the price, the shekels ============ */}
         <section className="space-y-2 rounded-3xl bg-surface p-2 shadow-[var(--shadow-lg)] ring-1 ring-border-subtle">
           <div className="rounded-[1.35rem] bg-surface-sunken px-5 py-5">
             <span className="text-xs font-medium text-content-secondary">{t('tiktok.amount')}</span>
             <div className="mt-3 flex items-center gap-3">
-              <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary text-sm font-bold text-white">
-                $
+              <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-bold text-white">
+                ₮
               </span>
               <input
                 type="text"

@@ -12,7 +12,7 @@ import { rateText, tiktokPayout } from './tiktok-message';
 
 /**
  * TikTok withdrawals, written down: a photo, who it is for, how it is sent, the
- * dollars withdrawn and the shekels handed over for them.
+ * USDT withdrawn and the shekels handed over for them.
  *
  * Kept apart from the transactions because it moves no balance. The drawers and
  * the count know nothing of it, so a record here can never put them out.
@@ -61,7 +61,7 @@ export async function record(
 
   const row = await prisma.tiktokWithdrawal.create({
     data: {
-      currency: 'USD',
+      currency: 'USDT',
       amount: input.amount,
       rate: input.rate,
       payoutAmount,
@@ -75,7 +75,7 @@ export async function record(
     },
     select: { id: true },
   });
-  const figure = `${formatAmount({ currency: 'USD', amount: input.amount })} = ${formatAmount({ currency: 'ILS', amount: payoutAmount })}`;
+  const figure = `${formatAmount({ currency: 'USDT', amount: input.amount })} = ${formatAmount({ currency: 'ILS', amount: payoutAmount })}`;
   await audit.record({
     action: 'CREATE',
     module: 'tiktok',

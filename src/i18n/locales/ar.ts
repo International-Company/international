@@ -688,7 +688,7 @@ const ar: Dictionary = {
 
   tiktok: {
     title: 'تيكتوك',
-    subtitle: 'سحب تيكتوك بالدولار وتسليمه بالشيكل، بلا أثر على الصندوق.',
+    subtitle: 'سحب تيكتوك بـ USDT وتسليمه بالشيكل، بلا أثر على الصندوق.',
     photo: 'صورة العملية',
     takePhoto: 'تصوير',
     attachPhoto: 'إرفاق صورة',
@@ -696,8 +696,8 @@ const ar: Dictionary = {
     channel: 'طريقة التحويل',
     noChannels: 'لا توجد طرق تحويل. يضيفها المدير من إعدادات ماكينة التصريف.',
     account: 'رقم الحساب أو الجوال',
-    amount: 'كم دولار السحب؟',
-    rate: 'سعر الدولار',
+    amount: 'كم USDT السحب؟',
+    rate: 'سعر USDT',
     payout: 'المبلغ الذي يستلمه المستفيد',
     record: 'تسجيل السحب',
     recorded: 'تم تسجيل السحب',
@@ -2384,7 +2384,7 @@ const ar: Dictionary = {
     whatsappWelcomeEmpty: 'اكتب الرسالة الترحيبية أولاً',
     whatsappWelcomeFailed: 'وصلت الرسالة إلى {reached} من {total} مجموعات. تأكد أن الرقم مرتبط وعضو في المجموعات.',
     tiktokNameRequired: 'اكتب اسم المستفيد',
-    tiktokRateRequired: 'اكتب سعر الدولار',
+    tiktokRateRequired: 'اكتب سعر USDT',
     tiktokAccountRequired: 'اكتب رقم الحساب أو الجوال',
     countOwnTill: 'لا يمكنك جرد صندوقك بنفسك — الجرد يحتاج شخصاً ثانياً',
     tillOnShift: 'هذا التلر في وردية مفتوحة — يُجرد بالتسليم الذي يغلقها',

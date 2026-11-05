@@ -5,7 +5,7 @@ import { formatAmount } from '@/modules/whatsapp/report-command';
 
 export const TIKTOK_DEAL_TYPE = 'TIKTOK_WITHDRAWAL';
 
-/** What the dollars come to in shekels at this price, whole as the office hands it over. */
+/** What the USDT comes to in shekels at this price, whole as the office hands it over. */
 export function tiktokPayout(amount: bigint, rate: bigint): bigint {
   return wholeAmount((amount * rate) / 100_000_000n) * 100_000_000n;
 }
@@ -34,7 +34,7 @@ export function composeWithdrawal({
   return [account, channel, beneficiaryName.trim(), shekels(payoutAmount)].join('\n\n');
 }
 
-/** Says which one by whatever it holds: a record from before the shekels has only dollars. */
+/** Says which one by whatever it holds: a record from before the shekels has only its amount. */
 export function composeWithdrawalDeleted(
   {
     amount,
