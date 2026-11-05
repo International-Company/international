@@ -3,7 +3,9 @@ import assert from 'node:assert/strict';
 import {
   groupFor,
   groupPlan,
+  newlyLinked,
   parseRoutes,
+  parseWelcomed,
   withRoute,
 } from '../src/modules/whatsapp/group-routes.ts';
 
@@ -55,6 +57,18 @@ describe('which group hears of which deals', () => {
       EXCHANGE: { id: 'bank@g.us', name: 'البنك' },
       USDT: { id: 'coins@g.us', name: 'يواس' },
     });
+  });
+
+  it('welcomes only a group that just came into use and never had it', () => {
+    assert.deepEqual(newlyLinked(['a'], ['a', 'b'], []), ['b']);
+    assert.deepEqual(newlyLinked(['a'], ['a'], []), [], 'already in use before the message existed');
+    assert.deepEqual(newlyLinked(['a'], ['a', 'b'], ['b']), [], 'relinked: it has had it');
+    assert.deepEqual(newlyLinked(['a', 'b'], ['b'], []), [], 'a group leaving is told nothing');
+  });
+
+  it('reads the welcomed groups as stored', () => {
+    assert.deepEqual(parseWelcomed(''), []);
+    assert.deepEqual(parseWelcomed('a@g.us, b@g.us,'), ['a@g.us', 'b@g.us']);
   });
 
   it('names each group once, with all it hears', () => {

@@ -469,6 +469,16 @@ export const SETTINGS: SettingDefinition[] = [
     descriptionEn: 'Kept for display', descriptionAr: 'للعرض فقط',
   },
   {
+    key: 'whatsapp.welcomeMessage', category: 'whatsapp', type: 'string', defaultValue: '', hidden: true,
+    labelEn: 'WhatsApp welcome message', labelAr: 'الرسالة الترحيبية في الواتساب',
+    descriptionEn: 'Written on the WhatsApp panel', descriptionAr: 'تُكتب من لوحة الواتساب',
+  },
+  {
+    key: 'whatsapp.welcomedGroups', category: 'whatsapp', type: 'string', defaultValue: '', hidden: true,
+    labelEn: 'WhatsApp groups already welcomed', labelAr: 'مجموعات الواتساب التي وصلها الترحيب',
+    descriptionEn: 'Kept so that a group is welcomed once', descriptionAr: 'لتصل الرسالة إلى كل مجموعة مرة واحدة',
+  },
+  {
     key: 'whatsapp.groupRoutes', category: 'whatsapp', type: 'string', defaultValue: '', hidden: true,
     labelEn: 'WhatsApp groups by kind of deal', labelAr: 'مجموعات الواتساب حسب نوع العملية',
     descriptionEn: 'Chosen on the WhatsApp panel', descriptionAr: 'تُختار من لوحة الواتساب',

@@ -70,6 +70,19 @@ export function groupFor(type: string, routes: GroupRoutes, main: string): strin
   return (category && routes[category]?.id) || main;
 }
 
+/** The groups already welcomed, as they are stored: separated by commas. */
+export function parseWelcomed(raw: string): string[] {
+  return raw
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+}
+
+/** Groups that have just come into use and were never welcomed. */
+export function newlyLinked(before: string[], after: string[], welcomed: string[]): string[] {
+  return after.filter((id) => !before.includes(id) && !welcomed.includes(id));
+}
+
 /** Each group in use, with the words for what reaches it: what the test message says. */
 export function groupPlan(routes: GroupRoutes, main: string): { id: string; hears: string[] }[] {
   const plan = new Map<string, string[]>();

@@ -12,6 +12,7 @@ import {
 } from '@/modules/whatsapp/group-routes';
 import { Badge, Button } from '@/ui/primitives';
 import { ConfirmDialog, useToast } from '@/ui/overlay';
+import { Field, Textarea } from '@/ui/form';
 
 /**
  * The office's WhatsApp number: linked by scanning a QR from the phone, then
@@ -33,6 +34,7 @@ interface Link {
   groupId: string;
   groupName: string;
   routes: GroupRoutes;
+  welcomeMessage: string;
   enabled: boolean;
 }
 
@@ -52,6 +54,9 @@ export function WhatsappPanel({ canManage }: { canManage: boolean }) {
   /** The number's groups, once the manager opens the routes to change them. */
   const [routeGroups, setRouteGroups] = useState<Group[] | null>(null);
   const [confirmUnlink, setConfirmUnlink] = useState(false);
+  /** The welcome message being edited; null until the manager types. */
+  const [welcomeDraft, setWelcomeDraft] = useState<string | null>(null);
+  const [confirmWelcome, setConfirmWelcome] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -77,14 +82,17 @@ export function WhatsappPanel({ canManage }: { canManage: boolean }) {
         : t('errors.generic'),
     );
 
+  /** Whether it went through; a failure has already been said. */
   const act = async (body: Record<string, string>, done?: string) => {
     setBusy(body.action ?? null);
     try {
       await api.post('/api/admin/whatsapp', body);
       if (done) toast.success(done);
       await load();
+      return true;
     } catch (cause) {
       failure(cause);
+      return false;
     } finally {
       setBusy(null);
     }
@@ -340,10 +348,71 @@ export function WhatsappPanel({ canManage }: { canManage: boolean }) {
             })}
             <p className="text-xs text-content-tertiary">{t('whatsapp.routesHint')}</p>
           </div>
+
+          {/* --- What a group is told when it is linked ------------------------- */}
+          {canManage && (
+            <div className="space-y-2 border-t border-border-subtle pt-3">
+              <Field label={t('whatsapp.welcome')} hint={t('whatsapp.welcomeHint')}>
+                {(props) => (
+                  <Textarea
+                    {...props}
+                    rows={4}
+                    maxLength={2000}
+                    value={welcomeDraft ?? link.welcomeMessage}
+                    onChange={(event) => setWelcomeDraft(event.target.value)}
+                  />
+                )}
+              </Field>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  size="sm"
+                  loading={busy === 'welcome'}
+                  disabled={welcomeDraft === null || welcomeDraft.trim() === link.welcomeMessage}
+                  onClick={() =>
+                    void act(
+                      { action: 'welcome', message: welcomeDraft ?? '' },
+                      t('whatsapp.welcomeSaved'),
+                    ).then((saved) => {
+                      // A message that failed to save stays on screen to try again.
+                      if (saved) setWelcomeDraft(null);
+                    })
+                  }
+                >
+                  {t('common.save')}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  icon={<Send />}
+                  loading={busy === 'welcomeSend'}
+                  disabled={
+                    !link.welcomeMessage ||
+                    (welcomeDraft !== null && welcomeDraft.trim() !== link.welcomeMessage)
+                  }
+                  onClick={() => setConfirmWelcome(true)}
+                >
+                  {t('whatsapp.welcomeSendNow')}
+                </Button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
       <p className="text-xs text-content-tertiary">{t('whatsapp.advice')}</p>
+
+      <ConfirmDialog
+        open={confirmWelcome}
+        onClose={() => setConfirmWelcome(false)}
+        onConfirm={() => {
+          setConfirmWelcome(false);
+          void act({ action: 'welcomeSend' }, t('whatsapp.welcomeSent'));
+        }}
+        title={t('whatsapp.welcomeConfirmTitle')}
+        message={t('whatsapp.welcomeConfirmBody')}
+        confirmLabel={t('whatsapp.welcomeSendNow')}
+        cancelLabel={t('common.cancel')}
+      />
 
       <ConfirmDialog
         open={confirmUnlink}
