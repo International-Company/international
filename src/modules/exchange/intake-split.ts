@@ -33,3 +33,8 @@ export function paidBothWaysPayout(
     convert(shares.cash, rates.cash, decimals) + convert(shares.broker, rates.broker, decimals)
   );
 }
+
+/** What is left of what the customer handed over, once the deal has taken its share. */
+export function changeOf(handedOver: bigint, deal: bigint): bigint {
+  return handedOver > deal ? handedOver - deal : 0n;
+}

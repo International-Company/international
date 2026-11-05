@@ -28,7 +28,7 @@ import {
 } from 'lucide-react';
 import { useLocale } from '@/i18n/provider';
 import { normalizeDigits } from '@/core/money/money';
-import { intakeShares, paidBothWaysPayout } from '@/modules/exchange/intake-split';
+import { changeOf, intakeShares, paidBothWaysPayout } from '@/modules/exchange/intake-split';
 import { describeFailure, say } from '@/lib/failure';
 import { api, ApiError, queryString } from '@/lib/api-client';
 import { Button } from '@/ui/primitives';
@@ -235,6 +235,16 @@ export function MachineView({
   /** Some of the customer's money came through the bank; they take cash. */
   const viaBank = intakeVia !== 'CASH';
 
+  /*
+   * What the customer actually handed over, when it is more than the deal takes.
+   * The rest is counted back, or transferred to their wallet: then it is a top-up
+   * of its own, recorded with the deal.
+   */
+  const [handedOver, setHandedOver] = useState('');
+  const [changeToWallet, setChangeToWallet] = useState(false);
+  const [changeChannel, setChangeChannel] = useState(config.transferChannels[0] ?? '');
+  const [changeAccount, setChangeAccount] = useState('');
+
   // Clearing hands the caret back, so the next customer can be served without
   // reaching for the mouse first.
   const payRef = useRef<HTMLInputElement>(null);
@@ -245,6 +255,9 @@ export function MachineView({
   const canSeeSpread = permissions.includes('exchange.margin.view');
 
   const clearEntry = () => {
+    setHandedOver('');
+    setChangeToWallet(false);
+    setChangeAccount('');
     setAmount('');
     setQuote(null);
     setError(null);
@@ -576,6 +589,13 @@ export function MachineView({
   const intakeShareTooBig =
     bothWays && legs.from > 0n && scaleAmount(intakeShare) >= legs.from;
 
+  /** What is left over from what they handed over. Only for a customer paying in notes. */
+  const change = viaBank ? 0n : changeOf(scaleAmount(handedOver), legs.from);
+  const walletChange = changeToWallet && change > 0n;
+  /** They typed what they handed over, and it does not cover the deal. */
+  const handedOverShort =
+    !viaBank && legs.from > 0n && scaleAmount(handedOver) > 0n && scaleAmount(handedOver) < legs.from;
+
   /** The rate to show, and the margin, for the chosen way of paying. */
   const shownRate =
     pricedAs === 'BROKER'
@@ -641,7 +661,7 @@ export function MachineView({
    */
   // Paid by transfer is money through a bank too, on the way in.
   const throughBank =
-    viaBank || channel === 'BROKER' || (channel === 'SPLIT' && legs.broker > 0n);
+    viaBank || walletChange || channel === 'BROKER' || (channel === 'SPLIT' && legs.broker > 0n);
   const named = Boolean(customer) || counterpartyName.trim().length > 0;
   const reachable = Boolean(customer?.phone?.trim()) || counterpartyPhone.trim().length > 0;
   const needsContact = throughBank && (!named || !reachable);
@@ -659,13 +679,21 @@ export function MachineView({
     quote.overLimit ||
     shortLeg !== null ||
     (quote.requiresCustomer && !customer) ||
-    needsContact;
+    needsContact ||
+    handedOverShort ||
+    (changeToWallet && change <= 0n) ||
+    (walletChange && (!changeChannel || !changeAccount.trim()));
 
   const submit = async () => {
     if (!quote || blocked) return;
     setPosting(true);
     try {
-      const result = await api.post<{ id: string; reference: string; status: string }>(
+      const result = await api.post<{
+        id: string;
+        reference: string;
+        status: string;
+        change?: { reference: string; amount: string; currency: string };
+      }>(
         '/api/exchange/machine',
         {
           from,
@@ -696,14 +724,32 @@ export function MachineView({
           customerId: customer?.id ?? null,
           counterpartyName: counterpartyName.trim() || null,
           counterpartyPhone: counterpartyPhone.trim() || null,
+          changeToWallet: walletChange
+            ? {
+                handedOver: unscale(scaleAmount(handedOver)),
+                channel: changeChannel,
+                account: changeAccount.trim(),
+              }
+            : null,
         },
       );
 
-      toast.success(t('machine.recorded'), result.reference);
+      toast.success(
+        t('machine.recorded'),
+        result.change
+          ? `${result.reference} — ${t('machine.changeRecorded', {
+              amount: `${result.change.amount.replace(/\.00$/, '')} ${result.change.currency}`,
+              reference: result.change.reference,
+            })}`
+          : result.reference,
+      );
       printAfterRecording(result.id, permissions);
       setDone(result);
       setAmount('');
       setQuote(null);
+      setHandedOver('');
+      setChangeToWallet(false);
+      setChangeAccount('');
       setCounterpartyName('');
       setCounterpartyPhone('');
       setCustomer(null);
@@ -1289,6 +1335,96 @@ export function MachineView({
               )}
             </div>
             </>
+            )}
+
+            {/* --- What they handed over, and what is left ------------------ */}
+            {!viaBank && legs.from > 0n && (
+              <div className="rounded-2xl bg-surface p-3 ring-1 ring-border-subtle">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="min-w-0 text-xs font-medium text-content-secondary">
+                    {t('machine.handedOver')} ({from})
+                  </span>
+                  <input
+                    type="text"
+                    dir="ltr"
+                    inputMode="decimal"
+                    autoComplete="off"
+                    data-zoom-safe=""
+                    aria-label={t('machine.handedOver')}
+                    value={handedOver}
+                    placeholder={t('common.optional')}
+                    onChange={(event) => {
+                      setDone(null);
+                      setHandedOver(sanitiseAmount(event.target.value, fromCurrency?.decimals ?? 2));
+                    }}
+                    className="h-11 w-32 shrink-0 rounded-xl bg-surface-sunken px-3 text-end text-lg font-semibold tabular-nums text-content outline-none ring-1 ring-transparent placeholder:text-sm placeholder:font-normal placeholder:text-content-tertiary focus:ring-primary"
+                  />
+                </div>
+
+                {handedOverShort && (
+                  <p role="alert" className="mt-2 text-xs text-danger-text">
+                    {t('machine.handedOverShort', {
+                      needed: `${formatScaled(legs.from.toString(), fromCurrency?.decimals ?? 2)} ${from}`,
+                    })}
+                  </p>
+                )}
+
+                {change > 0n && (
+                  <div className="mt-3 space-y-3 border-t border-border-subtle pt-3">
+                    <p className="flex items-center justify-between gap-3 text-sm text-content-secondary">
+                      {t('machine.changeDue')}
+                      <span className="text-xl font-bold tabular-nums text-primary-text ltr-content">
+                        {formatScaled(change.toString(), fromCurrency?.decimals ?? 2)} {from}
+                      </span>
+                    </p>
+                    <label className="flex cursor-pointer items-center gap-2 text-sm font-medium text-content">
+                      <input
+                        type="checkbox"
+                        checked={changeToWallet}
+                        disabled={config.transferChannels.length === 0}
+                        onChange={(event) => setChangeToWallet(event.target.checked)}
+                        className="size-4"
+                      />
+                      {t('machine.changeToWallet')}
+                    </label>
+                    {changeToWallet && (
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <label className="block">
+                          <span className="text-xs text-content-tertiary">
+                            {t('machine.transferTo')}
+                          </span>
+                          <select
+                            value={changeChannel}
+                            onChange={(event) => setChangeChannel(event.target.value)}
+                            className="mt-1 h-12 w-full rounded-xl bg-surface-sunken px-3 text-base font-medium text-content outline-none ring-1 ring-transparent focus:ring-primary"
+                          >
+                            {config.transferChannels.map((entry) => (
+                              <option key={entry} value={entry}>
+                                {entry}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <label className="block">
+                          <span className="text-xs text-content-tertiary">
+                            {t('machine.changeAccount')}
+                          </span>
+                          <input
+                            type="text"
+                            dir="ltr"
+                            inputMode="tel"
+                            autoComplete="off"
+                            maxLength={60}
+                            value={changeAccount}
+                            onChange={(event) => setChangeAccount(event.target.value)}
+                            className="mt-1 h-12 w-full rounded-xl bg-surface-sunken px-3 text-base font-semibold tabular-nums text-content outline-none ring-1 ring-transparent focus:ring-primary"
+                          />
+                        </label>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
             )}
 
             {/* --- Anything standing in the way --------------------------- */}

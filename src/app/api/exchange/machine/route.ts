@@ -3,6 +3,7 @@ import { route } from '@/core/http/route';
 import { errors } from '@/core/errors/app-error';
 import { parseMoney } from '@/core/money/money';
 import * as machine from '@/modules/exchange/machine.service';
+import { recordExchangeWithChange } from '@/modules/exchange/wallet-ops.service';
 
 const querySchema = z.object({
   from: z.string().min(2).max(8),
@@ -96,6 +97,14 @@ const bodySchema = z.object({
   counterpartyName: z.string().max(200).nullish(),
   counterpartyPhone: z.string().max(40).nullish(),
   notes: z.string().max(1000).nullish(),
+  /** They handed over more than the deal takes, and the rest goes to their wallet. */
+  changeToWallet: z
+    .object({
+      handedOver: z.string(),
+      channel: z.string().min(1).max(80),
+      account: z.string().min(1).max(60),
+    })
+    .nullish(),
 });
 
 /** Prices and posts in one press. */
@@ -105,26 +114,31 @@ export const POST = route<z.infer<typeof bodySchema>>({
   handler: async ({ body, actor }) => {
     if (!actor.branchId) throw errors.precondition('No branch is assigned', 'errors.noBranch');
 
-    return machine.record(
-      {
-        fromCurrency: body.from.toUpperCase(),
-        toCurrency: body.to.toUpperCase(),
-        mode: body.mode,
-        fromAmount: body.pay !== undefined ? parseMoney(body.pay) : undefined,
-        toAmount: body.receive !== undefined ? parseMoney(body.receive) : undefined,
-        brokerPayout: body.brokerPayout !== undefined ? parseMoney(body.brokerPayout) : undefined,
-        payoutChannel: body.payoutChannel ?? null,
-        intakeChannel: body.intakeChannel ?? null,
-        intakeTransfer:
-          body.intakeTransfer !== undefined ? parseMoney(body.intakeTransfer) : undefined,
-        priceExceptionId: body.priceExceptionId ?? null,
-        branchId: actor.branchId,
-        customerId: body.customerId ?? null,
-        counterpartyName: body.counterpartyName ?? null,
-        counterpartyPhone: body.counterpartyPhone ?? null,
-        notes: body.notes ?? null,
-      },
-      actor,
-    );
+    const input = {
+      fromCurrency: body.from.toUpperCase(),
+      toCurrency: body.to.toUpperCase(),
+      mode: body.mode,
+      fromAmount: body.pay !== undefined ? parseMoney(body.pay) : undefined,
+      toAmount: body.receive !== undefined ? parseMoney(body.receive) : undefined,
+      brokerPayout: body.brokerPayout !== undefined ? parseMoney(body.brokerPayout) : undefined,
+      payoutChannel: body.payoutChannel ?? null,
+      intakeChannel: body.intakeChannel ?? null,
+      intakeTransfer:
+        body.intakeTransfer !== undefined ? parseMoney(body.intakeTransfer) : undefined,
+      priceExceptionId: body.priceExceptionId ?? null,
+      branchId: actor.branchId,
+      customerId: body.customerId ?? null,
+      counterpartyName: body.counterpartyName ?? null,
+      counterpartyPhone: body.counterpartyPhone ?? null,
+      notes: body.notes ?? null,
+    };
+
+    return body.changeToWallet
+      ? recordExchangeWithChange(
+          input,
+          { ...body.changeToWallet, handedOver: parseMoney(body.changeToWallet.handedOver) },
+          actor,
+        )
+      : machine.record(input, actor);
   },
 });

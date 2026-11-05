@@ -1,5 +1,5 @@
 import 'server-only';
-import { prisma, type DbClient } from '@/core/db/prisma';
+import { prisma, withTransaction, type DbClient } from '@/core/db/prisma';
 import { errors } from '@/core/errors/app-error';
 import { MONEY_FACTOR, toDecimalString } from '@/core/money/money';
 import * as settings from '@/modules/settings/settings.service';
@@ -7,7 +7,8 @@ import * as drawers from '@/modules/drawers/drawer.service';
 import { cashOwnerFor } from '@/modules/treasury/shift.service';
 import { ceilingFor } from '@/modules/users/counter-limit';
 import * as transactions from './transaction.service';
-import { transferChannels } from './machine.service';
+import { changeOf } from './intake-split';
+import { record as recordMachineDeal, transferChannels, type MachineRecordInput } from './machine.service';
 import type { Actor } from './transaction.service';
 
 /**
@@ -184,4 +185,55 @@ export async function recordWalletOp(input: WalletOpInput, actor: Actor, db: DbC
     actor,
     db,
   );
+}
+
+/**
+ * An exchange whose change goes to the customer's wallet: they hand over 400, the
+ * deal takes 310, and the 90 left is transferred rather than counted back.
+ *
+ * Two deals, because that is what happened: a sale, and a top-up the bank has to
+ * carry out. Written together, so neither stands without the other. The change is
+ * worked out from what the deal really took, not from what the screen last showed.
+ */
+export async function recordExchangeWithChange(
+  input: MachineRecordInput,
+  change: { handedOver: bigint; channel: string; account: string },
+  actor: Actor,
+  db: DbClient = prisma,
+) {
+  return withTransaction(async (tx) => {
+    const deal = await recordMachineDeal(input, actor, tx);
+    const { fromAmount, fromCurrency } = await tx.transaction.findUniqueOrThrow({
+      where: { id: deal.id },
+      select: { fromAmount: true, fromCurrency: true },
+    });
+    const amount = changeOf(change.handedOver, fromAmount);
+    if (amount <= 0n) {
+      throw errors.precondition(
+        'They handed over no more than the deal takes',
+        'errors.changeTooLow',
+        { needed: toDecimalString(fromAmount, 2), currency: fromCurrency },
+      );
+    }
+    const topUp = await recordWalletOp(
+      {
+        op: 'TOPUP',
+        currency: fromCurrency,
+        amount,
+        fee: 0n,
+        channel: change.channel,
+        account: change.account,
+        branchId: input.branchId,
+        customerId: input.customerId,
+        counterpartyName: input.counterpartyName,
+        counterpartyPhone: input.counterpartyPhone,
+      },
+      actor,
+      tx,
+    );
+    return {
+      ...deal,
+      change: { reference: topUp.reference, amount: toDecimalString(amount, 2), currency: fromCurrency },
+    };
+  }, db);
 }
