@@ -12,7 +12,8 @@ const bodySchema = z.object({
 
 /** A photo attached after the remittance was recorded. */
 export const POST = route<z.infer<typeof bodySchema>, unknown, z.infer<typeof paramsSchema>>({
-  permissions: ['exchange.remittance.use'],
+  // The service asks for what the deal's own kind needs.
+  permissions: ['exchange.transaction.view'],
   paramsSchema,
   bodySchema,
   handler: async ({ params, body, actor }) => addProof(params.id, body.image, actor, body.kind),

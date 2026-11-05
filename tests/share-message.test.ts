@@ -223,7 +223,7 @@ describe('a USDT sale', () => {
       '0599000000',
       'خالد',
       '500 USDT',
-      'السعر: 3.7',
+      'سعر السحب: 3.7',
       '1850 شيكل',
       'نقدي',
     ]);
@@ -234,6 +234,11 @@ describe('a USDT sale', () => {
     const said = lines((await shareable('t1', 'ar', db)).text);
     assert.equal(said.at(-1), 'بنك فلسطين');
     assert.doesNotMatch(said.join(' '), /نقدي/);
+  });
+
+  it('ends with the address when it came as text', async () => {
+    const { db } = fakeDb([sale({ payoutAddress: 'TXabc123' })]);
+    assert.equal(lines((await shareable('t1', 'ar', db)).text).at(-1), 'TXabc123');
   });
 
   it('leaves out a name and number nobody gave', async () => {

@@ -185,6 +185,7 @@ export interface DealPhoto {
 const PHOTO_WORDS: Record<string, string> = {
   PAYMENT: 'دليل الدفع',
   BENEFICIARY: 'بيانات المستفيد',
+  ADDRESS: 'عنوان التحويل',
 };
 
 export interface AnnounceDeps {

@@ -180,9 +180,10 @@ function composeLines(
       phone,
       who,
       `${toDecimalString(transaction.toAmount, 2).replace(/\.00$/, '')} ${unit}`,
-      `${locale === 'ar' ? 'السعر' : 'Price'}: ${price}`,
+      `${locale === 'ar' ? 'سعر السحب' : 'Price'}: ${price}`,
       `${wholeAmount(transaction.fromAmount)} ${payUnit}`,
       transaction.intakeBankChannel || (locale === 'ar' ? 'نقدي' : 'Cash'),
+      transaction.payoutAddress,
     ].filter((line): line is string => Boolean(line?.trim()));
   }
 

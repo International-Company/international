@@ -132,14 +132,15 @@ export function TransactionDetail({
     others.length > 0;
 
   const [addingProof, setAddingProof] = useState(false);
+  const isSale = transaction.type === 'USDT_SALE';
   const canAddProof =
-    transaction.type === 'REMITTANCE_OUT' &&
+    (transaction.type === 'REMITTANCE_OUT' || isSale) &&
     transaction.status !== 'REVERSED' &&
     !transaction.reversalOf &&
-    permissions.includes('exchange.remittance.use') &&
+    permissions.includes(isSale ? 'usdt.withdrawal.use' : 'exchange.remittance.use') &&
     proofs.length < 5;
 
-  const addProof = async (file: File | undefined, kind: 'PAYMENT' | 'BENEFICIARY') => {
+  const addProof = async (file: File | undefined, kind: 'PAYMENT' | 'BENEFICIARY' | 'ADDRESS') => {
     if (!file) return;
     setAddingProof(true);
     try {
@@ -505,11 +506,15 @@ export function TransactionDetail({
 
           {/* --- The photos a remittance carries ------------------------- */}
           {(proofs.length > 0 || canAddProof) &&
-            (
-              [
-                ['PAYMENT', t('remittance.proof'), t('remittance.proofAttach')],
-                ['BENEFICIARY', t('remittance.beneficiaryDetails'), t('remittance.beneficiaryAttach')],
-              ] as const
+            (isSale
+              ? ([
+                  ['PAYMENT', t('usdtSale.transferPhoto'), t('usdtSale.transferPhotoAttach')],
+                  ['ADDRESS', t('usdtSale.addressPhoto'), t('usdtSale.addressPhotoAttach')],
+                ] as const)
+              : ([
+                  ['PAYMENT', t('remittance.proof'), t('remittance.proofAttach')],
+                  ['BENEFICIARY', t('remittance.beneficiaryDetails'), t('remittance.beneficiaryAttach')],
+                ] as const)
             ).map(([kind, title, attach]) => {
               const own = proofs.filter((proof) => proof.kind === kind);
               if (own.length === 0 && !canAddProof) return null;

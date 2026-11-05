@@ -16,6 +16,10 @@ const bodySchema = z.object({
   counterpartyName: z.string().max(200).nullish(),
   counterpartyPhone: z.string().max(40).nullish(),
   notes: z.string().max(1000).nullish(),
+  /** Photos shrunk by the screen, as base64. The service checks what they are. */
+  transferPhoto: z.string().max(6_000_000).nullish(),
+  addressPhoto: z.string().max(6_000_000).nullish(),
+  address: z.string().max(300).nullish(),
 });
 
 /** A USDT sale the teller made and sent himself — recorded, nothing sent. */
@@ -37,6 +41,9 @@ export const POST = route<z.infer<typeof bodySchema>>({
         counterpartyName: body.counterpartyName ?? null,
         counterpartyPhone: body.counterpartyPhone ?? null,
         notes: body.notes ?? null,
+        transferPhoto: body.transferPhoto ?? null,
+        addressPhoto: body.addressPhoto ?? null,
+        address: body.address ?? null,
       },
       actor,
     );

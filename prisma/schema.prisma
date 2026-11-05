@@ -2202,8 +2202,8 @@ model TiktokWithdrawal {
   @@map("tiktok_withdrawals")
 }
 
-/// A photo a remittance carries: PAYMENT, of what the customer paid, or BENEFICIARY,
-/// of who it is for. In the database rather than on disk, because the server's disk
+/// A photo a deal carries: PAYMENT, of what the customer paid, BENEFICIARY, of who a
+/// remittance is for, or ADDRESS, of where a sale's coins go. In the database rather than on disk, because the server's disk
 /// does not survive a deploy.
 model TransactionProof {
   id            String      @id @default(cuid())

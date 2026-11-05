@@ -11,8 +11,9 @@ import { Button } from '@/ui/primitives';
 import { ShareButton } from '@/ui/share';
 import { AutoPrintToggle, printAfterRecording } from '@/ui/auto-print';
 import { useToast } from '@/ui/overlay';
-import { Field, Input } from '@/ui/form';
+import { Field, Input, Textarea } from '@/ui/form';
 import { CustomerPicker, type CustomerHit } from '@/ui/customer-picker';
+import { PhotoField } from '@/ui/photo-field';
 import { cn } from '@/ui/utils';
 
 /**
@@ -66,6 +67,10 @@ export function SaleView({
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [notes, setNotes] = useState('');
+  /** The customer's transfer to the office, shrunk and ready to send. */
+  const [transferPhoto, setTransferPhoto] = useState<string | null>(null);
+  const [addressPhoto, setAddressPhoto] = useState<string | null>(null);
+  const [address, setAddress] = useState('');
   const [posting, setPosting] = useState(false);
   const [done, setDone] = useState<{ id: string; reference: string } | null>(null);
   const [recent, setRecent] = useState<RecentSale[]>([]);
@@ -111,6 +116,9 @@ export function SaleView({
     setName('');
     setPhone('');
     setNotes('');
+    setTransferPhoto(null);
+    setAddressPhoto(null);
+    setAddress('');
   };
 
   const reset = () => {
@@ -133,6 +141,9 @@ export function SaleView({
         counterpartyName: customer ? null : name.trim() || null,
         counterpartyPhone: phone.trim() || null,
         notes: notes.trim() || null,
+        transferPhoto,
+        addressPhoto,
+        address: address.trim() || null,
       });
       toast.success(t('usdtSale.recorded'), result.reference);
       printAfterRecording(result.id, permissions);
@@ -322,6 +333,38 @@ export function SaleView({
             )}
           </Field>
         </div>
+      </div>
+
+      {/* ============ The customer's transfer, and where the coins go ============ */}
+      <div className="grid gap-3 sm:grid-cols-2">
+        <PhotoField
+          label={t('usdtSale.transferPhoto')}
+          attach={t('usdtSale.transferPhotoAttach')}
+          value={transferPhoto}
+          onChange={setTransferPhoto}
+        />
+        <PhotoField
+          label={t('usdtSale.addressPhoto')}
+          attach={t('usdtSale.addressPhotoAttach')}
+          value={addressPhoto}
+          onChange={setAddressPhoto}
+        />
+      </div>
+      <div className="rounded-2xl bg-surface p-4 ring-1 ring-border-subtle">
+        <Field label={t('usdtSale.addressText')} hint={t('usdtSale.addressTextHint')}>
+          {(props) => (
+            <Textarea
+              {...props}
+              rows={2}
+              dir="ltr"
+              maxLength={300}
+              spellCheck={false}
+              autoComplete="off"
+              value={address}
+              onChange={(event) => setAddress(event.target.value)}
+            />
+          )}
+        </Field>
       </div>
 
       {done && (

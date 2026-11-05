@@ -277,6 +277,18 @@ function readProof_(base64: string) {
   return image;
 }
 
+/** Which deals take which photos afterwards, and who may add them. */
+const PHOTOS_BY_TYPE: Record<string, { kinds: ProofKind[]; permission: string }> = {
+  REMITTANCE_OUT: { kinds: ['PAYMENT', 'BENEFICIARY'], permission: 'exchange.remittance.use' },
+  USDT_SALE: { kinds: ['PAYMENT', 'ADDRESS'], permission: 'usdt.withdrawal.use' },
+};
+
+const PHOTO_SUMMARIES: Record<ProofKind, { en: string; ar: string }> = {
+  PAYMENT: { en: 'payment', ar: 'دليل الدفع' },
+  BENEFICIARY: { en: 'beneficiary', ar: 'بيانات المستفيد' },
+  ADDRESS: { en: 'address', ar: 'عنوان التحويل' },
+};
+
 /**
  * A photo added once the remittance is already recorded: the customer's proof
  * often arrives after they have paid. Only for someone who can read the deal.
@@ -288,12 +300,14 @@ export async function addProof(
   kind: ProofKind = 'PAYMENT',
 ) {
   const deal = await transactions.getById(transactionId, actor);
-  if (deal.type !== 'REMITTANCE_OUT' || deal.status === 'REVERSED') {
+  const takes = PHOTOS_BY_TYPE[deal.type];
+  if (!takes || !takes.kinds.includes(kind) || deal.status === 'REVERSED') {
     throw errors.precondition(
-      'Only an outgoing remittance that stands takes a photo',
+      'Only an outgoing remittance or a USDT sale that stands takes a photo',
       'errors.proofNotHere',
     );
   }
+  if (!actor.permissions.includes(takes.permission)) throw errors.forbidden(takes.permission);
   const image = readProof_(base64);
   const held = await prisma.transactionProof.count({ where: { transactionId } });
   if (held >= MAX_PROOFS) {
@@ -317,8 +331,8 @@ export async function addProof(
     module: 'exchange',
     entityType: 'Transaction',
     entityId: transactionId,
-    summaryEn: `Attached a ${kind === 'PAYMENT' ? 'payment' : 'beneficiary'} photo to ${deal.reference}`,
-    summaryAr: `إرفاق صورة ${kind === 'PAYMENT' ? 'دليل الدفع' : 'بيانات المستفيد'} بالعملية ${deal.reference}`,
+    summaryEn: `Attached a ${PHOTO_SUMMARIES[kind].en} photo to ${deal.reference}`,
+    summaryAr: `إرفاق صورة ${PHOTO_SUMMARIES[kind].ar} بالعملية ${deal.reference}`,
     actor,
   });
   emitAsync('transaction.proofAdded', { transactionId, proofId: proof.id });

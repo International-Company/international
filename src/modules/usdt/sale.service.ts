@@ -1,8 +1,9 @@
 import 'server-only';
-import { prisma, type DbClient } from '@/core/db/prisma';
+import { prisma, withTransaction, type DbClient } from '@/core/db/prisma';
 import { errors } from '@/core/errors/app-error';
 import { divideRounded, MONEY_FACTOR } from '@/core/money/money';
 import { transferChannels } from '@/modules/exchange/machine.service';
+import { readProofImage } from '@/modules/exchange/proof-image';
 import * as transactions from '@/modules/exchange/transaction.service';
 import type { Actor } from '@/modules/exchange/transaction.service';
 
@@ -36,6 +37,12 @@ export interface SaleInput {
   counterpartyName?: string | null;
   counterpartyPhone?: string | null;
   notes?: string | null;
+  /** A photo of the customer's transfer to the office, as base64. */
+  transferPhoto?: string | null;
+  /** A photo of the address the coins go to, as base64. */
+  addressPhoto?: string | null;
+  /** The address, when it came as text. */
+  address?: string | null;
 }
 
 /** What the customer pays: the coins at the price, at the currency's precision. */
@@ -83,25 +90,56 @@ export async function recordSale(input: SaleInput, actor: Actor, db: DbClient = 
     }
   }
 
-  return transactions.record(
-    {
-      type: 'USDT_SALE',
-      branchId: input.branchId,
-      customerId: input.customerId ?? null,
-      fromCurrency: currency.code,
-      fromAmount: payTotal,
-      toCurrency: 'USDT',
-      toAmount: input.usdtAmount,
-      intake:
-        input.mode === 'BROKER' ? { cash: 0n, broker: payTotal } : { cash: payTotal, broker: 0n },
-      intakeChannel: account,
-      // 1 unit of what was paid = this many coins, as every row reads its rate.
-      rate: divideRounded(input.usdtAmount * MONEY_FACTOR, payTotal),
-      counterpartyName: input.counterpartyName?.trim() || null,
-      counterpartyPhone: input.counterpartyPhone?.trim() || null,
-      notes: input.notes?.trim() || null,
-    },
-    actor,
-    db,
-  );
+  // Read before anything is written: a bad photo records no sale.
+  const photos = [
+    { kind: 'PAYMENT', base64: input.transferPhoto },
+    { kind: 'ADDRESS', base64: input.addressPhoto },
+  ].flatMap(({ kind, base64 }) => {
+    if (!base64) return [];
+    const image = readProofImage(base64);
+    if (typeof image === 'string') throw errors.precondition('That photo cannot be kept', image);
+    return [{ kind, image }];
+  });
+
+  /*
+   * One transaction, so the sale and its photos are visible together: the bot is
+   * told as the sale is written and waits for it to commit before reading either.
+   */
+  return withTransaction(async (tx) => {
+    const posted = await transactions.record(
+      {
+        type: 'USDT_SALE',
+        branchId: input.branchId,
+        customerId: input.customerId ?? null,
+        fromCurrency: currency.code,
+        fromAmount: payTotal,
+        toCurrency: 'USDT',
+        toAmount: input.usdtAmount,
+        intake:
+          input.mode === 'BROKER' ? { cash: 0n, broker: payTotal } : { cash: payTotal, broker: 0n },
+        intakeChannel: account,
+        // 1 unit of what was paid = this many coins, as every row reads its rate.
+        rate: divideRounded(input.usdtAmount * MONEY_FACTOR, payTotal),
+        counterpartyName: input.counterpartyName?.trim() || null,
+        counterpartyPhone: input.counterpartyPhone?.trim() || null,
+        notes: input.notes?.trim() || null,
+        payoutAddress: input.address?.trim() || null,
+      },
+      actor,
+      tx,
+    );
+    for (const { kind, image } of photos) {
+      await tx.transactionProof.create({
+        data: {
+          transactionId: posted.id,
+          kind,
+          mimeType: image.mimeType,
+          size: image.bytes.length,
+          data: new Uint8Array(image.bytes),
+          createdById: actor.id,
+        },
+      });
+    }
+    return posted;
+  }, db);
 }
