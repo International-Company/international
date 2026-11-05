@@ -127,6 +127,70 @@ describe('announcing a deal to the group', () => {
     assert.equal(await announceDeal('t1', deps), 'SENT');
   });
 
+  describe('a remittance sent', () => {
+    const both = [
+      { data: new Uint8Array(1), mimeType: 'image/jpeg', kind: 'PAYMENT' },
+      { data: new Uint8Array(1), mimeType: 'image/jpeg', kind: 'BENEFICIARY' },
+    ];
+    const camera = (failOn?: string) => {
+      const shots: { kind: string; caption: string; quotedId: string | null }[] = [];
+      return {
+        shots,
+        sendPhoto: async (_jid: string, photo: { kind: string }, caption: string, quoted?: { key?: { id?: string | null } }) => {
+          if (photo.kind === failOn) throw new Error('upload failed');
+          shots.push({ kind: photo.kind, caption, quotedId: quoted?.key?.id ?? null });
+          return { key: { id: `shot-${shots.length}` } } as never;
+        },
+      };
+    };
+
+    it('is the proof bare, then the beneficiary in reply carrying the words, and no label', async () => {
+      const { shots, sendPhoto } = camera();
+      const { deps, sent } = harness({ type: 'REMITTANCE_OUT', photos: async () => both, sendPhoto });
+      assert.equal(await announceDeal('t1', deps), 'SENT');
+      assert.deepEqual(shots, [
+        { kind: 'PAYMENT', caption: '', quotedId: null },
+        { kind: 'BENEFICIARY', caption: TEXT, quotedId: 'shot-1' },
+      ]);
+      assert.equal(sent.length, 0, 'no «حوالة صادرة»');
+    });
+
+    it('puts the words on the only photo there is', async () => {
+      const { shots, sendPhoto } = camera();
+      const { deps, sent } = harness({
+        type: 'REMITTANCE_OUT',
+        photos: async () => [both[1]!],
+        sendPhoto,
+      });
+      assert.equal(await announceDeal('t1', deps), 'SENT');
+      assert.equal(shots[0]?.caption, TEXT);
+      assert.equal(sent.length, 0);
+    });
+
+    it('goes as words alone with no photo, and no label', async () => {
+      const { deps, sent } = harness({ type: 'REMITTANCE_OUT' });
+      assert.equal(await announceDeal('t1', deps), 'SENT');
+      assert.deepEqual(sent, [{ jid: GROUP, text: TEXT, quotedId: null }]);
+    });
+
+    it('never loses the words when the photo carrying them fails', async () => {
+      const { shots, sendPhoto } = camera('BENEFICIARY');
+      const { deps, sent } = harness({ type: 'REMITTANCE_OUT', photos: async () => both, sendPhoto });
+      assert.equal(await announceDeal('t1', deps), 'SENT');
+      assert.equal(shots[0]?.caption, '');
+      assert.deepEqual(sent, [{ jid: GROUP, text: TEXT, quotedId: 'shot-1' }]);
+    });
+
+    it('says them once when the first photo fails', async () => {
+      const { shots, sendPhoto } = camera('PAYMENT');
+      const { deps, sent } = harness({ type: 'REMITTANCE_OUT', photos: async () => both, sendPhoto });
+      assert.equal(await announceDeal('t1', deps), 'SENT');
+      assert.equal(sent.length, 1);
+      assert.equal(sent[0]?.text, TEXT);
+      assert.equal(shots[0]?.caption, 'بيانات المستفيد');
+    });
+  });
+
   it('asks for the group of the deal’s own type', async () => {
     const asked: string[] = [];
     const { deps } = harness({

@@ -111,6 +111,9 @@ export function RemittanceView({
   /** How the customer pays: notes across the counter, or a transfer to an office account. */
   const [paidVia, setPaidVia] = useState<'CASH' | 'TRANSFER'>('CASH');
   const [intakeChannel, setIntakeChannel] = useState(config.transferChannels[0] ?? '');
+  /** What reaches the beneficiary, and the word for its money. For showing only. */
+  const [delivered, setDelivered] = useState('');
+  const [deliveredUnit, setDeliveredUnit] = useState('جنيه');
   /** A photo of what the customer paid, shrunk and ready to send. */
   const [proof, setProof] = useState<string | null>(null);
   /** A photo of who the remittance is for. */
@@ -164,6 +167,7 @@ export function RemittanceView({
     setGross('');
     setNet('');
     setSum('');
+    setDelivered('');
     setProof(null);
     setBeneficiaryPhoto(null);
     setPaidVia('CASH');
@@ -200,6 +204,8 @@ export function RemittanceView({
         destination,
         gross: unscale(grossValue),
         net: netValue > 0n ? unscale(netValue) : null,
+        delivered: outgoing && delivered ? delivered : null,
+        deliveredUnit: outgoing && delivered ? deliveredUnit.trim() : null,
         counterpartyName: counterpartyName.trim() || null,
         counterpartyPhone: counterpartyPhone.trim() || null,
         notes: notes.trim() || null,
@@ -214,6 +220,7 @@ export function RemittanceView({
       setGross('');
       setNet('');
       setSum('');
+      setDelivered('');
       setProof(null);
       setBeneficiaryPhoto(null);
       setPaidVia('CASH');
@@ -393,8 +400,8 @@ export function RemittanceView({
       {/* ============ The two figures ============ */}
       <section className="space-y-2 rounded-3xl bg-surface p-2 shadow-[var(--shadow-lg)] ring-1 ring-border-subtle">
         <AmountRow
-          label={outgoing ? t('remittance.sentAmount') : t('remittance.correspondentCredits')}
-          hint={outgoing ? t('remittance.sentAmountHint') : t('remittance.correspondentCreditsHint')}
+          label={outgoing ? t('remittance.customerPays') : t('remittance.correspondentCredits')}
+          hint={outgoing ? t('remittance.customerPaysHint') : t('remittance.correspondentCreditsHint')}
           code={currency}
           decimals={decimals}
           value={gross}
@@ -420,6 +427,48 @@ export function RemittanceView({
           }}
         />
       </section>
+
+      {/* ============ What reaches them, in what it reaches them in ============ */}
+      {outgoing && (
+        <div className="rounded-2xl bg-surface p-4 ring-1 ring-border-subtle">
+          <span className="text-xs font-medium text-content-secondary">
+            {t('remittance.delivered')}
+          </span>
+          <p className="text-[0.6875rem] text-content-tertiary">{t('remittance.deliveredHint')}</p>
+          <div className="mt-2 flex items-center gap-3">
+            <input
+              aria-label={t('remittance.deliveredUnit')}
+              list="remittance-units"
+              maxLength={20}
+              autoComplete="off"
+              value={deliveredUnit}
+              onChange={(event) => setDeliveredUnit(event.target.value)}
+              className="h-11 w-24 shrink-0 rounded-xl bg-surface-sunken px-3 text-center text-sm font-semibold text-content outline-none ring-1 ring-transparent focus:ring-primary"
+            />
+            <datalist id="remittance-units">
+              {['جنيه', 'دولار', 'دينار', 'شيكل', 'ليرة', 'درهم', 'ريال'].map((unit) => (
+                <option key={unit} value={unit} />
+              ))}
+            </datalist>
+            <input
+              type="text"
+              dir="ltr"
+              inputMode="decimal"
+              autoComplete="off"
+              data-zoom-safe=""
+              aria-label={t('remittance.delivered')}
+              value={delivered}
+              placeholder="0"
+              onFocus={(event) => event.currentTarget.select()}
+              onChange={(event) => {
+                setDone(null);
+                setDelivered(sanitiseAmount(event.target.value, 2));
+              }}
+              className="min-w-0 flex-1 bg-transparent text-end text-2xl font-semibold tabular-nums tracking-tight text-content outline-none placeholder:text-content-tertiary sm:text-3xl"
+            />
+          </div>
+        </div>
+      )}
 
       {/* The earning, as a consequence of the two figures above it. */}
       {canSeeMargin && grossValue > 0n && netValue > 0n && (
@@ -543,7 +592,10 @@ export function RemittanceView({
               />
             )}
           </Field>
-          <Field label={t('remittance.phone')} required={byTransfer}>
+          <Field
+            label={outgoing ? t('remittance.beneficiaryNumber') : t('remittance.phone')}
+            required={byTransfer}
+          >
             {(props) => (
               <Input
                 {...props}

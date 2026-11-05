@@ -67,6 +67,8 @@ interface TransactionData {
   payoutBankChannel: string | null;
   payoutAccount: string | null;
   payoutAddress: string | null;
+  deliveredAmount: string | null;
+  deliveredUnit: string | null;
   payoutWallet: { id: string; label: string; labelAr: string; network: string } | null;
   reverseReason: string | null;
   customer: { id: string; code: string; fullNameEn: string; fullNameAr: string } | null;
@@ -379,6 +381,11 @@ export function TransactionDetail({
                     </DetailRow>
                   </>
                 )}
+              {transaction.deliveredAmount && (
+                <DetailRow label={t('remittance.delivered')}>
+                  <Money value={transaction.deliveredAmount} currency={transaction.deliveredUnit ?? ''} />
+                </DetailRow>
+              )}
               {/* Where the coins went, and from which wallet. The address is
                   shown whole: a shortened one cannot be checked against
                   anything, and checking it is the only reason to print it. */}

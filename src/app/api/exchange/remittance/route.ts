@@ -30,6 +30,9 @@ const bodySchema = z.object({
   counterpartyName: z.string().max(200).nullish(),
   counterpartyPhone: z.string().max(40).nullish(),
   notes: z.string().max(1000).nullish(),
+  /** Sending: what reaches the beneficiary and in what, for showing only. */
+  delivered: z.string().nullish(),
+  deliveredUnit: z.string().max(20).nullish(),
   /** Sending: the customer paid by transfer, into this account. Otherwise notes. */
   intakeChannel: z.string().max(80).nullish(),
   /** A photo of what the customer paid, shrunk by the screen, as base64. */
@@ -62,6 +65,8 @@ export const POST = route<z.infer<typeof bodySchema>>({
           ...common,
           collected: parseMoney(body.gross),
           cost: net > 0n ? net : null,
+          deliveredAmount: body.delivered ? parseMoney(body.delivered) : null,
+          deliveredUnit: body.deliveredUnit ?? null,
           intakeChannel: body.intakeChannel ?? null,
           proof: body.proof ?? null,
           beneficiary: body.beneficiary ?? null,

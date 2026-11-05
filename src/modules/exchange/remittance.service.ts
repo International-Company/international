@@ -113,6 +113,9 @@ export interface SendInput extends Common {
   cost: bigint | null;
   /** The customer paid by transfer, into this one of the office's accounts. Otherwise notes. */
   intakeChannel?: string | null;
+  /** What reaches the beneficiary, in the money it arrives in. For showing only. */
+  deliveredAmount?: bigint | null;
+  deliveredUnit?: string | null;
   /** A photo of what the customer paid, as base64. */
   proof?: string | null;
   /** A photo of who the remittance is for, as base64. */
@@ -161,6 +164,7 @@ export async function send(input: SendInput, actor: Actor, db: DbClient = prisma
    * difference once the price is known, and a reversal mirrors whichever stands.
    */
   const pricePending = input.cost === null;
+  const delivered = input.deliveredAmount && input.deliveredAmount > 0n ? input.deliveredAmount : null;
   const cost = input.cost ?? input.collected;
   await check(input, [input.collected, cost], db);
 
@@ -205,6 +209,8 @@ export async function send(input: SendInput, actor: Actor, db: DbClient = prisma
         toCurrency: input.currency,
         toAmount: cost,
         pricePending,
+        deliveredAmount: delivered,
+        deliveredUnit: delivered ? input.deliveredUnit?.trim() || null : null,
         intake: intakeChannel ? { cash: 0n, broker: input.collected } : undefined,
         intakeChannel,
         rate: 100000000n,

@@ -25,6 +25,8 @@ type Row = {
   type: string;
   fromCurrency?: string;
   fromAmount?: bigint;
+  deliveredAmount?: bigint | null;
+  deliveredUnit?: string | null;
   rate?: bigint;
   intakeBankChannel?: string | null;
   status: string;
@@ -275,5 +277,24 @@ describe('an outgoing remittance', () => {
     const message = await shareable('t1', 'ar', db as never);
     assert.match(message.text, /1020/);
     assert.doesNotMatch(message.text, /1010/);
+  });
+
+  it('is the number and what reaches them, with no name', async () => {
+    const { db } = fakeDb([
+      row({
+        type: 'REMITTANCE_OUT',
+        status: 'POSTED',
+        fromAmount: 178n * UNIT,
+        toAmount: 170n * UNIT,
+        deliveredAmount: 3000n * UNIT,
+        deliveredUnit: 'جنيه',
+        payoutBankAmount: 0n,
+        payoutBankChannel: null,
+        payoutAccount: null,
+        counterpartyName: 'احمد',
+        counterpartyPhone: '01028451622',
+      }),
+    ]);
+    assert.equal((await shareable('t1', 'ar', db as never)).text, '01028451622\n\n3000 جنيه');
   });
 });

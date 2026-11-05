@@ -1202,6 +1202,11 @@ model Transaction {
   /// Spread earned against the mid rate, in toCurrency. Shown to the manager.
   profitAmount BigInt @default(0)
 
+  /// What reaches the beneficiary of a remittance, in the money it arrives in: for
+  /// showing only. No balance is kept of it, so the unit is words rather than a currency.
+  deliveredAmount BigInt?
+  deliveredUnit   String?
+
   /// A remittance sent before its correspondent's price was known. Until the price
   /// is written the correspondent is held at the whole sum, and the deal shows no profit.
   pricePending Boolean @default(false)

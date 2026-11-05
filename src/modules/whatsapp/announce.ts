@@ -207,6 +207,9 @@ export interface AnnounceDeps {
 
 export type AnnounceOutcome = 'SKIPPED' | 'NOT_FOUND' | 'SEND_FAILED' | 'NO_REPLY' | 'SENT';
 
+/** A remittance sent goes out as the office writes it: nothing beside its two photos. */
+const BARE: string[] = ['REMITTANCE_OUT'];
+
 /**
  * One deal to the group: its message, then the kind as a reply to it.
  *
@@ -230,12 +233,20 @@ export async function announceDeal(
    * The deal's photo goes with its message, as the caption. A photo that cannot
    * be read or sent never costs the group the deal: it goes as words instead.
    */
+  const bare = BARE.includes(message.type);
   let sent: SentMessage | undefined;
   let photos: DealPhoto[] = [];
+  // Whether the words are out. A remittance with both photos holds them for the second.
+  let said = false;
   if (deps.photos && deps.sendPhoto) {
     try {
       photos = await deps.photos(transactionId);
-      if (photos[0]) sent = await deps.sendPhoto(group, photos[0], message.text);
+      if (photos[0]) {
+        const holdWords =
+          bare && photos[0].kind === 'PAYMENT' && photos.some((p) => p.kind === 'BENEFICIARY');
+        sent = await deps.sendPhoto(group, photos[0], holdWords ? '' : message.text);
+        said = !holdWords;
+      }
     } catch (error) {
       log.warn('Could not send a deal’s photo; sending its words', {
         reference: message.reference,
@@ -246,7 +257,10 @@ export async function announceDeal(
   }
 
   try {
-    sent ??= await deps.send(group, message.text);
+    if (!sent) {
+      sent = await deps.send(group, message.text);
+      said = true;
+    }
   } catch (error) {
     log.warn('Could not announce a deal', { reference: message.reference, error });
     return 'SEND_FAILED';
@@ -257,20 +271,39 @@ export async function announceDeal(
   }
 
   let outcome: AnnounceOutcome = 'SENT';
-  try {
-    await deps.send(group, kindLabel(message.type), sent);
-  } catch (error) {
-    log.warn('Could not label a deal', { reference: message.reference, error });
-    outcome = 'NO_REPLY';
+  if (!bare) {
+    try {
+      await deps.send(group, kindLabel(message.type), sent);
+    } catch (error) {
+      log.warn('Could not label a deal', { reference: message.reference, error });
+      outcome = 'NO_REPLY';
+    }
   }
 
-  // The rest as replies to the deal, each saying what it is.
+  // The rest as replies to the deal, each saying what it is, or carrying the words held back.
   for (const photo of photos.slice(1)) {
-    await deps
-      .sendPhoto?.(group, photo, PHOTO_WORDS[photo.kind] ?? '', sent)
-      .catch((error) =>
-        log.warn('Could not send one of a deal’s photos', { reference: message.reference, error }),
+    const carries = !said && photo.kind === 'BENEFICIARY';
+    try {
+      await deps.sendPhoto?.(
+        group,
+        photo,
+        carries ? message.text : (PHOTO_WORDS[photo.kind] ?? ''),
+        sent,
       );
+      if (carries) said = true;
+    } catch (error) {
+      log.warn('Could not send one of a deal’s photos', { reference: message.reference, error });
+    }
+  }
+
+  // The photo meant to carry them failed: the group still gets the words.
+  if (!said) {
+    try {
+      await deps.send(group, message.text, sent);
+    } catch (error) {
+      log.warn('Could not announce a deal', { reference: message.reference, error });
+      return 'NO_REPLY';
+    }
   }
   return outcome;
 }

@@ -83,6 +83,9 @@ export interface RecordInput {
   counterpartyPhone?: string | null;
   /** A remittance whose correspondent's price is still to be written. */
   pricePending?: boolean;
+  /** What reaches a remittance's beneficiary, for showing only. */
+  deliveredAmount?: bigint | null;
+  deliveredUnit?: string | null;
   notes?: string | null;
 }
 
@@ -271,6 +274,8 @@ export async function record(
         rateId: input.rateId ?? null,
         profitAmount: input.profitAmount ?? 0n,
         pricePending: input.pricePending ?? false,
+        deliveredAmount: input.deliveredAmount ?? null,
+        deliveredUnit: input.deliveredUnit ?? null,
         counterpartyName: input.counterpartyName ?? null,
         counterpartyPhone: input.counterpartyPhone ?? null,
         notes: input.notes ?? null,

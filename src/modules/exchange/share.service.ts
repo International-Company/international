@@ -85,6 +85,8 @@ const SHARE_SELECT = {
   status: true,
   fromCurrency: true,
   fromAmount: true,
+  deliveredAmount: true,
+  deliveredUnit: true,
   rate: true,
   toCurrency: true,
   toAmount: true,
@@ -103,6 +105,8 @@ type ShareRow = {
   type: string;
   fromCurrency: string;
   fromAmount: bigint;
+  deliveredAmount: bigint | null;
+  deliveredUnit: string | null;
   rate: bigint;
   toCurrency: string;
   toAmount: bigint;
@@ -168,6 +172,17 @@ function composeLines(
       ? transaction.customer.fullNameAr
       : transaction.customer.fullNameEn
     : transaction.counterpartyName;
+
+  /*
+   * A remittance sent is the number and what reaches them, in what it reaches them
+   * in, the way the office writes one. Without that sum, what the customer paid.
+   */
+  if (transaction.type === 'REMITTANCE_OUT') {
+    const sum = transaction.deliveredAmount
+      ? `${toDecimalString(transaction.deliveredAmount, 2).replace(/\.00$/, '')} ${transaction.deliveredUnit ?? ''}`
+      : `${wholeAmount(transaction.fromAmount)} ${unit}`;
+    return [phone, sum.trim()].filter((line): line is string => Boolean(line?.trim()));
+  }
 
   /*
    * Coins sold have nowhere to send and two sums to tell apart, so this one says
