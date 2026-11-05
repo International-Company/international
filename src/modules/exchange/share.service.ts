@@ -85,6 +85,7 @@ const SHARE_SELECT = {
   status: true,
   fromCurrency: true,
   fromAmount: true,
+  rate: true,
   toCurrency: true,
   toAmount: true,
   payoutBankAmount: true,
@@ -102,6 +103,7 @@ type ShareRow = {
   type: string;
   fromCurrency: string;
   fromAmount: bigint;
+  rate: bigint;
   toCurrency: string;
   toAmount: bigint;
   payoutBankAmount: bigint;
@@ -172,10 +174,12 @@ function composeLines(
    * what each is: the coins, the customer's price, and what they paid and how.
    */
   if (transaction.type === 'USDT_SALE') {
-    const price = toDecimalString(
-      divideRounded(transaction.fromAmount * MONEY_FACTOR, transaction.toAmount),
-      4,
-    ).replace(/\.?0+$/, '');
+    // From the deal's rate rather than its two sums: the coins are rounded, the price is not.
+    const perCoin = divideRounded(MONEY_FACTOR * MONEY_FACTOR, transaction.rate);
+    const price = toDecimalString(divideRounded(perCoin, 10_000n) * 10_000n, 4).replace(
+      /\.?0+$/,
+      '',
+    );
     return [
       phone,
       who,

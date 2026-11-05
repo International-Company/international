@@ -14,6 +14,7 @@ import { useToast } from '@/ui/overlay';
 import { Field, Input, Textarea } from '@/ui/form';
 import { CustomerPicker, type CustomerHit } from '@/ui/customer-picker';
 import { PhotoField } from '@/ui/photo-field';
+import { saleCoins } from '@/modules/usdt/sale-sums';
 import { cn } from '@/ui/utils';
 
 /**
@@ -58,6 +59,13 @@ export function SaleView({
   const router = useRouter();
   const toast = useToast();
 
+  /*
+   * Either figure can be typed, and the other follows from the price. The teller
+   * usually knows what landed on the wallet; the coins are kept open for the sale
+   * agreed the other way round.
+   */
+  const [typed, setTyped] = useState<'RECEIVED' | 'COINS'>('RECEIVED');
+  const [received, setReceived] = useState('');
   const [usdt, setUsdt] = useState('');
   const [currency, setCurrency] = useState(currencies[0]?.code ?? 'ILS');
   const [price, setPrice] = useState('');
@@ -95,9 +103,13 @@ export function SaleView({
   const decimals = currencies.find((entry) => entry.code === currency)?.decimals ?? 2;
 
   // The total, by the same arithmetic the server uses.
-  const coins = scaleAmount(usdt);
   const perCoin = scaleAmount(price);
-  const total = totalOf(coins, perCoin, decimals);
+  const step = 10n ** BigInt(Math.max(0, 8 - decimals));
+  const total =
+    typed === 'RECEIVED'
+      ? (scaleAmount(received) / step) * step
+      : totalOf(scaleAmount(usdt), perCoin, decimals);
+  const coins = typed === 'RECEIVED' ? saleCoins(total, perCoin) : scaleAmount(usdt);
 
   const blocked =
     coins <= 0n ||
@@ -109,6 +121,8 @@ export function SaleView({
         (customer && !customer.phone && !phone.trim())));
 
   const clear = () => {
+    setTyped('RECEIVED');
+    setReceived('');
     setUsdt('');
     setPrice('');
     setMode('CASH');
@@ -133,7 +147,8 @@ export function SaleView({
     try {
       const result = await api.post<{ id: string; reference: string }>('/api/usdt/sales', {
         currency,
-        usdt: usdt.trim(),
+        usdt: typed === 'COINS' ? usdt.trim() : null,
+        received: typed === 'RECEIVED' ? received.trim() : null,
         price: price.trim(),
         mode,
         intakeChannel: mode === 'BROKER' ? account : null,
@@ -182,37 +197,13 @@ export function SaleView({
         {t('usdtSale.hint')}
       </p>
 
-      {/* ============ The coins, the price, the total ============ */}
+      {/* ============ What came in, the price, the coins it buys ============ */}
       <section className="space-y-2 rounded-3xl bg-surface p-2 shadow-[var(--shadow-lg)] ring-1 ring-border-subtle">
         <div className="rounded-[1.35rem] bg-surface-sunken px-5 py-5">
-          <span className="text-xs font-medium text-content-secondary">{t('usdtSale.coins')}</span>
+          <span className="text-xs font-medium text-content-secondary">
+            {mode === 'BROKER' ? t('usdtSale.receivedWallet') : t('usdtSale.receivedCash')}
+          </span>
           <div className="mt-3 flex items-center gap-3">
-            <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-bold text-white">
-              ₮
-            </span>
-            <input
-              ref={usdtRef}
-              type="text"
-              dir="ltr"
-              inputMode="decimal"
-              autoComplete="off"
-              data-zoom-safe=""
-              aria-label={t('usdtSale.coins')}
-              value={usdt}
-              placeholder="0.00"
-              onFocus={(event) => event.currentTarget.select()}
-              onChange={(event) => {
-                setDone(null);
-                setUsdt(sanitiseAmount(event.target.value, USDT_DECIMALS));
-              }}
-              className={bigInput}
-            />
-          </div>
-        </div>
-
-        <div className="rounded-[1.35rem] bg-surface-sunken px-5 py-4">
-          <span className="text-xs font-medium text-content-secondary">{t('usdtSale.price')}</span>
-          <div className="mt-2 flex items-center gap-3">
             <select
               value={currency}
               onChange={(event) => {
@@ -229,32 +220,70 @@ export function SaleView({
               ))}
             </select>
             <input
+              ref={usdtRef}
               type="text"
               dir="ltr"
               inputMode="decimal"
               autoComplete="off"
               data-zoom-safe=""
-              aria-label={t('usdtSale.price')}
-              value={price}
-              placeholder="0.0000"
+              aria-label={mode === 'BROKER' ? t('usdtSale.receivedWallet') : t('usdtSale.receivedCash')}
+              value={typed === 'RECEIVED' ? received : plain(total, decimals)}
+              placeholder="0.00"
               onFocus={(event) => event.currentTarget.select()}
               onChange={(event) => {
                 setDone(null);
-                setPrice(sanitiseAmount(event.target.value, 6));
+                setTyped('RECEIVED');
+                setReceived(sanitiseAmount(event.target.value, decimals));
               }}
-              className="min-w-0 flex-1 bg-transparent text-end text-2xl font-semibold tabular-nums text-content outline-none placeholder:text-content-tertiary"
+              className={bigInput}
             />
           </div>
         </div>
 
+        <div className="rounded-[1.35rem] bg-surface-sunken px-5 py-4">
+          <span className="text-xs font-medium text-content-secondary">{t('usdtSale.price')}</span>
+          <input
+            type="text"
+            dir="ltr"
+            inputMode="decimal"
+            autoComplete="off"
+            data-zoom-safe=""
+            aria-label={t('usdtSale.price')}
+            value={price}
+            placeholder="0.0000"
+            onFocus={(event) => event.currentTarget.select()}
+            onChange={(event) => {
+              setDone(null);
+              setPrice(sanitiseAmount(event.target.value, 6));
+            }}
+            className="mt-2 block w-full bg-transparent text-end text-2xl font-semibold tabular-nums text-content outline-none placeholder:text-content-tertiary"
+          />
+        </div>
+
         <div className="rounded-[1.35rem] bg-primary-subtle px-5 py-6">
-          <span className="text-xs font-medium text-content-secondary">
-            {t('usdtSale.customerPays')}
-          </span>
-          <p className="mt-3 text-end text-4xl font-bold tabular-nums tracking-tight text-primary-text ltr-content sm:text-5xl">
-            {formatScaled(total.toString(), decimals)}{' '}
-            <span className="text-lg font-semibold">{currency}</span>
-          </p>
+          <span className="text-xs font-medium text-content-secondary">{t('usdtSale.deposit')}</span>
+          <div className="mt-3 flex items-center gap-3">
+            <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-bold text-white">
+              ₮
+            </span>
+            <input
+              type="text"
+              dir="ltr"
+              inputMode="decimal"
+              autoComplete="off"
+              data-zoom-safe=""
+              aria-label={t('usdtSale.deposit')}
+              value={typed === 'COINS' ? usdt : plain(coins, USDT_DECIMALS)}
+              placeholder="0.00"
+              onFocus={(event) => event.currentTarget.select()}
+              onChange={(event) => {
+                setDone(null);
+                setTyped('COINS');
+                setUsdt(sanitiseAmount(event.target.value, USDT_DECIMALS));
+              }}
+              className="min-w-0 flex-1 bg-transparent text-end text-4xl font-bold tabular-nums tracking-tight text-primary-text outline-none placeholder:text-primary-text/40 sm:text-5xl"
+            />
+          </div>
         </div>
       </section>
 
@@ -518,6 +547,13 @@ function scaleAmount(text: string): bigint {
   } catch {
     return 0n;
   }
+}
+
+/** A scaled amount as plain digits for a field: 1020, or 270.27. Nothing for zero. */
+function plain(scaled: bigint, decimals: number): string {
+  if (scaled <= 0n) return '';
+  const text = formatScaled(scaled.toString(), decimals).replace(/,/g, '');
+  return decimals > 0 ? text.replace(/\.?0+$/, '') : text;
 }
 
 /** Renders a 1e8-scaled string at a given precision. */

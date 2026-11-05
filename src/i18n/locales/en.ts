@@ -1192,9 +1192,10 @@ const en = {
 
   usdtSale: {
     hint: 'Record only: nothing is sent and the USDT balance is not touched. Send the coins yourself, then record the sale here so the money is in your drawer and your count.',
-    coins: 'How much USDT did you sell?',
+    receivedWallet: 'How much landed on the wallet?',
+    receivedCash: 'How much cash did you receive?',
     price: 'Withdrawal price (per USDT)',
-    customerPays: 'What the customer paid',
+    deposit: 'How much USDT do we deposit?',
     transferPhoto: 'Photo of the customer’s transfer',
     transferPhotoAttach: 'Attach a photo of the customer’s transfer (optional)',
     addressPhoto: 'Photo of the transfer address',

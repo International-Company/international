@@ -6,6 +6,7 @@ import { transferChannels } from '@/modules/exchange/machine.service';
 import { readProofImage } from '@/modules/exchange/proof-image';
 import * as transactions from '@/modules/exchange/transaction.service';
 import type { Actor } from '@/modules/exchange/transaction.service';
+import { saleCoins } from './sale-sums';
 
 /**
  * بيع USDT — تسجيل فقط.
@@ -25,8 +26,10 @@ export type SaleMode = (typeof SALE_MODES)[number];
 
 export interface SaleInput {
   payCurrency: string;
-  /** The coins sold. */
-  usdtAmount: bigint;
+  /** The coins sold, when that is what the teller knows. */
+  usdtAmount?: bigint | null;
+  /** What came in, when that is what the teller knows: the coins follow from it. */
+  received?: bigint | null;
   /** What the customer pays per coin, in `payCurrency`. */
   price: bigint;
   mode: SaleMode;
@@ -56,7 +59,7 @@ export async function recordSale(input: SaleInput, actor: Actor, db: DbClient = 
   if (!actor.permissions.includes('usdt.withdrawal.use')) {
     throw errors.forbidden('usdt.withdrawal.use');
   }
-  if (input.usdtAmount <= 0n || input.price <= 0n) {
+  if (input.price <= 0n) {
     throw errors.precondition('Amount must be greater than zero', 'errors.amountNotPositive');
   }
 
@@ -66,8 +69,18 @@ export async function recordSale(input: SaleInput, actor: Actor, db: DbClient = 
   });
   if (!currency) throw errors.notFound('Currency', input.payCurrency);
 
-  const payTotal = saleTotal(input.usdtAmount, input.price, currency.decimals);
-  if (payTotal <= 0n) {
+  /*
+   * Either figure can be the one typed. What was received stands as typed, at the
+   * currency's precision, and the price stands with it: the coins are rounded, so
+   * reading the price back off the two sums would no longer give what was agreed.
+   */
+  const step = 10n ** BigInt(Math.max(0, 8 - currency.decimals));
+  const byReceived = input.received !== null && input.received !== undefined;
+  const payTotal = byReceived
+    ? divideRounded(input.received!, step) * step
+    : saleTotal(input.usdtAmount ?? 0n, input.price, currency.decimals);
+  const usdtAmount = byReceived ? saleCoins(payTotal, input.price) : (input.usdtAmount ?? 0n);
+  if (payTotal <= 0n || usdtAmount <= 0n) {
     throw errors.precondition('Amount must be greater than zero', 'errors.amountNotPositive');
   }
 
@@ -114,12 +127,14 @@ export async function recordSale(input: SaleInput, actor: Actor, db: DbClient = 
         fromCurrency: currency.code,
         fromAmount: payTotal,
         toCurrency: 'USDT',
-        toAmount: input.usdtAmount,
+        toAmount: usdtAmount,
         intake:
           input.mode === 'BROKER' ? { cash: 0n, broker: payTotal } : { cash: payTotal, broker: 0n },
         intakeChannel: account,
         // 1 unit of what was paid = this many coins, as every row reads its rate.
-        rate: divideRounded(input.usdtAmount * MONEY_FACTOR, payTotal),
+        rate: byReceived
+          ? divideRounded(MONEY_FACTOR * MONEY_FACTOR, input.price)
+          : divideRounded(usdtAmount * MONEY_FACTOR, payTotal),
         counterpartyName: input.counterpartyName?.trim() || null,
         counterpartyPhone: input.counterpartyPhone?.trim() || null,
         notes: input.notes?.trim() || null,

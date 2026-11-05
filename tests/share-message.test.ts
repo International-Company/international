@@ -25,6 +25,7 @@ type Row = {
   type: string;
   fromCurrency?: string;
   fromAmount?: bigint;
+  rate?: bigint;
   intakeBankChannel?: string | null;
   status: string;
   toCurrency: string;
@@ -207,6 +208,7 @@ describe('a USDT sale', () => {
       status: 'POSTED',
       fromCurrency: 'ILS',
       fromAmount: 1850n * UNIT,
+      rate: 27_027_027n,
       toCurrency: 'USDT',
       toAmount: 500n * UNIT,
       payoutBankAmount: 0n,
@@ -227,6 +229,16 @@ describe('a USDT sale', () => {
       '1850 شيكل',
       'نقدي',
     ]);
+  });
+
+  it('says the price agreed, though the coins were rounded', async () => {
+    // 10 shekels at 3.7 buy 2.70 coins, which read back as 3.7037.
+    const { db } = fakeDb([
+      sale({ fromAmount: 10n * UNIT, toAmount: 270_000_000n, rate: 27_027_027n }),
+    ]);
+    const said = lines((await shareable('t1', 'ar', db)).text);
+    assert.ok(said.includes('سعر السحب: 3.7'), said.join(' | '));
+    assert.ok(said.includes('2.70 USDT'), said.join(' | '));
   });
 
   it('names the account when it was paid by transfer', async () => {

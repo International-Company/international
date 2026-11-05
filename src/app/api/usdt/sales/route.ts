@@ -6,8 +6,9 @@ import * as sales from '@/modules/usdt/sale.service';
 
 const bodySchema = z.object({
   currency: z.string().min(2).max(8),
-  /** The coins sold. */
-  usdt: z.string(),
+  /** The coins sold, or what was received for them: whichever the teller typed. */
+  usdt: z.string().nullish(),
+  received: z.string().nullish(),
   /** What the customer paid per coin. */
   price: z.string(),
   mode: z.enum(sales.SALE_MODES).default('CASH'),
@@ -32,7 +33,8 @@ export const POST = route<z.infer<typeof bodySchema>>({
     return sales.recordSale(
       {
         payCurrency: body.currency.toUpperCase(),
-        usdtAmount: parseMoney(body.usdt),
+        usdtAmount: body.usdt ? parseMoney(body.usdt) : null,
+        received: body.received ? parseMoney(body.received) : null,
         price: parseMoney(body.price),
         mode: body.mode,
         intakeChannel: body.intakeChannel ?? null,

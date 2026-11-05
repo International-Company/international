@@ -1191,9 +1191,10 @@ const ar: Dictionary = {
 
   usdtSale: {
     hint: 'تسجيل فقط: لا يُرسل النظام شيئاً ولا يمسّ رصيد اليواس. أرسل العملة بنفسك، ثم سجّل البيع هنا ليدخل المبلغ درجك ويظهر في جردك.',
-    coins: 'كم USDT بعت؟',
+    receivedWallet: 'كم استلمت على المحفظة؟',
+    receivedCash: 'كم استلمت نقداً؟',
     price: 'سعر السحب (لكل USDT)',
-    customerPays: 'المبلغ الذي دفعه العميل',
+    deposit: 'كم USDT سنودع له؟',
     transferPhoto: 'صورة التحويل من المستفيد',
     transferPhotoAttach: 'إرفاق صورة التحويل من المستفيد (اختياري)',
     addressPhoto: 'صورة عنوان التحويل',
