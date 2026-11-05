@@ -7,6 +7,7 @@ import {
   ArrowUpFromLine,
   Coins,
   HandCoins,
+  Music2,
   Printer,
   Search,
   ShoppingCart,
@@ -20,10 +21,11 @@ import { cn } from '@/ui/utils';
 import { DayNavigator, dayInput } from '../machine/my-cash-ledger';
 
 /**
- * The day in two lists — USDT and exchange — chosen by a tab. Each list opens
- * with its two kinds side by side (received and sent, bought and sold), which
- * double as its filter, and beneath them every deal of the list in one table:
- * the kind, the customer, how much of the goods, the price, and the other side.
+ * The day in lists — USDT, exchange and TikTok — chosen by a tab. The first two
+ * open with their two kinds side by side (received and sent, bought and sold),
+ * which double as their filter, and beneath them every deal of the list in one
+ * table: the kind, the customer, how much of the goods, the price, and the other
+ * side. TikTok has one kind and moves no balance, so it has a table of its own.
  */
 
 interface Amount {
@@ -32,7 +34,7 @@ interface Amount {
 }
 
 type Kind = 'USDT_RECEIVE' | 'USDT_SEND' | 'BUY' | 'SELL';
-type Tab = 'USDT' | 'EXCHANGE';
+type Tab = 'USDT' | 'EXCHANGE' | 'TIKTOK';
 
 interface Entry {
   id: string;
@@ -55,6 +57,26 @@ interface Group {
   received: Amount[];
   paid: Amount[];
   entries: Entry[];
+}
+
+interface TiktokEntry {
+  id: string;
+  at: string;
+  currency: string;
+  amount: string;
+  rate: string | null;
+  payout: string;
+  account: string;
+  beneficiaryName: string;
+  channel: string;
+  deleted: boolean;
+}
+
+interface TiktokDay {
+  count: number;
+  withdrawn: Amount[];
+  paid: string;
+  entries: TiktokEntry[];
 }
 
 const TABS: { tab: Tab; icon: LucideIcon; kinds: [Kind, Kind] }[] = [
@@ -113,10 +135,162 @@ function priceOf(row: Row): string | null {
   return (other / unit).toFixed(4).replace(/\.?0+$/, '');
 }
 
+/** The day's TikTok withdrawals: what was withdrawn and handed over, then each one. */
+function TiktokList({
+  day,
+  amounts,
+}: {
+  day: TiktokDay | null;
+  amounts: (list: Amount[]) => React.ReactNode;
+}) {
+  const { t } = useLocale();
+  const [search, setSearch] = useState('');
+
+  const rows = useMemo(() => {
+    const needle = search.trim().toLowerCase();
+    return (day?.entries ?? []).filter(
+      (row) =>
+        !needle ||
+        row.beneficiaryName.toLowerCase().includes(needle) ||
+        row.account.toLowerCase().includes(needle),
+    );
+  }, [day, search]);
+
+  return (
+    <>
+      <div className="rounded-2xl bg-surface p-4 ring-1 ring-border-subtle">
+        <div className="flex items-center justify-between gap-2">
+          <span className="flex items-center gap-2 font-semibold text-content">
+            <span className="flex size-9 items-center justify-center rounded-xl bg-primary-subtle text-primary-text">
+              <Music2 className="size-5" />
+            </span>
+            {t('dailyCount.tiktok.title')}
+          </span>
+          <Badge tone="neutral">{t('dailyCount.operations', { count: day?.count ?? 0 })}</Badge>
+        </div>
+        <div className="mt-3 flex items-end justify-between gap-3">
+          <div>
+            <p className="text-xs text-content-secondary">{t('dailyCount.tiktok.withdrawn')}</p>
+            <div className="text-xl font-bold tabular-nums">{amounts(day?.withdrawn ?? [])}</div>
+          </div>
+          <div className="text-end">
+            <p className="text-xs text-content-secondary">{t('dailyCount.tiktok.paid')}</p>
+            <div className="text-sm font-semibold tabular-nums text-content-secondary">
+              <Money value={day?.paid ?? '0'} currency="ILS" />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <section className="space-y-3 rounded-2xl bg-surface p-4 ring-1 ring-border-subtle">
+        <label className="relative block w-full sm:w-64">
+          <Search className="pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2 text-content-tertiary" />
+          <input
+            type="search"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder={t('dailyCount.tiktok.search')}
+            className="w-full rounded-full bg-surface-sunken py-2 ps-9 pe-3 text-sm outline-none ring-1 ring-border-subtle focus:ring-primary"
+          />
+        </label>
+
+        {rows.length === 0 ? (
+          <p className="py-8 text-center text-sm text-content-tertiary">{t('dailyCount.empty')}</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[42rem] border-collapse text-sm">
+              <thead>
+                <tr className="bg-surface-sunken text-xs text-content-secondary">
+                  <th className="px-2 py-2 text-start font-medium">{t('dailyCount.colTime')}</th>
+                  <th className="px-2 py-2 text-start font-medium">
+                    {t('dailyCount.tiktok.beneficiary')}
+                  </th>
+                  <th className="px-2 py-2 text-end font-medium">{t('dailyCount.colAmount')}</th>
+                  <th className="px-2 py-2 text-end font-medium">{t('dailyCount.colPrice')}</th>
+                  <th className="px-2 py-2 text-end font-medium">{t('dailyCount.colCounter')}</th>
+                  <th className="w-12 px-2 py-2" />
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((row) => (
+                  <tr
+                    key={row.id}
+                    className={cn(
+                      'border-t border-border-subtle align-middle',
+                      row.deleted && 'bg-danger-subtle/20',
+                    )}
+                  >
+                    <td className="px-2 py-2.5 tabular-nums ltr-content">
+                      {new Date(row.at).toLocaleTimeString('en-GB', {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      })}
+                    </td>
+                    <td className="px-2 py-2.5">
+                      <span className="block font-medium">{row.beneficiaryName}</span>
+                      <span className="mt-0.5 flex flex-wrap items-center gap-1 text-[11px] text-content-tertiary">
+                        {row.account && <span className="ltr-content">{row.account}</span>}
+                        {row.channel && <span>· {row.channel}</span>}
+                        {row.deleted && <Badge tone="danger">{t('machine.deletedBadge')}</Badge>}
+                      </span>
+                    </td>
+                    <td
+                      className={cn(
+                        'px-2 py-2.5 text-end text-base font-bold tabular-nums',
+                        row.deleted && 'text-content-tertiary line-through',
+                      )}
+                    >
+                      <Money value={row.amount} currency={row.currency} />
+                    </td>
+                    <td className="px-2 py-2.5 text-end tabular-nums ltr-content">
+                      {row.rate ?? '—'}
+                    </td>
+                    <td
+                      className={cn(
+                        'px-2 py-2.5 text-end font-semibold tabular-nums text-content-secondary',
+                        row.deleted && 'text-content-tertiary line-through',
+                      )}
+                    >
+                      {BigInt(row.payout) > 0n ? (
+                        <Money value={row.payout} currency="ILS" />
+                      ) : (
+                        '—'
+                      )}
+                    </td>
+                    <td className="px-2 py-2.5 text-end">
+                      {!row.deleted && (
+                        <a
+                          href={`/api/tiktok/${row.id}/photo`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-block"
+                        >
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={`/api/tiktok/${row.id}/photo`}
+                            alt={t('tiktok.photo')}
+                            loading="lazy"
+                            className="size-10 rounded-lg object-cover ring-1 ring-border-subtle"
+                          />
+                        </a>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+    </>
+  );
+}
+
 export function DailyCountView() {
   const { t } = useLocale();
   const [day, setDay] = useState(() => dayInput(new Date()));
   const [groups, setGroups] = useState<Group[] | null>(null);
+  const [tiktok, setTiktok] = useState<TiktokDay | null>(null);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<Tab>('USDT');
   const [kind, setKind] = useState<Kind | null>(null);
@@ -128,10 +302,11 @@ export function DailyCountView() {
     const to = new Date(year, month - 1, date, 23, 59, 59, 999);
     setLoading(true);
     try {
-      const result = await api.get<{ groups: Group[] }>(
+      const result = await api.get<{ groups: Group[]; tiktok: TiktokDay }>(
         `/api/my/daily-count${queryString({ from: from.toISOString(), to: to.toISOString() })}`,
       );
       setGroups(result.groups);
+      setTiktok(result.tiktok);
     } catch {
       setGroups(null);
     } finally {
@@ -147,7 +322,7 @@ export function DailyCountView() {
     () => new Map((groups ?? []).map((group) => [group.kind, group])),
     [groups],
   );
-  const current = TABS.find((entry) => entry.tab === tab)!;
+  const current = TABS.find((entry) => entry.tab === tab) ?? TABS[0]!;
 
   // The tab's deals, newest first, narrowed by the chosen kind and the search.
   const rows = useMemo(() => {
@@ -195,7 +370,7 @@ export function DailyCountView() {
                 type="button"
                 onClick={() => chooseTab(each)}
                 className={cn(
-                  'flex flex-1 items-center justify-center gap-2 rounded-xl px-5 py-2.5 text-sm font-semibold transition-colors sm:flex-none',
+                  'flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded-xl px-2 py-2.5 text-sm font-semibold transition-colors sm:flex-none sm:gap-2 sm:px-5',
                   tab === each
                     ? 'bg-surface text-content shadow-sm'
                     : 'text-content-secondary hover:text-content',
@@ -209,6 +384,22 @@ export function DailyCountView() {
               </button>
             );
           })}
+          <button
+            type="button"
+            onClick={() => chooseTab('TIKTOK')}
+            className={cn(
+              'flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded-xl px-2 py-2.5 text-sm font-semibold transition-colors sm:flex-none sm:gap-2 sm:px-5',
+              tab === 'TIKTOK'
+                ? 'bg-surface text-content shadow-sm'
+                : 'text-content-secondary hover:text-content',
+            )}
+          >
+            <Music2 className="size-4" />
+            {t('dailyCount.tab.TIKTOK')}
+            <span className="rounded-full bg-surface-sunken px-2 py-px text-xs tabular-nums">
+              {tiktok?.count ?? 0}
+            </span>
+          </button>
         </div>
         <div className="flex justify-center">
           <DayNavigator value={day} onChange={setDay} />
@@ -221,6 +412,8 @@ export function DailyCountView() {
         <p className="py-6 text-center text-sm text-content-tertiary">
           {t('dailyCount.loadError')}
         </p>
+      ) : tab === 'TIKTOK' ? (
+        <TiktokList day={tiktok} amounts={amounts} />
       ) : (
         <>
           {/* --- The two kinds: totals, and a tap to show only that kind ------ */}

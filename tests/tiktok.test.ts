@@ -5,6 +5,7 @@ import {
   composeWithdrawalDeleted,
   rateText,
   tiktokPayout,
+  tiktokTotals,
 } from '../src/modules/tiktok/tiktok-message.ts';
 import { groupFor, groupPlan } from '../src/modules/whatsapp/group-routes.ts';
 
@@ -25,6 +26,31 @@ describe('a TikTok withdrawal', () => {
     // 915.6 is 916; 915.5 is 915.
     assert.equal(tiktokPayout(cents(915.6), UNIT), 916n * UNIT);
     assert.equal(tiktokPayout(cents(915.5), UNIT), 915n * UNIT);
+  });
+
+  it('adds up a day from those that stand, each currency apart', () => {
+    const row = (amount: bigint, currency: string, payoutAmount: bigint, deleted = false) => ({
+      amount,
+      currency,
+      payoutAmount,
+      deleted,
+    });
+    assert.deepEqual(
+      tiktokTotals([
+        row(100n * UNIT, 'USDT', 255n * UNIT),
+        row(50n * UNIT, 'USDT', 128n * UNIT),
+        row(10n * UNIT, 'USD', 0n),
+        row(900n * UNIT, 'USDT', 2295n * UNIT, true),
+      ]),
+      {
+        withdrawn: [
+          { currency: 'USDT', amount: 150n * UNIT },
+          { currency: 'USD', amount: 10n * UNIT },
+        ],
+        paid: 383n * UNIT,
+        count: 3,
+      },
+    );
   });
 
   it('shows a price as it is typed', () => {

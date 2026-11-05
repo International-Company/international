@@ -1379,8 +1379,15 @@ const ar: Dictionary = {
 
   dailyCount: {
     title: 'الجرد اليومي',
-    subtitle: 'عملياتك في اليوم بقائمتين: اليواس والصرافة. اضغط على أي صنف لترى عملياته فقط.',
-    tab: { USDT: 'اليواس', EXCHANGE: 'الصرافة' },
+    subtitle: 'عملياتك في اليوم: اليواس والصرافة وتيكتوك. اضغط على أي صنف لترى عملياته فقط.',
+    tab: { USDT: 'اليواس', EXCHANGE: 'الصرافة', TIKTOK: 'تيكتوك' },
+    tiktok: {
+      title: 'سحب تيكتوك',
+      withdrawn: 'سحبت',
+      paid: 'سلّمت مقابلها',
+      search: 'ابحث باسم المستفيد أو الرقم',
+      beneficiary: 'المستفيد',
+    },
     kind: {
       USDT_RECEIVE: 'استلام USDT',
       USDT_SEND: 'بيع / إرسال USDT',

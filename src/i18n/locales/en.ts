@@ -1380,8 +1380,15 @@ const en = {
 
   dailyCount: {
     title: 'Daily count',
-    subtitle: 'Your deals for the day in two lists: USDT and exchange. Tap a kind to see only its deals.',
-    tab: { USDT: 'USDT', EXCHANGE: 'Exchange' },
+    subtitle: 'Your deals for the day: USDT, exchange and TikTok. Tap a kind to see only its deals.',
+    tab: { USDT: 'USDT', EXCHANGE: 'Exchange', TIKTOK: 'TikTok' },
+    tiktok: {
+      title: 'TikTok withdrawals',
+      withdrawn: 'Withdrawn',
+      paid: 'Handed over',
+      search: 'Search by beneficiary or number',
+      beneficiary: 'Beneficiary',
+    },
     kind: {
       USDT_RECEIVE: 'USDT received',
       USDT_SEND: 'USDT sold / sent',

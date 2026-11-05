@@ -15,6 +15,22 @@ export function rateText(rate: bigint): string {
   return toDecimalString(rate, 4).replace(/\.?0+$/, '');
 }
 
+/** A day's sums per currency, from the withdrawals that stand. */
+export function tiktokTotals(
+  rows: { amount: bigint; currency: string; payoutAmount: bigint; deleted: boolean }[],
+): { withdrawn: { currency: string; amount: bigint }[]; paid: bigint; count: number } {
+  const standing = rows.filter((row) => !row.deleted);
+  const withdrawn = new Map<string, bigint>();
+  for (const { currency, amount } of standing) {
+    withdrawn.set(currency, (withdrawn.get(currency) ?? 0n) + amount);
+  }
+  return {
+    withdrawn: [...withdrawn].map(([currency, amount]) => ({ currency, amount })),
+    paid: standing.reduce((sum, row) => sum + row.payoutAmount, 0n),
+    count: standing.length,
+  };
+}
+
 const shekels = (scaled: bigint) => `${scaled / 100_000_000n} ش`;
 
 interface Withdrawal {

@@ -8,7 +8,7 @@ import { transferChannels } from '@/modules/exchange/machine.service';
 import { readProofImage } from '@/modules/exchange/proof-image';
 import type { Actor } from '@/modules/exchange/transaction.service';
 import { formatAmount, formatFigure } from '@/modules/whatsapp/report-command';
-import { rateText, tiktokPayout } from './tiktok-message';
+import { rateText, tiktokPayout, tiktokTotals } from './tiktok-message';
 
 /**
  * TikTok withdrawals, written down: a photo, who it is for, how it is sent, the
@@ -115,6 +115,46 @@ export async function list(actor: Actor) {
     rateText: rate > 0n ? rateText(rate) : null,
     payoutText: payoutAmount > 0n ? formatFigure(payoutAmount) : null,
   }));
+}
+
+/**
+ * The teller's own withdrawals in a period, for their daily count. Like a deal
+ * undone there, a deleted one stays in the list, marked, and out of the totals.
+ */
+export async function ownDay(input: { from: Date; to: Date }, actor: Actor) {
+  const found = await prisma.tiktokWithdrawal.findMany({
+    where: { createdById: actor.id, createdAt: { gte: input.from, lte: input.to } },
+    orderBy: { createdAt: 'desc' },
+    select: {
+      id: true,
+      currency: true,
+      amount: true,
+      rate: true,
+      payoutAmount: true,
+      account: true,
+      beneficiaryName: true,
+      channel: true,
+      createdAt: true,
+      deletedAt: true,
+    },
+  });
+  const rows = found.map(({ deletedAt, ...row }) => ({ ...row, deleted: deletedAt !== null }));
+  const totals = tiktokTotals(rows);
+  return {
+    count: totals.count,
+    withdrawn: totals.withdrawn.map(({ currency, amount }) => ({
+      currency,
+      amount: amount.toString(),
+    })),
+    paid: totals.paid.toString(),
+    entries: rows.map(({ amount, rate, payoutAmount, createdAt, ...row }) => ({
+      ...row,
+      at: createdAt.toISOString(),
+      amount: amount.toString(),
+      rate: rate > 0n ? rateText(rate) : null,
+      payout: payoutAmount.toString(),
+    })),
+  };
 }
 
 async function reachable(id: string, actor: Actor) {

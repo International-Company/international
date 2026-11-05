@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { route } from '@/core/http/route';
 import * as daily from '@/modules/exchange/daily-count.service';
+import { ownDay } from '@/modules/tiktok/tiktok.service';
 
 const querySchema = z.object({
   from: z.string().datetime(),
@@ -8,23 +9,25 @@ const querySchema = z.object({
 });
 
 /**
- * The teller's day, by kind: USDT received, USDT sent, bought, sold. No
- * teller parameter — it is always the caller's own.
+ * The teller's day, by kind: USDT received, USDT sent, bought, sold, and their
+ * TikTok withdrawals. No teller parameter — it is always the caller's own.
  */
 export const GET = route<unknown, z.infer<typeof querySchema>>({
   permissions: ['exchange.transaction.view'],
   querySchema,
   handler: async ({ query, actor }) => {
-    const result = await daily.dailyCount(
-      { from: new Date(query.from), to: new Date(query.to) },
-      actor,
-    );
+    const period = { from: new Date(query.from), to: new Date(query.to) };
+    const [result, tiktok] = await Promise.all([
+      daily.dailyCount(period, actor),
+      ownDay(period, actor),
+    ]);
     const amounts = (list: daily.CountAmount[]) =>
       list.map((entry) => ({ currency: entry.currency, amount: entry.amount.toString() }));
 
     return {
       from: result.from.toISOString(),
       to: result.to.toISOString(),
+      tiktok,
       groups: result.groups.map((group) => ({
         kind: group.kind,
         count: group.count,
