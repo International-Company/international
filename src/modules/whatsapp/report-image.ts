@@ -391,16 +391,26 @@ function list(part: ListPart, top: number): { parts: string[]; y: number } {
     }),
   );
   y += 16;
-  const remittance = part.kind === 'REMITTANCE_OUT';
+  const sent = part.kind === 'REMITTANCE_OUT';
+  const paidOut = part.kind === 'REMITTANCE_IN';
   const wallet = part.kind === 'WALLET_TOPUP';
+  const noted = sent || paidOut;
+  // One currency on both sides: the gap is a fee, not a price.
+  const priced = !noted && !wallet;
   const rows = table(
     y,
     [
       { title: 'الوقت', right: RIGHT - 12 },
-      { title: remittance ? 'استلمنا' : wallet ? 'أودعنا' : 'المبلغ', right: RIGHT - 95 },
-      { title: remittance || wallet ? '' : 'السعر', right: RIGHT - 265 },
-      { title: remittance ? 'تسعيرة المراسل' : 'المقابل', right: RIGHT - 350 },
-      { title: remittance ? 'ملاحظة' : 'العميل', right: RIGHT - 520 },
+      {
+        title: sent ? 'استلمنا' : paidOut ? 'سلّمنا' : wallet ? 'أودعنا' : 'المبلغ',
+        right: RIGHT - 95,
+      },
+      { title: priced ? 'السعر' : '', right: RIGHT - 265 },
+      {
+        title: sent ? 'تسعيرة المراسل' : paidOut ? 'قيد المراسل' : 'المقابل',
+        right: RIGHT - 350,
+      },
+      { title: noted ? 'ملاحظة' : 'العميل', right: RIGHT - 520 },
     ],
     [
       ...part.moves.map((move) => {
@@ -410,7 +420,7 @@ function list(part: ListPart, top: number): { parts: string[]; y: number } {
         return [
           [move.at],
           [amount(move.goods)],
-          remittance || wallet ? [] : [move.price ?? '—'],
+          priced ? [move.price ?? '—'] : [],
           [amount(move.counter)],
           [[move.byBank ? 'بنكي' : null, shown].filter(Boolean).join(' · ') || '—'],
         ];

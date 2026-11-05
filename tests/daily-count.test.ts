@@ -52,7 +52,8 @@ describe('the daily count', () => {
     assert.equal(kindOf('USDT_SEND', 'ILS'), 'USDT_SEND');
     assert.equal(kindOf('EXCHANGE', 'USD'), 'BUY');
     assert.equal(kindOf('EXCHANGE', 'ILS'), 'SELL');
-    assert.equal(kindOf('REMITTANCE_OUT', 'ILS'), null);
+    assert.equal(kindOf('REMITTANCE_OUT', 'ILS'), 'REMITTANCE_OUT');
+    assert.equal(kindOf('REMITTANCE_IN', 'ILS'), 'REMITTANCE_IN');
     assert.equal(kindOf('WALLET_TOPUP', 'ILS'), 'WALLET_TOPUP');
     assert.equal(kindOf('WALLET_CASHOUT', 'ILS'), null);
   });
@@ -89,7 +90,7 @@ describe('the daily count', () => {
 
     assert.deepEqual(
       count.groups.map((group) => group.kind),
-      ['USDT_RECEIVE', 'USDT_SEND', 'BUY', 'SELL', 'WALLET_TOPUP'],
+      ['USDT_RECEIVE', 'USDT_SEND', 'BUY', 'SELL', 'WALLET_TOPUP', 'REMITTANCE_OUT', 'REMITTANCE_IN'],
     );
     assert.equal(by.USDT_RECEIVE?.count, 2);
     assert.deepEqual(by.USDT_RECEIVE?.received, [{ currency: 'USDT', amount: 150n * UNIT }]);

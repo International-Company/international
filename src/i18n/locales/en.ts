@@ -1380,8 +1380,14 @@ const en = {
 
   dailyCount: {
     title: 'Daily count',
-    subtitle: 'Your deals for the day: USDT, exchange, wallets and TikTok. Tap a kind to see only its deals.',
-    tab: { USDT: 'USDT', EXCHANGE: 'Exchange', WALLET: 'Wallets', TIKTOK: 'TikTok' },
+    subtitle: 'Your deals for the day: USDT, exchange, remittances, wallets and TikTok. Tap a kind to see only its deals.',
+    tab: {
+      USDT: 'USDT',
+      EXCHANGE: 'Exchange',
+      REMITTANCE: 'Remittances',
+      WALLET: 'Wallets',
+      TIKTOK: 'TikTok',
+    },
     tiktok: {
       title: 'TikTok withdrawals',
       withdrawn: 'Withdrawn',
@@ -1395,6 +1401,8 @@ const en = {
       BUY: 'Currency bought',
       SELL: 'Currency sold',
       WALLET_TOPUP: 'Wallet top-up',
+      REMITTANCE_OUT: 'Remittances sent',
+      REMITTANCE_IN: 'Remittances paid out',
     },
     short: {
       USDT_RECEIVE: 'Received',
@@ -1402,6 +1410,8 @@ const en = {
       BUY: 'Bought',
       SELL: 'Sold',
       WALLET_TOPUP: 'Top-up',
+      REMITTANCE_OUT: 'Sent',
+      REMITTANCE_IN: 'Paid out',
     },
     goods: {
       USDT_RECEIVE: 'Received',
@@ -1409,6 +1419,8 @@ const en = {
       BUY: 'Bought',
       SELL: 'Sold',
       WALLET_TOPUP: 'Put in',
+      REMITTANCE_OUT: 'Received',
+      REMITTANCE_IN: 'Paid out',
     },
     counter: {
       USDT_RECEIVE: 'Paid for it',
@@ -1416,6 +1428,8 @@ const en = {
       BUY: 'Paid for it',
       SELL: 'Taken for it',
       WALLET_TOPUP: 'Taken for it',
+      REMITTANCE_OUT: 'Correspondent’s price',
+      REMITTANCE_IN: 'Correspondent’s credit',
     },
     all: 'All',
     search: 'Search by customer or reference',

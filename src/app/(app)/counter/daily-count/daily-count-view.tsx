@@ -10,6 +10,7 @@ import {
   Music2,
   Printer,
   Search,
+  Send,
   ShoppingCart,
   Wallet,
   type LucideIcon,
@@ -22,9 +23,9 @@ import { cn } from '@/ui/utils';
 import { DayNavigator, dayInput } from '../machine/my-cash-ledger';
 
 /**
- * The day in lists — USDT, exchange, wallets and TikTok — chosen by a tab. The
- * first three open with their kinds side by side (received and sent, bought and
- * sold), which double as their filter, and beneath them every deal of the list in one
+ * The day in lists — USDT, exchange, remittances, wallets and TikTok — chosen by
+ * a tab. All but the last open with their kinds side by side (received and sent,
+ * bought and sold), which double as their filter, and beneath them every deal of the list in one
  * table: the kind, the customer, how much of the goods, the price, and the other
  * side. TikTok has one kind and moves no balance, so it has a table of its own.
  */
@@ -34,8 +35,15 @@ interface Amount {
   amount: string;
 }
 
-type Kind = 'USDT_RECEIVE' | 'USDT_SEND' | 'BUY' | 'SELL' | 'WALLET_TOPUP';
-type Tab = 'USDT' | 'EXCHANGE' | 'WALLET' | 'TIKTOK';
+type Kind =
+  | 'USDT_RECEIVE'
+  | 'USDT_SEND'
+  | 'BUY'
+  | 'SELL'
+  | 'WALLET_TOPUP'
+  | 'REMITTANCE_OUT'
+  | 'REMITTANCE_IN';
+type Tab = 'USDT' | 'EXCHANGE' | 'REMITTANCE' | 'WALLET' | 'TIKTOK';
 
 interface Entry {
   id: string;
@@ -83,6 +91,7 @@ interface TiktokDay {
 const TABS: { tab: Tab; icon: LucideIcon; kinds: Kind[] }[] = [
   { tab: 'USDT', icon: Coins, kinds: ['USDT_RECEIVE', 'USDT_SEND'] },
   { tab: 'EXCHANGE', icon: ArrowLeftRight, kinds: ['BUY', 'SELL'] },
+  { tab: 'REMITTANCE', icon: Send, kinds: ['REMITTANCE_OUT', 'REMITTANCE_IN'] },
   { tab: 'WALLET', icon: Wallet, kinds: ['WALLET_TOPUP'] },
 ];
 
@@ -121,6 +130,18 @@ const LOOK: Record<
     active: 'ring-2 ring-primary',
     goodsOn: 'to',
   },
+  REMITTANCE_OUT: {
+    icon: ArrowUpFromLine,
+    tone: 'text-warning-text bg-warning-subtle',
+    active: 'ring-2 ring-warning',
+    goodsOn: 'from',
+  },
+  REMITTANCE_IN: {
+    icon: ArrowDownToLine,
+    tone: 'text-success-text bg-success-subtle',
+    active: 'ring-2 ring-success',
+    goodsOn: 'to',
+  },
 };
 
 type Row = Entry & { kind: Kind };
@@ -138,7 +159,7 @@ const counter = (row: Row) =>
 /** The price per unit of the goods, read off the amounts themselves. */
 function priceOf(row: Row): string | null {
   // One currency on both sides: the gap is a fee, not a price.
-  if (row.kind === 'WALLET_TOPUP') return null;
+  if (row.fromCurrency === row.toCurrency) return null;
   const unit = Number(goods(row).amount);
   const other = Number(counter(row).amount);
   if (!unit || !other) return null;
@@ -371,7 +392,7 @@ export function DailyCountView() {
     <div className="space-y-4">
       {/* --- The day, and which list ------------------------------------------ */}
       <div className="flex flex-col-reverse gap-3 2xl:flex-row 2xl:items-center 2xl:justify-between">
-        <div className="grid grid-cols-2 gap-1 rounded-2xl bg-surface-sunken p-1 sm:grid-cols-4 2xl:flex">
+        <div className="grid grid-cols-3 gap-1 rounded-2xl bg-surface-sunken p-1 sm:grid-cols-5 2xl:flex">
           {TABS.map(({ tab: each, icon: Icon, kinds }) => {
             const total = kinds.reduce((sum, k) => sum + (byKind.get(k)?.count ?? 0), 0);
             return (

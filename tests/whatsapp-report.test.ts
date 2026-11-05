@@ -434,6 +434,40 @@ describe('the report as a picture', () => {
     assert.doesNotMatch(svg!, />1\.01</);
   });
 
+  it('lists a remittance paid out by what was handed over', () => {
+    const paid = moveOf('REMITTANCE_IN', {
+      at: '11:00',
+      fromCurrency: 'ILS',
+      fromAmount: 1020n * UNIT,
+      toCurrency: 'ILS',
+      toAmount: 1000n * UNIT,
+      customer: 'تركيا',
+      intakeBank: 0n,
+      payoutBank: 0n,
+    });
+    assert.equal(paid.goods.amount, 1000n * UNIT, 'what the customer took');
+    assert.equal(paid.counter.amount, 1020n * UNIT, 'what the correspondent credits');
+    assert.equal(paid.price, null);
+    const [svg] = reportSvgs({
+      ...day,
+      groups: [
+        {
+          kind: 'REMITTANCE_IN',
+          count: 1,
+          received: [],
+          paid: [{ currency: 'ILS', amount: 1000n * UNIT }],
+          receivedBank: [],
+          paidBank: [],
+          moves: [paid],
+        },
+      ],
+    });
+    assert.match(svg!, /الحوالات الواردة/);
+    assert.match(svg!, /سلّمنا/);
+    assert.match(svg!, /قيد المراسل/);
+    assert.match(svg!, />1,000<\/text><text[^>]*>شيكل نقدي</);
+  });
+
   it('keeps a total on the page of its last deal, however the deals fall', () => {
     for (let n = 1; n < 80; n += 1) {
       const parts = paginate(busy(n)).flat();

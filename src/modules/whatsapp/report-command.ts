@@ -155,7 +155,8 @@ export type CountKind =
   | 'USDT_RECEIVE'
   | 'USDT_SEND'
   | 'WALLET_TOPUP'
-  | 'REMITTANCE_OUT';
+  | 'REMITTANCE_OUT'
+  | 'REMITTANCE_IN';
 
 export const KIND_WORDS: Record<CountKind, string> = {
   BUY: 'شراء (صرافة)',
@@ -164,6 +165,7 @@ export const KIND_WORDS: Record<CountKind, string> = {
   USDT_SEND: 'سحب / بيع يواس',
   WALLET_TOPUP: 'إيداع في محفظة',
   REMITTANCE_OUT: 'حوالات صادرة',
+  REMITTANCE_IN: 'حوالات واردة',
 };
 
 /** The heading of each kind's own list of deals. */
@@ -174,6 +176,7 @@ export const MOVE_WORDS: Record<CountKind, string> = {
   USDT_SEND: 'بيع يواس (سحب وبيع)',
   WALLET_TOPUP: 'الإيداع في محفظة',
   REMITTANCE_OUT: 'الحوالات الصادرة',
+  REMITTANCE_IN: 'الحوالات الواردة',
 };
 
 /** One deal in a kind's list. */
@@ -228,7 +231,7 @@ export function moveOf(
     counter,
     // One currency on both sides: there is no price to read, only the gap.
     price:
-      kind === 'REMITTANCE_OUT' || kind === 'WALLET_TOPUP'
+      deal.fromCurrency === deal.toCurrency
         ? null
         : priceText(goods.amount, counter.amount),
     customer: deal.customer,

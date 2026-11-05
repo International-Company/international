@@ -132,10 +132,9 @@ export async function tellerDay(teller: TellerCandidate): Promise<TellerDay> {
   // Read as the teller reads their own pages: these services answer for "me".
   const as = { id: teller.id, name: teller.fullNameEn, permissions: ['exchange.transaction.view'] };
 
-  const [ledger, count, remittances] = await Promise.all([
+  const [ledger, count] = await Promise.all([
     cashLedger({ from: start, to: end, day }, as),
     dailyCount({ from: start, to: end }, as),
-    sentRemittances(teller.id, start, end),
   ]);
 
   /*
@@ -170,104 +169,53 @@ export async function tellerDay(teller: TellerCandidate): Promise<TellerDay> {
       out: flows.get(closing.currency)?.out ?? 0n,
       closing: closing.amount,
     })),
-    // The exchange first, then the coins, each buying before selling; remittances last.
-    groups: [
-      ...[...count.groups]
-        .sort((a, b) => REPORT_ORDER.indexOf(a.kind) - REPORT_ORDER.indexOf(b.kind))
-        .map((group) => ({
-          kind: group.kind,
-          count: group.count,
-          received: group.received,
-          paid: group.paid,
-          receivedBank: sumAmounts(
-            standing(group.entries).map((entry) => ({
-              currency: entry.fromCurrency,
-              amount: entry.intakeBank,
-            })),
-          ),
-          paidBank: sumAmounts(
-            standing(group.entries).map((entry) => ({
-              currency: entry.toCurrency,
-              amount: entry.payoutBank,
-            })),
-          ),
-          moves: standing(group.entries)
-            .map((entry) =>
-              moveOf(group.kind, {
-                at: clock(entry.at),
-                fromCurrency: entry.fromCurrency,
-                fromAmount: entry.fromAmount,
-                toCurrency: entry.toCurrency,
-                toAmount: entry.toAmount,
-                customer: entry.customer,
-                intakeBank: entry.intakeBank,
-                payoutBank: entry.payoutBank,
-              }),
-            ),
-        })),
-      remittances,
-    ],
+    // The exchange first, then the coins, each buying before selling; then the rest.
+    groups: [...count.groups]
+      .sort((a, b) => REPORT_ORDER.indexOf(a.kind) - REPORT_ORDER.indexOf(b.kind))
+      .map((group) => ({
+        kind: group.kind,
+        count: group.count,
+        // A correspondent's price or credit is owed between offices: it never
+        // crossed the counter, so the totals leave it out. The lists still say it.
+        received: group.kind === 'REMITTANCE_IN' ? [] : group.received,
+        paid: group.kind === 'REMITTANCE_OUT' ? [] : group.paid,
+        receivedBank: sumAmounts(
+          standing(group.entries).map((entry) => ({
+            currency: entry.fromCurrency,
+            amount: entry.intakeBank,
+          })),
+        ),
+        paidBank: sumAmounts(
+          standing(group.entries).map((entry) => ({
+            currency: entry.toCurrency,
+            amount: entry.payoutBank,
+          })),
+        ),
+        moves: standing(group.entries).map((entry) =>
+          moveOf(group.kind, {
+            at: clock(entry.at),
+            fromCurrency: entry.fromCurrency,
+            fromAmount: entry.fromAmount,
+            toCurrency: entry.toCurrency,
+            toAmount: entry.toAmount,
+            customer: entry.customer,
+            intakeBank: entry.intakeBank,
+            payoutBank: entry.payoutBank,
+          }),
+        ),
+      })),
   };
 }
 
-const REPORT_ORDER = ['BUY', 'SELL', 'USDT_RECEIVE', 'USDT_SEND', 'WALLET_TOPUP'];
-
-/**
- * The remittances a teller sent today that stand. Nothing is listed as paid out:
- * the correspondent's price is owed to them, not money that left the counter.
- */
-async function sentRemittances(tellerId: string, start: Date, end: Date) {
-  const deals = await prisma.transaction.findMany({
-    where: {
-      createdById: tellerId,
-      reversalOfId: null,
-      type: 'REMITTANCE_OUT',
-      status: { not: 'REVERSED' },
-      createdAt: { gte: start, lte: end },
-    },
-    orderBy: { createdAt: 'asc' },
-    select: {
-      createdAt: true,
-      fromCurrency: true,
-      fromAmount: true,
-      toCurrency: true,
-      toAmount: true,
-      intakeBrokerAmount: true,
-      counterpartyName: true,
-      notes: true,
-      customer: { select: { fullNameAr: true, fullNameEn: true } },
-    },
-  });
-  return {
-    kind: 'REMITTANCE_OUT' as const,
-    count: deals.length,
-    received: sumAmounts(
-      deals.map((deal) => ({ currency: deal.fromCurrency, amount: deal.fromAmount })),
-    ),
-    paid: [],
-    receivedBank: sumAmounts(
-      deals.map((deal) => ({ currency: deal.fromCurrency, amount: deal.intakeBrokerAmount })),
-    ),
-    paidBank: [],
-    moves: deals.map((deal) =>
-      moveOf('REMITTANCE_OUT', {
-        at: clock(deal.createdAt),
-        fromCurrency: deal.fromCurrency,
-        fromAmount: deal.fromAmount,
-        toCurrency: deal.toCurrency,
-        toAmount: deal.toAmount,
-        customer:
-          deal.customer?.fullNameAr ||
-          deal.customer?.fullNameEn ||
-          deal.counterpartyName ||
-          deal.notes ||
-          null,
-        intakeBank: deal.intakeBrokerAmount,
-        payoutBank: 0n,
-      }),
-    ),
-  };
-}
+const REPORT_ORDER = [
+  'BUY',
+  'SELL',
+  'USDT_RECEIVE',
+  'USDT_SEND',
+  'WALLET_TOPUP',
+  'REMITTANCE_OUT',
+  'REMITTANCE_IN',
+];
 
 const standing = (entries: CountEntry[]) => entries.filter((entry) => !entry.reversed);
 

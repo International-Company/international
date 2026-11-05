@@ -7,7 +7,7 @@ import type { Actor } from './transaction.service';
 /**
  * الجرد اليومي — a teller's day, sorted the way he counts it: USDT taken in,
  * USDT sent out, foreign currency bought, foreign currency sold, money put into
- * customers' wallets. Each kind on
+ * customers' wallets, remittances sent and paid out. Each kind on
  * its own, with what came in and what went out under it, and every deal of
  * that kind listed beneath.
  *
@@ -20,9 +20,27 @@ import type { Actor } from './transaction.service';
  * is not listed: it is the same deal read backwards.
  */
 
-export type CountKind = 'USDT_RECEIVE' | 'USDT_SEND' | 'BUY' | 'SELL' | 'WALLET_TOPUP';
+export type CountKind =
+  | 'USDT_RECEIVE'
+  | 'USDT_SEND'
+  | 'BUY'
+  | 'SELL'
+  | 'WALLET_TOPUP'
+  | 'REMITTANCE_OUT'
+  | 'REMITTANCE_IN';
 
-export const COUNT_KINDS: CountKind[] = ['USDT_RECEIVE', 'USDT_SEND', 'BUY', 'SELL', 'WALLET_TOPUP'];
+export const COUNT_KINDS: CountKind[] = [
+  'USDT_RECEIVE',
+  'USDT_SEND',
+  'BUY',
+  'SELL',
+  'WALLET_TOPUP',
+  'REMITTANCE_OUT',
+  'REMITTANCE_IN',
+];
+
+/** Written down by a note alone, so the note stands in for a name in the lists. */
+const REMITTANCES = ['REMITTANCE_OUT', 'REMITTANCE_IN'];
 
 export interface CountAmount {
   currency: string;
@@ -64,9 +82,17 @@ export interface DailyCount {
   groups: CountGroup[];
 }
 
-/** Which list a deal belongs in, or none: remittances are counted elsewhere. */
+/** Which list a deal belongs in, or none. */
 export function kindOf(type: string, fromCurrency: string): CountKind | null {
-  if (type === 'USDT_RECEIVE' || type === 'USDT_SEND' || type === 'WALLET_TOPUP') return type;
+  if (
+    type === 'USDT_RECEIVE' ||
+    type === 'USDT_SEND' ||
+    type === 'WALLET_TOPUP' ||
+    type === 'REMITTANCE_OUT' ||
+    type === 'REMITTANCE_IN'
+  ) {
+    return type;
+  }
   // A sale only recorded is still coins out for money in: it counts with the sends.
   if (type === 'USDT_SALE') return 'USDT_SEND';
   if (type !== 'EXCHANGE') return null;
@@ -91,7 +117,16 @@ export async function dailyCount(
     where: {
       createdById: actor.id,
       reversalOfId: null,
-      type: { in: ['EXCHANGE', 'USDT_RECEIVE', 'USDT_SEND', 'USDT_SALE', 'WALLET_TOPUP'] },
+      type: {
+        in: [
+          'EXCHANGE',
+          'USDT_RECEIVE',
+          'USDT_SEND',
+          'USDT_SALE',
+          'WALLET_TOPUP',
+          ...REMITTANCES,
+        ],
+      },
       createdAt: { gte: input.from, lte: input.to },
     },
     orderBy: { createdAt: 'asc' },
@@ -109,6 +144,7 @@ export async function dailyCount(
       payoutBankAmount: true,
       payoutBankChannel: true,
       counterpartyName: true,
+      notes: true,
       customer: { select: { fullNameAr: true, fullNameEn: true } },
     },
   });
@@ -134,7 +170,11 @@ export async function dailyCount(
       at: deal.createdAt,
       status: deal.status,
       customer:
-        deal.customer?.fullNameAr || deal.customer?.fullNameEn || deal.counterpartyName || null,
+        deal.customer?.fullNameAr ||
+        deal.customer?.fullNameEn ||
+        deal.counterpartyName ||
+        (REMITTANCES.includes(deal.type) ? deal.notes : null) ||
+        null,
       fromCurrency: deal.fromCurrency,
       fromAmount: deal.fromAmount,
       toCurrency: deal.toCurrency,
