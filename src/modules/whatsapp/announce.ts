@@ -7,6 +7,11 @@ import { HOME_CURRENCY } from '@/lib/home-currency';
 import { TRANSACTION_TYPE_META, type TransactionType } from '@/modules/exchange/transaction-types';
 import * as settings from '@/modules/settings/settings.service';
 import { shareable, type Shareable } from '@/modules/exchange/share.service';
+import {
+  composeWithdrawal,
+  composeWithdrawalDeleted,
+  TIKTOK_DEAL_TYPE,
+} from '@/modules/tiktok/tiktok-message';
 import { groupFor, parseRoutes } from './group-routes';
 import { isLinked, sendImage, sendText, type SentMessage } from './whatsapp.service';
 
@@ -316,6 +321,36 @@ export function registerWhatsappSubscribers(): void {
       proof.mimeType,
     ).catch((error) =>
       log.warn('Could not send a payment photo', { reference: message.reference, error }),
+    );
+  });
+
+  on('tiktok.recorded', 'whatsapp-announce-tiktok', async ({ withdrawalId }) => {
+    const group = await target(TIKTOK_DEAL_TYPE);
+    if (!group) return;
+    const row = await prisma.tiktokWithdrawal.findUnique({
+      where: { id: withdrawalId },
+      include: { createdBy: { select: { fullNameAr: true } } },
+    });
+    if (!row) return;
+    await sendImage(
+      group,
+      Buffer.from(row.data),
+      composeWithdrawal({ ...row, teller: row.createdBy.fullNameAr }),
+      undefined,
+      row.mimeType,
+    ).catch((error) => log.warn('Could not send a TikTok withdrawal', { withdrawalId, error }));
+  });
+
+  on('tiktok.deleted', 'whatsapp-announce-tiktok-deletion', async ({ withdrawalId, by }) => {
+    const group = await target(TIKTOK_DEAL_TYPE);
+    if (!group) return;
+    const row = await prisma.tiktokWithdrawal.findUnique({
+      where: { id: withdrawalId },
+      select: { amount: true, currency: true, details: true },
+    });
+    if (!row) return;
+    await sendText(group, composeWithdrawalDeleted({ ...row, teller: null }, by)).catch((error) =>
+      log.warn('Could not announce a TikTok deletion', { withdrawalId, error }),
     );
   });
 

@@ -131,6 +131,7 @@ model User {
   notifications   NotificationRecipient[]
 
   createdTransactions Transaction[]        @relation("TransactionCreatedBy")
+  tiktokWithdrawals   TiktokWithdrawal[]
   confirmedTransfers  Transaction[]        @relation("TransactionTransferConfirmedBy")
   approvedWithdrawals Transaction[]        @relation("TransactionApprovedBy")
   openedDays          BusinessDay[]        @relation("DayOpenedBy")
@@ -2173,6 +2174,26 @@ model RemittancePrice {
 
   @@unique([destination, currency])
   @@map("remittance_prices")
+}
+
+/// A TikTok withdrawal written down: a photo, who it is for and how much. Moves
+/// no balance. Deleting one marks it, so the audit trail keeps what it refers to.
+model TiktokWithdrawal {
+  id          String    @id @default(cuid())
+  currency    String
+  amount      BigInt
+  details     String
+  mimeType    String
+  size        Int
+  data        Bytes
+  createdById String
+  createdBy   User      @relation(fields: [createdById], references: [id])
+  createdAt   DateTime  @default(now())
+  deletedAt   DateTime?
+  deletedById String?
+
+  @@index([createdById, createdAt])
+  @@map("tiktok_withdrawals")
 }
 
 /// A photo a remittance carries: PAYMENT, of what the customer paid, or BENEFICIARY,

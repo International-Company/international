@@ -28,6 +28,8 @@ export interface DomainEvents {
     unannounced?: boolean;
   };
   'transaction.proofAdded': { transactionId: string; proofId: string };
+  'tiktok.recorded': { withdrawalId: string };
+  'tiktok.deleted': { withdrawalId: string; by: string };
   'transaction.reversed': { transactionId: string; reversalId: string; actorId: string };
 
   'rate.changed': { baseCode: string; quoteCode: string; rateId: string; actorId: string };

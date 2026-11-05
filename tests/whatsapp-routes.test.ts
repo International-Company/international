@@ -59,11 +59,13 @@ describe('which group hears of which deals', () => {
 
   it('names each group once, with all it hears', () => {
     assert.deepEqual(groupPlan(routes, MAIN), [
-      { id: MAIN, hears: ['الصرافة'] },
+      { id: MAIN, hears: ['الصرافة', 'تيكتوك'] },
       { id: 'coins@g.us', hears: ['USDT'] },
       { id: 'remit@g.us', hears: ['الحوالات'] },
     ]);
-    assert.deepEqual(groupPlan({}, MAIN), [{ id: MAIN, hears: ['الصرافة', 'USDT', 'الحوالات'] }]);
+    assert.deepEqual(groupPlan({}, MAIN), [
+      { id: MAIN, hears: ['الصرافة', 'USDT', 'الحوالات', 'تيكتوك'] },
+    ]);
     assert.deepEqual(groupPlan({}, ''), []);
   });
 });

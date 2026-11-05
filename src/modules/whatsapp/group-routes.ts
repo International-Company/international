@@ -5,7 +5,7 @@
  * an office that chose nothing here goes on exactly as it did.
  */
 
-export const ROUTE_CATEGORIES = ['EXCHANGE', 'USDT', 'REMITTANCE'] as const;
+export const ROUTE_CATEGORIES = ['EXCHANGE', 'USDT', 'REMITTANCE', 'TIKTOK'] as const;
 export type RouteCategory = (typeof ROUTE_CATEGORIES)[number];
 
 export type GroupRoutes = Partial<Record<RouteCategory, { id: string; name: string }>>;
@@ -19,12 +19,14 @@ const CATEGORY_OF: Record<string, RouteCategory> = {
   USDT_SALE: 'USDT',
   REMITTANCE_OUT: 'REMITTANCE',
   REMITTANCE_IN: 'REMITTANCE',
+  TIKTOK_WITHDRAWAL: 'TIKTOK',
 };
 
 const CATEGORY_WORDS: Record<RouteCategory, string> = {
   EXCHANGE: 'الصرافة',
   USDT: 'USDT',
   REMITTANCE: 'الحوالات',
+  TIKTOK: 'تيكتوك',
 };
 
 /** The stored routes. Anything unreadable counts as none: the main group still hears. */

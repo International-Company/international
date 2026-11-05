@@ -38,6 +38,7 @@ export interface NavSection {
 
 export type IconName =
   | 'machine'
+  | 'tiktok'
   | 'counter'
   | 'transfer'
   | 'handover'
@@ -119,6 +120,12 @@ export const NAVIGATION: NavSection[] = [
         icon: 'transfer',
         permissions: ['exchange.remittance.use'],
         shortcut: 'g h',
+      },
+      {
+        href: '/counter/tiktok',
+        labelKey: 'nav.tiktok',
+        icon: 'tiktok',
+        permissions: ['exchange.remittance.use'],
       },
       {
         // His own work, beside the tools that did it. Anyone who may see a
