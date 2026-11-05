@@ -5,7 +5,7 @@
  * an office that chose nothing here goes on exactly as it did.
  */
 
-export const ROUTE_CATEGORIES = ['EXCHANGE', 'USDT', 'REMITTANCE', 'TIKTOK'] as const;
+export const ROUTE_CATEGORIES = ['EXCHANGE', 'USDT', 'USDT_SALE', 'REMITTANCE', 'TIKTOK'] as const;
 export type RouteCategory = (typeof ROUTE_CATEGORIES)[number];
 
 export type GroupRoutes = Partial<Record<RouteCategory, { id: string; name: string }>>;
@@ -16,7 +16,7 @@ const CATEGORY_OF: Record<string, RouteCategory> = {
   WALLET_TOPUP: 'EXCHANGE',
   USDT_RECEIVE: 'USDT',
   USDT_SEND: 'USDT',
-  USDT_SALE: 'USDT',
+  USDT_SALE: 'USDT_SALE',
   REMITTANCE_OUT: 'REMITTANCE',
   REMITTANCE_IN: 'REMITTANCE',
   TIKTOK_WITHDRAWAL: 'TIKTOK',
@@ -25,6 +25,7 @@ const CATEGORY_OF: Record<string, RouteCategory> = {
 const CATEGORY_WORDS: Record<RouteCategory, string> = {
   EXCHANGE: 'الصرافة',
   USDT: 'USDT',
+  USDT_SALE: 'بيع USDT',
   REMITTANCE: 'الحوالات',
   TIKTOK: 'تيكتوك',
 };
@@ -64,10 +65,17 @@ export function withRoute(
   return next;
 }
 
+/** Where a kind goes: its own group, else the USDT group for a sale, else the main one. */
+function routedTo(category: RouteCategory, routes: GroupRoutes, main: string): string {
+  return (
+    routes[category]?.id || (category === 'USDT_SALE' ? routes.USDT?.id : undefined) || main
+  );
+}
+
 /** The group a deal of this type goes to, or '' when none is chosen. */
 export function groupFor(type: string, routes: GroupRoutes, main: string): string {
   const category = CATEGORY_OF[type];
-  return (category && routes[category]?.id) || main;
+  return category ? routedTo(category, routes, main) : main;
 }
 
 /** The groups already welcomed, as they are stored: separated by commas. */
@@ -87,7 +95,7 @@ export function newlyLinked(before: string[], after: string[], welcomed: string[
 export function groupPlan(routes: GroupRoutes, main: string): { id: string; hears: string[] }[] {
   const plan = new Map<string, string[]>();
   for (const category of ROUTE_CATEGORIES) {
-    const id = routes[category]?.id || main;
+    const id = routedTo(category, routes, main);
     if (id) plan.set(id, [...(plan.get(id) ?? []), CATEGORY_WORDS[category]]);
   }
   return [...plan].map(([id, hears]) => ({ id, hears }));

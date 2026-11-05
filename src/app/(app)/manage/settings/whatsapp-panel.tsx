@@ -314,6 +314,8 @@ export function WhatsappPanel({ canManage }: { canManage: boolean }) {
             </div>
             {ROUTE_CATEGORIES.map((category) => {
               const route = link.routes[category];
+              const unset =
+                category === 'USDT_SALE' ? t('whatsapp.routeSameAsUsdt') : t('whatsapp.routeMain');
               return (
                 <div key={category} className="flex flex-wrap items-center justify-between gap-2">
                   <span className="text-sm text-content-secondary">
@@ -321,7 +323,7 @@ export function WhatsappPanel({ canManage }: { canManage: boolean }) {
                   </span>
                   {routeGroups === null ? (
                     <span className="text-sm font-medium text-content">
-                      {route?.name || t('whatsapp.routeMain')}
+                      {route?.name || unset}
                     </span>
                   ) : (
                     <select
@@ -331,7 +333,7 @@ export function WhatsappPanel({ canManage }: { canManage: boolean }) {
                       onChange={(event) => saveRoute(category, event.target.value)}
                       className="h-10 min-w-0 flex-1 rounded-xl bg-surface-sunken px-3 text-sm font-medium text-content outline-none ring-1 ring-border-subtle focus:ring-primary sm:max-w-xs"
                     >
-                      <option value="">{t('whatsapp.routeMain')}</option>
+                      <option value="">{unset}</option>
                       {/* A group the number has since left still shows what is set. */}
                       {route && !routeGroups.some((group) => group.id === route.id) && (
                         <option value={route.id}>{route.name}</option>

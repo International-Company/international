@@ -1,7 +1,7 @@
 import 'server-only';
 import { prisma, type DbClient } from '@/core/db/prisma';
 import { errors } from '@/core/errors/app-error';
-import { wholeAmount, toDecimalString } from '@/core/money/money';
+import { divideRounded, MONEY_FACTOR, wholeAmount, toDecimalString } from '@/core/money/money';
 import type { Locale } from '@/i18n/config';
 import * as settings from '@/modules/settings/settings.service';
 import * as audit from '@/modules/audit/audit.service';
@@ -83,6 +83,7 @@ const SHARE_SELECT = {
   reference: true,
   type: true,
   status: true,
+  fromCurrency: true,
   fromAmount: true,
   toCurrency: true,
   toAmount: true,
@@ -90,6 +91,7 @@ const SHARE_SELECT = {
   payoutBankChannel: true,
   payoutAccount: true,
   payoutAddress: true,
+  intakeBankChannel: true,
   counterpartyName: true,
   counterpartyPhone: true,
   customer: { select: { fullNameAr: true, fullNameEn: true, phone: true } },
@@ -98,6 +100,7 @@ const SHARE_SELECT = {
 
 type ShareRow = {
   type: string;
+  fromCurrency: string;
   fromAmount: bigint;
   toCurrency: string;
   toAmount: bigint;
@@ -105,6 +108,7 @@ type ShareRow = {
   payoutBankChannel: string | null;
   payoutAccount: string | null;
   payoutAddress: string | null;
+  intakeBankChannel: string | null;
   counterpartyName: string | null;
   counterpartyPhone: string | null;
   customer: { fullNameAr: string; fullNameEn: string; phone: string | null } | null;
@@ -150,13 +154,37 @@ async function unitsFor(
  * part nobody can correct afterwards, and a customer who reads it back has
  * saved everybody.
  */
-function composeLines(transaction: ShareRow, locale: Locale, unit: string): string[] {
+function composeLines(
+  transaction: ShareRow,
+  locale: Locale,
+  unit: string,
+  payUnit?: string,
+): string[] {
   const phone = transaction.customer?.phone ?? transaction.counterpartyPhone ?? null;
   const who = transaction.customer
     ? locale === 'ar'
       ? transaction.customer.fullNameAr
       : transaction.customer.fullNameEn
     : transaction.counterpartyName;
+
+  /*
+   * Coins sold have nowhere to send and two sums to tell apart, so this one says
+   * what each is: the coins, the customer's price, and what they paid and how.
+   */
+  if (transaction.type === 'USDT_SALE') {
+    const price = toDecimalString(
+      divideRounded(transaction.fromAmount * MONEY_FACTOR, transaction.toAmount),
+      4,
+    ).replace(/\.?0+$/, '');
+    return [
+      phone,
+      who,
+      `${toDecimalString(transaction.toAmount, 2).replace(/\.00$/, '')} ${unit}`,
+      `${locale === 'ar' ? 'السعر' : 'Price'}: ${price}`,
+      `${wholeAmount(transaction.fromAmount)} ${payUnit}`,
+      transaction.intakeBankChannel || (locale === 'ar' ? 'نقدي' : 'Cash'),
+    ].filter((line): line is string => Boolean(line?.trim()));
+  }
 
   /*
    * The figure the message is about. An outgoing remittance says what the
@@ -202,10 +230,21 @@ export async function shareable(
 
   const [company, units] = await Promise.all([
     settings.getString(locale === 'ar' ? 'company.name.ar' : 'company.name.en', db),
-    unitsFor([transaction.toCurrency], locale, db),
+    unitsFor(
+      transaction.type === 'USDT_SALE'
+        ? [transaction.toCurrency, transaction.fromCurrency]
+        : [transaction.toCurrency],
+      locale,
+      db,
+    ),
   ]);
 
-  const lines = composeLines(transaction, locale, units.get(transaction.toCurrency)!);
+  const lines = composeLines(
+    transaction,
+    locale,
+    units.get(transaction.toCurrency)!,
+    units.get(transaction.fromCurrency),
+  );
 
   return {
     reference: transaction.reference,

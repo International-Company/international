@@ -23,7 +23,9 @@ type Row = {
   id: string;
   reference: string;
   type: string;
+  fromCurrency?: string;
   fromAmount?: bigint;
+  intakeBankChannel?: string | null;
   status: string;
   toCurrency: string;
   toAmount: bigint;
@@ -195,6 +197,48 @@ describe('every pending transfer, as one message', () => {
   it('says there is nothing rather than sending an empty message', async () => {
     const { db } = fakeDb([]);
     assert.deepEqual(await pendingTransfers(teller, 'ar', db), { count: 0, text: '' });
+  });
+});
+
+describe('a USDT sale', () => {
+  const sale = (patch: Partial<Row> = {}) =>
+    row({
+      type: 'USDT_SALE',
+      status: 'POSTED',
+      fromCurrency: 'ILS',
+      fromAmount: 1850n * UNIT,
+      toCurrency: 'USDT',
+      toAmount: 500n * UNIT,
+      payoutBankAmount: 0n,
+      payoutBankChannel: null,
+      payoutAccount: null,
+      counterpartyName: 'خالد',
+      intakeBankChannel: null,
+      ...patch,
+    });
+
+  it('says the coins, the price, what was paid and how', async () => {
+    const { db } = fakeDb([sale()]);
+    assert.deepEqual(lines((await shareable('t1', 'ar', db)).text), [
+      '0599000000',
+      'خالد',
+      '500 USDT',
+      'السعر: 3.7',
+      '1850 شيكل',
+      'نقدي',
+    ]);
+  });
+
+  it('names the account when it was paid by transfer', async () => {
+    const { db } = fakeDb([sale({ intakeBankChannel: 'بنك فلسطين' })]);
+    const said = lines((await shareable('t1', 'ar', db)).text);
+    assert.equal(said.at(-1), 'بنك فلسطين');
+    assert.doesNotMatch(said.join(' '), /نقدي/);
+  });
+
+  it('leaves out a name and number nobody gave', async () => {
+    const { db } = fakeDb([sale({ counterpartyName: null, counterpartyPhone: null })]);
+    assert.equal(lines((await shareable('t1', 'ar', db)).text)[0], '500 USDT');
   });
 });
 

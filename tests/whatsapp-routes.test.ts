@@ -30,6 +30,15 @@ describe('which group hears of which deals', () => {
     assert.equal(groupFor('USDT_SALE', routes, MAIN), 'coins@g.us');
   });
 
+  it('gives a USDT sale its own group, else the USDT group, else the main one', () => {
+    assert.equal(groupFor('USDT_SALE', {}, MAIN), MAIN);
+    assert.equal(groupFor('USDT_SALE', routes, MAIN), 'coins@g.us');
+    const own = { ...routes, USDT_SALE: { id: 'sales@g.us', name: 'البيع' } };
+    assert.equal(groupFor('USDT_SALE', own, MAIN), 'sales@g.us');
+    assert.equal(groupFor('USDT_SEND', own, MAIN), 'coins@g.us', 'the rest of USDT stays put');
+    assert.equal(groupFor('USDT_RECEIVE', own, MAIN), 'coins@g.us');
+  });
+
   it('leaves the other kinds with the main group', () => {
     assert.equal(groupFor('EXCHANGE', routes, MAIN), MAIN);
     assert.equal(groupFor('WALLET_CASHOUT', routes, MAIN), MAIN);
@@ -74,11 +83,11 @@ describe('which group hears of which deals', () => {
   it('names each group once, with all it hears', () => {
     assert.deepEqual(groupPlan(routes, MAIN), [
       { id: MAIN, hears: ['الصرافة', 'تيكتوك'] },
-      { id: 'coins@g.us', hears: ['USDT'] },
+      { id: 'coins@g.us', hears: ['USDT', 'بيع USDT'] },
       { id: 'remit@g.us', hears: ['الحوالات'] },
     ]);
     assert.deepEqual(groupPlan({}, MAIN), [
-      { id: MAIN, hears: ['الصرافة', 'USDT', 'الحوالات', 'تيكتوك'] },
+      { id: MAIN, hears: ['الصرافة', 'USDT', 'بيع USDT', 'الحوالات', 'تيكتوك'] },
     ]);
     assert.deepEqual(groupPlan({}, ''), []);
   });
