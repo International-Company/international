@@ -92,40 +92,18 @@ export function composeWithdrawalDeleted(
 export const RECONCILE_CODE = '#مطابقة';
 
 export interface ReconcileRow {
-  at: string;
-  account: string;
-  beneficiaryName: string;
   amount: bigint;
   currency: string;
-  payoutAmount: bigint;
 }
 
 /**
- * The day's withdrawals as the TikTok group checks them against what it was
- * sent: one line each, in the order they went, then the count and the sums.
+ * What the TikTok group checks against what it was sent: the day's withdrawals
+ * added up, the dollars alone.
  */
 export function composeReconciliation(rows: ReconcileRow[], day: string, asOf: string): string {
-  const lines = ['📋 *مطابقة تيكتوك*', `${day} — حتى الساعة ${asOf}`, ''];
-  if (rows.length === 0) {
-    lines.push('لا سحوبات تيكتوك اليوم');
-    return lines.join('\n');
-  }
-  rows.forEach((row, index) => {
-    const parts = [
-      row.at,
-      row.account.trim(),
-      row.beneficiaryName.trim(),
-      formatAmount({ currency: row.currency, amount: row.amount }),
-      row.payoutAmount > 0n ? shekels(row.payoutAmount) : null,
-    ].filter((part): part is string => Boolean(part));
-    lines.push(`${index + 1}. ${parts.join(' — ')}`);
-  });
-  const totals = tiktokTotals(rows.map((row) => ({ ...row, deleted: false })));
-  lines.push(
-    '',
-    `عدد السحوبات: ${totals.count}`,
-    ...totals.withdrawn.map((total) => `المجموع: *${formatAmount(total)}*`),
-    `المجموع بالشيكل: *${formatAmount({ currency: 'ILS', amount: totals.paid })}*`,
-  );
-  return lines.join('\n');
+  const totals = tiktokTotals(rows.map((row) => ({ ...row, payoutAmount: 0n, deleted: false })));
+  const sums = totals.withdrawn.length
+    ? totals.withdrawn.map((total) => `المجموع: *${formatAmount(total)}*`)
+    : ['المجموع: *0 دولار*'];
+  return ['📋 *مطابقة تيكتوك*', `${day} — حتى الساعة ${asOf}`, '', ...sums].join('\n');
 }

@@ -14,25 +14,15 @@ const rows = [
 ];
 
 describe('the TikTok reconciliation', () => {
-  it('lists the day’s withdrawals, then the count and the sums', () => {
+  it('says the dollars withdrawn that day, and nothing else', () => {
     assert.equal(
       composeReconciliation(rows, '2026-11-07', '14:20'),
-      [
-        '📋 *مطابقة تيكتوك*',
-        '2026-11-07 — حتى الساعة 14:20',
-        '',
-        '1. 09:15 — 12345 — محمد — 100 دولار — 255 ش',
-        '2. 11:40 — 67890 — سامي — 50 دولار — 127 ش',
-        '',
-        'عدد السحوبات: 2',
-        'المجموع: *150 دولار*',
-        'المجموع بالشيكل: *382 شيكل*',
-      ].join('\n'),
+      ['📋 *مطابقة تيكتوك*', '2026-11-07 — حتى الساعة 14:20', '', 'المجموع: *150 دولار*'].join('\n'),
     );
   });
 
-  it('says so on a day with none', () => {
-    assert.match(composeReconciliation([], '2026-11-07', '08:00'), /لا سحوبات تيكتوك اليوم/);
+  it('says nothing was withdrawn on a day with none', () => {
+    assert.match(composeReconciliation([], '2026-11-07', '08:00'), /المجموع: \*0 دولار\*/);
   });
 
   const incoming = (chat: string, text: string) =>
@@ -54,7 +44,7 @@ describe('the TikTok reconciliation', () => {
   it('answers the code in the TikTok group', async () => {
     const { outcome, sent } = await run('tiktok@g.us', '  #مطابقة ');
     assert.equal(outcome, 'SENT');
-    assert.match(sent[0]!, /عدد السحوبات: 2/);
+    assert.match(sent[0]!, /150 دولار/);
   });
 
   it('ignores it anywhere else, or with words after it', async () => {

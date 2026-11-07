@@ -14,7 +14,7 @@ import { parseCommand } from './report-command';
 import { onIncomingText, sendText, type IncomingText } from './whatsapp.service';
 
 /**
- * «#مطابقة» in the TikTok group, answered with the day's withdrawals and their sums.
+ * «#مطابقة» in the TikTok group, answered with the dollars withdrawn that day.
  *
  * Only in the group the withdrawals themselves go to: it already saw every one of
  * them, so anyone there may ask, and the answer tells it nothing new. Typed
@@ -26,7 +26,7 @@ const log = createLogger('whatsapp:tiktok-reconcile');
 export interface ReconcileDeps {
   /** The group TikTok withdrawals are sent to, or null when none is. */
   group: () => Promise<string | null>;
-  /** The day's withdrawals that stand, oldest first. */
+  /** The day's withdrawals that stand. */
   rows: (now: Date) => Promise<ReconcileRow[]>;
   reply: (incoming: IncomingText, text: string) => Promise<void>;
   now?: () => Date;
@@ -81,16 +81,9 @@ export function registerTiktokReconcile(): void {
         const found = await prisma.tiktokWithdrawal.findMany({
           where: { deletedAt: null, createdAt: { gte: start, lte: end } },
           orderBy: { createdAt: 'asc' },
-          select: {
-            createdAt: true,
-            account: true,
-            beneficiaryName: true,
-            amount: true,
-            currency: true,
-            payoutAmount: true,
-          },
+          select: { amount: true, currency: true },
         });
-        return found.map(({ createdAt, ...row }) => ({ ...row, at: clock(createdAt) }));
+        return found;
       },
       reply: async (message, text) => {
         await sendText(message.chat, text, message.message);
