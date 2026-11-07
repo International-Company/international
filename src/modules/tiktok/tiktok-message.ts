@@ -94,16 +94,30 @@ export const RECONCILE_CODE = '#مطابقة';
 export interface ReconcileRow {
   amount: bigint;
   currency: string;
+  /** The pounds the photo shows, when the teller typed them. */
+  egpAmount: bigint | null;
 }
 
 /**
  * What the TikTok group checks against what it was sent: the day's withdrawals
- * added up, the dollars alone.
+ * added up, the dollars and the pounds. Withdrawals whose pounds were left blank
+ * are counted, so the pound total is not taken for the whole day's.
  */
 export function composeReconciliation(rows: ReconcileRow[], day: string, asOf: string): string {
   const totals = tiktokTotals(rows.map((row) => ({ ...row, payoutAmount: 0n, deleted: false })));
-  const sums = totals.withdrawn.length
-    ? totals.withdrawn.map((total) => `المجموع: *${formatAmount(total)}*`)
-    : ['المجموع: *0 دولار*'];
-  return ['📋 *مطابقة تيكتوك*', `${day} — حتى الساعة ${asOf}`, '', ...sums].join('\n');
+  const dollars = totals.withdrawn.length
+    ? totals.withdrawn.map((total) => `مجموع الدولار: *${formatAmount(total)}*`)
+    : ['مجموع الدولار: *0 دولار*'];
+  const pounds = rows.reduce((sum, row) => sum + (row.egpAmount ?? 0n), 0n);
+  const blank = rows.filter((row) => !row.egpAmount).length;
+  return [
+    '📋 *مطابقة تيكتوك*',
+    `${day} — حتى الساعة ${asOf}`,
+    '',
+    ...dollars,
+    `مجموع الجنيه: *${formatAmount({ currency: 'EGP', amount: pounds })}*`,
+    blank > 0 ? `(${blank} ${blank === 1 ? 'سحب' : 'سحوبات'} بلا مبلغ بالجنيه)` : null,
+  ]
+    .filter((line): line is string => line !== null)
+    .join('\n');
 }

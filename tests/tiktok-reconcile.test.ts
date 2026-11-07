@@ -9,20 +9,39 @@ import type { IncomingText } from '../src/modules/whatsapp/whatsapp.service.ts';
 
 const U = 100_000_000n;
 const rows = [
-  { at: '09:15', account: '12345', beneficiaryName: 'محمد', amount: 100n * U, currency: 'USD', payoutAmount: 255n * U },
-  { at: '11:40', account: '67890', beneficiaryName: 'سامي', amount: 50n * U, currency: 'USD', payoutAmount: 127n * U },
+  { amount: 100n * U, currency: 'USD', egpAmount: 4900n * U },
+  { amount: 50n * U, currency: 'USD', egpAmount: 2450n * U },
 ];
 
 describe('the TikTok reconciliation', () => {
-  it('says the dollars withdrawn that day, and nothing else', () => {
+  it('says the dollars and the pounds withdrawn that day, and nothing else', () => {
     assert.equal(
       composeReconciliation(rows, '2026-11-07', '14:20'),
-      ['📋 *مطابقة تيكتوك*', '2026-11-07 — حتى الساعة 14:20', '', 'المجموع: *150 دولار*'].join('\n'),
+      [
+        '📋 *مطابقة تيكتوك*',
+        '2026-11-07 — حتى الساعة 14:20',
+        '',
+        'مجموع الدولار: *150 دولار*',
+        'مجموع الجنيه: *7,350 جنيه*',
+      ].join('\n'),
     );
   });
 
+  it('counts the withdrawals whose pounds were left blank', () => {
+    const text = composeReconciliation(
+      [...rows, { amount: 20n * U, currency: 'USD', egpAmount: null }],
+      '2026-11-07',
+      '14:20',
+    );
+    assert.match(text, /مجموع الدولار: \*170 دولار\*/);
+    assert.match(text, /مجموع الجنيه: \*7,350 جنيه\*/);
+    assert.match(text, /\(1 سحب بلا مبلغ بالجنيه\)/);
+  });
+
   it('says nothing was withdrawn on a day with none', () => {
-    assert.match(composeReconciliation([], '2026-11-07', '08:00'), /المجموع: \*0 دولار\*/);
+    const text = composeReconciliation([], '2026-11-07', '08:00');
+    assert.match(text, /مجموع الدولار: \*0 دولار\*/);
+    assert.match(text, /مجموع الجنيه: \*0 جنيه\*/);
   });
 
   const incoming = (chat: string, text: string) =>

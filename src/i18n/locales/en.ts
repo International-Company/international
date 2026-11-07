@@ -697,6 +697,8 @@ const en = {
     amount: 'How many dollars?',
     rate: 'Dollar price',
     payout: 'What the beneficiary receives',
+    egp: 'Amount in pounds (from the photo)',
+    egpHint: 'Added up in the TikTok group reconciliation',
     record: 'Record withdrawal',
     recorded: 'Withdrawal recorded',
     deleted: 'Withdrawal deleted',

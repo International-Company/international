@@ -91,6 +91,7 @@ const CURRENCY_WORDS: Record<string, string> = {
   USD: 'دولار',
   ILS: 'شيكل',
   JOD: 'دينار',
+  EGP: 'جنيه',
 };
 
 export function currencyWord(code: string): string {

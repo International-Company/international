@@ -23,6 +23,7 @@ interface Row {
   currency: string;
   amountText: string;
   rateText: string | null;
+  egpText: string | null;
   payoutText: string | null;
   account: string;
   beneficiaryName: string;
@@ -66,6 +67,8 @@ export function TiktokView({
   const [channel, setChannel] = useState(channels[0] ?? '');
   const [amount, setAmount] = useState('');
   const [rate, setRate] = useState(defaultRate);
+  // The pounds the photo shows, for the group's reconciliation.
+  const [egp, setEgp] = useState('');
   const [posting, setPosting] = useState(false);
   const [rows, setRows] = useState<Row[]>([]);
   const [deleting, setDeleting] = useState<Row | null>(null);
@@ -116,12 +119,21 @@ export function TiktokView({
     if (!ready || posting) return;
     setPosting(true);
     try {
-      await api.post('/api/tiktok', { amount, rate, account, beneficiaryName, channel, photo });
+      await api.post('/api/tiktok', {
+        amount,
+        rate,
+        account,
+        beneficiaryName,
+        channel,
+        photo,
+        egpAmount: egp.trim() || null,
+      });
       toast.success(t('tiktok.recorded'));
       setPhoto(null);
       setAccount('');
       setBeneficiaryName('');
       setAmount('');
+      setEgp('');
       void load();
     } catch (cause) {
       failure(cause);
@@ -250,6 +262,20 @@ export function TiktokView({
             )}
           </Field>
 
+          <Field label={t('tiktok.egp')} hint={t('tiktok.egpHint')}>
+            {(props) => (
+              <Input
+                {...props}
+                dir="ltr"
+                inputMode="decimal"
+                autoComplete="off"
+                placeholder="0"
+                value={egp}
+                onChange={(event) => setEgp(decimal(event.target.value))}
+              />
+            )}
+          </Field>
+
         </div>
 
         {/* ============ The dollars, the price, the shekels ============ */}
@@ -343,6 +369,7 @@ export function TiktokView({
                   <p className="ltr-content text-start text-sm font-semibold tabular-nums text-content">
                     {row.amountText} {row.currency}
                     {row.payoutText && ` × ${row.rateText} = ${row.payoutText} ILS`}
+                    {row.egpText && ` · ${row.egpText} EGP`}
                   </p>
                   <p className="truncate text-sm text-content-secondary">
                     {[row.account, row.channel, row.beneficiaryName].filter(Boolean).join(' · ')}

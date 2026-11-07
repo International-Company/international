@@ -14,7 +14,7 @@ import { parseCommand } from './report-command';
 import { onIncomingText, sendText, type IncomingText } from './whatsapp.service';
 
 /**
- * «#مطابقة» in the TikTok group, answered with the dollars withdrawn that day.
+ * «#مطابقة» in the TikTok group, answered with the dollars and pounds withdrawn that day.
  *
  * Only in the group the withdrawals themselves go to: it already saw every one of
  * them, so anyone there may ask, and the answer tells it nothing new. Typed
@@ -81,7 +81,7 @@ export function registerTiktokReconcile(): void {
         const found = await prisma.tiktokWithdrawal.findMany({
           where: { deletedAt: null, createdAt: { gte: start, lte: end } },
           orderBy: { createdAt: 'asc' },
-          select: { amount: true, currency: true },
+          select: { amount: true, currency: true, egpAmount: true },
         });
         return found;
       },

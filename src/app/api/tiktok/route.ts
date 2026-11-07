@@ -14,6 +14,8 @@ const bodySchema = z.object({
   account: z.string().max(60),
   beneficiaryName: z.string().max(MAX_NAME),
   channel: z.string().max(80),
+  /** The pounds the photo shows; optional. */
+  egpAmount: z.string().max(30).nullish(),
   /** The photo, shrunk by the screen, as base64. The service checks what it is. */
   photo: z.string().min(1).max(6_000_000),
 });
@@ -30,6 +32,7 @@ export const POST = route<z.infer<typeof bodySchema>>({
         beneficiaryName: body.beneficiaryName,
         channel: body.channel,
         photo: body.photo,
+        egpAmount: body.egpAmount?.trim() ? parseMoney(body.egpAmount) : null,
       },
       actor,
     ),

@@ -2201,6 +2201,9 @@ model TiktokWithdrawal {
   account     String    @default("")
   rate        BigInt    @default(0)
   payoutAmount BigInt   @default(0)
+  /// The Egyptian pounds the photo shows, as the teller read them off it. Empty on
+  /// one recorded before it was asked for, or left blank.
+  egpAmount   BigInt?
   mimeType    String
   size        Int
   data        Bytes

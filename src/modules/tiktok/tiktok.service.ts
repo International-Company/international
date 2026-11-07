@@ -30,6 +30,8 @@ export async function record(
     beneficiaryName: string;
     channel: string;
     photo: string;
+    /** The pounds the photo shows, when the teller typed them. */
+    egpAmount?: bigint | null;
   },
   actor: Actor,
 ) {
@@ -56,6 +58,7 @@ export async function record(
       { channel },
     );
   }
+  const egpAmount = input.egpAmount && input.egpAmount > 0n ? input.egpAmount : null;
   const image = readProofImage(input.photo);
   if (typeof image === 'string') throw errors.precondition('That photo cannot be kept', image);
 
@@ -65,6 +68,7 @@ export async function record(
       amount: input.amount,
       rate: input.rate,
       payoutAmount,
+      egpAmount,
       account,
       beneficiaryName,
       channel,
@@ -101,6 +105,7 @@ export async function list(actor: Actor) {
       amount: true,
       rate: true,
       payoutAmount: true,
+      egpAmount: true,
       account: true,
       beneficiaryName: true,
       channel: true,
@@ -108,12 +113,13 @@ export async function list(actor: Actor) {
       createdBy: { select: { fullNameAr: true, fullNameEn: true } },
     },
   });
-  return rows.map(({ amount, rate, payoutAmount, ...row }) => ({
+  return rows.map(({ amount, rate, payoutAmount, egpAmount, ...row }) => ({
     ...row,
     amountText: formatFigure(amount),
     // Nothing for a record from before the shekels.
     rateText: rate > 0n ? rateText(rate) : null,
     payoutText: payoutAmount > 0n ? formatFigure(payoutAmount) : null,
+    egpText: egpAmount ? formatFigure(egpAmount) : null,
   }));
 }
 
