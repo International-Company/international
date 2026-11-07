@@ -4,7 +4,7 @@ import './support/test-env.ts';
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { categoriesOf } from '../src/modules/whatsapp/group-routes.ts';
-import { composeGroupReconciliation } from '../src/modules/whatsapp/reconcile-message.ts';
+import { composeGroupReconciliation, isReconcileCode } from '../src/modules/whatsapp/reconcile-message.ts';
 import { handleReconcile, type ReconcileDeps } from '../src/modules/whatsapp/reconcile.service.ts';
 import type { IncomingText } from '../src/modules/whatsapp/whatsapp.service.ts';
 
@@ -170,5 +170,18 @@ describe('#مطابقة', () => {
     assert.equal((await run('names@g.us', '#مطابقة')).outcome, 'IGNORED');
     assert.equal((await run('bank@g.us', '#مطابقة أحمد')).outcome, 'IGNORED');
     assert.equal((await run('bank@g.us', 'مطابقة')).outcome, 'IGNORED');
+  });
+});
+
+describe('the code, as phones type it', () => {
+  it('is heard with a space after the #, a ه for the ة, or hidden direction marks', () => {
+    for (const text of ['#مطابقة', '# مطابقة', '  #مطابقه ', '\u200f#مطابقة', '#مطابقة\u200e', '＃مطابقة']) {
+      assert.equal(isReconcileCode(text), true, JSON.stringify(text));
+    }
+  });
+  it('is not heard without the #, or with words after it', () => {
+    for (const text of ['مطابقة', '#مطابقة أحمد', '#مطابقات', '', null]) {
+      assert.equal(isReconcileCode(text), false, JSON.stringify(text));
+    }
   });
 });

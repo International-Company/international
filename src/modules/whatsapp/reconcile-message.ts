@@ -15,6 +15,20 @@ import { formatAmount, formatFigure, sumAmounts, type Amount } from './report-co
 /** What a group types to be answered. */
 export const RECONCILE_CODE = '#مطابقة';
 
+/**
+ * Whether a message is the code, as a phone really types it: with a space after
+ * the #, a ه for the ة, extra spaces, or the invisible direction marks an
+ * Arabic keyboard puts in. Words after it are not the code.
+ */
+export function isReconcileCode(text: string | null | undefined): boolean {
+  if (!text) return false;
+  const plain = text
+    .replace(/[\u200b-\u200f\u202a-\u202e\u2066-\u2069\ufeff]/g, '')
+    .replace(/\uff03/g, '#')
+    .trim();
+  return /^#\s*مطابق[ةه]$/.test(plain);
+}
+
 /** A deal the office pays out, in whole or in part, by bank transfer. */
 export interface BankDue {
   kind: 'EXCHANGE' | 'USDT';

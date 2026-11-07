@@ -6,12 +6,11 @@ import * as settings from '@/modules/settings/settings.service';
 import { categoriesOf, parseRoutes, type RouteCategory } from './group-routes';
 import {
   composeGroupReconciliation,
-  RECONCILE_CODE,
+  isReconcileCode,
   type BankDue,
   type RemittanceSent,
   type TiktokWithdrawn,
 } from './reconcile-message';
-import { parseCommand } from './report-command';
 import { onIncomingText, sendText, type IncomingText } from './whatsapp.service';
 
 /**
@@ -54,12 +53,19 @@ export async function handleReconcile(
   deps: ReconcileDeps,
 ): Promise<ReconcileOutcome> {
   // The code alone: anything after it is not this command.
-  if (parseCommand(incoming.text, RECONCILE_CODE) !== '') return 'IGNORED';
+  if (!isReconcileCode(incoming.text)) return 'IGNORED';
   const categories = await deps.categories(incoming.chat);
   const bankKinds = (['EXCHANGE', 'USDT'] as const).filter((kind) => categories.includes(kind));
   const hearsRemittances = categories.includes('REMITTANCE');
   const hearsTiktok = categories.includes('TIKTOK');
-  if (bankKinds.length === 0 && !hearsRemittances && !hearsTiktok) return 'IGNORED';
+  if (bankKinds.length === 0 && !hearsRemittances && !hearsTiktok) {
+    // Said so in the log: a group left out of the routes is the usual reason for no answer.
+    log.info('Reconciliation asked in a group sent none of its kinds', {
+      group: incoming.chat,
+      kinds: categories,
+    });
+    return 'IGNORED';
+  }
 
   const now = deps.now?.() ?? new Date();
   try {

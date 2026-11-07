@@ -143,11 +143,13 @@ async function open(account: Account): Promise<void> {
   sock.ev.on('messages.upsert', ({ messages, type }) => {
     if (generation !== holder.generation || type !== 'notify') return;
     for (const message of messages) {
-      if (message.key.fromMe || !message.key.remoteJid) continue;
+      if (!message.key.remoteJid) continue;
       if (!firstSighting(shared.seen, `${message.key.remoteJid}:${message.key.id}`)) continue;
       const content = normalizeMessageContent(message.message);
       const text = content?.conversation ?? content?.extendedTextMessage?.text ?? null;
       if (!text) continue;
+      // The office may type a command on the linked phone itself; nothing else it sends is heard.
+      if (message.key.fromMe && !text.trim().replace(/^[\u200e\u200f]+/, '').startsWith('#')) continue;
       const sender = message.key.participant ?? message.key.remoteJid;
       const phone =
         message.key.participantPn ??
