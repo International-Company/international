@@ -13,7 +13,13 @@ import { AutoPrintToggle, printAfterRecording } from '@/ui/auto-print';
 import { useToast } from '@/ui/overlay';
 import { Field, Input, Textarea } from '@/ui/form';
 import { PhotoField } from '@/ui/photo-field';
-import { saleCoins } from '@/modules/usdt/sale-sums';
+import {
+  PERCENT_CURRENCY,
+  percentCoins,
+  percentTotal,
+  saleCoins,
+  validPercent,
+} from '@/modules/usdt/sale-sums';
 import { cn } from '@/ui/utils';
 
 /**
@@ -68,6 +74,8 @@ export function SaleView({
   const [usdt, setUsdt] = useState('');
   const [currency, setCurrency] = useState(currencies[0]?.code ?? 'ILS');
   const [price, setPrice] = useState('');
+  // Dollars are sold by the percentage the office keeps, not by a price.
+  const [percent, setPercent] = useState('');
   const [mode, setMode] = useState<Mode>('CASH');
   const [account, setAccount] = useState(transferChannels[0] ?? '');
   const [name, setName] = useState('');
@@ -101,17 +109,26 @@ export function SaleView({
   const decimals = currencies.find((entry) => entry.code === currency)?.decimals ?? 2;
 
   // The total, by the same arithmetic the server uses.
+  const byPercent = currency === PERCENT_CURRENCY;
   const perCoin = scaleAmount(price);
+  const share = percent.trim() ? scaleAmount(percent) : -1n;
   const step = 10n ** BigInt(Math.max(0, 8 - decimals));
   const total =
     typed === 'RECEIVED'
       ? (scaleAmount(received) / step) * step
-      : totalOf(scaleAmount(usdt), perCoin, decimals);
-  const coins = typed === 'RECEIVED' ? saleCoins(total, perCoin) : scaleAmount(usdt);
+      : byPercent
+        ? percentTotal(scaleAmount(usdt), share, decimals)
+        : totalOf(scaleAmount(usdt), perCoin, decimals);
+  const coins =
+    typed !== 'RECEIVED'
+      ? scaleAmount(usdt)
+      : byPercent
+        ? percentCoins(total, share)
+        : saleCoins(total, perCoin);
 
   const blocked =
     coins <= 0n ||
-    perCoin <= 0n ||
+    (byPercent ? !validPercent(share) : perCoin <= 0n) ||
     total <= 0n ||
     (mode === 'BROKER' &&
       (!account ||
@@ -123,6 +140,7 @@ export function SaleView({
     setReceived('');
     setUsdt('');
     setPrice('');
+    setPercent('');
     setMode('CASH');
     setName('');
     setPhone('');
@@ -146,7 +164,8 @@ export function SaleView({
         currency,
         usdt: typed === 'COINS' ? usdt.trim() : null,
         received: typed === 'RECEIVED' ? received.trim() : null,
-        price: price.trim(),
+        price: byPercent ? null : price.trim(),
+        percent: byPercent ? percent.trim() : null,
         mode,
         intakeChannel: mode === 'BROKER' ? account : null,
         counterpartyName: name.trim() || null,
@@ -281,6 +300,32 @@ export function SaleView({
           </div>
         </div>
 
+        {byPercent ? (
+          <div className="rounded-[1.35rem] bg-surface-sunken px-5 py-4">
+            <span className="text-xs font-medium text-content-secondary">
+              {t('usdtSale.percent')}
+            </span>
+            <div className="mt-2 flex items-center gap-2" dir="ltr">
+              <input
+                type="text"
+                dir="ltr"
+                inputMode="decimal"
+                autoComplete="off"
+                data-zoom-safe=""
+                aria-label={t('usdtSale.percent')}
+                value={percent}
+                placeholder="0"
+                onFocus={(event) => event.currentTarget.select()}
+                onChange={(event) => {
+                  setDone(null);
+                  setPercent(sanitiseAmount(event.target.value, 2));
+                }}
+                className="block w-full bg-transparent text-end text-2xl font-semibold tabular-nums text-content outline-none placeholder:text-content-tertiary"
+              />
+              <span className="text-2xl font-semibold text-content-secondary">%</span>
+            </div>
+          </div>
+        ) : (
         <div className="rounded-[1.35rem] bg-surface-sunken px-5 py-4">
           <span className="text-xs font-medium text-content-secondary">{t('usdtSale.price')}</span>
           <input
@@ -300,6 +345,7 @@ export function SaleView({
             className="mt-2 block w-full bg-transparent text-end text-2xl font-semibold tabular-nums text-content outline-none placeholder:text-content-tertiary"
           />
         </div>
+        )}
 
         <div className="rounded-[1.35rem] bg-primary-subtle px-5 py-6">
           <span className="text-xs font-medium text-content-secondary">{t('usdtSale.deposit')}</span>

@@ -9,8 +9,9 @@ const bodySchema = z.object({
   /** The coins sold, or what was received for them: whichever the teller typed. */
   usdt: z.string().nullish(),
   received: z.string().nullish(),
-  /** What the customer paid per coin. */
-  price: z.string(),
+  /** What the customer paid per coin; for dollars, the percentage kept instead. */
+  price: z.string().nullish(),
+  percent: z.string().nullish(),
   mode: z.enum(sales.SALE_MODES).default('CASH'),
   intakeChannel: z.string().max(80).nullish(),
   customerId: z.string().nullish(),
@@ -35,7 +36,8 @@ export const POST = route<z.infer<typeof bodySchema>>({
         payCurrency: body.currency.toUpperCase(),
         usdtAmount: body.usdt ? parseMoney(body.usdt) : null,
         received: body.received ? parseMoney(body.received) : null,
-        price: parseMoney(body.price),
+        price: body.price ? parseMoney(body.price) : null,
+        percent: body.percent ? parseMoney(body.percent) : null,
         mode: body.mode,
         intakeChannel: body.intakeChannel ?? null,
         branchId: actor.branchId,

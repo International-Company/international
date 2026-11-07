@@ -6,7 +6,14 @@ import { transferChannels } from '@/modules/exchange/machine.service';
 import { readProofImage } from '@/modules/exchange/proof-image';
 import * as transactions from '@/modules/exchange/transaction.service';
 import type { Actor } from '@/modules/exchange/transaction.service';
-import { saleCoins } from './sale-sums';
+import {
+  PERCENT_CURRENCY,
+  percentCoins,
+  percentRate,
+  percentTotal,
+  saleCoins,
+  validPercent,
+} from './sale-sums';
 
 /**
  * بيع USDT — تسجيل فقط.
@@ -30,8 +37,10 @@ export interface SaleInput {
   usdtAmount?: bigint | null;
   /** What came in, when that is what the teller knows: the coins follow from it. */
   received?: bigint | null;
-  /** What the customer pays per coin, in `payCurrency`. */
-  price: bigint;
+  /** What the customer pays per coin, in `payCurrency`. Not for dollars. */
+  price?: bigint | null;
+  /** For dollars: the share the office keeps, scaled like money (3% is 3_00000000n). */
+  percent?: bigint | null;
   mode: SaleMode;
   /** Which of the broker's accounts the customer paid into, when not in cash. */
   intakeChannel?: string | null;
@@ -59,7 +68,10 @@ export async function recordSale(input: SaleInput, actor: Actor, db: DbClient = 
   if (!actor.permissions.includes('usdt.withdrawal.use')) {
     throw errors.forbidden('usdt.withdrawal.use');
   }
-  if (input.price <= 0n) {
+  const byPercent = input.payCurrency === PERCENT_CURRENCY;
+  const price = input.price ?? 0n;
+  const percent = input.percent ?? -1n;
+  if (byPercent ? !validPercent(percent) : price <= 0n) {
     throw errors.precondition('Amount must be greater than zero', 'errors.amountNotPositive');
   }
 
@@ -78,8 +90,14 @@ export async function recordSale(input: SaleInput, actor: Actor, db: DbClient = 
   const byReceived = input.received !== null && input.received !== undefined;
   const payTotal = byReceived
     ? divideRounded(input.received!, step) * step
-    : saleTotal(input.usdtAmount ?? 0n, input.price, currency.decimals);
-  const usdtAmount = byReceived ? saleCoins(payTotal, input.price) : (input.usdtAmount ?? 0n);
+    : byPercent
+      ? percentTotal(input.usdtAmount ?? 0n, percent, currency.decimals)
+      : saleTotal(input.usdtAmount ?? 0n, price, currency.decimals);
+  const usdtAmount = !byReceived
+    ? (input.usdtAmount ?? 0n)
+    : byPercent
+      ? percentCoins(payTotal, percent)
+      : saleCoins(payTotal, price);
   if (payTotal <= 0n || usdtAmount <= 0n) {
     throw errors.precondition('Amount must be greater than zero', 'errors.amountNotPositive');
   }
@@ -132,9 +150,12 @@ export async function recordSale(input: SaleInput, actor: Actor, db: DbClient = 
           input.mode === 'BROKER' ? { cash: 0n, broker: payTotal } : { cash: payTotal, broker: 0n },
         intakeChannel: account,
         // 1 unit of what was paid = this many coins, as every row reads its rate.
-        rate: byReceived
-          ? divideRounded(MONEY_FACTOR * MONEY_FACTOR, input.price)
-          : divideRounded(usdtAmount * MONEY_FACTOR, payTotal),
+        // By a percentage, the rate is the percentage itself, so it reads back exactly.
+        rate: byPercent
+          ? percentRate(percent)
+          : byReceived
+            ? divideRounded(MONEY_FACTOR * MONEY_FACTOR, price)
+            : divideRounded(usdtAmount * MONEY_FACTOR, payTotal),
         counterpartyName: input.counterpartyName?.trim() || null,
         counterpartyPhone: input.counterpartyPhone?.trim() || null,
         notes: input.notes?.trim() || null,

@@ -7,6 +7,7 @@ import * as settings from '@/modules/settings/settings.service';
 import * as audit from '@/modules/audit/audit.service';
 import type { Actor } from './transaction.service';
 import { MACHINE_TYPES } from './transaction-types';
+import { PERCENT_CURRENCY, percentOfRate } from '@/modules/usdt/sale-sums';
 
 /**
  * A transaction as a message a person can send.
@@ -204,11 +205,19 @@ function composeLines(
       /\.?0+$/,
       '',
     );
+    // Dollars are sold by a percentage: the message says that, not a price.
+    const priceLine =
+      transaction.fromCurrency === PERCENT_CURRENCY
+        ? `${locale === 'ar' ? 'النسبة' : 'Percentage'}: ${toDecimalString(
+            divideRounded(percentOfRate(transaction.rate), 1_000_000n) * 1_000_000n,
+            2,
+          ).replace(/\.?0+$/, '')}%`
+        : `${locale === 'ar' ? 'سعر السحب' : 'Price'}: ${price}`;
     return [
       phone,
       who,
       `${toDecimalString(transaction.toAmount, 2).replace(/\.00$/, '')} ${unit}`,
-      `${locale === 'ar' ? 'سعر السحب' : 'Price'}: ${price}`,
+      priceLine,
       `${wholeAmount(transaction.fromAmount)} ${payUnit}`,
       transaction.intakeBankChannel || (locale === 'ar' ? 'نقدي' : 'Cash'),
       transaction.payoutAddress,

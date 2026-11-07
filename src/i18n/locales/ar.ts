@@ -1202,6 +1202,7 @@ const ar: Dictionary = {
     receivedWallet: 'كم استلمت على المحفظة؟',
     receivedCash: 'كم استلمت نقداً؟',
     price: 'سعر السحب (لكل USDT)',
+    percent: 'النسبة (تُخصم من الدولارات)',
     deposit: 'كم USDT سنودع له؟',
     customerSection: 'بيانات العميل',
     customerName: 'اسم العميل',

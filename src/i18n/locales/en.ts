@@ -1203,6 +1203,7 @@ const en = {
     receivedWallet: 'How much landed on the wallet?',
     receivedCash: 'How much cash did you receive?',
     price: 'Withdrawal price (per USDT)',
+    percent: 'Percentage (taken off the dollars)',
     deposit: 'How much USDT do we deposit?',
     customerSection: 'Customer details',
     customerName: 'Customer name',
