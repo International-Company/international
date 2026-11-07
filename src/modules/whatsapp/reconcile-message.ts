@@ -5,7 +5,8 @@ import { formatAmount, formatFigure, sumAmounts, type Amount } from './report-co
  *
  * A group is answered about what it is sent and nothing else: the group that
  * hears of exchange and USDT deals is told what the office owes by bank, the
- * remittances group what went out today, the TikTok group what was withdrawn.
+ * remittances group what went out today, the TikTok group what was withdrawn,
+ * and the group sent each sale's deposit the coins it was asked to send.
  * A group that hears of several gets each in its own section of one message.
  *
  * The pure half, kept apart from WhatsApp and the database so every figure and
@@ -48,6 +49,12 @@ export interface RemittanceSent {
   unit: string;
 }
 
+/** A USDT sale's deposit, as its group was sent it: the coins and where they go. */
+export interface UsdtDeposit {
+  amount: bigint;
+  address: string | null;
+}
+
 /** A TikTok withdrawal that stands. */
 export interface TiktokWithdrawn {
   amount: bigint;
@@ -65,6 +72,7 @@ export interface GroupReconciliation {
   bank?: BankDue[];
   remittances?: RemittanceSent[];
   tiktok?: TiktokWithdrawn[];
+  deposits?: UsdtDeposit[];
 }
 
 interface Section {
@@ -134,6 +142,26 @@ function remittanceSection(sent: RemittanceSent[]): Section {
   return { title, icon: '💸', lines };
 }
 
+/** An address cut to its ends, enough to find it by: TXab12…9fZk. */
+const shortAddress = (address: string) =>
+  address.length > 14 ? `${address.slice(0, 6)}…${address.slice(-4)}` : address;
+
+function depositSection(deposits: UsdtDeposit[]): Section {
+  const title = 'إيداعات USDT';
+  if (deposits.length === 0) return { title, icon: '🪙', lines: ['لا إيداعات USDT اليوم'] };
+  const lines = deposits.map(
+    (row, index) =>
+      `${index + 1}. ${[formatAmount({ currency: 'USDT', amount: row.amount }), row.address?.trim() && shortAddress(row.address.trim())].filter(Boolean).join(' — ')}`,
+  );
+  const total = deposits.reduce((sum, row) => sum + row.amount, 0n);
+  lines.push(
+    '',
+    `عدد الإيداعات: ${deposits.length}`,
+    `*المجموع: ${formatAmount({ currency: 'USDT', amount: total })}*`,
+  );
+  return { title, icon: '🪙', lines };
+}
+
 function tiktokSection(rows: TiktokWithdrawn[]): Section {
   const dollars = sumAmounts(rows.map(({ currency, amount }) => ({ currency, amount })));
   const shekels = rows.reduce((sum, row) => sum + row.payoutAmount, 0n);
@@ -154,6 +182,7 @@ function tiktokSection(rows: TiktokWithdrawn[]): Section {
 export function composeGroupReconciliation(input: GroupReconciliation): string | null {
   const sections = [
     input.bank && bankSection(input.bank),
+    input.deposits && depositSection(input.deposits),
     input.remittances && remittanceSection(input.remittances),
     input.tiktok && tiktokSection(input.tiktok),
   ].filter((section): section is Section => Boolean(section));

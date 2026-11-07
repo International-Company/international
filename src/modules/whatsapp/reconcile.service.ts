@@ -9,6 +9,7 @@ import {
   isReconcileCode,
   type BankDue,
   type RemittanceSent,
+  type UsdtDeposit,
   type TiktokWithdrawn,
 } from './reconcile-message';
 import { onIncomingText, sendText, type IncomingText } from './whatsapp.service';
@@ -38,6 +39,7 @@ export interface ReconcileDeps {
   /** The day's figures, for the kinds asked for only. */
   bank: (now: Date, kinds: BankDue['kind'][]) => Promise<BankDue[]>;
   remittances: (now: Date) => Promise<RemittanceSent[]>;
+  deposits: (now: Date) => Promise<UsdtDeposit[]>;
   tiktok: (now: Date) => Promise<TiktokWithdrawn[]>;
   reply: (incoming: IncomingText, text: string) => Promise<void>;
   now?: () => Date;
@@ -56,9 +58,12 @@ export async function handleReconcile(
   if (!isReconcileCode(incoming.text)) return 'IGNORED';
   const categories = await deps.categories(incoming.chat);
   const bankKinds = (['EXCHANGE', 'USDT'] as const).filter((kind) => categories.includes(kind));
-  const hearsRemittances = categories.includes('REMITTANCE');
+  // A group sent only each remittance's number and sum checks them the same way.
+  const hearsRemittances =
+    categories.includes('REMITTANCE') || categories.includes('REMITTANCE_COPY');
+  const hearsDeposits = categories.includes('USDT_SALE_COPY');
   const hearsTiktok = categories.includes('TIKTOK');
-  if (bankKinds.length === 0 && !hearsRemittances && !hearsTiktok) {
+  if (bankKinds.length === 0 && !hearsRemittances && !hearsDeposits && !hearsTiktok) {
     // Said so in the log: a group left out of the routes is the usual reason for no answer.
     log.info('Reconciliation asked in a group sent none of its kinds', {
       group: incoming.chat,
@@ -73,6 +78,7 @@ export async function handleReconcile(
       day: formatDayKey(now),
       asOf: clock(now),
       bank: bankKinds.length > 0 ? await deps.bank(now, bankKinds) : undefined,
+      deposits: hearsDeposits ? await deps.deposits(now) : undefined,
       remittances: hearsRemittances ? await deps.remittances(now) : undefined,
       tiktok: hearsTiktok ? await deps.tiktok(now) : undefined,
     });
@@ -127,6 +133,20 @@ export function liveDeps(): ReconcileDeps {
         amount: deal.payoutBankAmount,
         channel: deal.payoutBankChannel,
       }));
+    },
+    deposits: async (now) => {
+      const { start, end } = dayBounds(now);
+      const deals = await prisma.transaction.findMany({
+        where: {
+          createdAt: { gte: start, lte: end },
+          status: { not: 'REVERSED' },
+          type: 'USDT_SALE',
+          unannounced: false,
+        },
+        orderBy: { createdAt: 'asc' },
+        select: { toAmount: true, payoutAddress: true },
+      });
+      return deals.map((deal) => ({ amount: deal.toAmount, address: deal.payoutAddress }));
     },
     remittances: async (now) => {
       const { start, end } = dayBounds(now);

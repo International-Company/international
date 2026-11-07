@@ -136,9 +136,11 @@ describe('#مطابقة', () => {
       categories: async (group) =>
         group === 'bank@g.us'
           ? ['EXCHANGE', 'USDT']
-          : group === 'names@g.us'
-            ? ['TIKTOK_NAME']
-            : [],
+          : group === 'copies@g.us'
+            ? ['USDT_SALE_COPY', 'REMITTANCE_COPY']
+            : group === 'names@g.us'
+              ? ['TIKTOK_NAME']
+              : [],
       bank: async (_now, kinds) => {
         asked.push(`bank:${kinds.join(',')}`);
         return [{ kind: 'USDT', currency: 'ILS', amount: 100n * U, channel: 'جوال باي' }];
@@ -146,6 +148,10 @@ describe('#مطابقة', () => {
       remittances: async () => {
         asked.push('remittances');
         return [];
+      },
+      deposits: async () => {
+        asked.push('deposits');
+        return [{ amount: 500n * U, address: 'TXabcdef1234567890wxyz' }];
       },
       tiktok: async () => {
         asked.push('tiktok');
@@ -164,6 +170,15 @@ describe('#مطابقة', () => {
     assert.equal(outcome, 'SENT');
     assert.deepEqual(asked, ['bank:EXCHANGE,USDT']);
     assert.match(sent[0]!, /مطابقة المستحق البنكي/);
+  });
+
+  it('answers the group sent copies with the deposits and remittances it was sent', async () => {
+    const { outcome, sent, asked } = await run('copies@g.us', '#مطابقة');
+    assert.equal(outcome, 'SENT');
+    assert.deepEqual(asked, ['deposits', 'remittances']);
+    assert.match(sent[0]!, /🪙 \*إيداعات USDT\*\n1\. 500 USDT — TXabcd…wxyz/);
+    assert.match(sent[0]!, /عدد الإيداعات: 1\n\*المجموع: 500 USDT\*/);
+    assert.match(sent[0]!, /💸 \*الحوالات الصادرة\*\nلا حوالات صادرة اليوم/);
   });
 
   it('ignores a group sent none of these, words after the code, or other text', async () => {
