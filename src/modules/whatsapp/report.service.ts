@@ -241,7 +241,9 @@ export function registerReportCommand(): void {
       }),
       phoneOf: async (message) =>
         message.senderPhone ??
-        (message.sender ? await memberPhone(message.chat, message.sender).catch(() => null) : null),
+        (message.sender
+          ? await memberPhone(message.chat, message.sender, message.account).catch(() => null)
+          : null),
       tellers: () =>
         prisma.user.findMany({
           where: { status: 'ACTIVE' },

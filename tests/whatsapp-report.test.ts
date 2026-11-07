@@ -179,6 +179,7 @@ describe('answering in the group', () => {
   const message = (text: string, over: Partial<IncomingText> = {}): IncomingText => ({
     chat: GROUP,
     text,
+    account: 'main',
     sender: '970597085125@s.whatsapp.net',
     senderPhone: '970597085125@s.whatsapp.net',
     message: {} as never,

@@ -9,6 +9,7 @@ import {
   withRoute,
 } from '@/modules/whatsapp/group-routes';
 import { linkedGroups, sendWelcomeNow, welcomeNewlyLinked } from '@/modules/whatsapp/welcome';
+import { ACCOUNTS } from '@/modules/whatsapp/accounts';
 import * as whatsapp from '@/modules/whatsapp/whatsapp.service';
 
 /** Where the link stands, and which group the deals go to. */
@@ -16,6 +17,7 @@ export const GET = route({
   permissions: ['settings.view'],
   handler: async () => ({
     ...(await whatsapp.snapshot()),
+    second: await whatsapp.snapshot('second'),
     groupId: await settings.getString('whatsapp.groupId'),
     groupName: await settings.getString('whatsapp.groupName'),
     routes: parseRoutes(await settings.getString('whatsapp.groupRoutes')),
@@ -25,8 +27,8 @@ export const GET = route({
 });
 
 const bodySchema = z.discriminatedUnion('action', [
-  z.object({ action: z.literal('connect') }),
-  z.object({ action: z.literal('disconnect') }),
+  z.object({ action: z.literal('connect'), account: z.enum(ACCOUNTS).default('main') }),
+  z.object({ action: z.literal('disconnect'), account: z.enum(ACCOUNTS).default('main') }),
   z.object({ action: z.literal('group'), id: z.string().max(120), name: z.string().max(200) }),
   z.object({
     action: z.literal('route'),
@@ -46,10 +48,10 @@ export const POST = route<z.infer<typeof bodySchema>>({
   handler: async ({ body, actor }) => {
     switch (body.action) {
       case 'connect':
-        await whatsapp.connect();
+        await whatsapp.connect(body.account);
         break;
       case 'disconnect':
-        await whatsapp.disconnect();
+        await whatsapp.disconnect(body.account);
         break;
       case 'group': {
         const before = await linkedGroups();
