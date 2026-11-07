@@ -108,6 +108,7 @@ const DEAL_SELECT = {
   counterpartyPhone: true,
   deliveredAmount: true,
   deliveredUnit: true,
+  payoutAddress: true,
   unannounced: true,
   notes: true,
   createdAt: true,
@@ -341,16 +342,33 @@ export async function announceDeal(
  */
 export async function copyNumberAndSum(
   transactionId: string,
-  deps: Pick<AnnounceDeps, 'load' | 'send' | 'pause'> & {
+  deps: Pick<AnnounceDeps, 'load' | 'send' | 'pause' | 'photos' | 'sendPhoto'> & {
     target: (type: string) => Promise<string | null>;
   },
 ): Promise<void> {
   const message = await settled(transactionId, deps.load, deps.pause ?? 500);
-  if (!message?.text) return;
+  const text = message?.copyText;
+  if (!message || !text) return;
   const group = await deps.target(message.type);
   if (!group) return;
-  await deps.send(group, message.text).catch((error) => {
-    log.warn('Could not copy a remittance’s number and sum', {
+
+  // A sale's address photo is where its coins go: it carries the words when there is one.
+  if (message.type === 'USDT_SALE' && deps.photos && deps.sendPhoto) {
+    try {
+      const address = (await deps.photos(transactionId)).find((p) => p.kind === 'ADDRESS');
+      if (address) {
+        await deps.sendPhoto(group, address, text);
+        return;
+      }
+    } catch (error) {
+      log.warn('Could not copy a sale’s address photo; sending its words', {
+        reference: message.reference,
+        error,
+      });
+    }
+  }
+  await deps.send(group, text).catch((error) => {
+    log.warn('Could not copy a deal’s part to its group', {
       reference: message.reference,
       error,
     });
@@ -363,11 +381,23 @@ export async function copyNumberAndSum(
  * A remittance only written down has no number and went to no such group, so nothing.
  */
 export function composeCopyCancelled(deal: {
+  type?: string;
+  toAmount?: bigint;
+  payoutAddress?: string | null;
   counterpartyPhone: string | null;
   customer: { phone: string | null } | null;
   deliveredAmount: bigint | null;
   deliveredUnit: string | null;
 }): string | null {
+  if (deal.type === 'USDT_SALE') {
+    return [
+      '🔴 *إيداع ملغى*',
+      deal.toAmount ? `${figure(deal.toAmount)} USDT` : null,
+      deal.payoutAddress,
+    ]
+      .filter((line): line is string => Boolean(line))
+      .join('\n\n');
+  }
   const phone = deal.customer?.phone ?? deal.counterpartyPhone;
   if (!phone && !deal.deliveredAmount) return null;
   const sum = deal.deliveredAmount
@@ -407,6 +437,9 @@ export function registerWhatsappSubscribers(): void {
       target: copyTarget,
       load: (id) => shareable(id, 'ar'),
       send: sendText,
+      photos: dealPhotos,
+      sendPhoto: (jid, photo, caption, quoted) =>
+        sendImage(jid, Buffer.from(photo.data), caption, quoted, photo.mimeType),
     });
   });
 

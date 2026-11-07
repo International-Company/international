@@ -70,6 +70,11 @@ export interface Shareable {
   phone: string | null;
   /** A remittance paid in notes has no proof to show: the bot says what was taken instead. */
   cashNote?: string | null;
+  /**
+   * The part a second group acts on, when the deal has one: a remittance's number
+   * and sum, a sale's coins and where they go. Nothing of what the customer paid.
+   */
+  copyText?: string | null;
 }
 
 /**
@@ -284,6 +289,17 @@ export async function shareable(
           ? `استلمت ${wholeAmount(transaction.fromAmount)} ${units.get(transaction.toCurrency)} نقدي`
           : `Received ${wholeAmount(transaction.fromAmount)} ${units.get(transaction.toCurrency)} in cash`
         : null,
+    copyText:
+      transaction.type === 'REMITTANCE_OUT'
+        ? lines.join('\n\n')
+        : transaction.type === 'USDT_SALE'
+          ? [
+              `${toDecimalString(transaction.toAmount, 2).replace(/\.00$/, '')} USDT`,
+              transaction.payoutAddress,
+            ]
+              .filter((line): line is string => Boolean(line?.trim()))
+              .join('\n\n')
+          : null,
   };
 }
 

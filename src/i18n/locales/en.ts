@@ -2083,7 +2083,8 @@ const en = {
     route: {
       EXCHANGE: 'Exchange',
       USDT: 'USDT (receive and send)',
-      USDT_SALE: 'USDT sale',
+      USDT_SALE: 'USDT sale: all details',
+      USDT_SALE_COPY: 'USDT sale: deposit address and amount only',
       REMITTANCE: 'Remittances',
       REMITTANCE_COPY: 'Remittances: number and amount only',
       TIKTOK: 'TikTok: photo and all details',

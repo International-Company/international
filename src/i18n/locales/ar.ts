@@ -2082,7 +2082,8 @@ const ar: Dictionary = {
     route: {
       EXCHANGE: 'الصرافة',
       USDT: 'USDT (استلام وسحب)',
-      USDT_SALE: 'بيع USDT',
+      USDT_SALE: 'بيع USDT: البيانات كاملة',
+      USDT_SALE_COPY: 'بيع USDT: عنوان ومبلغ الإيداع فقط',
       REMITTANCE: 'الحوالات',
       REMITTANCE_COPY: 'الحوالات: الرقم والمبلغ فقط',
       TIKTOK: 'تيكتوك: الصورة والبيانات كاملة',

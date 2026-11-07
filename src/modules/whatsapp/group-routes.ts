@@ -9,6 +9,7 @@ export const ROUTE_CATEGORIES = [
   'EXCHANGE',
   'USDT',
   'USDT_SALE',
+  'USDT_SALE_COPY',
   'REMITTANCE',
   'REMITTANCE_COPY',
   'TIKTOK',
@@ -34,6 +35,7 @@ const CATEGORY_WORDS: Record<RouteCategory, string> = {
   EXCHANGE: 'الصرافة',
   USDT: 'USDT',
   USDT_SALE: 'بيع USDT',
+  USDT_SALE_COPY: 'عنوان الإيداع ومبلغه',
   REMITTANCE: 'الحوالات',
   REMITTANCE_COPY: 'رقم الحوالة ومبلغها',
   TIKTOK: 'تيكتوك',
@@ -54,6 +56,7 @@ export function copyGroupFor(type: string, routes: GroupRoutes, main: string): s
 /** The kinds a part of a deal also goes to a group of its own: never unless one is chosen. */
 const COPY_OF: Record<string, RouteCategory> = {
   REMITTANCE_OUT: 'REMITTANCE_COPY',
+  USDT_SALE: 'USDT_SALE_COPY',
   TIKTOK_WITHDRAWAL: 'TIKTOK_NAME',
 };
 const COPIES: RouteCategory[] = Object.values(COPY_OF);

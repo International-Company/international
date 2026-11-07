@@ -310,6 +310,7 @@ describe('announcing a deal to the group', () => {
       companyName: '',
       text: '+201008846989\n\n8130 جنيه',
       phone: null,
+      copyText: '+201008846989\n\n8130 جنيه',
     });
 
     it('go as words alone', async () => {
@@ -344,6 +345,63 @@ describe('announcing a deal to the group', () => {
       deliveredAmount: 8130n * 100_000_000n,
       deliveredUnit: 'جنيه',
     };
+
+    it('for a sale are its coins and address, on the address photo when there is one', async () => {
+      const sale = async () => ({
+        reference: 'TXN-2',
+        type: 'USDT_SALE',
+        bankPayout: false,
+        companyName: '',
+        text: 'everything',
+        phone: null,
+        copyText: '500 USDT\n\nTXabc',
+      });
+      const out: string[] = [];
+      const deps = {
+        target: async () => 'deposit@g.us',
+        load: sale,
+        send: async (_jid: string, text: string) => {
+          out.push(`text:${text}`);
+          return {} as never;
+        },
+        sendPhoto: async (_jid: string, photo: { kind: string }, caption: string) => {
+          out.push(`photo:${photo.kind}:${caption}`);
+          return {} as never;
+        },
+        pause: 1,
+      };
+      const address = { data: new Uint8Array(1), mimeType: 'image/jpeg', kind: 'ADDRESS' };
+      const payment = { data: new Uint8Array(1), mimeType: 'image/jpeg', kind: 'PAYMENT' };
+      await copyNumberAndSum('t1', { ...deps, photos: async () => [payment, address] });
+      await copyNumberAndSum('t1', { ...deps, photos: async () => [payment] });
+      assert.deepEqual(out, ['photo:ADDRESS:500 USDT\n\nTXabc', 'text:500 USDT\n\nTXabc']);
+    });
+
+    it('send nothing for a deal with no part for that group', async () => {
+      let sends = 0;
+      await copyNumberAndSum('t1', {
+        target: async () => 'any@g.us',
+        load: async () => ({ ...(await load()), type: 'EXCHANGE', copyText: null }),
+        send: async () => {
+          sends += 1;
+          return {} as never;
+        },
+        pause: 1,
+      });
+      assert.equal(sends, 0);
+    });
+
+    it('cancel a sale by its coins and address', () => {
+      assert.equal(
+        composeCopyCancelled({
+          ...deal,
+          type: 'USDT_SALE',
+          toAmount: 500n * 100_000_000n,
+          payoutAddress: 'TXabc',
+        }),
+        '🔴 *إيداع ملغى*\n\n500 USDT\n\nTXabc',
+      );
+    });
 
     it('are cancelled by the same two lines, saying nothing of what was paid', () => {
       assert.equal(composeCopyCancelled(deal), '🔴 *حوالة ملغاة*\n\n+201008846989\n\n8130 جنيه');
