@@ -2236,6 +2236,7 @@ const ar: Dictionary = {
     licenseNo: 'رقم الترخيص',
     disclaimer: 'يؤكد هذا الإيصال العملية الموضحة أعلاه. يُرجى الاحتفاظ به.',
     qrTitle: 'بيانات الإيصال',
+    qrWhatsapp: 'امسح للتواصل معنا عبر واتساب',
     payoutChannel: 'البنك / المحفظة',
     payoutAccount: 'رقم الحساب',
     byTransfer: 'بالتحويل',

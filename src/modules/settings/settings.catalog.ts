@@ -117,6 +117,17 @@ export const SETTINGS: SettingDefinition[] = [
     ],
   },
 
+  {
+    // The office's WhatsApp, for the receipt's QR. Set, the QR opens a chat with
+    // it, the receipt's number already typed; empty, the QR says the deal as text.
+    key: 'operations.receiptWhatsapp', category: 'operations', type: 'string', defaultValue: '',
+    labelEn: 'WhatsApp number on receipts', labelAr: 'رقم واتساب في إيصال الفاتورة',
+    descriptionEn:
+      'Scanning the receipt QR opens a WhatsApp chat with this number, the receipt number already written. In international form, e.g. 970599123456. Leave empty to keep the deal as text in the QR.',
+    descriptionAr:
+      'عند مسح رمز QR في الإيصال تُفتح محادثة واتساب مع هذا الرقم ورقم الإيصال مكتوب مسبقاً. يُكتب بالصيغة الدولية مثل 970599123456. اتركه فارغاً ليبقى الرمز نصاً ببيانات العملية.',
+  },
+
   // --- Exchange machine ----------------------------------------------------
   {
     // On by the office's decision: a drawer that runs short goes negative

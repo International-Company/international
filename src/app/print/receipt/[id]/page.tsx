@@ -9,7 +9,7 @@ import * as audit from '@/modules/audit/audit.service';
 import { formatDateTime } from '@/i18n/format';
 import { BRAND } from '@/app/_shell/brand';
 import { QrCode } from '@/core/qr/qr-code';
-import { receiptQrText } from '@/modules/exchange/receipt-qr';
+import { receiptQrText, receiptWhatsappLink } from '@/modules/exchange/receipt-qr';
 import { isWalletType } from '@/modules/exchange/transaction-types';
 import { AutoPrint } from './auto-print';
 
@@ -57,7 +57,8 @@ export default async function ReceiptPage({ params }: { params: Promise<{ id: st
     notFound();
   }
 
-  const [companyName, licenseNumber, phone, address, copies, paper, bankNote] = await Promise.all([
+  const [companyName, licenseNumber, phone, address, copies, paper, bankNote, whatsapp] =
+    await Promise.all([
     settings.getString(locale === 'ar' ? 'company.name.ar' : 'company.name.en'),
     settings.getString('company.licenseNumber'),
     settings.getString('company.phone'),
@@ -65,6 +66,7 @@ export default async function ReceiptPage({ params }: { params: Promise<{ id: st
     settings.getNumber('operations.receiptCopies'),
     settings.getString('operations.receiptPaper'),
     settings.getString('operations.bankReceiptNote'),
+    settings.getString('operations.receiptWhatsapp'),
   ]);
 
   /*
@@ -115,8 +117,9 @@ export default async function ReceiptPage({ params }: { params: Promise<{ id: st
     transaction.counterpartyPhone ||
     null;
 
-  // The deal as plain text, never a link: see `receipt-qr`.
-  const qrText = receiptQrText({
+  // The office's WhatsApp when one is set; otherwise the deal as plain text: see `receipt-qr`.
+  const whatsappLink = receiptWhatsappLink(whatsapp, receipt?.number ?? transaction.reference);
+  const qrText = whatsappLink ?? receiptQrText({
     company: companyName,
     number: receipt?.number ?? transaction.reference,
     when: formatDateTime(transaction.createdAt, locale),
@@ -448,8 +451,13 @@ export default async function ReceiptPage({ params }: { params: Promise<{ id: st
                 value={qrText}
                 level="M"
                 size={roll ? 128 : 130}
-                title={t('receipt.qrTitle')}
+                title={whatsappLink ? t('receipt.qrWhatsapp') : t('receipt.qrTitle')}
               />
+              {whatsappLink && (
+                <p className={`text-center font-semibold ${roll ? 'mt-1 text-[11px]' : 'mt-1 text-xs'}`}>
+                  {t('receipt.qrWhatsapp')}
+                </p>
+              )}
             </div>
 
             {/* --- Signatures — on paper only; a roll receipt is the customer's slip --- */}

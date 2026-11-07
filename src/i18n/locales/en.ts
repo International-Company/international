@@ -2238,6 +2238,7 @@ const en = {
     disclaimer:
       'This receipt confirms the transaction detailed above. Please retain it for your records.',
     qrTitle: 'Receipt details',
+    qrWhatsapp: 'Scan to reach us on WhatsApp',
     payoutChannel: 'Bank / wallet',
     payoutAccount: 'Account no.',
     byTransfer: 'By transfer',

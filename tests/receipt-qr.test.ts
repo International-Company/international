@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { encodeQr } from '../src/core/qr/encoder.ts';
-import { RECEIPT_QR_MAX_BYTES, receiptQrText } from '../src/modules/exchange/receipt-qr.ts';
+import { RECEIPT_QR_MAX_BYTES, receiptQrText, receiptWhatsappLink } from '../src/modules/exchange/receipt-qr.ts';
 
 /**
  * What a receipt's QR says. Pinned: the deal in plain text, no address of any
@@ -63,5 +63,22 @@ describe('the text in a receipt’s QR', () => {
     // And at the very edge of what the company's name is allowed to take.
     const edge = 'x'.repeat(RECEIPT_QR_MAX_BYTES);
     assert.ok(encodeQr(edge, { level: 'M' }).size > 0);
+  });
+});
+
+describe('the WhatsApp link in a receipt’s QR', () => {
+  it('opens a chat with the office, the receipt number typed', () => {
+    const link = receiptWhatsappLink('+970 599-123-456', 'TXN-20261104-00004');
+    assert.ok(link);
+    const url = new URL(link);
+    assert.equal(url.origin + url.pathname, 'https://wa.me/970599123456');
+    assert.equal(url.searchParams.get('text'), 'إيصال رقم TXN-20261104-00004');
+    assert.doesNotThrow(() => encodeQr(link, { level: 'M' }));
+  });
+
+  it('is not made from a local or missing number', () => {
+    assert.equal(receiptWhatsappLink('', 'X'), null);
+    assert.equal(receiptWhatsappLink('0599123456', 'X'), null);
+    assert.equal(receiptWhatsappLink('00970599123456', 'X')?.startsWith('https://wa.me/970599'), true);
   });
 });
