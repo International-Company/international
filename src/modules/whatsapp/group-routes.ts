@@ -124,6 +124,12 @@ export function newlyLinked(before: string[], after: string[], welcomed: string[
   return after.filter((id) => !before.includes(id) && !welcomed.includes(id));
 }
 
+/** The kinds of deal a group is sent, by what the office chose and what falls back to it. */
+export function categoriesOf(group: string, routes: GroupRoutes, main: string): RouteCategory[] {
+  if (!group) return [];
+  return ROUTE_CATEGORIES.filter((category) => routedTo(category, routes, main) === group);
+}
+
 /** Each group in use, with the words for what reaches it: what the test message says. */
 export function groupPlan(routes: GroupRoutes, main: string): { id: string; hears: string[] }[] {
   const plan = new Map<string, string[]>();
