@@ -10,6 +10,8 @@ import { shareable, type Shareable } from '@/modules/exchange/share.service';
 import {
   composeWithdrawal,
   composeWithdrawalDeleted,
+  composeWithdrawalName,
+  composeWithdrawalNameDeleted,
   TIKTOK_DEAL_TYPE,
 } from '@/modules/tiktok/tiktok-message';
 import { copyGroupFor, groupFor, parseRoutes } from './group-routes';
@@ -431,25 +433,39 @@ export function registerWhatsappSubscribers(): void {
     );
   });
 
+  /*
+   * A withdrawal goes whole to its group, and the photo with the name alone to a
+   * second one if the office chose one. Each on its own, so neither failing costs the other.
+   */
   on('tiktok.recorded', 'whatsapp-announce-tiktok', async ({ withdrawalId }) => {
-    const group = await target(TIKTOK_DEAL_TYPE);
-    if (!group) return;
+    const [group, nameGroup] = await Promise.all([
+      target(TIKTOK_DEAL_TYPE),
+      copyTarget(TIKTOK_DEAL_TYPE),
+    ]);
+    if (!group && !nameGroup) return;
     const row = await prisma.tiktokWithdrawal.findUnique({
       where: { id: withdrawalId },
     });
     if (!row) return;
-    await sendImage(
-      group,
-      Buffer.from(row.data),
-      composeWithdrawal(row),
-      undefined,
-      row.mimeType,
-    ).catch((error) => log.warn('Could not send a TikTok withdrawal', { withdrawalId, error }));
+    const photo = Buffer.from(row.data);
+    if (group) {
+      await sendImage(group, photo, composeWithdrawal(row), undefined, row.mimeType).catch(
+        (error) => log.warn('Could not send a TikTok withdrawal', { withdrawalId, error }),
+      );
+    }
+    if (nameGroup) {
+      await sendImage(nameGroup, photo, composeWithdrawalName(row), undefined, row.mimeType).catch(
+        (error) => log.warn('Could not send a TikTok withdrawal’s name', { withdrawalId, error }),
+      );
+    }
   });
 
   on('tiktok.deleted', 'whatsapp-announce-tiktok-deletion', async ({ withdrawalId, by }) => {
-    const group = await target(TIKTOK_DEAL_TYPE);
-    if (!group) return;
+    const [group, nameGroup] = await Promise.all([
+      target(TIKTOK_DEAL_TYPE),
+      copyTarget(TIKTOK_DEAL_TYPE),
+    ]);
+    if (!group && !nameGroup) return;
     const row = await prisma.tiktokWithdrawal.findUnique({
       where: { id: withdrawalId },
       select: {
@@ -462,9 +478,16 @@ export function registerWhatsappSubscribers(): void {
       },
     });
     if (!row) return;
-    await sendText(group, composeWithdrawalDeleted(row, by)).catch((error) =>
-      log.warn('Could not announce a TikTok deletion', { withdrawalId, error }),
-    );
+    if (group) {
+      await sendText(group, composeWithdrawalDeleted(row, by)).catch((error) =>
+        log.warn('Could not announce a TikTok deletion', { withdrawalId, error }),
+      );
+    }
+    if (nameGroup) {
+      await sendText(nameGroup, composeWithdrawalNameDeleted(row)).catch((error) =>
+        log.warn('Could not cancel a TikTok withdrawal’s name', { withdrawalId, error }),
+      );
+    }
   });
 
   on(

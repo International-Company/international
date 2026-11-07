@@ -331,7 +331,7 @@ export function WhatsappPanel({ canManage }: { canManage: boolean }) {
               const unset =
                 category === 'USDT_SALE'
                   ? t('whatsapp.routeSameAsUsdt')
-                  : category === 'REMITTANCE_COPY'
+                  : category === 'REMITTANCE_COPY' || category === 'TIKTOK_NAME'
                     ? t('whatsapp.routeNotSent')
                     : t('whatsapp.routeMain');
               return (

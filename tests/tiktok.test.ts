@@ -3,11 +3,13 @@ import assert from 'node:assert/strict';
 import {
   composeWithdrawal,
   composeWithdrawalDeleted,
+  composeWithdrawalName,
+  composeWithdrawalNameDeleted,
   rateText,
   tiktokPayout,
   tiktokTotals,
 } from '../src/modules/tiktok/tiktok-message.ts';
-import { groupFor, groupPlan } from '../src/modules/whatsapp/group-routes.ts';
+import { copyGroupFor, groupFor, groupPlan } from '../src/modules/whatsapp/group-routes.ts';
 
 const UNIT = 100_000_000n;
 const cents = (value: number) => (BigInt(Math.round(value * 100)) * UNIT) / 100n;
@@ -64,6 +66,26 @@ describe('a TikTok withdrawal', () => {
     assert.equal(
       composeWithdrawal(withdrawal),
       '0592117818\n\nجوال باي\n\nليندا الفقعاوي\n\n198 ش',
+    );
+  });
+
+  it('gives the second group the name alone, and its deletion the name alone', () => {
+    assert.equal(composeWithdrawalName(withdrawal), 'ليندا الفقعاوي');
+    assert.equal(composeWithdrawalNameDeleted(withdrawal), '🔴 *سحب ملغى*\n\nليندا الفقعاوي');
+  });
+
+  it('sends the photo and name only where a group is chosen for it, and not twice', () => {
+    const full = { TIKTOK: { id: 'tt@g.us', name: 'تيكتوك' } };
+    assert.equal(copyGroupFor('TIKTOK_WITHDRAWAL', full, 'main@g.us'), '', 'none by itself');
+    const named = { ...full, TIKTOK_NAME: { id: 'names@g.us', name: 'الأسماء' } };
+    assert.equal(copyGroupFor('TIKTOK_WITHDRAWAL', named, 'main@g.us'), 'names@g.us');
+    assert.equal(groupFor('TIKTOK_WITHDRAWAL', named, 'main@g.us'), 'tt@g.us');
+    const same = { ...full, TIKTOK_NAME: { id: 'tt@g.us', name: 'تيكتوك' } };
+    assert.equal(copyGroupFor('TIKTOK_WITHDRAWAL', same, 'main@g.us'), '');
+    assert.ok(
+      groupPlan(named, 'main@g.us').some(
+        ({ id, hears }) => id === 'names@g.us' && hears.includes('صورة تيكتوك والاسم'),
+      ),
     );
   });
 

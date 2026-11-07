@@ -50,6 +50,20 @@ export function composeWithdrawal({
   return [account, channel, beneficiaryName.trim(), shekels(payoutAmount)].join('\n\n');
 }
 
+/** For the group that only needs to know whose it is: the photo carries the name alone. */
+export function composeWithdrawalName({ beneficiaryName }: { beneficiaryName: string }): string {
+  return beneficiaryName.trim();
+}
+
+/** That group's word that one was deleted: the name, marked, and nothing more. */
+export function composeWithdrawalNameDeleted({
+  beneficiaryName,
+}: {
+  beneficiaryName: string;
+}): string {
+  return `🔴 *سحب ملغى*\n\n${beneficiaryName.trim()}`;
+}
+
 /** Says which one by whatever it holds: a record from before the shekels has only its amount. */
 export function composeWithdrawalDeleted(
   {

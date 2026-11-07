@@ -12,6 +12,7 @@ export const ROUTE_CATEGORIES = [
   'REMITTANCE',
   'REMITTANCE_COPY',
   'TIKTOK',
+  'TIKTOK_NAME',
 ] as const;
 export type RouteCategory = (typeof ROUTE_CATEGORIES)[number];
 
@@ -36,6 +37,7 @@ const CATEGORY_WORDS: Record<RouteCategory, string> = {
   REMITTANCE: 'الحوالات',
   REMITTANCE_COPY: 'رقم الحوالة ومبلغها',
   TIKTOK: 'تيكتوك',
+  TIKTOK_NAME: 'صورة تيكتوك والاسم',
 };
 
 /**
@@ -43,10 +45,18 @@ const CATEGORY_WORDS: Record<RouteCategory, string> = {
  * it has just gone to: that group has them already.
  */
 export function copyGroupFor(type: string, routes: GroupRoutes, main: string): string {
-  if (type !== 'REMITTANCE_OUT') return '';
-  const copy = routes.REMITTANCE_COPY?.id ?? '';
+  const category = COPY_OF[type];
+  if (!category) return '';
+  const copy = routes[category]?.id ?? '';
   return copy === groupFor(type, routes, main) ? '' : copy;
 }
+
+/** The kinds a part of a deal also goes to a group of its own: never unless one is chosen. */
+const COPY_OF: Record<string, RouteCategory> = {
+  REMITTANCE_OUT: 'REMITTANCE_COPY',
+  TIKTOK_WITHDRAWAL: 'TIKTOK_NAME',
+};
+const COPIES: RouteCategory[] = Object.values(COPY_OF);
 
 /** The stored routes. Anything unreadable counts as none: the main group still hears. */
 export function parseRoutes(raw: string): GroupRoutes {
@@ -86,7 +96,7 @@ export function withRoute(
 /** Where a kind goes: its own group, else the USDT group for a sale, else the main one. */
 function routedTo(category: RouteCategory, routes: GroupRoutes, main: string): string {
   // Sent only where it is asked for: it would say nothing new in the main group.
-  if (category === 'REMITTANCE_COPY') return routes.REMITTANCE_COPY?.id ?? '';
+  if (COPIES.includes(category)) return routes[category]?.id ?? '';
   return (
     routes[category]?.id || (category === 'USDT_SALE' ? routes.USDT?.id : undefined) || main
   );
