@@ -4,11 +4,22 @@
  * the manager only ever chooses groups.
  */
 
-export const ACCOUNTS = ['main', 'second'] as const;
+export const ACCOUNTS = ['main', 'second', 'private'] as const;
 export type Account = (typeof ACCOUNTS)[number];
 
+/** The numbers that write to groups. The private number only ever answers people. */
+export const GROUP_ACCOUNTS = ['main', 'second'] as const satisfies readonly Account[];
+
+/** A chat with one person: not a group, a status or a channel. */
+export const isPrivateChat = (jid: string): boolean =>
+  jid.endsWith('@s.whatsapp.net') || jid.endsWith('@lid');
+
 /** Where an account's session is kept: the first as it always was, the second apart. */
-export const SESSION_PREFIX: Record<Account, string> = { main: '', second: 'second:' };
+export const SESSION_PREFIX: Record<Account, string> = {
+  main: '',
+  second: 'second:',
+  private: 'private:',
+};
 
 /**
  * The number to write to a chat with. A group goes to a number that is in it,

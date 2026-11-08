@@ -7,6 +7,7 @@ import { purgeExpiredSessions } from '@/modules/auth/session.service';
 import { registerNotificationSubscribers } from '@/modules/notifications/subscribers';
 import { registerWhatsappSubscribers } from '@/modules/whatsapp/announce';
 import { registerReportCommand } from '@/modules/whatsapp/report.service';
+import { registerPrivateBot } from '@/modules/whatsapp/private-bot.service';
 import { registerReconcile } from '@/modules/whatsapp/reconcile.service';
 import { resume as resumeWhatsapp } from '@/modules/whatsapp/whatsapp.service';
 import * as notifications from '@/modules/notifications/notifications.service';
@@ -40,6 +41,7 @@ export function bootstrap(): void {
   registerWhatsappSubscribers();
   registerReportCommand();
   registerReconcile();
+  registerPrivateBot();
   registerJobHandlers();
   startWorker();
   // The linked WhatsApp number, back on after a restart or a deploy.

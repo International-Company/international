@@ -36,6 +36,8 @@ interface Snapshot {
 interface Link extends Snapshot {
   /** The second number, linked the same way. */
   second: Snapshot;
+  /** The number that answers customers, linked the same way. */
+  private: Snapshot;
   groupId: string;
   groupName: string;
   routes: GroupRoutes;
@@ -61,7 +63,7 @@ export function WhatsappPanel({ canManage }: { canManage: boolean }) {
   /** The number's groups, once the manager opens the routes to change them. */
   const [routeGroups, setRouteGroups] = useState<Group[] | null>(null);
   const [confirmUnlink, setConfirmUnlink] = useState(false);
-  const [confirmUnlinkSecond, setConfirmUnlinkSecond] = useState(false);
+  const [confirmUnlinkNumber, setConfirmUnlinkNumber] = useState<'second' | 'private' | null>(null);
   /** The welcome message being edited; null until the manager types. */
   const [welcomeDraft, setWelcomeDraft] = useState<string | null>(null);
   const [confirmWelcome, setConfirmWelcome] = useState(false);
@@ -74,7 +76,7 @@ export function WhatsappPanel({ canManage }: { canManage: boolean }) {
     }
   }, []);
 
-  const waiting = [link?.status, link?.second.status].some(
+  const waiting = [link?.status, link?.second.status, link?.private.status].some(
     (status) => status === 'WAITING_QR' || status === 'CONNECTING',
   );
 
@@ -333,7 +335,8 @@ export function WhatsappPanel({ canManage }: { canManage: boolean }) {
                   ? t('whatsapp.routeSameAsUsdt')
                   : category === 'REMITTANCE_COPY' ||
                       category === 'TIKTOK_NAME' ||
-                      category === 'USDT_SALE_COPY'
+                      category === 'USDT_SALE_COPY' ||
+                      category === 'PRIVATE_LEADS'
                     ? t('whatsapp.routeNotSent')
                     : t('whatsapp.routeMain');
               return (
@@ -421,68 +424,71 @@ export function WhatsappPanel({ canManage }: { canManage: boolean }) {
         </div>
       )}
 
-      {/* --- The second number ---------------------------------------------- */}
-      {link.status === 'CONNECTED' && (
-        <div className="space-y-3 rounded-xl bg-surface p-4">
+      {/* --- The other numbers ---------------------------------------------- */}
+      {link.status === 'CONNECTED' &&
+        (['second', 'private'] as const).map((account) => {
+          const number = link[account];
+          return (
+        <div key={account} className="space-y-3 rounded-xl bg-surface p-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <p className="flex items-center gap-2 text-sm font-semibold text-content">
-                {t('whatsapp.secondNumber')}
-                {link.second.status === 'CONNECTED' ? (
+                {t(`whatsapp.${account}Number`)}
+                {number.status === 'CONNECTED' ? (
                   <Badge tone="success">{t('whatsapp.linked')}</Badge>
-                ) : link.second.status === 'OFF' ? (
+                ) : number.status === 'OFF' ? (
                   <Badge tone="neutral">{t('whatsapp.notLinked')}</Badge>
                 ) : (
                   <Badge tone="warning">{t('whatsapp.linking')}</Badge>
                 )}
               </p>
-              {link.second.status === 'CONNECTED' && link.second.number && (
+              {number.status === 'CONNECTED' && number.number && (
                 <p className="text-sm text-content-secondary">
-                  <span className="ltr-content tabular-nums">+{link.second.number}</span>
-                  {link.second.name && <span> · {link.second.name}</span>}
+                  <span className="ltr-content tabular-nums">+{number.number}</span>
+                  {number.name && <span> · {number.name}</span>}
                 </p>
               )}
             </div>
             {canManage &&
-              (link.second.status === 'CONNECTED' ? (
+              (number.status === 'CONNECTED' ? (
                 <Button
                   size="sm"
                   variant="secondary"
                   icon={<Link2Off />}
-                  onClick={() => setConfirmUnlinkSecond(true)}
+                  onClick={() => setConfirmUnlinkNumber(account)}
                 >
                   {t('whatsapp.unlink')}
                 </Button>
-              ) : link.second.status === 'OFF' ? (
+              ) : number.status === 'OFF' ? (
                 <Button
                   size="sm"
                   icon={<Link2 />}
                   loading={busy === 'connect'}
-                  onClick={() => void act({ action: 'connect', account: 'second' })}
+                  onClick={() => void act({ action: 'connect', account })}
                 >
-                  {t('whatsapp.linkSecond')}
+                  {t(`whatsapp.${account}Link`)}
                 </Button>
               ) : null)}
           </div>
 
-          {link.second.status === 'OFF' && link.second.error && (
+          {number.status === 'OFF' && number.error && (
             <p className="rounded-xl bg-warning-subtle px-3 py-2 text-sm text-content-secondary">
-              {t(`whatsapp.error.${link.second.error}` as never)}
+              {t(`whatsapp.error.${number.error}` as never)}
             </p>
           )}
 
-          {link.second.status === 'WAITING_QR' && link.second.qrImage && (
+          {number.status === 'WAITING_QR' && number.qrImage && (
             <div className="flex flex-col items-center gap-4 sm:flex-row sm:items-start">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
-                src={link.second.qrImage}
+                src={number.qrImage}
                 alt="QR"
                 width={220}
                 height={220}
                 className="rounded-lg bg-white p-2 ring-1 ring-border-subtle"
               />
               <ol className="list-inside list-decimal space-y-2 text-sm text-content-secondary">
-                <li>{t('whatsapp.stepSecond')}</li>
+                <li>{t(`whatsapp.${account}Step`)}</li>
                 <li>{t('whatsapp.step2')}</li>
                 <li>{t('whatsapp.step3')}</li>
                 <li>{t('whatsapp.step4')}</li>
@@ -490,9 +496,10 @@ export function WhatsappPanel({ canManage }: { canManage: boolean }) {
             </div>
           )}
 
-          <p className="text-xs text-content-tertiary">{t('whatsapp.secondHint')}</p>
+          <p className="text-xs text-content-tertiary">{t(`whatsapp.${account}Hint`)}</p>
         </div>
-      )}
+          );
+        })}
 
       <p className="text-xs text-content-tertiary">{t('whatsapp.advice')}</p>
 
@@ -510,14 +517,16 @@ export function WhatsappPanel({ canManage }: { canManage: boolean }) {
       />
 
       <ConfirmDialog
-        open={confirmUnlinkSecond}
-        onClose={() => setConfirmUnlinkSecond(false)}
+        open={confirmUnlinkNumber !== null}
+        onClose={() => setConfirmUnlinkNumber(null)}
         onConfirm={() => {
-          setConfirmUnlinkSecond(false);
-          void act({ action: 'disconnect', account: 'second' }, t('whatsapp.unlinked'));
+          if (confirmUnlinkNumber) {
+            void act({ action: 'disconnect', account: confirmUnlinkNumber }, t('whatsapp.unlinked'));
+          }
+          setConfirmUnlinkNumber(null);
         }}
-        title={t('whatsapp.unlinkSecondTitle')}
-        message={t('whatsapp.unlinkSecondBody')}
+        title={t(`whatsapp.${confirmUnlinkNumber ?? 'second'}UnlinkTitle`)}
+        message={t(`whatsapp.${confirmUnlinkNumber ?? 'second'}UnlinkBody`)}
         confirmLabel={t('whatsapp.unlink')}
         cancelLabel={t('common.cancel')}
         tone="danger"

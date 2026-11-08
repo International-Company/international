@@ -11,7 +11,7 @@ import QRCode from 'qrcode';
 import { prisma } from '@/core/db/prisma';
 import { errors } from '@/core/errors/app-error';
 import { createLogger } from '@/core/logger/logger';
-import { ACCOUNTS, chooseAccount, firstSighting, SESSION_PREFIX, type Account } from './accounts';
+import { ACCOUNTS, chooseAccount, firstSighting, GROUP_ACCOUNTS, isPrivateChat, SESSION_PREFIX, type Account } from './accounts';
 import { clearSession, databaseAuthState, hasSession } from './auth-state';
 
 /**
@@ -87,10 +87,12 @@ const fresh = (): Session => ({
 
 const globalForWhatsapp = globalThis as unknown as { __ifmsWhatsappNumbers?: Shared };
 const shared: Shared = (globalForWhatsapp.__ifmsWhatsappNumbers ??= {
-  sessions: { main: fresh(), second: fresh() },
+  sessions: { main: fresh(), second: fresh(), private: fresh() },
   listeners: [],
   seen: [],
 });
+// A server already running when this number was added has no place for it yet.
+shared.sessions.private ??= fresh();
 
 /** Baileys talks a great deal; only what is worth reading reaches our log. */
 const quiet = {
@@ -144,6 +146,10 @@ async function open(account: Account): Promise<void> {
     if (generation !== holder.generation || type !== 'notify') return;
     for (const message of messages) {
       if (!message.key.remoteJid) continue;
+      // The private number hears people writing to it, and nothing else.
+      if (account === 'private' && (message.key.fromMe || !isPrivateChat(message.key.remoteJid))) {
+        continue;
+      }
       if (!firstSighting(shared.seen, `${message.key.remoteJid}:${message.key.id}`)) continue;
       const content = normalizeMessageContent(message.message);
       const text = content?.conversation ?? content?.extendedTextMessage?.text ?? null;
@@ -313,7 +319,7 @@ export async function snapshot(account: Account = 'main'): Promise<LinkSnapshot>
 }
 
 const live = (): Account[] =>
-  ACCOUNTS.filter(
+  GROUP_ACCOUNTS.filter(
     (account) =>
       shared.sessions[account].status === 'CONNECTED' && shared.sessions[account].sock !== null,
   );
@@ -439,6 +445,15 @@ export function isLinked(): boolean {
 }
 
 export type SentMessage = Awaited<ReturnType<WASocket['sendMessage']>>;
+
+/** Answers someone from the private number, showing it typing first as a person would. */
+export async function replyPrivately(jid: string, text: string): Promise<void> {
+  const sock = socketOf('private');
+  await sock.sendPresenceUpdate('composing', jid).catch(() => undefined);
+  await new Promise((resolve) => setTimeout(resolve, Math.min(3_500, 1_000 + text.length * 15)));
+  await sock.sendPresenceUpdate('paused', jid).catch(() => undefined);
+  await sock.sendMessage(jid, { text });
+}
 
 /**
  * Writes to a chat, optionally as a reply to a message already in it, and

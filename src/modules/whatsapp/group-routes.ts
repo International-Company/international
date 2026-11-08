@@ -14,6 +14,7 @@ export const ROUTE_CATEGORIES = [
   'REMITTANCE_COPY',
   'TIKTOK',
   'TIKTOK_NAME',
+  'PRIVATE_LEADS',
 ] as const;
 export type RouteCategory = (typeof ROUTE_CATEGORIES)[number];
 
@@ -40,6 +41,7 @@ const CATEGORY_WORDS: Record<RouteCategory, string> = {
   REMITTANCE_COPY: 'رقم الحوالة ومبلغها',
   TIKTOK: 'تيكتوك',
   TIKTOK_NAME: 'صورة تيكتوك والاسم',
+  PRIVATE_LEADS: 'طلبات عملاء الرقم الخاص',
 };
 
 /**
@@ -59,7 +61,7 @@ const COPY_OF: Record<string, RouteCategory> = {
   USDT_SALE: 'USDT_SALE_COPY',
   TIKTOK_WITHDRAWAL: 'TIKTOK_NAME',
 };
-const COPIES: RouteCategory[] = Object.values(COPY_OF);
+const COPIES: RouteCategory[] = [...Object.values(COPY_OF), 'PRIVATE_LEADS'];
 
 /** The stored routes. Anything unreadable counts as none: the main group still hears. */
 export function parseRoutes(raw: string): GroupRoutes {

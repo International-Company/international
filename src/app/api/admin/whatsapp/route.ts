@@ -18,6 +18,7 @@ export const GET = route({
   handler: async () => ({
     ...(await whatsapp.snapshot()),
     second: await whatsapp.snapshot('second'),
+    private: await whatsapp.snapshot('private'),
     groupId: await settings.getString('whatsapp.groupId'),
     groupName: await settings.getString('whatsapp.groupName'),
     routes: parseRoutes(await settings.getString('whatsapp.groupRoutes')),

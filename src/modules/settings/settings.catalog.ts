@@ -495,6 +495,24 @@ export const SETTINGS: SettingDefinition[] = [
     descriptionEn: 'Chosen on the WhatsApp panel', descriptionAr: 'تُختار من لوحة الواتساب',
   },
 
+  {
+    // Off until the manager has linked the number and chosen who hears of requests.
+    key: 'whatsapp.privateBotEnabled', category: 'whatsapp', type: 'boolean', defaultValue: false,
+    labelEn: 'Answer customers on the private number', labelAr: 'الرد على العملاء في الرقم الخاص',
+    descriptionEn:
+      'Whoever writes to the private number is answered automatically with the published prices. Needs the number linked and a group chosen for customer requests.',
+    descriptionAr:
+      'يرد البوت تلقائياً على كل من يراسل الرقم الخاص بالأسعار المنشورة. يحتاج ربط الرقم واختيار مجموعة طلبات العملاء.',
+  },
+  {
+    key: 'whatsapp.privateBotDailyLimit', category: 'whatsapp', type: 'number', defaultValue: 300, min: 0, max: 5000,
+    labelEn: 'Private number: answers a day', labelAr: 'الرقم الخاص: عدد الردود في اليوم',
+    descriptionEn:
+      'Each answer has a small cost. Past this many in a day, customers are told a member of staff will contact them.',
+    descriptionAr:
+      'لكل رد تكلفة صغيرة. بعد هذا العدد في اليوم يُبلَّغ العميل أن موظفاً سيتواصل معه.',
+  },
+
   // --- Notifications -------------------------------------------------------
   {
     key: 'notifications.retentionDays', category: 'notifications', type: 'number', defaultValue: 90, min: 7, max: 730,
