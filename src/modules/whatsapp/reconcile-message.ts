@@ -57,11 +57,7 @@ export interface UsdtDeposit {
 
 /** A TikTok withdrawal that stands. */
 export interface TiktokWithdrawn {
-  amount: bigint;
-  currency: string;
-  /** The shekels handed over; nothing on one recorded before they were. */
-  payoutAmount: bigint;
-  /** The pounds the photo shows, when the teller typed them. */
+  /** The pounds the photo shows, read from it or typed by the teller. */
   egpAmount: bigint | null;
 }
 
@@ -163,16 +159,9 @@ function depositSection(deposits: UsdtDeposit[]): Section {
 }
 
 function tiktokSection(rows: TiktokWithdrawn[]): Section {
-  const dollars = sumAmounts(rows.map(({ currency, amount }) => ({ currency, amount })));
-  const shekels = rows.reduce((sum, row) => sum + row.payoutAmount, 0n);
   const pounds = rows.reduce((sum, row) => sum + (row.egpAmount ?? 0n), 0n);
   const blank = rows.filter((row) => !row.egpAmount).length;
-  const lines = [
-    `عدد السحوبات: ${rows.length}`,
-    `مجموع الشيكل: *${formatAmount({ currency: 'ILS', amount: shekels })}*`,
-    `مجموع الدولار: *${dollars.length ? sumList(dollars) : formatAmount({ currency: 'USD', amount: 0n })}*`,
-    `مجموع الجنيه: *${formatAmount({ currency: 'EGP', amount: pounds })}*`,
-  ];
+  const lines = [`مجموع الجنيه: *${formatAmount({ currency: 'EGP', amount: pounds })}*`];
   // So a short pound total is not taken for the whole day's.
   if (blank > 0) lines.push(`(${counted(blank, 'سحب', 'سحوبات')} بلا مبلغ بالجنيه)`);
   return { title: 'تيكتوك', icon: '🎵', lines };

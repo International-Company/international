@@ -39,6 +39,7 @@
   },
   "//dependencies": "Anything `next build`, `prisma generate` or the deploy start command needs at build time lives here, NOT in devDependencies. Platforms that set NODE_ENV=production during the build (Railway, Heroku, Nixpacks) make npm skip devDependencies entirely, so a build-time package placed there is simply absent when the build runs.",
   "dependencies": {
+    "@anthropic-ai/sdk": "^1.6.0",
     "@noble/hashes": "^1.8.0",
     "@noble/secp256k1": "^3.1.0",
     "@prisma/client": "^6.2.1",

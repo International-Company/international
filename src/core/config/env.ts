@@ -59,6 +59,9 @@ const schema = z.object({
 
   TRON_API_BASE: z.string().default('https://api.trongrid.io'),
   TRON_API_KEY: z.string().default(''),
+
+  /** Lets the TikTok screen read a photo's figures. Empty: the teller types them. */
+  ANTHROPIC_API_KEY: z.string().default(''),
   TRON_USDT_CONTRACT: z.string().default('TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'),
 
   /*

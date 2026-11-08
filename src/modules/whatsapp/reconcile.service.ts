@@ -179,7 +179,7 @@ export function liveDeps(): ReconcileDeps {
       const { start, end } = dayBounds(now);
       return prisma.tiktokWithdrawal.findMany({
         where: { deletedAt: null, createdAt: { gte: start, lte: end } },
-        select: { amount: true, currency: true, payoutAmount: true, egpAmount: true },
+        select: { egpAmount: true },
       });
     },
     reply: async (message, text) => {

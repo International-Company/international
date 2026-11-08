@@ -64,12 +64,13 @@ describe('each group’s reconciliation', () => {
     );
   });
 
-  it('tells the TikTok group the shekels first, then the dollars and pounds', () => {
+  it('tells the TikTok group the pounds withdrawn, and how many have none', () => {
     const text = composeGroupReconciliation({
       ...stamp,
       tiktok: [
-        { amount: 100n * U, currency: 'USD', payoutAmount: 255n * U, egpAmount: 4900n * U },
-        { amount: 50n * U, currency: 'USD', payoutAmount: 127n * U, egpAmount: null },
+        { egpAmount: 4900n * U },
+        { egpAmount: 249n * U },
+        { egpAmount: null },
       ],
     });
     assert.equal(
@@ -78,10 +79,7 @@ describe('each group’s reconciliation', () => {
         '📋 *مطابقة تيكتوك*',
         '2026-11-07 — حتى الساعة 15:00',
         '',
-        'عدد السحوبات: 2',
-        'مجموع الشيكل: *382 شيكل*',
-        'مجموع الدولار: *150 دولار*',
-        'مجموع الجنيه: *4,900 جنيه*',
+        'مجموع الجنيه: *5,149 جنيه*',
         '(1 سحب بلا مبلغ بالجنيه)',
       ].join('\n'),
     );

@@ -698,7 +698,12 @@ const en = {
     rate: 'Dollar price',
     payout: 'What the beneficiary receives',
     egp: 'Amount in pounds (from the photo)',
-    egpHint: 'Added up in the TikTok group reconciliation',
+    egpHint: 'Kept and added up in the reconciliation; never shown in the withdrawal message',
+    scan: {
+      READING: 'Reading the figures from the photo…',
+      READ: 'Dollars and pounds read from the photo. Check them before recording',
+      FAILED: 'Some figures could not be read. Type them in',
+    },
     record: 'Record withdrawal',
     recorded: 'Withdrawal recorded',
     deleted: 'Withdrawal deleted',

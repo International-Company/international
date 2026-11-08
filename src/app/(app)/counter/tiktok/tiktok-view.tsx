@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Camera, Check, ImagePlus, Loader2, Trash2, X } from 'lucide-react';
 import { useLocale } from '@/i18n/provider';
 import { normalizeDigits, parseMoney } from '@/core/money/money';
@@ -69,6 +69,9 @@ export function TiktokView({
   const [rate, setRate] = useState(defaultRate);
   // The pounds the photo shows, for the group's reconciliation.
   const [egp, setEgp] = useState('');
+  // Reading the figures off the photo, and how it went. Null: nothing to say.
+  const [scan, setScan] = useState<'READING' | 'READ' | 'FAILED' | null>(null);
+  const scanId = useRef(0);
   const [posting, setPosting] = useState(false);
   const [rows, setRows] = useState<Row[]>([]);
   const [deleting, setDeleting] = useState<Row | null>(null);
@@ -95,11 +98,38 @@ export function TiktokView({
         : t('errors.generic'),
     );
 
+  /** Fills in what the photo shows. A later photo, or none, makes this one's answer stale. */
+  const readFigures = async (shrunk: string) => {
+    const id = ++scanId.current;
+    setScan('READING');
+    try {
+      const found = await api.post<{
+        available: boolean;
+        usd: string | null;
+        egp: string | null;
+      }>('/api/tiktok/read-photo', { photo: shrunk });
+      if (id !== scanId.current) return;
+      if (found.usd) setAmount(decimal(found.usd));
+      if (found.egp) setEgp(decimal(found.egp));
+      setScan(!found.available ? null : found.usd && found.egp ? 'READ' : 'FAILED');
+    } catch {
+      if (id === scanId.current) setScan('FAILED');
+    }
+  };
+
+  const clearPhoto = () => {
+    scanId.current += 1;
+    setScan(null);
+    setPhoto(null);
+  };
+
   const pick = async (file: File | undefined) => {
     if (!file) return;
     setReading(true);
     try {
-      setPhoto(await shrinkPhoto(file));
+      const shrunk = await shrinkPhoto(file);
+      setPhoto(shrunk);
+      void readFigures(shrunk);
     } catch {
       toast.error(t('errors.title'), t('errors.proofImageInvalid'));
     } finally {
@@ -113,7 +143,8 @@ export function TiktokView({
     account.trim().length > 0 &&
     beneficiaryName.trim().length > 0 &&
     Boolean(channel) &&
-    payout > 0n;
+    payout > 0n &&
+    scan !== 'READING';
 
   const submit = async () => {
     if (!ready || posting) return;
@@ -129,7 +160,7 @@ export function TiktokView({
         egpAmount: egp.trim() || null,
       });
       toast.success(t('tiktok.recorded'));
-      setPhoto(null);
+      clearPhoto();
       setAccount('');
       setBeneficiaryName('');
       setAmount('');
@@ -176,12 +207,21 @@ export function TiktokView({
               />
               <button
                 type="button"
-                onClick={() => setPhoto(null)}
+                onClick={clearPhoto}
                 aria-label={t('common.delete')}
                 className="absolute end-2 top-2 flex size-10 items-center justify-center rounded-full bg-surface text-content shadow-[var(--shadow-md)]"
               >
                 <X className="size-5" />
               </button>
+              {scan && (
+                <p
+                  role="status"
+                  className="mt-2 flex items-center justify-center gap-2 text-center text-xs font-medium text-content-secondary"
+                >
+                  {scan === 'READING' && <Loader2 className="size-4 animate-spin" />}
+                  {t(`tiktok.scan.${scan}`)}
+                </p>
+              )}
             </div>
           ) : (
             <div className="grid grid-cols-2 gap-3">
