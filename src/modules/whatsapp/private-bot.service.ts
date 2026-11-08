@@ -13,6 +13,7 @@ import {
   onIncomingText,
   replyPrivately,
   sendText,
+  snapshot,
   type IncomingText,
 } from './whatsapp.service';
 
@@ -236,6 +237,37 @@ async function liveAsk(turns: Turn[]): Promise<Answer> {
 const leadsGroup = async () =>
   parseRoutes(await settings.getString('whatsapp.groupRoutes')).PRIVATE_LEADS?.id ?? '';
 
+export type BotGap = 'NOT_LINKED' | 'NO_GROUP' | 'SWITCHED_OFF' | 'NO_KEY';
+
+/** What stands between the number and answering, in the order the manager sets them up. */
+export function gapsOf(setup: {
+  linked: boolean;
+  group: string;
+  switchedOn: boolean;
+  key: string;
+}): BotGap[] {
+  return [
+    ...(setup.linked ? [] : (['NOT_LINKED'] as const)),
+    ...(setup.group ? [] : (['NO_GROUP'] as const)),
+    ...(setup.switchedOn ? [] : (['SWITCHED_OFF'] as const)),
+    ...(setup.key ? [] : (['NO_KEY'] as const)),
+  ];
+}
+
+export async function privateBotGaps(): Promise<BotGap[]> {
+  const [link, group, switchedOn] = await Promise.all([
+    snapshot('private'),
+    leadsGroup(),
+    settings.getBoolean('whatsapp.privateBotEnabled'),
+  ]);
+  return gapsOf({
+    linked: link.status === 'CONNECTED',
+    group,
+    switchedOn,
+    key: env.ANTHROPIC_API_KEY,
+  });
+}
+
 /** Its messages, each customer's one at a time and in the order they wrote them. */
 const inQueue = new Map<string, Promise<unknown>>();
 const state = newBotState();
@@ -263,7 +295,15 @@ export function registerPrivateBot(): void {
   onIncomingText((incoming) => {
     if (incoming.account !== 'private') return;
     const turn = (inQueue.get(incoming.chat) ?? Promise.resolve())
-      .then(() => handlePrivateMessage(incoming, deps))
+      .then(async () => {
+        const outcome = await handlePrivateMessage(incoming, deps);
+        // The outcome only: who wrote and what they said stay out of the log.
+        if (outcome === 'OFF') {
+          log.info('A customer was not answered', { outcome, missing: await privateBotGaps() });
+        } else {
+          log.info('A customer wrote', { outcome });
+        }
+      })
       .catch((error) => log.error('A customer message failed', { error }))
       .finally(() => {
         if (inQueue.get(incoming.chat) === turn) inQueue.delete(incoming.chat);

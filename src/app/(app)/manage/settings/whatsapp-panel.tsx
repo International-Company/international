@@ -38,6 +38,8 @@ interface Link extends Snapshot {
   second: Snapshot;
   /** The number that answers customers, linked the same way. */
   private: Snapshot;
+  /** What the private number still needs before it answers anyone. */
+  privateGaps: ('NOT_LINKED' | 'NO_GROUP' | 'SWITCHED_OFF' | 'NO_KEY')[];
   groupId: string;
   groupName: string;
   routes: GroupRoutes;
@@ -495,6 +497,22 @@ export function WhatsappPanel({ canManage }: { canManage: boolean }) {
               </ol>
             </div>
           )}
+
+          {account === 'private' &&
+            (link.privateGaps.length === 0 ? (
+              <p className="rounded-xl bg-success-subtle px-3 py-2 text-sm font-medium text-content">
+                {t('whatsapp.privateReady')}
+              </p>
+            ) : (
+              <div className="rounded-xl bg-warning-subtle px-3 py-2 text-sm text-content-secondary">
+                <p className="font-medium text-content">{t('whatsapp.privateNotReady')}</p>
+                <ul className="mt-1 list-inside list-disc space-y-1">
+                  {link.privateGaps.map((gap) => (
+                    <li key={gap}>{t(`whatsapp.privateGap.${gap}`)}</li>
+                  ))}
+                </ul>
+              </div>
+            ))}
 
           <p className="text-xs text-content-tertiary">{t(`whatsapp.${account}Hint`)}</p>
         </div>

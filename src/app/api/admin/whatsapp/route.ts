@@ -8,6 +8,7 @@ import {
   ROUTE_CATEGORIES,
   withRoute,
 } from '@/modules/whatsapp/group-routes';
+import { privateBotGaps } from '@/modules/whatsapp/private-bot.service';
 import { linkedGroups, sendWelcomeNow, welcomeNewlyLinked } from '@/modules/whatsapp/welcome';
 import { ACCOUNTS } from '@/modules/whatsapp/accounts';
 import * as whatsapp from '@/modules/whatsapp/whatsapp.service';
@@ -19,6 +20,7 @@ export const GET = route({
     ...(await whatsapp.snapshot()),
     second: await whatsapp.snapshot('second'),
     private: await whatsapp.snapshot('private'),
+    privateGaps: await privateBotGaps(),
     groupId: await settings.getString('whatsapp.groupId'),
     groupName: await settings.getString('whatsapp.groupName'),
     routes: parseRoutes(await settings.getString('whatsapp.groupRoutes')),

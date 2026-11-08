@@ -7,6 +7,7 @@ import { chooseAccount, isPrivateChat } from '../src/modules/whatsapp/accounts.t
 import { categoriesOf, groupPlan } from '../src/modules/whatsapp/group-routes.ts';
 import { composePriceSheet } from '../src/modules/whatsapp/price-sheet.ts';
 import {
+  gapsOf,
   handlePrivateMessage,
   newBotState,
   type Answer,
@@ -102,6 +103,22 @@ describe('the private number', () => {
     const { deps, asked } = setup();
     assert.equal(await handlePrivateMessage(message('س'.repeat(801)), deps), 'TOO_LONG');
     assert.equal(asked.length, 0);
+  });
+});
+
+describe('what the private number still needs', () => {
+  const ready = { linked: true, group: 'g@g.us', switchedOn: true, key: 'k' };
+  it('is nothing when it is all set up', () => {
+    assert.deepEqual(gapsOf(ready), []);
+  });
+  it('names each thing missing, in the order they are done', () => {
+    assert.deepEqual(gapsOf({ linked: false, group: '', switchedOn: false, key: '' }), [
+      'NOT_LINKED',
+      'NO_GROUP',
+      'SWITCHED_OFF',
+      'NO_KEY',
+    ]);
+    assert.deepEqual(gapsOf({ ...ready, switchedOn: false }), ['SWITCHED_OFF']);
   });
 });
 
