@@ -513,6 +513,12 @@ export const SETTINGS: SettingDefinition[] = [
       'لكل رد تكلفة صغيرة. بعد هذا العدد في اليوم يُبلَّغ العميل أن موظفاً سيتواصل معه.',
   },
 
+  {
+    key: 'whatsapp.privateBotProfile', category: 'whatsapp', type: 'string', defaultValue: '', hidden: true,
+    labelEn: 'Private number: what it has been told', labelAr: 'الرقم الخاص: معلومات البوت',
+    descriptionEn: 'Written on the private number panel', descriptionAr: 'تُكتب من لوحة بوت الرقم الخاص',
+  },
+
   // --- Notifications -------------------------------------------------------
   {
     key: 'notifications.retentionDays', category: 'notifications', type: 'number', defaultValue: 90, min: 7, max: 730,

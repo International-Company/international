@@ -37,6 +37,7 @@ export interface NavSection {
 }
 
 export type IconName =
+  | 'bot'
   | 'machine'
   | 'tiktok'
   | 'counter'
@@ -277,6 +278,13 @@ export const NAVIGATION: NavSection[] = [
         labelKey: 'nav.access',
         icon: 'staff',
         permissions: ['users.roles.assign'],
+      },
+      {
+        // What the private number tells customers, and whether it is answering.
+        href: '/manage/private-bot',
+        labelKey: 'nav.privateBot',
+        icon: 'bot',
+        permissions: ['settings.view'],
       },
       {
         href: '/manage/settings',

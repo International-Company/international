@@ -31,6 +31,8 @@ export interface PriceSheet {
   /** Percentages, zero when the office has not set one. */
   usdtForCashDollars: number;
   usdtForBankDollars: number;
+  /** Prices the office wrote in for ones the system does not hold. */
+  extra?: { item: string; price: string }[];
 }
 
 const NAMES: Record<string, string> = { USD: 'الدولار', ILS: 'الشيكل', JOD: 'الدينار', EGP: 'الجنيه' };
@@ -76,5 +78,8 @@ export function composePriceSheet(sheet: PriceSheet): string {
     ...(sheet.remittances.length > 0
       ? sheet.remittances.map(remittanceLine)
       : ['لا توجد رسوم منشورة، يحددها موظف.']),
+    ...(sheet.extra?.length
+      ? ['', 'أسعار أخرى من المكتب:', ...sheet.extra.map((row) => `- ${row.item}: ${row.price}`)]
+      : []),
   ].join('\n');
 }

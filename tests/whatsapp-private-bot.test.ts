@@ -7,6 +7,17 @@ import { chooseAccount, isPrivateChat } from '../src/modules/whatsapp/accounts.t
 import { categoriesOf, groupPlan } from '../src/modules/whatsapp/group-routes.ts';
 import { composePriceSheet } from '../src/modules/whatsapp/price-sheet.ts';
 import {
+  cannedWelcome,
+  composeKnowledge,
+  emptyProfile,
+  isGreeting,
+  parseProfile,
+  profileSchema,
+  tidyProfile,
+  visibleSheet,
+  type BotProfile,
+} from '../src/modules/whatsapp/bot-profile.ts';
+import {
   gapsOf,
   handlePrivateMessage,
   newBotState,
@@ -19,7 +30,11 @@ const U = 100_000_000n;
 const message = (text: string, chat = '970599000000@s.whatsapp.net') =>
   ({ chat, text, sender: chat, senderPhone: chat, message: {}, account: 'private' }) as unknown as IncomingText;
 
-const setup = (answer: Answer | Error = { reply: 'الدولار 3.15', handover: false, summary: null }, limit: number | null = 100) => {
+const setup = (
+  answer: Answer | Error = { reply: 'الدولار 3.15', handover: false, summary: null },
+  limit: number | null = 100,
+  profile: BotProfile = emptyProfile(),
+) => {
   const sent: string[] = [];
   const alerts: string[] = [];
   const asked: { role: string; content: string }[][] = [];
@@ -31,6 +46,7 @@ const setup = (answer: Answer | Error = { reply: 'الدولار 3.15', handover
       if (answer instanceof Error) throw answer;
       return answer;
     },
+    welcome: async (isFirst, text) => cannedWelcome(isFirst, text, profile),
     reply: async (_chat, text) => void sent.push(text),
     alert: async (text) => void alerts.push(text),
     state: newBotState(),
@@ -103,6 +119,88 @@ describe('the private number', () => {
     const { deps, asked } = setup();
     assert.equal(await handlePrivateMessage(message('س'.repeat(801)), deps), 'TOO_LONG');
     assert.equal(asked.length, 0);
+  });
+});
+
+describe('what the manager tells it', () => {
+  const profile = (over: Partial<BotProfile> = {}): BotProfile => ({ ...emptyProfile(), ...over });
+  const sheet = {
+    rates: [
+      { baseCode: 'USD', quoteCode: 'ILS', channel: 'CASH', buyRate: 3n * U, sellRate: 4n * U },
+      { baseCode: 'USD', quoteCode: 'ILS', channel: 'BROKER', buyRate: 3n * U, sellRate: 4n * U },
+      { baseCode: 'JOD', quoteCode: 'ILS', channel: 'CASH', buyRate: 4n * U, sellRate: 5n * U },
+      { baseCode: 'USDT', quoteCode: 'ILS', channel: 'CASH', buyRate: 3n * U, sellRate: 4n * U },
+    ],
+    remittances: [
+      { destination: 'مصر', currency: 'ILS', chargeKind: 'FLAT', chargeValue: U },
+      { destination: 'الأردن', currency: 'ILS', chargeKind: 'FLAT', chargeValue: U },
+    ],
+    usdtForCashDollars: 1,
+    usdtForBankDollars: 2,
+  };
+
+  it('shows everything until told otherwise', () => {
+    const seen = visibleSheet(sheet, profile());
+    assert.equal(seen.rates.length, 4);
+    assert.equal(seen.remittances.length, 2);
+  });
+
+  it('cuts sections, currencies and destinations before the assistant sees them', () => {
+    const noCash = visibleSheet(sheet, profile({ show: { ...emptyProfile().show, cash: false } }));
+    assert.deepEqual(noCash.rates.map((r) => `${r.baseCode}:${r.channel}`), ['USD:BROKER', 'USDT:CASH']);
+    const noUsdt = visibleSheet(sheet, profile({ show: { ...emptyProfile().show, usdt: false } }));
+    assert.equal(noUsdt.rates.some((r) => r.baseCode === 'USDT'), false);
+    assert.equal(noUsdt.usdtForCashDollars + noUsdt.usdtForBankDollars, 0);
+    const noJod = visibleSheet(sheet, profile({ hiddenCurrencies: ['JOD'] }));
+    assert.equal(noJod.rates.some((r) => r.baseCode === 'JOD'), false);
+    const noJordan = visibleSheet(sheet, profile({ hiddenDestinations: ['الأردن'] }));
+    assert.deepEqual(noJordan.remittances.map((r) => r.destination), ['مصر']);
+    const none = visibleSheet(sheet, profile({ show: { ...emptyProfile().show, remittances: false } }));
+    assert.deepEqual(none.remittances, []);
+  });
+
+  it('adds the prices the office wrote in', () => {
+    const text = composePriceSheet(visibleSheet(sheet, profile({ extraPrices: [{ item: 'الدرهم', price: '0.85' }] })));
+    assert.match(text, /أسعار أخرى من المكتب:\n- الدرهم: 0\.85/);
+  });
+
+  it('gives the assistant the office’s own words and answers', () => {
+    const text = composeKnowledge(profile({ about: 'نعمل حتى 6', faqs: [{ question: 'متى تفتحون؟', answer: 'الساعة 9' }] }));
+    assert.match(text, /نعمل حتى 6/);
+    assert.match(text, /س: متى تفتحون؟\nج: الساعة 9/);
+    assert.equal(composeKnowledge(emptyProfile()), '');
+  });
+
+  it('drops rows left half empty, and reads a broken save as nothing written', () => {
+    const tidy = tidyProfile(profile({ faqs: [{ question: ' س ', answer: ' ج ' }, { question: 'بلا جواب', answer: ' ' }], extraPrices: [{ item: '', price: '1' }] }));
+    assert.deepEqual(tidy.faqs, [{ question: 'س', answer: 'ج' }]);
+    assert.deepEqual(tidy.extraPrices, []);
+    assert.deepEqual(parseProfile('{not json'), emptyProfile());
+    assert.deepEqual(parseProfile(''), profileSchema.parse({}));
+  });
+
+  it('knows a greeting from a question', () => {
+    for (const text of ['السلام عليكم', 'السلام عليكم ورحمة الله وبركاته', 'مرحبا', 'مرحباً!', 'صباح الخير 🌹', 'هلا', 'Hello', 'مرحبا السلام عليكم']) {
+      assert.equal(isGreeting(text), true, text);
+    }
+    for (const text of ['السلام عليكم كم الدولار', 'مرحبا بدي احول', 'كم السعر؟', '🌹', '']) {
+      assert.equal(isGreeting(text), false, text);
+    }
+  });
+
+  it('greets a first hello in the office’s words, at no cost, and only the first', async () => {
+    const { deps, sent, asked } = setup(undefined, 0, profile({ welcome: 'أهلاً بك' }));
+    assert.equal(await handlePrivateMessage(message('السلام عليكم'), deps), 'WELCOMED');
+    assert.deepEqual(sent, ['أهلاً بك']);
+    assert.equal(asked.length, 0);
+    assert.equal(await handlePrivateMessage(message('مرحبا'), deps), 'UNAVAILABLE');
+  });
+
+  it('leaves a first question, or a hello with no greeting written, to the assistant', async () => {
+    const written = setup(undefined, 100, profile({ welcome: 'أهلاً بك' }));
+    assert.equal(await handlePrivateMessage(message('كم الدولار؟'), written.deps), 'ANSWERED');
+    const unwritten = setup();
+    assert.equal(await handlePrivateMessage(message('مرحبا'), unwritten.deps), 'ANSWERED');
   });
 });
 

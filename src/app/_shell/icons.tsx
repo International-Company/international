@@ -1,4 +1,5 @@
 import {
+  Bot,
   ArrowLeftRight,
   ArrowRightLeft,
   CalendarCheck,
@@ -43,4 +44,5 @@ export const NAV_ICONS: Record<IconName, LucideIcon> = {
   audit: ScrollText,
   staff: Users,
   settings: Settings,
+  bot: Bot,
 };
