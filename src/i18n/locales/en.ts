@@ -713,8 +713,10 @@ const en = {
     extraTitle: 'Extra prices',
     extraHint: 'Prices the system’s board does not hold. Keep them up to date yourself.',
     extraEmpty: 'No extra prices.',
-    extraItem: 'Service, e.g. UAE dirham',
-    extraPrice: 'Price, e.g. 0.85 shekels',
+    extraItem: 'Currency or service',
+    extraItemExample: 'e.g. UAE dirham',
+    extraBuy: 'Buy price',
+    extraSell: 'Sell price',
     showTitle: 'What customers see',
     showHint: 'What you hide never reaches the bot, and the counter and rate board are not affected.',
     show: {

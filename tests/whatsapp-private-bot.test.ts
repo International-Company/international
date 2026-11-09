@@ -160,8 +160,8 @@ describe('what the manager tells it', () => {
   });
 
   it('adds the prices the office wrote in', () => {
-    const text = composePriceSheet(visibleSheet(sheet, profile({ extraPrices: [{ item: 'الدرهم', price: '0.85' }] })));
-    assert.match(text, /أسعار أخرى من المكتب:\n- الدرهم: 0\.85/);
+    const text = composePriceSheet(visibleSheet(sheet, profile({ extraPrices: [{ item: 'الدرهم', buy: '0.85', sell: '0.90' }, { item: 'الريال', buy: '', sell: '0.80' }] })));
+    assert.match(text, /أسعار أخرى من المكتب:\n- الدرهم: نشتريه من العميل بـ 0\.85، نبيعه للعميل بـ 0\.90\n- الريال: نبيعه للعميل بـ 0\.80/);
   });
 
   it('gives the assistant the office’s own words and answers', () => {
@@ -172,7 +172,7 @@ describe('what the manager tells it', () => {
   });
 
   it('drops rows left half empty, and reads a broken save as nothing written', () => {
-    const tidy = tidyProfile(profile({ faqs: [{ question: ' س ', answer: ' ج ' }, { question: 'بلا جواب', answer: ' ' }], extraPrices: [{ item: '', price: '1' }] }));
+    const tidy = tidyProfile(profile({ faqs: [{ question: ' س ', answer: ' ج ' }, { question: 'بلا جواب', answer: ' ' }], extraPrices: [{ item: '', buy: '1', sell: '' }, { item: 'بلا سعر', buy: ' ', sell: '' }] }));
     assert.deepEqual(tidy.faqs, [{ question: 'س', answer: 'ج' }]);
     assert.deepEqual(tidy.extraPrices, []);
     assert.deepEqual(parseProfile('{not json'), emptyProfile());

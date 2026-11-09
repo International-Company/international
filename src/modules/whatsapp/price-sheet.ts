@@ -32,7 +32,7 @@ export interface PriceSheet {
   usdtForCashDollars: number;
   usdtForBankDollars: number;
   /** Prices the office wrote in for ones the system does not hold. */
-  extra?: { item: string; price: string }[];
+  extra?: { item: string; buy: string; sell: string }[];
 }
 
 const NAMES: Record<string, string> = { USD: 'الدولار', ILS: 'الشيكل', JOD: 'الدينار', EGP: 'الجنيه' };
@@ -59,6 +59,14 @@ function remittanceLine(row: SheetRemittance): string {
   return `- إلى ${row.destination} بعملة ${name(row.currency)}: الرسوم ${fee}`;
 }
 
+function extraLine(row: { item: string; buy: string; sell: string }): string {
+  const sides = [
+    row.buy ? `نشتريه من العميل بـ ${row.buy}` : null,
+    row.sell ? `نبيعه للعميل بـ ${row.sell}` : null,
+  ].filter(Boolean);
+  return `- ${row.item}: ${sides.join('، ')}`;
+}
+
 export function composePriceSheet(sheet: PriceSheet): string {
   const rates = sheet.rates.map(rateLine).filter((line): line is string => line !== null);
   const usdt = [
@@ -79,7 +87,7 @@ export function composePriceSheet(sheet: PriceSheet): string {
       ? sheet.remittances.map(remittanceLine)
       : ['لا توجد رسوم منشورة، يحددها موظف.']),
     ...(sheet.extra?.length
-      ? ['', 'أسعار أخرى من المكتب:', ...sheet.extra.map((row) => `- ${row.item}: ${row.price}`)]
+      ? ['', 'أسعار أخرى من المكتب:', ...sheet.extra.map(extraLine)]
       : []),
   ].join('\n');
 }

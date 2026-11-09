@@ -297,7 +297,7 @@ export function PrivateBotView({ canManage }: { canManage: boolean }) {
                   variant="secondary"
                   icon={<Plus />}
                   onClick={() =>
-                    edit({ extraPrices: [...profile.extraPrices, { item: '', price: '' }] })
+                    edit({ extraPrices: [...profile.extraPrices, { item: '', buy: '', sell: '' }] })
                   }
                 >
                   {t('privateBot.add')}
@@ -309,52 +309,70 @@ export function PrivateBotView({ canManage }: { canManage: boolean }) {
             {profile.extraPrices.length === 0 && (
               <p className="text-sm text-content-tertiary">{t('privateBot.extraEmpty')}</p>
             )}
-            {profile.extraPrices.map((row, index) => (
-              <div key={index} className="flex items-center gap-2">
-                <Input
-                  className="min-w-0 flex-1"
-                  maxLength={120}
-                  disabled={!canManage}
-                  aria-label={t('privateBot.extraItem')}
-                  placeholder={t('privateBot.extraItem')}
-                  value={row.item}
-                  onChange={(event) =>
-                    edit({
-                      extraPrices: profile.extraPrices.map((item, at) =>
-                        at === index ? { ...item, item: event.target.value } : item,
-                      ),
-                    })
-                  }
-                />
-                <Input
-                  className="min-w-0 flex-1"
-                  maxLength={120}
-                  disabled={!canManage}
-                  aria-label={t('privateBot.extraPrice')}
-                  placeholder={t('privateBot.extraPrice')}
-                  value={row.price}
-                  onChange={(event) =>
-                    edit({
-                      extraPrices: profile.extraPrices.map((item, at) =>
-                        at === index ? { ...item, price: event.target.value } : item,
-                      ),
-                    })
-                  }
-                />
-                {canManage && (
-                  <button
-                    type="button"
-                    aria-label={t('common.delete')}
-                    onClick={() =>
-                      edit({ extraPrices: profile.extraPrices.filter((_, at) => at !== index) })
-                    }
-                    className="flex size-10 shrink-0 items-center justify-center rounded-full text-content-tertiary transition-colors hover:bg-surface-sunken hover:text-danger-text"
-                  >
-                    <Trash2 className="size-4" />
-                  </button>
-                )}
-              </div>
-            ))}
+            {profile.extraPrices.map((row, index) => {
+              const change = (patch: Partial<typeof row>) =>
+                edit({
+                  extraPrices: profile.extraPrices.map((item, at) =>
+                    at === index ? { ...item, ...patch } : item,
+                  ),
+                });
+              return (
+                <div key={index} className="flex items-start gap-2 rounded-xl bg-surface-sunken p-3">
+                  <div className="grid min-w-0 flex-1 grid-cols-2 gap-2 sm:grid-cols-[2fr_1fr_1fr]">
+                    <Field label={t('privateBot.extraItem')} className="col-span-2 sm:col-span-1">
+                      {(props) => (
+                        <Input
+                          {...props}
+                          maxLength={120}
+                          disabled={!canManage}
+                          placeholder={t('privateBot.extraItemExample')}
+                          value={row.item}
+                          onChange={(event) => change({ item: event.target.value })}
+                        />
+                      )}
+                    </Field>
+                    <Field label={t('privateBot.extraBuy')}>
+                      {(props) => (
+                        <Input
+                          {...props}
+                          dir="ltr"
+                          maxLength={40}
+                          disabled={!canManage}
+                          placeholder="0.00"
+                          value={row.buy}
+                          onChange={(event) => change({ buy: event.target.value })}
+                        />
+                      )}
+                    </Field>
+                    <Field label={t('privateBot.extraSell')}>
+                      {(props) => (
+                        <Input
+                          {...props}
+                          dir="ltr"
+                          maxLength={40}
+                          disabled={!canManage}
+                          placeholder="0.00"
+                          value={row.sell}
+                          onChange={(event) => change({ sell: event.target.value })}
+                        />
+                      )}
+                    </Field>
+                  </div>
+                  {canManage && (
+                    <button
+                      type="button"
+                      aria-label={t('common.delete')}
+                      onClick={() =>
+                        edit({ extraPrices: profile.extraPrices.filter((_, at) => at !== index) })
+                      }
+                      className="mt-6 flex size-10 shrink-0 items-center justify-center rounded-full text-content-tertiary transition-colors hover:bg-surface hover:text-danger-text"
+                    >
+                      <Trash2 className="size-4" />
+                    </button>
+                  )}
+                </div>
+              );
+            })}
           </CardBody>
         </Card>
 

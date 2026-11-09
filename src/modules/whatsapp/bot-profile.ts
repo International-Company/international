@@ -18,7 +18,13 @@ export const profileSchema = z.object({
     .max(50)
     .default([]),
   extraPrices: z
-    .array(z.object({ item: z.string().max(120), price: z.string().max(120) }))
+    .array(
+      z.object({
+        item: z.string().max(120),
+        buy: z.string().max(40).default(''),
+        sell: z.string().max(40).default(''),
+      }),
+    )
     .max(50)
     .default([]),
   show: z
@@ -56,8 +62,8 @@ export function tidyProfile(profile: BotProfile): BotProfile {
       .map((row) => ({ question: row.question.trim(), answer: row.answer.trim() }))
       .filter((row) => row.question && row.answer),
     extraPrices: profile.extraPrices
-      .map((row) => ({ item: row.item.trim(), price: row.price.trim() }))
-      .filter((row) => row.item && row.price),
+      .map((row) => ({ item: row.item.trim(), buy: row.buy.trim(), sell: row.sell.trim() }))
+      .filter((row) => row.item && (row.buy || row.sell)),
   };
 }
 
