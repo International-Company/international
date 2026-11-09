@@ -12,6 +12,8 @@ import * as settings from '@/modules/settings/settings.service';
 import {
   cannedWelcome,
   composeKnowledge,
+  composeRules,
+  firstMatch,
   officeOpen,
   parseProfile,
   visibleSheet,
@@ -58,6 +60,7 @@ const MAX_CONVERSATIONS = 2000;
 const ALERT_EVERY = 30 * 60 * 1000;
 
 const SAY_UNAVAILABLE = 'عذراً، ما بقدر أرد الآن. موظف من المكتب رح يتواصل معك قريباً.';
+const SAY_TO_STAFF = 'موظف من المكتب رح يتواصل معك بخصوص طلبك قريباً.';
 const SAY_NOT_TEXT = 'ما بقدر أقرأ الصور أو أسمع الرسائل الصوتية، اكتب سؤالك لو سمحت.';
 /** A run of pictures gets one answer. */
 const NOT_TEXT_EVERY = 10 * 60 * 1000;
@@ -96,6 +99,8 @@ export interface BotDeps {
   ask: (turns: Turn[]) => Promise<Answer>;
   /** The office's own reply to a first message, when there is one. */
   welcome: (isFirst: boolean, text: string) => Promise<string | null>;
+  /** The lines the manager drew: the program holds them, not the assistant. */
+  guards: () => Promise<{ humanTopics: string[]; blockedWords: string[] }>;
   reply: (chat: string, text: string) => Promise<void>;
   alert: (text: string) => Promise<void>;
   /** Whether a person has taken this conversation. */
@@ -115,6 +120,8 @@ export type BotOutcome =
   | 'NOT_TEXT'
   | 'TOO_LONG'
   | 'WELCOMED'
+  | 'TO_STAFF'
+  | 'HELD_BACK'
   | 'UNAVAILABLE'
   | 'ANSWERED';
 
@@ -181,6 +188,22 @@ export async function handlePrivateMessage(
     return 'TOO_LONG';
   }
 
+  const alert = async (request: string) => {
+    if (now - conversation.alertedAt < ALERT_EVERY) return;
+    conversation.alertedAt = now;
+    await deps.raise(incoming.chat, incoming.senderPhone, request);
+    await deps
+      .alert(['🔔 *طلب من عميل*', `الرقم: ${whoIs(incoming)}`, `الطلب: ${request}`].join('\n'))
+      .catch((error) => log.warn('Could not tell the group of a customer', { error }));
+  };
+
+  const guards = await deps.guards();
+  if (firstMatch(text, guards.humanTopics)) {
+    await say(SAY_TO_STAFF);
+    await alert(text.slice(0, 300));
+    return 'TO_STAFF';
+  }
+
   // Written by the office and sent as it stands, so a hello costs no answer.
   const welcome = await deps.welcome(conversation.turns.length === 0, text);
   if (welcome) {
@@ -191,15 +214,6 @@ export async function handlePrivateMessage(
     ];
     return 'WELCOMED';
   }
-
-  const alert = async (request: string) => {
-    if (now - conversation.alertedAt < ALERT_EVERY) return;
-    conversation.alertedAt = now;
-    await deps.raise(incoming.chat, incoming.senderPhone, request);
-    await deps
-      .alert(['🔔 *طلب من عميل*', `الرقم: ${whoIs(incoming)}`, `الطلب: ${request}`].join('\n'))
-      .catch((error) => log.warn('Could not tell the group of a customer', { error }));
-  };
 
   const day = date.toDateString();
   if (deps.state.day !== day) {
@@ -229,6 +243,13 @@ export async function handlePrivateMessage(
   }
 
   const reply = answer.reply.trim();
+  const blocked = firstMatch(reply, guards.blockedWords);
+  if (blocked) {
+    log.warn('A reply was held back by a blocked word', { reason: blocked });
+    await say(SAY_TO_STAFF);
+    await alert(text.slice(0, 300));
+    return 'HELD_BACK';
+  }
   await say(reply);
   conversation.turns = [
     ...conversation.turns,
@@ -261,8 +282,9 @@ const instructions = (
   prices: string,
   knowledge: string,
   open: boolean,
+  rules: string,
 ) =>
-  `You answer customers on the WhatsApp number of ${office || 'an exchange office'}, a money exchange office.
+  `${rules ? `${rules}\n\n` : ''}You answer customers on the WhatsApp number of ${office || 'an exchange office'}, a money exchange office.
 
 Talk like a polite person at a Palestinian exchange office: simple, clear Palestinian Arabic that any Arabic speaker understands. Not formal Arabic, and no slang or local words others might not know. Prefer common words: "بنشتري" and "بنبيع" and "الآن" and "رح" and "موظف". Avoid words like "هلأ" and "حدا" and "شو" and "كاش". If the customer writes in another language, answer in that language. Plain WhatsApp text. Speak to the person directly and never use the word "العميل" or "الزبون" in a reply.
 
@@ -327,6 +349,7 @@ async function liveAsk(turns: Turn[], given?: BotProfile): Promise<Answer> {
       composePriceSheet(sheet),
       composeKnowledge(profile),
       officeOpen(profile.hours, new Date()),
+      composeRules(profile),
     ),
     output_config: { effort: 'low', format: betaZodOutputFormat(Reply) },
     messages: turns,
@@ -398,11 +421,14 @@ export async function tryBot(turns: Turn[]): Promise<Answer> {
   const last = turns.at(-1)!;
   const welcome = cannedWelcome(turns.length === 1, last.content, profile);
   if (welcome) return { reply: welcome, handover: false, summary: null };
+  const toStaff = { reply: SAY_TO_STAFF, handover: true, summary: last.content.slice(0, 300) };
+  if (firstMatch(last.content, profile.humanTopics)) return toStaff;
   if (!env.ANTHROPIC_API_KEY) {
     throw errors.precondition('The assistant has no key', 'errors.privateBotNoKey');
   }
   try {
-    return await liveAsk(turns, profile);
+    const answer = await liveAsk(turns, profile);
+    return firstMatch(answer.reply, profile.blockedWords) ? toStaff : answer;
   } catch (error) {
     log.warn('The panel could not get an answer', {
       status: error instanceof Anthropic.APIError ? error.status : undefined,
@@ -505,6 +531,7 @@ export function registerPrivateBot(): void {
         .raiseRequest(chat, phone, summary)
         .catch((error) => log.warn('Could not keep a request', { error })),
     welcome: async (isFirst, text) => cannedWelcome(isFirst, text, await readProfile()),
+    guards: readProfile,
     reply: replyPrivately,
     alert: async (text) => {
       await sendText(await leadsGroup(), text);

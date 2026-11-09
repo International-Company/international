@@ -10,7 +10,9 @@ import { calculationLines } from '../src/modules/whatsapp/bot-calc.ts';
 import {
   cannedWelcome,
   composeKnowledge,
+  composeRules,
   emptyProfile,
+  firstMatch,
   isGreeting,
   officeOpen,
   parseProfile,
@@ -52,6 +54,7 @@ const setup = (
       return answer;
     },
     welcome: async (isFirst, text) => cannedWelcome(isFirst, text, profile),
+    guards: async () => profile,
     paused: async () => paused.on,
     record: async (_chat, _phone, role, text) => void kept.push(`${role}:${text}`),
     raise: async (_chat, _phone, summary) => void raised.push(summary),
@@ -209,6 +212,52 @@ describe('what the manager tells it', () => {
     assert.equal(await handlePrivateMessage(message('كم الدولار؟'), written.deps), 'ANSWERED');
     const unwritten = setup();
     assert.equal(await handlePrivateMessage(message('مرحبا'), unwritten.deps), 'ANSWERED');
+  });
+});
+
+describe('the lines the manager drew', () => {
+  const profile = (over: Partial<BotProfile>): BotProfile => ({ ...emptyProfile(), ...over });
+  const answer = { reply: 'نعطيك خصم ممتاز', handover: false, summary: null };
+
+  it('never sends a reply with a blocked word, and hands the person over', async () => {
+    const { deps, sent, alerts, raised } = setup(answer, 100, profile({ blockedWords: ['خصم'] }));
+    assert.equal(await handlePrivateMessage(message('فيه خصم؟'), deps), 'HELD_BACK');
+    assert.equal(sent.length, 1);
+    assert.doesNotMatch(sent[0]!, /خصم/);
+    assert.match(sent[0]!, /موظف/);
+    assert.equal(alerts.length, 1);
+    assert.equal(raised.length, 1);
+  });
+
+  it('finds a blocked word however it is spelled', () => {
+    assert.equal(firstMatch('هذا العرض الخاصّ', ['الخاص']), 'الخاص');
+    assert.equal(firstMatch('تخفيضة كبيرة', ['تخفيضه']), 'تخفيضه');
+    assert.equal(firstMatch('السلام عليكم', ['خصم']), null);
+    assert.equal(firstMatch('شيء', []), null);
+  });
+
+  it('sends a topic for staff straight to them, without asking the assistant', async () => {
+    const { deps, sent, asked, alerts } = setup(answer, 100, profile({ humanTopics: ['شكوى'] }));
+    assert.equal(await handlePrivateMessage(message('عندي شكوى على موظف'), deps), 'TO_STAFF');
+    assert.equal(asked.length, 0);
+    assert.match(sent[0]!, /موظف/);
+    assert.match(alerts[0]!, /عندي شكوى/);
+  });
+
+  it('lets through what crosses none of them', async () => {
+    const { deps, sent } = setup({ reply: 'الدولار 3.7', handover: false, summary: null }, 100, profile({ blockedWords: ['خصم'], humanTopics: ['شكوى'] }));
+    assert.equal(await handlePrivateMessage(message('كم الدولار؟'), deps), 'ANSWERED');
+    assert.deepEqual(sent, ['الدولار 3.7']);
+  });
+
+  it('puts the office’s rules first, and says nothing when there are none', () => {
+    assert.match(composeRules(profile({ rules: ['لا تعطِ خصومات'] })), /come before everything else[\s\S]*1\. لا تعطِ خصومات/);
+    assert.equal(composeRules(emptyProfile()), '');
+  });
+
+  it('keeps lists clean', () => {
+    const tidy = tidyProfile(profile({ blockedWords: [' خصم ', 'خصم', ''], rules: ['  ', 'قاعدة'], humanTopics: [] }));
+    assert.deepEqual([tidy.blockedWords, tidy.rules], [['خصم'], ['قاعدة']]);
   });
 });
 

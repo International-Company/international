@@ -46,6 +46,7 @@ const WORDING: Record<string, Wording> = {
   'Could not get an answer for a customer': { title: 'لم يتمكن البوت من الرد على عميل', action: 'راجع رصيد حساب Anthropic ومفتاح API.', critical: true },
   'The private number reached its daily limit': { title: 'وصل البوت إلى حد الردود اليومي', action: 'ارفع «عدد الردود في اليوم» من تبويب الإعداد إذا كان الاستخدام طبيعياً.', critical: true },
   'The panel could not get an answer': { title: 'تعذر الرد في «جرّب البوت»', action: 'راجع رصيد حساب Anthropic ومفتاح API.' },
+  'A reply was held back by a blocked word': { title: 'مُنع رد للبوت لأنه يحتوي كلمة ممنوعة', action: 'حُوّل العميل إلى موظف. الكلمة مكتوبة في التفاصيل.' },
   'A customer message failed': { title: 'فشلت معالجة رسالة عميل', action: 'تأكد أن الرقم الخاص «مرتبط».', critical: true },
   'Could not keep a message': { title: 'لم تُحفظ رسالة في سجل المحادثات', action: 'تأكد من عمل قاعدة البيانات.' },
   'Could not keep a request': { title: 'لم يُحفظ طلب عميل في صفحة الطلبات', action: 'تأكد من عمل قاعدة البيانات.', critical: true },

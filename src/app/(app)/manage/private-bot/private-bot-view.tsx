@@ -10,6 +10,7 @@ import {
   Plus,
   Save,
   Send,
+  ShieldCheck,
   SlidersHorizontal,
   Tags,
   Trash2,
@@ -55,6 +56,7 @@ const STEPS = [
   { id: 'info', Icon: BookOpen },
   { id: 'prices', Icon: Tags },
   { id: 'behavior', Icon: SlidersHorizontal },
+  { id: 'rules', Icon: ShieldCheck },
 ] as const;
 
 /** The three the manager edits, as one value to compare with what is saved. */
@@ -157,7 +159,10 @@ export function PrivateBotView({ canManage }: { canManage: boolean }) {
   return (
     <div className="grid items-start gap-4 pb-20 lg:grid-cols-[minmax(0,1fr)_24rem]">
       <div className="min-w-0 space-y-4">
-        <nav aria-label={t('privateBot.title')} className="grid grid-cols-2 gap-2 xl:grid-cols-4">
+        <nav
+          aria-label={t('privateBot.title')}
+          className="grid grid-cols-2 gap-2 xl:grid-cols-3 2xl:grid-cols-5"
+        >
           {STEPS.map(({ id, Icon }, index) => (
             <button
               key={id}
@@ -559,6 +564,41 @@ export function PrivateBotView({ canManage }: { canManage: boolean }) {
           </>
         )}
 
+        {section === 'rules' && (
+          <>
+            <RuleList
+              title={t('privateBot.rulesTitle')}
+              hint={t('privateBot.rulesHint')}
+              placeholder={t('privateBot.rulesPlaceholder')}
+              entries={profile.rules}
+              max={30}
+              maxLength={300}
+              disabled={!canManage}
+              onChange={(rules) => edit({ rules })}
+            />
+            <RuleList
+              title={t('privateBot.blockedTitle')}
+              hint={t('privateBot.blockedHint')}
+              placeholder={t('privateBot.blockedPlaceholder')}
+              entries={profile.blockedWords}
+              max={100}
+              maxLength={60}
+              disabled={!canManage}
+              onChange={(blockedWords) => edit({ blockedWords })}
+            />
+            <RuleList
+              title={t('privateBot.topicsTitle')}
+              hint={t('privateBot.topicsHint')}
+              placeholder={t('privateBot.topicsPlaceholder')}
+              entries={profile.humanTopics}
+              max={100}
+              maxLength={60}
+              disabled={!canManage}
+              onChange={(humanTopics) => edit({ humanTopics })}
+            />
+          </>
+        )}
+
         {section === 'behavior' && (
           <>
             {/* ============ How it behaves ============ */}
@@ -759,6 +799,79 @@ export function PrivateBotView({ canManage }: { canManage: boolean }) {
         </div>
       )}
     </div>
+  );
+}
+
+/** A list the manager writes, one entry to a row. */
+function RuleList({
+  title,
+  hint,
+  placeholder,
+  entries,
+  max,
+  maxLength,
+  disabled,
+  onChange,
+}: {
+  title: string;
+  hint: string;
+  placeholder: string;
+  entries: string[];
+  max: number;
+  maxLength: number;
+  disabled: boolean;
+  onChange: (entries: string[]) => void;
+}) {
+  const { t } = useLocale();
+  return (
+    <Card>
+      <CardHeader
+        title={title}
+        description={hint}
+        actions={
+          !disabled && entries.length < max ? (
+            <Button
+              size="sm"
+              variant="secondary"
+              icon={<Plus />}
+              onClick={() => onChange([...entries, ''])}
+            >
+              {t('privateBot.add')}
+            </Button>
+          ) : undefined
+        }
+      />
+      <CardBody className="space-y-2">
+        {entries.length === 0 && (
+          <p className="text-sm text-content-tertiary">{t('privateBot.listEmpty')}</p>
+        )}
+        {entries.map((entry, index) => (
+          <div key={index} className="flex items-center gap-2">
+            <Input
+              className="min-w-0 flex-1"
+              maxLength={maxLength}
+              disabled={disabled}
+              aria-label={title}
+              placeholder={placeholder}
+              value={entry}
+              onChange={(event) =>
+                onChange(entries.map((item, at) => (at === index ? event.target.value : item)))
+              }
+            />
+            {!disabled && (
+              <button
+                type="button"
+                aria-label={t('common.delete')}
+                onClick={() => onChange(entries.filter((_, at) => at !== index))}
+                className="flex size-10 shrink-0 items-center justify-center rounded-full text-content-tertiary transition-colors hover:bg-surface-sunken hover:text-danger-text"
+              >
+                <Trash2 className="size-4" />
+              </button>
+            )}
+          </div>
+        ))}
+      </CardBody>
+    </Card>
   );
 }
 
