@@ -1225,27 +1225,33 @@ export async function settleArrival(
 
   /*
    * Several transfers, one deal: what the customer sent in parts is priced and
-   * paid as the sum. Each must be free to settle on its own terms, and all on
-   * the one address, so the coins are the same coins on the same chain.
+   * paid as the sum. Each must be free to settle on its own terms and be the same
+   * coin. They may have reached different addresses: a deal moves the coin's
+   * drawer, not an address, and each address's balance is read from its chain.
    */
   const ids = [...new Set(input.alsoArrivals ?? [])].filter((id) => id !== chainTransactionId);
   const others = ids.length
     ? await db.chainTransaction.findMany({
         where: { id: { in: ids } },
-        include: { depositRequest: { select: { id: true } } },
+        include: {
+          depositRequest: { select: { id: true } },
+          wallet: { select: { tokenSymbol: true, isCounterAddress: true, isActive: true, minConfirmations: true } },
+        },
       })
     : [];
   if (
     others.length !== ids.length ||
     others.some(
       (row) =>
-        row.walletId !== transfer.walletId ||
+        row.wallet.tokenSymbol !== transfer.wallet.tokenSymbol ||
+        !row.wallet.isCounterAddress ||
+        !row.wallet.isActive ||
         row.direction !== 'IN' ||
         row.depositRequest ||
         row.linkedTransactionId ||
         row.mergedTransactionId ||
         row.status !== 'CONFIRMED' ||
-        row.confirmations < transfer.wallet.minConfirmations,
+        row.confirmations < row.wallet.minConfirmations,
     )
   ) {
     throw errors.precondition(

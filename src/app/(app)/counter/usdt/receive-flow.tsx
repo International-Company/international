@@ -106,6 +106,7 @@ interface Arrival {
   alsoIds?: string[];
   parts?: string[];
   mixedSenders?: boolean;
+  mixedWallets?: boolean;
 }
 
 interface SavedPayout {
@@ -220,7 +221,7 @@ export function ReceiveFlow({
   const wallet = addresses.find((entry) => entry.id === walletId);
 
   const toMerge = (arrivals ?? []).filter((arrival) => merging.includes(arrival.id));
-  const mergeWallet = toMerge[0]?.wallet.id;
+  const mergeToken = toMerge[0]?.wallet.tokenSymbol;
 
   /** The ticked transfers as one to settle, oldest first in what it says. */
   const openMerged = () => {
@@ -236,6 +237,7 @@ export function ReceiveFlow({
       alsoIds: rest.map((row) => row.id),
       parts: oldestFirst.map((row) => String(Number(BigInt(row.amount)) / 1e8)),
       mixedSenders,
+      mixedWallets: new Set(toMerge.map((row) => row.wallet.id)).size > 1,
       // Two senders: nobody's name is filled in for the teller.
       recognised: mixedSenders ? null : first.recognised,
     });
@@ -862,7 +864,7 @@ export function ReceiveFlow({
                         </a>
                       )}
 
-                      {arrival.ready && (!mergeWallet || mergeWallet === arrival.wallet.id) && (
+                      {arrival.ready && (!mergeToken || mergeToken === arrival.wallet.tokenSymbol) && (
                         <label className="ms-auto inline-flex min-h-9 cursor-pointer items-center gap-2 text-sm text-content-secondary">
                           <input
                             type="checkbox"
@@ -1007,12 +1009,13 @@ export function ReceiveFlow({
             }}
           >
             {chosen.parts && (
-              <Alert tone={chosen.mixedSenders ? 'warning' : 'primary'}>
+              <Alert tone={chosen.mixedSenders || chosen.mixedWallets ? 'warning' : 'primary'}>
                 <p className="font-medium">
                   {t('receive.mergedParts', {
                     parts: chosen.parts.join(' + '),
                   })}
                 </p>
+                {chosen.mixedWallets && <p className="mt-1">{t('receive.mergedWallets')}</p>}
                 {chosen.mixedSenders && <p className="mt-1">{t('receive.mergedSenders')}</p>}
               </Alert>
             )}

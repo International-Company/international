@@ -1748,6 +1748,7 @@ const en = {
   },
 
   receive: {
+    mergedWallets: 'These reached different receiving addresses.',
     mergeTick: 'Merge',
     mergeSummary: 'Merge {count} transfers:',
     mergeAction: 'Record as one deal',

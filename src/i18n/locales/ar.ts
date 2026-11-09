@@ -1747,6 +1747,7 @@ const ar: Dictionary = {
   },
 
   receive: {
+    mergedWallets: 'وصلت هذه التحويلات إلى عناوين استقبال مختلفة.',
     mergeTick: 'دمج',
     mergeSummary: 'دمج {count} تحويلات:',
     mergeAction: 'تسجيلها كعملية واحدة',
