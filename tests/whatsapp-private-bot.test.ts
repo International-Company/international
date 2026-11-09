@@ -3,7 +3,7 @@ import './support/test-env.ts';
 
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { chooseAccount, isPrivateChat } from '../src/modules/whatsapp/accounts.ts';
+import { chooseAccount, groupEntry, isPrivateChat } from '../src/modules/whatsapp/accounts.ts';
 import { categoriesOf, groupPlan } from '../src/modules/whatsapp/group-routes.ts';
 import { composePriceSheet } from '../src/modules/whatsapp/price-sheet.ts';
 import { calculationLines } from '../src/modules/whatsapp/bot-calc.ts';
@@ -432,6 +432,16 @@ describe('the private number among the others', () => {
 
   it('leaves the choosing of a sender to the group numbers', () => {
     assert.equal(chooseAccount('g@g.us', ['second'], { second: new Set(['g@g.us']) }), 'second');
+  });
+
+  it('lists a group WhatsApp gives no subject or members for', () => {
+    assert.deepEqual(groupEntry({ id: 'g@g.us' }, 'private'), {
+      id: 'g@g.us',
+      name: 'مجموعة بدون اسم',
+      size: 0,
+      account: 'private',
+    });
+    assert.equal(groupEntry({ id: 'g', subject: ' المكتب ', participants: [1, 2] }, 'main').name, 'المكتب');
   });
 
   it('writes from the private number only to a group it is in, and only when no other is', () => {

@@ -39,6 +39,22 @@ export function chooseAccount(
   return live.find((account) => account !== 'private') ?? null;
 }
 
+/**
+ * A group as listed. WhatsApp can hand back a group with no subject or member
+ * list, and one such group must not stop the rest being listed.
+ */
+export function groupEntry(
+  group: { id: string; subject?: string | null; participants?: unknown[] | null },
+  account: Account,
+): { id: string; name: string; size: number; account: Account } {
+  return {
+    id: group.id,
+    name: group.subject?.trim() || 'مجموعة بدون اسم',
+    size: group.participants?.length ?? 0,
+    account,
+  };
+}
+
 /** Whether a message has already been handled, when both numbers are in the chat it came to. */
 export function firstSighting(seen: string[], key: string, keep = 500): boolean {
   if (seen.includes(key)) return false;

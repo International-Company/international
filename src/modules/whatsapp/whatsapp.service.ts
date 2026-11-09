@@ -13,7 +13,16 @@ import { prisma } from '@/core/db/prisma';
 import { errors } from '@/core/errors/app-error';
 import { createLogger } from '@/core/logger/logger';
 import { recordIssue } from './bot-issues';
-import { ACCOUNTS, chooseAccount, firstSighting, GROUP_ACCOUNTS, isPrivateChat, SESSION_PREFIX, type Account } from './accounts';
+import {
+  ACCOUNTS,
+  chooseAccount,
+  firstSighting,
+  GROUP_ACCOUNTS,
+  groupEntry,
+  isPrivateChat,
+  SESSION_PREFIX,
+  type Account,
+} from './accounts';
 import { clearSession, databaseAuthState, hasSession } from './auth-state';
 
 /**
@@ -439,22 +448,27 @@ export async function groups(): Promise<
     throw errors.precondition('WhatsApp is not linked', 'errors.whatsappNotLinked');
   }
   const found = new Map<string, { id: string; name: string; size: number; account: Account }>();
+  let failure: unknown = null;
+  let read = 0;
   for (const account of linked) {
-    const all = await socketOf(account).groupFetchAllParticipating();
+    // One number not answering must not take the others' groups off the list.
+    let all: Awaited<ReturnType<WASocket['groupFetchAllParticipating']>>;
+    try {
+      all = await socketOf(account).groupFetchAllParticipating();
+    } catch (error) {
+      log.warn('Could not read a number’s groups', { account, error });
+      failure = error;
+      continue;
+    }
+    read += 1;
     shared.sessions[account].groups = new Set(Object.keys(all));
     shared.sessions[account].groupsReadAt = Date.now();
     for (const group of Object.values(all)) {
       // A group both numbers are in is written to by the first, so it is listed as the first's.
-      if (!found.has(group.id)) {
-        found.set(group.id, {
-          id: group.id,
-          name: group.subject,
-          size: group.participants.length,
-          account,
-        });
-      }
+      if (!found.has(group.id)) found.set(group.id, groupEntry(group, account));
     }
   }
+  if (read === 0) throw failure;
   return [...found.values()].sort((a, b) => a.name.localeCompare(b.name, 'ar'));
 }
 
