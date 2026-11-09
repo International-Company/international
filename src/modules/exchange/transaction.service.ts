@@ -86,6 +86,8 @@ export interface RecordInput {
   /** What reaches a remittance's beneficiary, for showing only. */
   deliveredAmount?: bigint | null;
   deliveredUnit?: string | null;
+  /** Several USDT transfers settled as one deal, as the group reads them: "100 + 50". */
+  mergedParts?: string | null;
   notes?: string | null;
 }
 
@@ -277,6 +279,7 @@ export async function record(
         unannounced: options.unannounced ?? false,
         deliveredAmount: input.deliveredAmount ?? null,
         deliveredUnit: input.deliveredUnit ?? null,
+        mergedParts: input.mergedParts ?? null,
         counterpartyName: input.counterpartyName ?? null,
         counterpartyPhone: input.counterpartyPhone ?? null,
         notes: input.notes ?? null,

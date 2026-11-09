@@ -97,6 +97,7 @@ const SHARE_SELECT = {
   fromAmount: true,
   deliveredAmount: true,
   deliveredUnit: true,
+  mergedParts: true,
   rate: true,
   toCurrency: true,
   toAmount: true,
@@ -118,6 +119,7 @@ type ShareRow = {
   fromAmount: bigint;
   deliveredAmount: bigint | null;
   deliveredUnit: string | null;
+  mergedParts?: string | null;
   rate: bigint;
   toCurrency: string;
   toAmount: bigint;
@@ -302,7 +304,12 @@ export async function shareable(
         : null,
     kindDetail:
       transaction.type === 'USDT_RECEIVE'
-        ? `${toDecimalString(transaction.fromAmount, 2).replace(/\.00$/, '')} USDT`
+        ? [
+            `${toDecimalString(transaction.fromAmount, 2).replace(/\.00$/, '')} USDT`,
+            transaction.mergedParts ? `(${transaction.mergedParts})` : null,
+          ]
+            .filter(Boolean)
+            .join(' ')
         : null,
     copyText:
       transaction.type === 'REMITTANCE_OUT'

@@ -102,6 +102,10 @@ interface Arrival {
   explorerUrl: string;
   wallet: { id: string; label: string; labelAr: string; network: string; tokenSymbol: string };
   recognised: Recognised | null;
+  /** Set on a deal made of several transfers: the rest of them, and their sums. */
+  alsoIds?: string[];
+  parts?: string[];
+  mixedSenders?: boolean;
 }
 
 interface SavedPayout {
@@ -161,6 +165,8 @@ export function ReceiveFlow({
   const [logWallet, setLogWallet] = useState('ALL');
 
   const [chosen, setChosen] = useState<Arrival | null>(null);
+  /** The transfers ticked to settle together. */
+  const [merging, setMerging] = useState<string[]>([]);
   const [payoutCurrency, setPayoutCurrency] = useState(currencies[0]?.code ?? 'ILS');
   const [customer, setCustomer] = useState<CustomerHit | null>(null);
   const [counterpartyName, setCounterpartyName] = useState('');
@@ -212,6 +218,28 @@ export function ReceiveFlow({
   const print = (id: string) => window.open(`/print/receipt/${id}`, '_blank');
 
   const wallet = addresses.find((entry) => entry.id === walletId);
+
+  const toMerge = (arrivals ?? []).filter((arrival) => merging.includes(arrival.id));
+  const mergeWallet = toMerge[0]?.wallet.id;
+
+  /** The ticked transfers as one to settle, oldest first in what it says. */
+  const openMerged = () => {
+    const [first, ...rest] = toMerge;
+    if (!first || rest.length === 0) return;
+    const oldestFirst = [...toMerge].sort(
+      (a, b) => new Date(a.firstSeenAt).getTime() - new Date(b.firstSeenAt).getTime(),
+    );
+    const mixedSenders = new Set(toMerge.map((row) => row.fromAddress)).size > 1;
+    open({
+      ...first,
+      amount: toMerge.reduce((sum, row) => sum + BigInt(row.amount), 0n).toString(),
+      alsoIds: rest.map((row) => row.id),
+      parts: oldestFirst.map((row) => String(Number(BigInt(row.amount)) / 1e8)),
+      mixedSenders,
+      // Two senders: nobody's name is filled in for the teller.
+      recognised: mixedSenders ? null : first.recognised,
+    });
+  };
 
   const shownArrivals =
     logWallet === 'ALL'
@@ -449,7 +477,11 @@ export function ReceiveFlow({
     let current = true;
     setQuote(null);
     void api
-      .get<Priced>(`/api/usdt/arrivals/${chosen.id}?payoutCurrency=${payoutCurrency}`)
+      .get<Priced>(
+        `/api/usdt/arrivals/${chosen.id}?payoutCurrency=${payoutCurrency}${
+          chosen.alsoIds?.length ? `&also=${chosen.alsoIds.join(',')}` : ''
+        }`,
+      )
       .then((result) => {
         if (!current) return;
         setQuote(result);
@@ -523,6 +555,7 @@ export function ReceiveFlow({
         `/api/usdt/arrivals/${chosen.id}`,
         {
           payoutCurrency,
+          alsoArrivals: chosen.alsoIds ?? [],
           mode,
           /*
            * Only the broker's share of the coins travels. The till takes the
@@ -555,6 +588,7 @@ export function ReceiveFlow({
         // Only a convenience.
       }
       void loadRecent();
+      setMerging([]);
       setChosen(null);
       setCustomer(null);
       setCounterpartyName('');
@@ -718,6 +752,26 @@ export function ReceiveFlow({
               </div>
             )}
 
+            {toMerge.length >= 2 && (
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-primary-subtle px-3 py-2">
+                <span className="text-sm font-semibold text-content">
+                  {t('receive.mergeSummary', { count: toMerge.length })}{' '}
+                  <Money
+                    value={toMerge.reduce((sum, row) => sum + BigInt(row.amount), 0n).toString()}
+                    currency={toMerge[0]!.wallet.tokenSymbol}
+                  />
+                </span>
+                <span className="flex items-center gap-2">
+                  <Button size="sm" variant="ghost" onClick={() => setMerging([])}>
+                    {t('common.cancel')}
+                  </Button>
+                  <Button size="sm" onClick={openMerged}>
+                    {t('receive.mergeAction')}
+                  </Button>
+                </span>
+              </div>
+            )}
+
             {arrivals === null ? (
               <div className="flex justify-center py-8">
                 <Loader2 className="size-5 animate-spin text-content-tertiary" />
@@ -808,8 +862,26 @@ export function ReceiveFlow({
                         </a>
                       )}
 
+                      {arrival.ready && (!mergeWallet || mergeWallet === arrival.wallet.id) && (
+                        <label className="ms-auto inline-flex min-h-9 cursor-pointer items-center gap-2 text-sm text-content-secondary">
+                          <input
+                            type="checkbox"
+                            className="size-4 accent-[var(--primary)]"
+                            checked={merging.includes(arrival.id)}
+                            onChange={(event) =>
+                              setMerging((current) =>
+                                event.target.checked
+                                  ? [...current, arrival.id]
+                                  : current.filter((id) => id !== arrival.id),
+                              )
+                            }
+                          />
+                          {t('receive.mergeTick')}
+                        </label>
+                      )}
+
                       {arrival.ready && (
-                        <Button size="sm" onClick={() => open(arrival)} className="ms-auto">
+                        <Button size="sm" onClick={() => open(arrival)}>
                           {t('receive.record')}
                         </Button>
                       )}
@@ -934,6 +1006,17 @@ export function ReceiveFlow({
               if (ready && !recording) void record();
             }}
           >
+            {chosen.parts && (
+              <Alert tone={chosen.mixedSenders ? 'warning' : 'primary'}>
+                <p className="font-medium">
+                  {t('receive.mergedParts', {
+                    parts: chosen.parts.join(' + '),
+                  })}
+                </p>
+                {chosen.mixedSenders && <p className="mt-1">{t('receive.mergedSenders')}</p>}
+              </Alert>
+            )}
+
             {chosen.recognised?.status === 'KNOWN' && (
               <Alert tone="success" icon={<UserCheck />}>
                 <span className="flex flex-wrap items-center justify-between gap-2">

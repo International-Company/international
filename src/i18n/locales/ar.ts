@@ -1747,6 +1747,11 @@ const ar: Dictionary = {
   },
 
   receive: {
+    mergeTick: 'دمج',
+    mergeSummary: 'دمج {count} تحويلات:',
+    mergeAction: 'تسجيلها كعملية واحدة',
+    mergedParts: 'عملية واحدة من التحويلات: {parts}',
+    mergedSenders: 'هذه التحويلات من عناوين مرسلة مختلفة. تأكد أنها لنفس الشخص قبل التسجيل.',
     recent: 'آخر عمليات الاستلام',
     known: 'عميل معروف: {name} — {count} تحويل سابق من هذا العنوان',
     knownBadge: '{name}',
@@ -2585,6 +2590,7 @@ const ar: Dictionary = {
     remittanceHasPrice: 'هذه الحوالة لها تسعيرة بالفعل',
     changeTooLow: 'ما استلمته لا يزيد عن قيمة العملية: {needed} {currency}',
     tiktokRateRequired: 'اكتب سعر الدولار',
+    arrivalsNotMergeable: 'لا يمكن تسجيل هذه التحويلات معاً. حدّث القائمة وتأكد أنها مؤكدة ولنفس العنوان',
     privateBotNoKey: 'أضف ANTHROPIC_API_KEY في متغيرات السيرفر أولاً',
     privateBotNoAnswer: 'لم يتمكن البوت من الرد، حاول مرة أخرى',
     tiktokAccountRequired: 'اكتب رقم الحساب أو الجوال',

@@ -344,6 +344,7 @@ export async function checkRequest(
       // posted to the ledger by some other route.
       depositRequest: { is: null },
       linkedTransactionId: null,
+      mergedTransactionId: null,
     },
     orderBy: { firstSeenAt: 'asc' },
     select: {
@@ -445,6 +446,7 @@ async function nearArrival(
       firstSeenAt: { gte: windowStart, lte: windowEnd },
       depositRequest: { is: null },
       linkedTransactionId: null,
+      mergedTransactionId: null,
       status: 'CONFIRMED',
       confirmations: { gte: required },
     },
@@ -519,7 +521,7 @@ export async function attachTransfer(
       'errors.depositAlreadyClaimed',
     );
   }
-  if (transfer.linkedTransactionId) {
+  if (transfer.linkedTransactionId || transfer.mergedTransactionId) {
     throw errors.conflict('That transfer is already posted', 'errors.depositAlreadyPosted');
   }
   if (transfer.status !== 'CONFIRMED' || transfer.confirmations < request.wallet.minConfirmations) {
@@ -944,6 +946,7 @@ export async function unclaimedArrivals(
       direction: 'IN',
       depositRequest: { is: null },
       linkedTransactionId: null,
+      mergedTransactionId: null,
     },
     orderBy: { firstSeenAt: 'desc' },
     take: options.limit ?? 20,
@@ -1018,6 +1021,8 @@ export async function quoteArrival(
   chainTransactionId: string,
   payoutCurrency: string,
   db: DbClient = prisma,
+  /** Others to be settled with it: the price is for all of them together. */
+  alsoArrivals: string[] = [],
 ): Promise<{
   amount: string;
   payoutCurrency: string;
@@ -1053,6 +1058,14 @@ export async function quoteArrival(
     throw errors.precondition('That is an outgoing transfer', 'errors.depositNotIncoming');
   }
 
+  const others = alsoArrivals.length
+    ? await db.chainTransaction.findMany({
+        where: { id: { in: alsoArrivals } },
+        select: { amount: true },
+      })
+    : [];
+  const coins = others.reduce((sum, row) => sum + row.amount, transfer.amount);
+
   const currency = payoutCurrency.toUpperCase();
   const editLimit = await settings.getNumber('usdt.payoutEditLimit', db);
 
@@ -1063,9 +1076,9 @@ export async function quoteArrival(
     ]);
     // There is no board to read: both ways of paying are open, and the screen
     // works the figure out from the percentage as it is typed.
-    const whole = { toAmount: transfer.amount.toString(), rate: MONEY_FACTOR.toString() };
+    const whole = { toAmount: coins.toString(), rate: MONEY_FACTOR.toString() };
     return {
-      amount: transfer.amount.toString(),
+      amount: coins.toString(),
       payoutCurrency: currency,
       cash: whole,
       broker: whole,
@@ -1082,7 +1095,7 @@ export async function quoteArrival(
       const quote = await quoteExchange(
         transfer.wallet.tokenSymbol,
         currency,
-        transfer.amount,
+        coins,
         channel,
         db,
       );
@@ -1097,7 +1110,7 @@ export async function quoteArrival(
   const [cash, broker] = await Promise.all([price('CASH'), price('BROKER')]);
 
   return {
-    amount: transfer.amount.toString(),
+    amount: coins.toString(),
     payoutCurrency: currency,
     cash,
     broker,
@@ -1118,6 +1131,8 @@ export type PayoutMode = (typeof PAYOUT_MODES)[number];
 
 export interface SettleArrivalInput {
   branchId: string;
+  /** Other transfers to the same address, settled with this one as a single deal. */
+  alsoArrivals?: string[];
   payoutCurrency: string;
   /** Which balance the money leaves from. Defaults to the till. */
   mode?: PayoutMode;
@@ -1198,7 +1213,7 @@ export async function settleArrival(
       'errors.depositAlreadyClaimed',
     );
   }
-  if (transfer.linkedTransactionId) {
+  if (transfer.linkedTransactionId || transfer.mergedTransactionId) {
     throw errors.conflict('That transfer is already posted', 'errors.depositAlreadyPosted');
   }
   if (
@@ -1208,6 +1223,45 @@ export async function settleArrival(
     throw errors.precondition('That transfer is not confirmed yet', 'errors.transferNotConfirmed');
   }
 
+  /*
+   * Several transfers, one deal: what the customer sent in parts is priced and
+   * paid as the sum. Each must be free to settle on its own terms, and all on
+   * the one address, so the coins are the same coins on the same chain.
+   */
+  const ids = [...new Set(input.alsoArrivals ?? [])].filter((id) => id !== chainTransactionId);
+  const others = ids.length
+    ? await db.chainTransaction.findMany({
+        where: { id: { in: ids } },
+        include: { depositRequest: { select: { id: true } } },
+      })
+    : [];
+  if (
+    others.length !== ids.length ||
+    others.some(
+      (row) =>
+        row.walletId !== transfer.walletId ||
+        row.direction !== 'IN' ||
+        row.depositRequest ||
+        row.linkedTransactionId ||
+        row.mergedTransactionId ||
+        row.status !== 'CONFIRMED' ||
+        row.confirmations < transfer.wallet.minConfirmations,
+    )
+  ) {
+    throw errors.precondition(
+      'Those transfers cannot be settled together',
+      'errors.arrivalsNotMergeable',
+    );
+  }
+  const totalCoins = others.reduce((sum, row) => sum + row.amount, transfer.amount);
+  const mergedParts =
+    others.length > 0
+      ? [transfer, ...others]
+          .sort((a, b) => a.firstSeenAt.getTime() - b.firstSeenAt.getTime())
+          .map((row) => toDecimalString(row.amount, 2).replace(/\.00$/, ''))
+          .join(' + ')
+      : null;
+
   // The same ceiling the request path enforces. A teller's limit is a limit on
   // the teller, not on one of the two doors into the same work.
   const maximum = await ceilingFor(
@@ -1215,7 +1269,7 @@ export async function settleArrival(
     await settings.getMoney('usdt.counterMaxAmount', db),
     db,
   );
-  if (maximum > 0n && transfer.amount > maximum) {
+  if (maximum > 0n && totalCoins > maximum) {
     throw errors.precondition(
       `A counter request cannot exceed ${toDecimalString(maximum, 2)} USDT`,
       'errors.counterAmountTooLarge',
@@ -1269,16 +1323,16 @@ export async function settleArrival(
    */
   const mode = input.mode ?? 'CASH';
   const brokerShare =
-    mode === 'SPLIT' ? (input.brokerShare ?? 0n) : mode === 'BROKER' ? transfer.amount : 0n;
+    mode === 'SPLIT' ? (input.brokerShare ?? 0n) : mode === 'BROKER' ? totalCoins : 0n;
 
-  if (mode === 'SPLIT' && (brokerShare <= 0n || brokerShare >= transfer.amount)) {
+  if (mode === 'SPLIT' && (brokerShare <= 0n || brokerShare >= totalCoins)) {
     throw errors.precondition(
       'The transferred share must be part of the amount, not all or none of it',
       'errors.splitShareOutOfRange',
     );
   }
 
-  const cashShare = transfer.amount - brokerShare;
+  const cashShare = totalCoins - brokerShare;
 
   /*
    * USDT into dollars is priced at a percentage the teller confirms, each way
@@ -1461,7 +1515,7 @@ export async function settleArrival(
   const single =
     editNote !== '' ? null : brokerLeg === null ? cashLeg : cashLeg === null ? brokerLeg : null;
   const rate =
-    single?.rate ?? (transfer.amount > 0n ? (toAmount * MONEY_FACTOR) / transfer.amount : 0n);
+    single?.rate ?? (totalCoins > 0n ? (toAmount * MONEY_FACTOR) / totalCoins : 0n);
 
   if (createNew) {
     customerId = (
@@ -1479,7 +1533,7 @@ export async function settleArrival(
       branchId: input.branchId,
       customerId,
       fromCurrency: transfer.wallet.tokenSymbol,
-      fromAmount: transfer.amount,
+      fromAmount: totalCoins,
       toCurrency: input.payoutCurrency,
       toAmount,
       payout: { cash: payCash, bank: payBank },
@@ -1490,8 +1544,9 @@ export async function settleArrival(
       profitAmount: profit,
       counterpartyName: input.counterpartyName ?? null,
       counterpartyPhone: input.counterpartyPhone ?? null,
+      mergedParts,
       notes:
-        [percentNote && `النسبة: ${percentNote}`, ...priceNotes, editNote, input.notes]
+        [mergedParts && `دمج تحويلات: ${mergedParts}`, percentNote && `النسبة: ${percentNote}`, ...priceNotes, editNote, input.notes]
           .filter(Boolean)
           .join(' — ') || null,
     },
@@ -1501,10 +1556,25 @@ export async function settleArrival(
 
   // Claimed only after the posting exists. The other order would mark the money
   // spoken for and then leave it stranded if the posting failed.
-  await db.chainTransaction.update({
-    where: { id: chainTransactionId },
-    data: { linkedTransactionId: created.id, isReconciled: true, processedAt: new Date() },
-  });
+  if (others.length > 0) {
+    // All or none, against another teller settling one of them at this moment.
+    const claimed = await db.chainTransaction.updateMany({
+      where: { id: { in: ids }, linkedTransactionId: null, mergedTransactionId: null },
+      data: { mergedTransactionId: created.id, isReconciled: true, processedAt: new Date() },
+    });
+    const first = await db.chainTransaction.updateMany({
+      where: { id: chainTransactionId, linkedTransactionId: null, mergedTransactionId: null },
+      data: { linkedTransactionId: created.id, isReconciled: true, processedAt: new Date() },
+    });
+    if (claimed.count !== ids.length || first.count !== 1) {
+      throw errors.conflict('One of those transfers is already posted', 'errors.depositAlreadyPosted');
+    }
+  } else {
+    await db.chainTransaction.update({
+      where: { id: chainTransactionId },
+      data: { linkedTransactionId: created.id, isReconciled: true, processedAt: new Date() },
+    });
+  }
 
   /*
    * What this settlement taught, for the next one: the address is this
@@ -1535,8 +1605,8 @@ export async function settleArrival(
     module: 'usdt',
     entityType: 'ChainTransaction',
     entityId: chainTransactionId,
-    summaryEn: `Settled arrival ${transfer.txHash} as ${created.reference}: ${toDecimalString(transfer.amount, 2)} ${transfer.wallet.tokenSymbol} paid out as ${toDecimalString(toAmount, 2)} ${input.payoutCurrency} via ${mode.toLowerCase()}${account ? ` to ${account}` : ''}`,
-    summaryAr: `صرف تحويل واصل ${transfer.txHash} بالعملية ${created.reference}: ${toDecimalString(transfer.amount, 2)} ${transfer.wallet.tokenSymbol} مقابل ${toDecimalString(toAmount, 2)} ${input.payoutCurrency}${account ? ` عبر ${account}` : ''}`,
+    summaryEn: `Settled arrival ${transfer.txHash} as ${created.reference}: ${toDecimalString(totalCoins, 2)} ${transfer.wallet.tokenSymbol} paid out as ${toDecimalString(toAmount, 2)} ${input.payoutCurrency} via ${mode.toLowerCase()}${account ? ` to ${account}` : ''}`,
+    summaryAr: `صرف تحويل واصل ${transfer.txHash} بالعملية ${created.reference}: ${toDecimalString(totalCoins, 2)} ${transfer.wallet.tokenSymbol} مقابل ${toDecimalString(toAmount, 2)} ${input.payoutCurrency}${account ? ` عبر ${account}` : ''}`,
     actor,
     after: {
       transactionReference: created.reference,
@@ -1544,8 +1614,9 @@ export async function settleArrival(
       ...(editNote
         ? { computedPayout: computedTotal.toString(), paidPayout: toAmount.toString() }
         : {}),
+      ...(mergedParts ? { mergedParts } : {}),
     },
-  });
+  }, db);
 
   log.info('Arrival settled', { txHash: transfer.txHash, transaction: created.reference });
 

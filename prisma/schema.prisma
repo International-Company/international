@@ -1206,6 +1206,8 @@ model Transaction {
   /// showing only. No balance is kept of it, so the unit is words rather than a currency.
   deliveredAmount BigInt?
   deliveredUnit   String?
+  /// Set when several USDT transfers were settled as this one deal: "100 + 50".
+  mergedParts     String?
 
   /// Kept from the WhatsApp group when it was recorded, so its deletion is too.
   unannounced Boolean @default(false)
@@ -1720,6 +1722,10 @@ model ChainTransaction {
   linkedTransactionId String?      @unique
   linkedTransaction   Transaction? @relation(fields: [linkedTransactionId], references: [id], onDelete: SetNull)
 
+  /// The deal this was settled in together with others. The first of them holds
+  /// the link above; the rest are claimed by this.
+  mergedTransactionId String?
+
   depositRequest UsdtDepositRequest?
 
   isReconciled Boolean   @default(false)
@@ -1734,6 +1740,7 @@ model ChainTransaction {
   @@index([status, blockTimestamp])
   @@index([walletId, blockTimestamp])
   @@index([txHash])
+  @@index([mergedTransactionId])
   @@map("chain_transactions")
 }
 

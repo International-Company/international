@@ -1748,6 +1748,11 @@ const en = {
   },
 
   receive: {
+    mergeTick: 'Merge',
+    mergeSummary: 'Merge {count} transfers:',
+    mergeAction: 'Record as one deal',
+    mergedParts: 'One deal from the transfers: {parts}',
+    mergedSenders: 'These came from different sending addresses. Make sure they are for the same person before recording.',
     recent: 'Recent receipts',
     known: 'Known customer: {name} — {count} earlier transfer(s) from this address',
     knownBadge: '{name}',
@@ -2587,6 +2592,7 @@ const en = {
     remittanceHasPrice: 'This remittance already has its price',
     changeTooLow: 'What you received is no more than the deal comes to: {needed} {currency}',
     tiktokRateRequired: 'Give the dollar price',
+    arrivalsNotMergeable: 'Those transfers cannot be recorded together. Refresh and check they are confirmed and on the same address',
     privateBotNoKey: 'Add ANTHROPIC_API_KEY to the server’s variables first',
     privateBotNoAnswer: 'The bot could not answer. Try again',
     tiktokAccountRequired: 'Give the account or phone number',

@@ -459,6 +459,28 @@ describe('announcing a deal to the group', () => {
     assert.deepEqual(out, ['0597702207', 'استلام يواس 50 USDT']);
   });
 
+  it('says merged transfers beside their total', async () => {
+    const out: string[] = [];
+    await announceDeal('t1', {
+      target: async () => 'g@g.us',
+      load: async () => ({
+        reference: 'TXN-3',
+        type: 'USDT_RECEIVE',
+        bankPayout: false,
+        companyName: '',
+        text: '0597702207',
+        phone: null,
+        kindDetail: '150 USDT (100 + 50)',
+      }),
+      send: async (_jid: string, text: string) => {
+        out.push(text);
+        return { key: { id: 'M' } } as never;
+      },
+      pause: 1,
+    });
+    assert.equal(out[1], 'استلام يواس 150 USDT (100 + 50)');
+  });
+
   it('labels a USDT receipt «استلام يواس»', async () => {
     const { deps, sent } = harness({ type: 'USDT_RECEIVE' });
     assert.equal(await announceDeal('t1', deps), 'SENT');
