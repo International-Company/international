@@ -43,8 +43,8 @@ const figure = (value: bigint, places: number) =>
 
 function rateLine(rate: SheetRate): string | null {
   const sides = [
-    rate.buyRate > 0n ? `نشتريه من العميل بـ ${figure(rate.buyRate, 4)}` : null,
-    rate.sellRate > 0n ? `نبيعه للعميل بـ ${figure(rate.sellRate, 4)}` : null,
+    rate.buyRate > 0n ? `نشتري بـ ${figure(rate.buyRate, 4)}` : null,
+    rate.sellRate > 0n ? `نبيع بـ ${figure(rate.sellRate, 4)}` : null,
   ].filter(Boolean);
   if (sides.length === 0) return null;
   const how = rate.channel === 'CASH' ? 'نقداً' : 'بتحويل بنكي';
@@ -61,8 +61,8 @@ function remittanceLine(row: SheetRemittance): string {
 
 function extraLine(row: { item: string; buy: string; sell: string }): string {
   const sides = [
-    row.buy ? `نشتريه من العميل بـ ${row.buy}` : null,
-    row.sell ? `نبيعه للعميل بـ ${row.sell}` : null,
+    row.buy ? `نشتري بـ ${row.buy}` : null,
+    row.sell ? `نبيع بـ ${row.sell}` : null,
   ].filter(Boolean);
   return `- ${row.item}: ${sides.join('، ')}`;
 }
@@ -71,10 +71,10 @@ export function composePriceSheet(sheet: PriceSheet): string {
   const rates = sheet.rates.map(rateLine).filter((line): line is string => line !== null);
   const usdt = [
     sheet.usdtForCashDollars > 0
-      ? `- يبيعنا العميل USDT ويأخذ دولاراً نقدياً: نخصم ${sheet.usdtForCashDollars}%`
+      ? `- شراء USDT مقابل دولار نقدي: نخصم ${sheet.usdtForCashDollars}%`
       : null,
     sheet.usdtForBankDollars > 0
-      ? `- يبيعنا العميل USDT ويأخذ دولاراً بتحويل بنكي: نخصم ${sheet.usdtForBankDollars}%`
+      ? `- شراء USDT مقابل دولار بتحويل بنكي: نخصم ${sheet.usdtForBankDollars}%`
       : null,
   ].filter((line): line is string => line !== null);
   return [

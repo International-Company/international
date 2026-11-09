@@ -161,7 +161,7 @@ describe('what the manager tells it', () => {
 
   it('adds the prices the office wrote in', () => {
     const text = composePriceSheet(visibleSheet(sheet, profile({ extraPrices: [{ item: 'الدرهم', buy: '0.85', sell: '0.90' }, { item: 'الريال', buy: '', sell: '0.80' }] })));
-    assert.match(text, /أسعار أخرى من المكتب:\n- الدرهم: نشتريه من العميل بـ 0\.85، نبيعه للعميل بـ 0\.90\n- الريال: نبيعه للعميل بـ 0\.80/);
+    assert.match(text, /أسعار أخرى من المكتب:\n- الدرهم: نشتري بـ 0\.85، نبيع بـ 0\.90\n- الريال: نبيع بـ 0\.80/);
   });
 
   it('gives the assistant the office’s own words and answers', () => {
@@ -256,14 +256,14 @@ describe('the price sheet', () => {
   });
 
   it('says each side, cash and bank, and leaves out a side with no price', () => {
-    assert.match(sheet, /- الدولار مقابل الشيكل، نقداً: نشتريه من العميل بـ 3\.1، نبيعه للعميل بـ 3\.15 الشيكل/);
-    assert.match(sheet, /- الدولار مقابل الشيكل، بتحويل بنكي: نشتريه من العميل بـ 3\.08 الشيكل/);
+    assert.match(sheet, /- الدولار مقابل الشيكل، نقداً: نشتري بـ 3\.1، نبيع بـ 3\.15 الشيكل/);
+    assert.match(sheet, /- الدولار مقابل الشيكل، بتحويل بنكي: نشتري بـ 3\.08 الشيكل/);
   });
 
   it('says remittance fees, and the USDT percentage only when one is set', () => {
     assert.match(sheet, /إلى مصر بعملة الشيكل: الرسوم 2%/);
     assert.match(sheet, /إلى الأردن بعملة الدولار: الرسوم 10 الدولار/);
-    assert.match(sheet, /دولاراً نقدياً: نخصم 1%/);
+    assert.match(sheet, /دولار نقدي: نخصم 1%/);
     assert.doesNotMatch(sheet, /بتحويل بنكي: نخصم/);
   });
 
