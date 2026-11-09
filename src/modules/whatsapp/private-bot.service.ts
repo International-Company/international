@@ -27,6 +27,8 @@ import { composePriceSheet, type PriceSheet } from './price-sheet';
 import {
   onIncomingText,
   onStaffMessage,
+  privateImage,
+  sendImage,
   replyPrivately,
   sendText,
   snapshot,
@@ -60,6 +62,7 @@ const MAX_CONVERSATIONS = 2000;
 const ALERT_EVERY = 30 * 60 * 1000;
 
 const SAY_UNAVAILABLE = 'عذراً، ما بقدر أرد الآن. موظف من المكتب رح يتواصل معك قريباً.';
+const FORWARD_MEDIA_NOTE = 'وصل ملف أو رسالة صوتية أو فيديو. افتح المحادثة في الرقم الخاص لرؤيته.';
 const SAY_TO_STAFF = 'موظف من المكتب رح يتواصل معك بخصوص طلبك قريباً.';
 const SAY_NOT_TEXT = 'ما بقدر أقرأ الصور أو أسمع الرسائل الصوتية، اكتب سؤالك لو سمحت.';
 /** A run of pictures gets one answer. */
@@ -258,6 +261,50 @@ export async function handlePrivateMessage(
   ].slice(-KEEP_TURNS);
   if (answer.handover) await alert((answer.summary?.trim() || text).slice(0, 300));
   return 'ANSWERED';
+}
+
+/** What a group is told of a message to the private number: who sent it, and what it said. */
+export function forwardText(incoming: IncomingText): string {
+  return [`📩 *من:* ${whoIs(incoming)}`, incoming.text.trim()].filter(Boolean).join('\n');
+}
+
+export interface ForwardDeps {
+  /** The group chosen for them, or '' when none is. */
+  group: () => Promise<string>;
+  image: (incoming: IncomingText) => Promise<{ data: Buffer; mimeType: string } | null>;
+  sendText: (group: string, text: string) => Promise<unknown>;
+  sendImage: (group: string, data: Buffer, caption: string, mimeType: string) => Promise<unknown>;
+}
+
+export type ForwardOutcome = 'NO_GROUP' | 'SENT_TEXT' | 'SENT_IMAGE' | 'SENT_NOTE';
+
+/** Passes on what reached the private number. A picture that cannot be fetched still says so. */
+export async function forwardToGroup(
+  incoming: IncomingText,
+  deps: ForwardDeps,
+): Promise<ForwardOutcome> {
+  const group = await deps.group();
+  if (!group) return 'NO_GROUP';
+  const words = forwardText(incoming);
+
+  let image: Awaited<ReturnType<ForwardDeps['image']>> = null;
+  try {
+    image = await deps.image(incoming);
+  } catch (error) {
+    log.warn('Could not fetch a picture to forward', { error });
+    await deps.sendText(group, `${words}\n${FORWARD_MEDIA_NOTE}`);
+    return 'SENT_NOTE';
+  }
+  if (image) {
+    await deps.sendImage(group, image.data, words, image.mimeType);
+    return 'SENT_IMAGE';
+  }
+  if (incoming.media) {
+    await deps.sendText(group, `${words}\n${FORWARD_MEDIA_NOTE}`);
+    return 'SENT_NOTE';
+  }
+  await deps.sendText(group, words);
+  return 'SENT_TEXT';
 }
 
 const Reply = z.object({
@@ -548,6 +595,14 @@ export function registerPrivateBot(): void {
 
   onIncomingText((incoming) => {
     if (incoming.account !== 'private') return;
+    void forwardToGroup(incoming, {
+      group: async () =>
+        parseRoutes(await settings.getString('whatsapp.groupRoutes')).PRIVATE_FORWARD?.id ?? '',
+      image: (message) => privateImage(message.message),
+      sendText: (group, text) => sendText(group, text),
+      sendImage: (group, data, caption, mimeType) =>
+        sendImage(group, data, caption, undefined, mimeType),
+    }).catch((error) => log.warn('Could not forward a message to the group', { error }));
     const turn = (inQueue.get(incoming.chat) ?? Promise.resolve())
       .then(async () => {
         const outcome = await handlePrivateMessage(incoming, deps);

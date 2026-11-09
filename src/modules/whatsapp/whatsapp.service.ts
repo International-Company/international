@@ -2,6 +2,7 @@ import 'server-only';
 import makeWASocket, {
   Browsers,
   DisconnectReason,
+  downloadMediaMessage,
   fetchLatestBaileysVersion,
   normalizeMessageContent,
   type WAMessage,
@@ -504,6 +505,22 @@ export function isLinked(): boolean {
 }
 
 export type SentMessage = Awaited<ReturnType<WASocket['sendMessage']>>;
+
+/** The picture in a message the private number received, or null when it holds none. */
+export async function privateImage(
+  message: WAMessage,
+): Promise<{ data: Buffer; mimeType: string } | null> {
+  const image = normalizeMessageContent(message.message)?.imageMessage;
+  if (!image) return null;
+  const sock = socketOf('private');
+  const data = await downloadMediaMessage(
+    message,
+    'buffer',
+    {},
+    { logger: quiet as never, reuploadRequest: sock.updateMediaMessage },
+  );
+  return { data: data as Buffer, mimeType: image.mimetype ?? 'image/jpeg' };
+}
 
 /** Answers someone from the private number, showing it typing first as a person would. */
 export async function replyPrivately(jid: string, text: string): Promise<void> {

@@ -22,11 +22,13 @@ import {
   type BotProfile,
 } from '../src/modules/whatsapp/bot-profile.ts';
 import {
+  forwardToGroup,
   gapsOf,
   handlePrivateMessage,
   newBotState,
   type Answer,
   type BotDeps,
+  type ForwardDeps,
 } from '../src/modules/whatsapp/private-bot.service.ts';
 import type { IncomingText } from '../src/modules/whatsapp/whatsapp.service.ts';
 
@@ -258,6 +260,54 @@ describe('the lines the manager drew', () => {
   it('keeps lists clean', () => {
     const tidy = tidyProfile(profile({ blockedWords: [' خصم ', 'خصم', ''], rules: ['  ', 'قاعدة'], humanTopics: [] }));
     assert.deepEqual([tidy.blockedWords, tidy.rules], [['خصم'], ['قاعدة']]);
+  });
+});
+
+describe('passing on what reaches the number', () => {
+  const run = async (incoming: IncomingText, over: Partial<ForwardDeps> = {}) => {
+    const out: string[] = [];
+    const outcome = await forwardToGroup(incoming, {
+      group: async () => 'g@g.us',
+      image: async () => null,
+      sendText: async (group, text) => void out.push(`${group} text: ${text}`),
+      sendImage: async (group, _data, caption, mimeType) =>
+        void out.push(`${group} image ${mimeType}: ${caption}`),
+      ...over,
+    });
+    return { outcome, out };
+  };
+  const from = '📩 *من:* +970599000000';
+
+  it('sends words on with who wrote them', async () => {
+    const { outcome, out } = await run(message('وصلتني حوالة'));
+    assert.equal(outcome, 'SENT_TEXT');
+    assert.deepEqual(out, [`g@g.us text: ${from}\nوصلتني حوالة`]);
+  });
+
+  it('sends a picture on with its words as the caption', async () => {
+    const { outcome, out } = await run(message('الإيصال'), {
+      image: async () => ({ data: Buffer.from('x'), mimeType: 'image/png' }),
+    });
+    assert.equal(outcome, 'SENT_IMAGE');
+    assert.deepEqual(out, [`g@g.us image image/png: ${from}\nالإيصال`]);
+  });
+
+  it('says so when a picture cannot be fetched, and for other files', async () => {
+    const failed = await run(message(''), {
+      image: async () => {
+        throw new Error('expired');
+      },
+    });
+    assert.equal(failed.outcome, 'SENT_NOTE');
+    assert.match(failed.out[0]!, /افتح المحادثة/);
+    const file = await run({ ...message(''), media: true } as IncomingText);
+    assert.equal(file.outcome, 'SENT_NOTE');
+  });
+
+  it('does nothing until a group is chosen', async () => {
+    const { outcome, out } = await run(message('سلام'), { group: async () => '' });
+    assert.equal(outcome, 'NO_GROUP');
+    assert.deepEqual(out, []);
   });
 });
 
