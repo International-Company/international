@@ -2232,7 +2232,7 @@ const en = {
       USDT_SALE: 'USDT sale: all details',
       USDT_SALE_COPY: 'USDT sale: deposit address and amount only',
       PRIVATE_LEADS: 'Private number: customer requests',
-      PRIVATE_FORWARD: 'Private number: pictures received',
+      PRIVATE_FORWARD: 'Private number: pictures and files received',
       REMITTANCE: 'Remittances',
       REMITTANCE_COPY: 'Remittances: number and amount only',
       TIKTOK: 'TikTok: photo and all details',

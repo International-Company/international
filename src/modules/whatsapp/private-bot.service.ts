@@ -27,11 +27,12 @@ import { composePriceSheet, type PriceSheet } from './price-sheet';
 import {
   onIncomingText,
   onStaffMessage,
-  privateImage,
-  sendImage,
+  privateMedia,
+  sendMedia,
   replyPrivately,
   sendText,
   snapshot,
+  type ForwardedMedia,
   type IncomingText,
 } from './whatsapp.service';
 
@@ -62,7 +63,7 @@ const MAX_CONVERSATIONS = 2000;
 const ALERT_EVERY = 30 * 60 * 1000;
 
 const SAY_UNAVAILABLE = 'عذراً، ما بقدر أرد الآن. موظف من المكتب رح يتواصل معك قريباً.';
-const FORWARD_IMAGE_FAILED = 'وصلت صورة ولم يمكن نقلها. افتح المحادثة في الرقم الخاص لرؤيتها.';
+const FORWARD_FAILED = 'وصل ملف ولم يمكن نقله. افتح المحادثة في الرقم الخاص لرؤيته.';
 const SAY_TO_STAFF = 'موظف من المكتب رح يتواصل معك بخصوص طلبك قريباً.';
 const SAY_NOT_TEXT = 'ما بقدر أقرأ الصور أو أسمع الرسائل الصوتية، اكتب سؤالك لو سمحت.';
 /** A run of pictures gets one answer. */
@@ -263,7 +264,7 @@ export async function handlePrivateMessage(
   return 'ANSWERED';
 }
 
-/** What goes with a picture sent to the private number: who sent it, and any words with it. */
+/** What goes with a file sent to the private number: who sent it, and any words with it. */
 export function forwardText(incoming: IncomingText): string {
   return [`📩 *من:* ${whoIs(incoming)}`, incoming.text.trim()].filter(Boolean).join('\n');
 }
@@ -271,14 +272,14 @@ export function forwardText(incoming: IncomingText): string {
 export interface ForwardDeps {
   /** The group chosen for them, or '' when none is. */
   group: () => Promise<string>;
-  image: (incoming: IncomingText) => Promise<{ data: Buffer; mimeType: string } | null>;
+  media: (incoming: IncomingText) => Promise<ForwardedMedia | null>;
   sendText: (group: string, text: string) => Promise<unknown>;
-  sendImage: (group: string, data: Buffer, caption: string, mimeType: string) => Promise<unknown>;
+  sendMedia: (group: string, media: ForwardedMedia, caption: string) => Promise<unknown>;
 }
 
-export type ForwardOutcome = 'NO_GROUP' | 'NOT_A_PICTURE' | 'SENT_IMAGE' | 'SENT_NOTE';
+export type ForwardOutcome = 'NO_GROUP' | 'WORDS_ONLY' | 'SENT_MEDIA' | 'SENT_NOTE';
 
-/** Passes on the pictures that reach the private number. One that cannot be fetched still says so. */
+/** Passes on the files that reach the private number, not its words. One that cannot be fetched still says so. */
 export async function forwardToGroup(
   incoming: IncomingText,
   deps: ForwardDeps,
@@ -287,17 +288,19 @@ export async function forwardToGroup(
   if (!group) return 'NO_GROUP';
   const words = forwardText(incoming);
 
-  let image: Awaited<ReturnType<ForwardDeps['image']>> = null;
+  let media: ForwardedMedia | null = null;
   try {
-    image = await deps.image(incoming);
+    media = await deps.media(incoming);
   } catch (error) {
-    log.warn('Could not fetch a picture to forward', { error });
-    await deps.sendText(group, `${words}\n${FORWARD_IMAGE_FAILED}`);
+    log.warn('Could not fetch a file to forward', { error });
+    await deps.sendText(group, `${words}\n${FORWARD_FAILED}`);
     return 'SENT_NOTE';
   }
-  if (!image) return 'NOT_A_PICTURE';
-  await deps.sendImage(group, image.data, words, image.mimeType);
-  return 'SENT_IMAGE';
+  if (!media) return 'WORDS_ONLY';
+  // A sound cannot carry a caption, so who sent it goes just before it.
+  if (media.kind === 'audio') await deps.sendText(group, words);
+  await deps.sendMedia(group, media, words);
+  return 'SENT_MEDIA';
 }
 
 const Reply = z.object({
@@ -591,10 +594,9 @@ export function registerPrivateBot(): void {
     void forwardToGroup(incoming, {
       group: async () =>
         parseRoutes(await settings.getString('whatsapp.groupRoutes')).PRIVATE_FORWARD?.id ?? '',
-      image: (message) => privateImage(message.message),
+      media: (message) => privateMedia(message.message),
       sendText: (group, text) => sendText(group, text),
-      sendImage: (group, data, caption, mimeType) =>
-        sendImage(group, data, caption, undefined, mimeType),
+      sendMedia,
     }).catch((error) => log.warn('Could not forward a message to the group', { error }));
     const turn = (inQueue.get(incoming.chat) ?? Promise.resolve())
       .then(async () => {

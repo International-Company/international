@@ -522,20 +522,70 @@ export function isLinked(): boolean {
 
 export type SentMessage = Awaited<ReturnType<WASocket['sendMessage']>>;
 
-/** The picture in a message the private number received, or null when it holds none. */
-export async function privateImage(
-  message: WAMessage,
-): Promise<{ data: Buffer; mimeType: string } | null> {
-  const image = normalizeMessageContent(message.message)?.imageMessage;
-  if (!image) return null;
+/** Past this a file is left on the phone: it is held in memory while it is passed on. */
+const MAX_FORWARD_BYTES = 30 * 1024 * 1024;
+
+export type MediaKind = 'image' | 'video' | 'audio' | 'document';
+
+export interface ForwardedMedia {
+  kind: MediaKind;
+  data: Buffer;
+  mimeType: string;
+  fileName?: string;
+  /** A voice note rather than a sound file. */
+  voice?: boolean;
+}
+
+/** The picture, video, sound or file in a message the private number received; null for none. */
+export async function privateMedia(message: WAMessage): Promise<ForwardedMedia | null> {
+  const content = normalizeMessageContent(message.message);
+  const image = content?.imageMessage;
+  const video = content?.videoMessage;
+  const audio = content?.audioMessage;
+  const document = content?.documentMessage;
+  const found = image ?? video ?? audio ?? document;
+  if (!found) return null;
+  if (Number(found.fileLength ?? 0) > MAX_FORWARD_BYTES) throw new Error('File too large');
+
   const sock = socketOf('private');
-  const data = await downloadMediaMessage(
+  const data = (await downloadMediaMessage(
     message,
     'buffer',
     {},
     { logger: quiet as never, reuploadRequest: sock.updateMediaMessage },
-  );
-  return { data: data as Buffer, mimeType: image.mimetype ?? 'image/jpeg' };
+  )) as Buffer;
+  return {
+    kind: image ? 'image' : video ? 'video' : audio ? 'audio' : 'document',
+    data,
+    mimeType: found.mimetype ?? 'application/octet-stream',
+    fileName: document?.fileName ?? undefined,
+    voice: audio?.ptt ?? undefined,
+  };
+}
+
+/** Sends a picture, video, sound or file to a chat. A sound carries no caption. */
+export async function sendMedia(
+  jid: string,
+  media: ForwardedMedia,
+  caption: string,
+): Promise<SentMessage> {
+  const sock = await socketFor(jid);
+  const { data, mimeType: mimetype } = media;
+  switch (media.kind) {
+    case 'image':
+      return sock.sendMessage(jid, { image: data, caption, mimetype });
+    case 'video':
+      return sock.sendMessage(jid, { video: data, caption, mimetype });
+    case 'audio':
+      return sock.sendMessage(jid, { audio: data, mimetype, ptt: media.voice ?? false });
+    case 'document':
+      return sock.sendMessage(jid, {
+        document: data,
+        caption,
+        mimetype,
+        fileName: media.fileName ?? 'ملف',
+      });
+  }
 }
 
 /** Answers someone from the private number, showing it typing first as a person would. */

@@ -45,7 +45,7 @@ const CATEGORY_WORDS: Record<RouteCategory, string> = {
   TIKTOK: 'تيكتوك',
   TIKTOK_NAME: 'صورة تيكتوك والاسم',
   PRIVATE_LEADS: 'طلبات عملاء الرقم الخاص',
-  PRIVATE_FORWARD: 'الصور التي تصل إلى الرقم الخاص',
+  PRIVATE_FORWARD: 'الصور والملفات التي تصل إلى الرقم الخاص',
 };
 
 /**

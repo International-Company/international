@@ -30,7 +30,7 @@ import {
   type BotDeps,
   type ForwardDeps,
 } from '../src/modules/whatsapp/private-bot.service.ts';
-import type { IncomingText } from '../src/modules/whatsapp/whatsapp.service.ts';
+import type { ForwardedMedia, IncomingText } from '../src/modules/whatsapp/whatsapp.service.ts';
 
 const U = 100_000_000n;
 const message = (text: string, chat = '970599000000@s.whatsapp.net') =>
@@ -268,47 +268,51 @@ describe('passing on what reaches the number', () => {
     const out: string[] = [];
     const outcome = await forwardToGroup(incoming, {
       group: async () => 'g@g.us',
-      image: async () => null,
+      media: async () => null,
       sendText: async (group, text) => void out.push(`${group} text: ${text}`),
-      sendImage: async (group, _data, caption, mimeType) =>
-        void out.push(`${group} image ${mimeType}: ${caption}`),
+      sendMedia: async (group, media, caption) =>
+        void out.push(`${group} ${media.kind} ${media.mimeType}: ${caption}`),
       ...over,
     });
     return { outcome, out };
   };
   const from = '📩 *من:* +970599000000';
+  const file = (kind: ForwardedMedia['kind'], mimeType: string) => async () =>
+    ({ kind, data: Buffer.from('x'), mimeType }) as ForwardedMedia;
 
   it('leaves words on their own where they are', async () => {
     const { outcome, out } = await run(message('وصلتني حوالة'));
-    assert.equal(outcome, 'NOT_A_PICTURE');
+    assert.equal(outcome, 'WORDS_ONLY');
     assert.deepEqual(out, []);
   });
 
-  it('sends a picture on with its words as the caption', async () => {
-    const { outcome, out } = await run(message('الإيصال'), {
-      image: async () => ({ data: Buffer.from('x'), mimeType: 'image/png' }),
-    });
-    assert.equal(outcome, 'SENT_IMAGE');
-    assert.deepEqual(out, [`g@g.us image image/png: ${from}\nالإيصال`]);
+  it('sends a picture, video or file on with who sent it as the caption', async () => {
+    for (const [kind, type] of [['image', 'image/png'], ['video', 'video/mp4'], ['document', 'application/pdf']] as const) {
+      const { outcome, out } = await run(message('الإيصال'), { media: file(kind, type) });
+      assert.equal(outcome, 'SENT_MEDIA');
+      assert.deepEqual(out, [`g@g.us ${kind} ${type}: ${from}\nالإيصال`]);
+    }
   });
 
-  it('says so when a picture cannot be fetched, and leaves other files', async () => {
+  it('says who sent a sound just before it, since it cannot carry a caption', async () => {
+    const { out } = await run(message(''), { media: file('audio', 'audio/ogg') });
+    assert.deepEqual(out, [`g@g.us text: ${from}`, `g@g.us audio audio/ogg: ${from}`]);
+  });
+
+  it('says so when a file cannot be fetched', async () => {
     const failed = await run(message(''), {
-      image: async () => {
+      media: async () => {
         throw new Error('expired');
       },
     });
     assert.equal(failed.outcome, 'SENT_NOTE');
     assert.match(failed.out[0]!, /افتح المحادثة/);
-    const file = await run({ ...message(''), media: true } as IncomingText);
-    assert.equal(file.outcome, 'NOT_A_PICTURE');
-    assert.deepEqual(file.out, []);
   });
 
   it('does nothing until a group is chosen', async () => {
     const { outcome, out } = await run(message('سلام'), {
       group: async () => '',
-      image: async () => ({ data: Buffer.from('x'), mimeType: 'image/png' }),
+      media: file('image', 'image/png'),
     });
     assert.equal(outcome, 'NO_GROUP');
     assert.deepEqual(out, []);
