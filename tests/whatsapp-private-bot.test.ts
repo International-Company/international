@@ -278,10 +278,10 @@ describe('passing on what reaches the number', () => {
   };
   const from = '📩 *من:* +970599000000';
 
-  it('sends words on with who wrote them', async () => {
+  it('leaves words on their own where they are', async () => {
     const { outcome, out } = await run(message('وصلتني حوالة'));
-    assert.equal(outcome, 'SENT_TEXT');
-    assert.deepEqual(out, [`g@g.us text: ${from}\nوصلتني حوالة`]);
+    assert.equal(outcome, 'NOT_A_PICTURE');
+    assert.deepEqual(out, []);
   });
 
   it('sends a picture on with its words as the caption', async () => {
@@ -292,7 +292,7 @@ describe('passing on what reaches the number', () => {
     assert.deepEqual(out, [`g@g.us image image/png: ${from}\nالإيصال`]);
   });
 
-  it('says so when a picture cannot be fetched, and for other files', async () => {
+  it('says so when a picture cannot be fetched, and leaves other files', async () => {
     const failed = await run(message(''), {
       image: async () => {
         throw new Error('expired');
@@ -301,11 +301,15 @@ describe('passing on what reaches the number', () => {
     assert.equal(failed.outcome, 'SENT_NOTE');
     assert.match(failed.out[0]!, /افتح المحادثة/);
     const file = await run({ ...message(''), media: true } as IncomingText);
-    assert.equal(file.outcome, 'SENT_NOTE');
+    assert.equal(file.outcome, 'NOT_A_PICTURE');
+    assert.deepEqual(file.out, []);
   });
 
   it('does nothing until a group is chosen', async () => {
-    const { outcome, out } = await run(message('سلام'), { group: async () => '' });
+    const { outcome, out } = await run(message('سلام'), {
+      group: async () => '',
+      image: async () => ({ data: Buffer.from('x'), mimeType: 'image/png' }),
+    });
     assert.equal(outcome, 'NO_GROUP');
     assert.deepEqual(out, []);
   });

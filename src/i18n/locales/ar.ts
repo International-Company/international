@@ -2231,7 +2231,7 @@ const ar: Dictionary = {
       USDT_SALE: 'بيع USDT: البيانات كاملة',
       USDT_SALE_COPY: 'بيع USDT: عنوان ومبلغ الإيداع فقط',
       PRIVATE_LEADS: 'طلبات عملاء الرقم الخاص',
-      PRIVATE_FORWARD: 'كل ما يصل إلى الرقم الخاص',
+      PRIVATE_FORWARD: 'الصور التي تصل إلى الرقم الخاص',
       REMITTANCE: 'الحوالات',
       REMITTANCE_COPY: 'الحوالات: الرقم والمبلغ فقط',
       TIKTOK: 'تيكتوك: الصورة والبيانات كاملة',

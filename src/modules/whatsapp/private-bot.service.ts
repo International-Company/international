@@ -62,7 +62,7 @@ const MAX_CONVERSATIONS = 2000;
 const ALERT_EVERY = 30 * 60 * 1000;
 
 const SAY_UNAVAILABLE = 'عذراً، ما بقدر أرد الآن. موظف من المكتب رح يتواصل معك قريباً.';
-const FORWARD_MEDIA_NOTE = 'وصل ملف أو رسالة صوتية أو فيديو. افتح المحادثة في الرقم الخاص لرؤيته.';
+const FORWARD_IMAGE_FAILED = 'وصلت صورة ولم يمكن نقلها. افتح المحادثة في الرقم الخاص لرؤيتها.';
 const SAY_TO_STAFF = 'موظف من المكتب رح يتواصل معك بخصوص طلبك قريباً.';
 const SAY_NOT_TEXT = 'ما بقدر أقرأ الصور أو أسمع الرسائل الصوتية، اكتب سؤالك لو سمحت.';
 /** A run of pictures gets one answer. */
@@ -263,7 +263,7 @@ export async function handlePrivateMessage(
   return 'ANSWERED';
 }
 
-/** What a group is told of a message to the private number: who sent it, and what it said. */
+/** What goes with a picture sent to the private number: who sent it, and any words with it. */
 export function forwardText(incoming: IncomingText): string {
   return [`📩 *من:* ${whoIs(incoming)}`, incoming.text.trim()].filter(Boolean).join('\n');
 }
@@ -276,9 +276,9 @@ export interface ForwardDeps {
   sendImage: (group: string, data: Buffer, caption: string, mimeType: string) => Promise<unknown>;
 }
 
-export type ForwardOutcome = 'NO_GROUP' | 'SENT_TEXT' | 'SENT_IMAGE' | 'SENT_NOTE';
+export type ForwardOutcome = 'NO_GROUP' | 'NOT_A_PICTURE' | 'SENT_IMAGE' | 'SENT_NOTE';
 
-/** Passes on what reached the private number. A picture that cannot be fetched still says so. */
+/** Passes on the pictures that reach the private number. One that cannot be fetched still says so. */
 export async function forwardToGroup(
   incoming: IncomingText,
   deps: ForwardDeps,
@@ -292,19 +292,12 @@ export async function forwardToGroup(
     image = await deps.image(incoming);
   } catch (error) {
     log.warn('Could not fetch a picture to forward', { error });
-    await deps.sendText(group, `${words}\n${FORWARD_MEDIA_NOTE}`);
+    await deps.sendText(group, `${words}\n${FORWARD_IMAGE_FAILED}`);
     return 'SENT_NOTE';
   }
-  if (image) {
-    await deps.sendImage(group, image.data, words, image.mimeType);
-    return 'SENT_IMAGE';
-  }
-  if (incoming.media) {
-    await deps.sendText(group, `${words}\n${FORWARD_MEDIA_NOTE}`);
-    return 'SENT_NOTE';
-  }
-  await deps.sendText(group, words);
-  return 'SENT_TEXT';
+  if (!image) return 'NOT_A_PICTURE';
+  await deps.sendImage(group, image.data, words, image.mimeType);
+  return 'SENT_IMAGE';
 }
 
 const Reply = z.object({
