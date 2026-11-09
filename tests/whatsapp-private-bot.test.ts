@@ -92,7 +92,7 @@ describe('the private number', () => {
   it('when it cannot answer, says so and a person is told', async () => {
     const { deps, sent, alerts } = setup(new Error('down'));
     assert.equal(await handlePrivateMessage(message('كم السعر'), deps), 'UNAVAILABLE');
-    assert.match(sent[0]!, /سيتواصل معك/);
+    assert.match(sent[0]!, /رح يحكي معك/);
     assert.match(alerts[0]!, /الطلب: كم السعر/);
   });
 
