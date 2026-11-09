@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import { requirePagePermission } from '@/modules/auth/context';
 import { getTranslator } from '@/i18n/server';
 import { PageHeader } from '@/ui/primitives';
-import { PrivateBotView } from './private-bot-view';
+import { PrivateBotTabs } from './private-bot-tabs';
 
 export const metadata: Metadata = { title: 'Private number' };
 export const dynamic = 'force-dynamic';
@@ -14,7 +14,7 @@ export default async function PrivateBotPage() {
   return (
     <div className="space-y-4">
       <PageHeader title={t('privateBot.title')} description={t('privateBot.subtitle')} />
-      <PrivateBotView canManage={session.user.permissions.includes('settings.manage')} />
+      <PrivateBotTabs canManage={session.user.permissions.includes('settings.manage')} />
     </div>
   );
 }

@@ -6,6 +6,7 @@ import { env } from '@/core/config/env';
 import { errors } from '@/core/errors/app-error';
 import { createLogger } from '@/core/logger/logger';
 import { readProofImage } from '@/modules/exchange/proof-image';
+import { creditIsBack, noteIfCreditOut, recordUsage } from '@/modules/whatsapp/bot-usage';
 import { photoFigure } from './photo-figures';
 
 /**
@@ -71,6 +72,8 @@ export async function readWithdrawalPhoto(photo: string): Promise<PhotoReading> 
         },
       ],
     });
+    creditIsBack();
+    void recordUsage('photo', response.usage).catch(() => undefined);
     if (response.stop_reason === 'refusal' || !response.parsed_output) {
       log.warn('A withdrawal photo gave no figures', { stopReason: response.stop_reason });
       return { available: true, usd: null, egp: null };
@@ -81,6 +84,7 @@ export async function readWithdrawalPhoto(photo: string): Promise<PhotoReading> 
       egp: photoFigure(response.parsed_output.egp),
     };
   } catch (error) {
+    noteIfCreditOut(error);
     // The message only: the request this failed on carries the customer's photo.
     log.warn('Could not read a withdrawal photo', {
       status: error instanceof Anthropic.APIError ? error.status : undefined,

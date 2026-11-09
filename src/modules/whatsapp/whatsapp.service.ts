@@ -61,7 +61,18 @@ export interface IncomingText {
   message: WAMessage;
   /** The number that heard it. */
   account: Account;
+  /** A picture, voice note or file sent to the private number, which cannot be read. */
+  media?: boolean;
 }
+
+/** A member of staff writing from the private number's own phone. */
+export interface StaffMessage {
+  chat: string;
+  /** Null when WhatsApp did not let this device read it. */
+  text: string | null;
+}
+
+type StaffListener = (message: StaffMessage) => Promise<void> | void;
 
 type Listener = (incoming: IncomingText) => Promise<void> | void;
 
@@ -69,6 +80,7 @@ interface Shared {
   sessions: Record<Account, Session>;
   /** Who is told of a message arriving — kept here so a reconnect keeps them. */
   listeners: Listener[];
+  staffListeners: StaffListener[];
   /** Messages already handled, when both numbers are in the chat they came to. */
   seen: string[];
 }
@@ -89,8 +101,10 @@ const globalForWhatsapp = globalThis as unknown as { __ifmsWhatsappNumbers?: Sha
 const shared: Shared = (globalForWhatsapp.__ifmsWhatsappNumbers ??= {
   sessions: { main: fresh(), second: fresh(), private: fresh() },
   listeners: [],
+  staffListeners: [],
   seen: [],
 });
+shared.staffListeners ??= [];
 // A server already running when this number was added has no place for it yet.
 shared.sessions.private ??= fresh();
 
@@ -147,15 +161,51 @@ async function open(account: Account): Promise<void> {
     for (const message of messages) {
       if (!message.key.remoteJid) continue;
       // The private number hears people writing to it, and nothing else.
-      if (account === 'private' && (message.key.fromMe || !isPrivateChat(message.key.remoteJid))) {
-        continue;
+      if (account === 'private') {
+        if (!isPrivateChat(message.key.remoteJid)) continue;
+        // What this link sends itself arrives as "append": a "notify" of ours was typed on the phone.
+        if (message.key.fromMe) {
+          const typed = normalizeMessageContent(message.message);
+          // Housekeeping between its own devices, and notes to itself, are nobody's conversation.
+          const self = holder.me?.id.split(':')[0];
+          if (
+            typed?.protocolMessage ||
+            typed?.reactionMessage ||
+            message.key.remoteJid.split('@')[0] === self
+          ) {
+            continue;
+          }
+          const staff: StaffMessage = {
+            chat: message.key.remoteJid,
+            text: typed?.conversation ?? typed?.extendedTextMessage?.text ?? null,
+          };
+          for (const listener of shared.staffListeners) {
+            void Promise.resolve()
+              .then(() => listener(staff))
+              .catch((error) => log.error('A WhatsApp staff handler failed', { error }));
+          }
+          continue;
+        }
       }
       if (!firstSighting(shared.seen, `${message.key.remoteJid}:${message.key.id}`)) continue;
       const content = normalizeMessageContent(message.message);
-      const text = content?.conversation ?? content?.extendedTextMessage?.text ?? null;
-      if (!text) continue;
+      const caption =
+        account === 'private'
+          ? (content?.imageMessage?.caption ?? content?.videoMessage?.caption ?? null)
+          : null;
+      const text = content?.conversation ?? content?.extendedTextMessage?.text ?? caption;
+      const media =
+        account === 'private' &&
+        !text &&
+        Boolean(
+          content?.imageMessage ??
+            content?.audioMessage ??
+            content?.videoMessage ??
+            content?.documentMessage,
+        );
+      if (!text && !media) continue;
       // The office may type a command on the linked phone itself; nothing else it sends is heard.
-      if (message.key.fromMe && !text.trim().replace(/^[\u200e\u200f]+/, '').startsWith('#')) continue;
+      if (message.key.fromMe && !text?.trim().replace(/^[\u200e\u200f]+/, '').startsWith('#')) continue;
       const sender = message.key.participant ?? message.key.remoteJid;
       const phone =
         message.key.participantPn ??
@@ -163,7 +213,8 @@ async function open(account: Account): Promise<void> {
         (sender?.endsWith('@s.whatsapp.net') ? sender : null);
       const incoming: IncomingText = {
         chat: message.key.remoteJid,
-        text,
+        text: text ?? '',
+        media,
         sender: sender ?? null,
         senderPhone: phone ?? null,
         message,
@@ -419,6 +470,11 @@ export async function sendImage(
 /** Tells `listener` of every text message others write where a number is. */
 export function onIncomingText(listener: Listener): void {
   shared.listeners.push(listener);
+}
+
+/** Tells `listener` when someone writes from the private number's phone. */
+export function onStaffMessage(listener: StaffListener): void {
+  shared.staffListeners.push(listener);
 }
 
 /**

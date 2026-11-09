@@ -21,6 +21,11 @@ interface Panel {
   currencies: string[];
   destinations: string[];
   preview: string;
+  usage: {
+    today: { answers: number; photos: number; cost: number };
+    month: { answers: number; photos: number; cost: number };
+  };
+  creditOutAt: number | null;
 }
 
 interface Turn {
@@ -173,6 +178,141 @@ export function PrivateBotView({ canManage }: { canManage: boolean }) {
                     disabled={!canManage}
                     value={panel.dailyLimit}
                     onValueChange={(dailyLimit) => setPanel({ ...panel, dailyLimit })}
+                  />
+                )}
+              </Field>
+            </div>
+          </CardBody>
+        </Card>
+
+        {/* ============ What it has cost ============ */}
+        <Card>
+          <CardHeader title={t('privateBot.usageTitle')} description={t('privateBot.usageHint')} />
+          <CardBody className="space-y-3">
+            {saved.creditOutAt && <Alert tone="danger">{t('privateBot.creditOut')}</Alert>}
+            <div className="grid grid-cols-2 gap-3">
+              {(['today', 'month'] as const).map((period) => (
+                <div key={period} className="rounded-xl bg-surface-sunken p-3">
+                  <p className="text-xs font-medium text-content-secondary">
+                    {t(`privateBot.usage.${period}`)}
+                  </p>
+                  <p className="mt-1 text-2xl font-bold tabular-nums text-content">
+                    ${saved.usage[period].cost.toFixed(2)}
+                  </p>
+                  <p className="mt-1 text-xs text-content-secondary">
+                    {t('privateBot.usageCounts', {
+                      answers: saved.usage[period].answers,
+                      photos: saved.usage[period].photos,
+                    })}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </CardBody>
+        </Card>
+
+        {/* ============ How it behaves ============ */}
+        <Card>
+          <CardHeader title={t('privateBot.behaviorTitle')} />
+          <CardBody className="space-y-5">
+            <Switch
+              checked={profile.hours.enabled}
+              disabled={!canManage}
+              onCheckedChange={(enabled) => edit({ hours: { ...profile.hours, enabled } })}
+              label={t('privateBot.hoursEnabled')}
+              description={t('privateBot.hoursHint')}
+            />
+            {profile.hours.enabled && (
+              <div className="space-y-3">
+                <div className="grid grid-cols-2 gap-3">
+                  <Field label={t('privateBot.opens')}>
+                    {(props) => (
+                      <Input
+                        {...props}
+                        type="time"
+                        dir="ltr"
+                        disabled={!canManage}
+                        value={profile.hours.open}
+                        onChange={(event) =>
+                          edit({ hours: { ...profile.hours, open: event.target.value } })
+                        }
+                      />
+                    )}
+                  </Field>
+                  <Field label={t('privateBot.closes')}>
+                    {(props) => (
+                      <Input
+                        {...props}
+                        type="time"
+                        dir="ltr"
+                        disabled={!canManage}
+                        value={profile.hours.close}
+                        onChange={(event) =>
+                          edit({ hours: { ...profile.hours, close: event.target.value } })
+                        }
+                      />
+                    )}
+                  </Field>
+                </div>
+                <div>
+                  <p className="mb-2 text-xs font-medium text-content-secondary">
+                    {t('privateBot.closedDays')}
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    {[6, 0, 1, 2, 3, 4, 5].map((day) => {
+                      const closed = profile.hours.closedDays.includes(day);
+                      return (
+                        <button
+                          key={day}
+                          type="button"
+                          disabled={!canManage}
+                          aria-pressed={closed}
+                          onClick={() =>
+                            edit({
+                              hours: {
+                                ...profile.hours,
+                                closedDays: closed
+                                  ? profile.hours.closedDays.filter((item) => item !== day)
+                                  : [...profile.hours.closedDays, day],
+                              },
+                            })
+                          }
+                          className={`h-9 rounded-full px-3 text-sm font-medium transition-colors disabled:cursor-not-allowed ${
+                            closed
+                              ? 'bg-warning-subtle text-warning-text ring-1 ring-warning'
+                              : 'bg-surface-sunken text-content-secondary'
+                          }`}
+                        >
+                          {t(`privateBot.day.d${day}` as never)}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            )}
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field label={t('privateBot.takeover')} hint={t('privateBot.takeoverHint')}>
+                {(props) => (
+                  <NumberInput
+                    {...props}
+                    min={1}
+                    max={10080}
+                    disabled={!canManage}
+                    value={profile.takeoverMinutes}
+                    onValueChange={(takeoverMinutes) => edit({ takeoverMinutes })}
+                  />
+                )}
+              </Field>
+              <Field label={t('privateBot.retention')} hint={t('privateBot.retentionHint')}>
+                {(props) => (
+                  <NumberInput
+                    {...props}
+                    min={7}
+                    max={730}
+                    disabled={!canManage}
+                    value={profile.retentionDays}
+                    onValueChange={(retentionDays) => edit({ retentionDays })}
                   />
                 )}
               </Field>

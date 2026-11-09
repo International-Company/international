@@ -10,6 +10,8 @@ import type { PriceSheet, SheetRate } from './price-sheet';
  * added later appears without anyone having to come back here.
  */
 
+const TIME = /^([01]\d|2[0-3]):[0-5]\d$/;
+
 export const profileSchema = z.object({
   about: z.string().max(4000).default(''),
   welcome: z.string().max(1000).default(''),
@@ -37,6 +39,19 @@ export const profileSchema = z.object({
     .default({}),
   hiddenCurrencies: z.array(z.string().max(8)).max(50).default([]),
   hiddenDestinations: z.array(z.string().max(120)).max(200).default([]),
+  hours: z
+    .object({
+      enabled: z.boolean().default(false),
+      open: z.string().regex(TIME).default('09:00'),
+      close: z.string().regex(TIME).default('18:00'),
+      /** 0 is Sunday. */
+      closedDays: z.array(z.number().int().min(0).max(6)).max(7).default([]),
+    })
+    .default({}),
+  /** How long the bot keeps out of a conversation a person has joined. */
+  takeoverMinutes: z.number().int().min(1).max(10080).default(60),
+  /** How long conversations and requests are kept. */
+  retentionDays: z.number().int().min(7).max(730).default(90),
 });
 
 export type BotProfile = z.infer<typeof profileSchema>;
@@ -103,6 +118,26 @@ export function composeKnowledge(profile: BotProfile): string {
   ]
     .join('\n')
     .trim();
+}
+
+/** The office's own clock, wherever the server happens to run. */
+const OFFICE_ZONE = 'Asia/Hebron';
+
+/** Whether the office is open at this moment; hours not set count as open. */
+export function officeOpen(hours: BotProfile['hours'], at: Date): boolean {
+  if (!hours.enabled) return true;
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: OFFICE_ZONE,
+    weekday: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(at);
+  const part = (type: string) => parts.find((entry) => entry.type === type)?.value ?? '';
+  const day = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(part('weekday'));
+  if (hours.closedDays.includes(day)) return false;
+  const now = `${part('hour')}:${part('minute')}`;
+  return now >= hours.open && now < hours.close;
 }
 
 const GREETINGS = [

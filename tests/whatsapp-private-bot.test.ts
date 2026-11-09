@@ -6,11 +6,13 @@ import { describe, it } from 'node:test';
 import { chooseAccount, isPrivateChat } from '../src/modules/whatsapp/accounts.ts';
 import { categoriesOf, groupPlan } from '../src/modules/whatsapp/group-routes.ts';
 import { composePriceSheet } from '../src/modules/whatsapp/price-sheet.ts';
+import { calculationLines } from '../src/modules/whatsapp/bot-calc.ts';
 import {
   cannedWelcome,
   composeKnowledge,
   emptyProfile,
   isGreeting,
+  officeOpen,
   parseProfile,
   profileSchema,
   tidyProfile,
@@ -38,6 +40,9 @@ const setup = (
   const sent: string[] = [];
   const alerts: string[] = [];
   const asked: { role: string; content: string }[][] = [];
+  const kept: string[] = [];
+  const raised: string[] = [];
+  const paused = { on: false };
   let clock = new Date(2026, 10, 8, 10, 0).getTime();
   const deps: BotDeps = {
     dailyLimit: async () => limit,
@@ -47,12 +52,15 @@ const setup = (
       return answer;
     },
     welcome: async (isFirst, text) => cannedWelcome(isFirst, text, profile),
+    paused: async () => paused.on,
+    record: async (_chat, _phone, role, text) => void kept.push(`${role}:${text}`),
+    raise: async (_chat, _phone, summary) => void raised.push(summary),
     reply: async (_chat, text) => void sent.push(text),
     alert: async (text) => void alerts.push(text),
     state: newBotState(),
     now: () => new Date(clock),
   };
-  return { deps, sent, alerts, asked, pass: (ms: number) => (clock += ms) };
+  return { deps, sent, alerts, asked, kept, raised, paused, pass: (ms: number) => (clock += ms) };
 };
 
 describe('the private number', () => {
@@ -201,6 +209,93 @@ describe('what the manager tells it', () => {
     assert.equal(await handlePrivateMessage(message('كم الدولار؟'), written.deps), 'ANSWERED');
     const unwritten = setup();
     assert.equal(await handlePrivateMessage(message('مرحبا'), unwritten.deps), 'ANSWERED');
+  });
+});
+
+describe('working beside the staff', () => {
+  const photo = () => ({ ...message(''), media: true }) as IncomingText;
+
+  it('keeps out of a conversation a person has taken, but keeps what was said', async () => {
+    const { deps, sent, asked, kept, paused } = setup();
+    paused.on = true;
+    assert.equal(await handlePrivateMessage(message('وينكم؟'), deps), 'PAUSED');
+    assert.deepEqual([sent.length, asked.length], [0, 0]);
+    assert.deepEqual(kept, ['customer:وينكم؟']);
+  });
+
+  it('keeps both sides of what is answered', async () => {
+    const { deps, kept } = setup();
+    await handlePrivateMessage(message('كم الدولار؟'), deps);
+    assert.deepEqual(kept, ['customer:كم الدولار؟', 'bot:الدولار 3.15']);
+  });
+
+  it('keeps a request with the group’s alert, once for a while', async () => {
+    const { deps, raised } = setup({ reply: 'تمام', handover: true, summary: 'يريد بيع 1000 دولار' });
+    await handlePrivateMessage(message('بدي أبيع'), deps);
+    await handlePrivateMessage(message('ردوا علي'), deps);
+    assert.deepEqual(raised, ['يريد بيع 1000 دولار']);
+  });
+
+  it('says it cannot read a picture, once for a run of them, at no cost', async () => {
+    const { deps, sent, asked, pass } = setup();
+    assert.equal(await handlePrivateMessage(photo(), deps), 'NOT_TEXT');
+    await handlePrivateMessage(photo(), deps);
+    assert.equal(sent.length, 1);
+    assert.match(sent[0]!, /اكتب سؤالك/);
+    assert.equal(asked.length, 0);
+    pass(11 * 60 * 1000);
+    await handlePrivateMessage(photo(), deps);
+    assert.equal(sent.length, 2);
+  });
+
+  it('knows when the office is open, on the office’s clock', () => {
+    const hours = { enabled: true, open: '09:00', close: '18:00', closedDays: [5] };
+    // Noon UTC on a Monday in November is 14:00 in Palestine.
+    const monday = new Date('2026-11-09T12:00:00Z');
+    assert.equal(officeOpen(hours, monday), true);
+    assert.equal(officeOpen(hours, new Date('2026-11-09T17:00:00Z')), false);
+    assert.equal(officeOpen(hours, new Date('2026-11-09T05:00:00Z')), false);
+    assert.equal(officeOpen({ ...hours, closedDays: [1] }, monday), false);
+    assert.equal(officeOpen({ ...hours, enabled: false }, new Date('2026-11-09T23:00:00Z')), true);
+  });
+});
+
+describe('a sum worked out for a customer', () => {
+  const rates = [
+    { baseCode: 'USD', quoteCode: 'ILS', channel: 'CASH', buyRate: 365_000_000n, sellRate: 370_000_000n },
+    { baseCode: 'USD', quoteCode: 'ILS', channel: 'BROKER', buyRate: 362_000_000n, sellRate: 0n },
+  ];
+  const ask = (over = {}) => ({
+    side: 'customer_sells' as const,
+    currency: 'USD',
+    amount: '1000',
+    other_currency: 'ILS',
+    channel: null,
+    ...over,
+  });
+
+  it('uses the buying price when they sell, each way of paying on its own line', () => {
+    assert.deepEqual(calculationLines(ask(), rates), [
+      '1,000 دولار = 3,650 شيكل (نقدي)',
+      '1,000 دولار = 3,620 شيكل (تحويل بنكي)',
+    ]);
+  });
+
+  it('uses the selling price when they buy, and the way they said', () => {
+    assert.deepEqual(calculationLines(ask({ side: 'customer_buys', channel: 'CASH' }), rates), [
+      '1,000 دولار = 3,700 شيكل (نقدي)',
+    ]);
+  });
+
+  it('skips a side with no price, a hidden pair, and an amount that is not one', () => {
+    assert.deepEqual(calculationLines(ask({ side: 'customer_buys', channel: 'BANK' }), rates), []);
+    assert.deepEqual(calculationLines(ask({ currency: 'JOD' }), rates), []);
+    assert.deepEqual(calculationLines(ask({ amount: 'كثير' }), rates), []);
+    assert.deepEqual(calculationLines(ask({ amount: '0' }), rates), []);
+  });
+
+  it('takes Arabic digits and thousands', () => {
+    assert.equal(calculationLines(ask({ amount: '٢,٠٠٠', channel: 'CASH' }), rates)[0], '2,000 دولار = 7,300 شيكل (نقدي)');
   });
 });
 
