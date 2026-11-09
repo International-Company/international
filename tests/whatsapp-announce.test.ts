@@ -437,6 +437,28 @@ describe('announcing a deal to the group', () => {
     ]);
   });
 
+  it('says the coins beside the kind when the deal gives them', async () => {
+    const out: string[] = [];
+    await announceDeal('t1', {
+      target: async () => 'g@g.us',
+      load: async () => ({
+        reference: 'TXN-3',
+        type: 'USDT_RECEIVE',
+        bankPayout: false,
+        companyName: '',
+        text: '0597702207',
+        phone: null,
+        kindDetail: '50 USDT',
+      }),
+      send: async (_jid: string, text: string) => {
+        out.push(text);
+        return { key: { id: 'M' } } as never;
+      },
+      pause: 1,
+    });
+    assert.deepEqual(out, ['0597702207', 'استلام يواس 50 USDT']);
+  });
+
   it('labels a USDT receipt «استلام يواس»', async () => {
     const { deps, sent } = harness({ type: 'USDT_RECEIVE' });
     assert.equal(await announceDeal('t1', deps), 'SENT');

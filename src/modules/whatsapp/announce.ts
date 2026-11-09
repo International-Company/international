@@ -301,7 +301,11 @@ export async function announceDeal(
   let outcome: AnnounceOutcome = 'SENT';
   if (!bare) {
     try {
-      await deps.send(group, kindLabel(message.type), sent);
+      await deps.send(
+        group,
+        [kindLabel(message.type), message.kindDetail].filter(Boolean).join(' '),
+        sent,
+      );
     } catch (error) {
       log.warn('Could not label a deal', { reference: message.reference, error });
       outcome = 'NO_REPLY';

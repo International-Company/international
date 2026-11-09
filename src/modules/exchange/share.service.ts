@@ -76,6 +76,8 @@ export interface Shareable {
    * and sum, a sale's coins and where they go. Nothing of what the customer paid.
    */
   copyText?: string | null;
+  /** Said after the kind in the bot's reply to the message: the coins of a USDT receipt. */
+  kindDetail?: string | null;
 }
 
 /**
@@ -297,6 +299,10 @@ export async function shareable(
         ? locale === 'ar'
           ? `استلمت ${wholeAmount(transaction.fromAmount)} ${units.get(transaction.toCurrency)} نقدي`
           : `Received ${wholeAmount(transaction.fromAmount)} ${units.get(transaction.toCurrency)} in cash`
+        : null,
+    kindDetail:
+      transaction.type === 'USDT_RECEIVE'
+        ? `${toDecimalString(transaction.fromAmount, 2).replace(/\.00$/, '')} USDT`
         : null,
     copyText:
       transaction.type === 'REMITTANCE_OUT'

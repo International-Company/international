@@ -47,6 +47,7 @@ const row = (patch: Partial<Row> = {}): Row => ({
   id: 't1',
   reference: 'TXN-20261022-00001',
   type: 'USDT_RECEIVE',
+  fromAmount: 5050n * (UNIT / 100n),
   status: 'PENDING_TRANSFER',
   toCurrency: 'ILS',
   toAmount: 320n * UNIT,
