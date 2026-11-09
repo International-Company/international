@@ -433,6 +433,15 @@ describe('the private number among the others', () => {
   it('leaves the choosing of a sender to the group numbers', () => {
     assert.equal(chooseAccount('g@g.us', ['second'], { second: new Set(['g@g.us']) }), 'second');
   });
+
+  it('writes from the private number only to a group it is in, and only when no other is', () => {
+    const both = { main: new Set(['g@g.us']), private: new Set(['g@g.us', 'p@g.us']) };
+    assert.equal(chooseAccount('g@g.us', ['main', 'private'], both), 'main');
+    assert.equal(chooseAccount('p@g.us', ['main', 'private'], both), 'private');
+    assert.equal(chooseAccount('other@g.us', ['main', 'private'], both), 'main');
+    assert.equal(chooseAccount('other@g.us', ['private'], both), null);
+    assert.equal(chooseAccount('person@s.whatsapp.net', ['private'], both), null);
+  });
 });
 
 describe('the price sheet', () => {

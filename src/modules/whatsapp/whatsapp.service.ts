@@ -373,11 +373,13 @@ export async function snapshot(account: Account = 'main'): Promise<LinkSnapshot>
   };
 }
 
-const live = (): Account[] =>
-  GROUP_ACCOUNTS.filter(
-    (account) =>
-      shared.sessions[account].status === 'CONNECTED' && shared.sessions[account].sock !== null,
-  );
+const connected = (account: Account) =>
+  shared.sessions[account].status === 'CONNECTED' && shared.sessions[account].sock !== null;
+
+const live = (): Account[] => GROUP_ACCOUNTS.filter(connected);
+
+/** Every number that can write to a group it is in, the private one last. */
+const senders = (): Account[] => ACCOUNTS.filter(connected);
 
 function socketOf(account: Account): WASocket {
   const holder = shared.sessions[account];
@@ -403,7 +405,7 @@ async function groupsOf(account: Account, reread = false) {
  * group neither is in does not cost a reading for every message to it.
  */
 async function socketFor(jid: string): Promise<WASocket> {
-  const linked = live();
+  const linked = senders();
   const memberOf = async (reread: boolean) =>
     Object.fromEntries(
       await Promise.all(
@@ -432,7 +434,7 @@ async function socketFor(jid: string): Promise<WASocket> {
 export async function groups(): Promise<
   { id: string; name: string; size: number; account: Account }[]
 > {
-  const linked = live();
+  const linked = senders();
   if (linked.length === 0) {
     throw errors.precondition('WhatsApp is not linked', 'errors.whatsappNotLinked');
   }

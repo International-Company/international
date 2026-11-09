@@ -2181,9 +2181,10 @@ const en = {
     secondNumber: 'Second number',
     secondShort: 'second number',
     privateNumber: 'Private customer number',
+    privateShort: 'Private number',
     privateLink: 'Link the private number',
     privateStep: 'Open WhatsApp on the private number’s phone (not either bot number).',
-    privateHint: 'Answers whoever writes to it with the published prices. It never writes first and never writes to groups. After linking, choose “Private number: customer requests” under groups, then switch it on and brief it from the “Private number bot” page. This link is unofficial and WhatsApp may ban the number, so use one you can afford to lose.',
+    privateHint: 'Answers whoever writes to it with the published prices. It never writes first to a person. It writes only to groups it is a member of, which are marked “Private number” in the group lists. After linking, choose “Private number: customer requests” under groups, then switch it on and brief it from the “Private number bot” page. This link is unofficial and WhatsApp may ban the number, so use one you can afford to lose.',
     privateReady: 'Ready: it answers whoever writes to it now.',
     privateNotReady: 'It will not answer until these are done:',
     privateGap: {

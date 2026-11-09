@@ -52,7 +52,7 @@ interface Group {
   name: string;
   size: number;
   /** Which number is in it, and so writes to it. */
-  account: 'main' | 'second';
+  account: 'main' | 'second' | 'private';
 }
 
 export function WhatsappPanel({ canManage }: { canManage: boolean }) {
@@ -84,7 +84,7 @@ export function WhatsappPanel({ canManage }: { canManage: boolean }) {
 
   /** A group as listed, saying so when the second number is the one in it. */
   const groupLabel = (group: Group) =>
-    `${group.name} (${group.size})${group.account === 'second' ? ` · ${t('whatsapp.secondShort')}` : ''}`;
+    `${group.name} (${group.size})${group.account === 'main' ? '' : ` · ${t(group.account === 'second' ? 'whatsapp.secondShort' : 'whatsapp.privateShort')}`}`;
 
   useEffect(() => {
     void load();

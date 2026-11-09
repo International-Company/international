@@ -7,7 +7,7 @@
 export const ACCOUNTS = ['main', 'second', 'private'] as const;
 export type Account = (typeof ACCOUNTS)[number];
 
-/** The numbers that write to groups. The private number only ever answers people. */
+/** The numbers the office's deals depend on. The private number writes only to groups it is in. */
 export const GROUP_ACCOUNTS = ['main', 'second'] as const satisfies readonly Account[];
 
 /** A chat with one person: not a group, a status or a channel. */
@@ -23,8 +23,8 @@ export const SESSION_PREFIX: Record<Account, string> = {
 
 /**
  * The number to write to a chat with. A group goes to a number that is in it,
- * the first one when both are; anything else, or a group neither is known to
- * be in, to the first number that is linked. Null when none is.
+ * in the order they are listed; anything else, or a group none is known to be
+ * in, to the first group number linked, never the private one. Null when none is.
  */
 export function chooseAccount(
   jid: string,
@@ -36,7 +36,7 @@ export function chooseAccount(
     const member = live.find((account) => memberOf[account]?.has(jid));
     if (member) return member;
   }
-  return live[0]!;
+  return live.find((account) => account !== 'private') ?? null;
 }
 
 /** Whether a message has already been handled, when both numbers are in the chat it came to. */
