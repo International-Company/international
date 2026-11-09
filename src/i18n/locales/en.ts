@@ -2180,6 +2180,8 @@ const en = {
     unlinkTitle: 'Unlink the WhatsApp number?',
     secondNumber: 'Second number',
     secondShort: 'second number',
+    searchGroups: 'Type the group’s name…',
+    noGroupFound: 'No group by that name',
     privateNumber: 'Private customer number',
     privateShort: 'Private number',
     privateLink: 'Link the private number',

@@ -13,6 +13,7 @@ import {
 import { Badge, Button } from '@/ui/primitives';
 import { ConfirmDialog, useToast } from '@/ui/overlay';
 import { Field, Textarea } from '@/ui/form';
+import { GroupPicker } from './group-picker';
 
 /**
  * The office's WhatsApp number: linked by scanning a QR from the phone, then
@@ -286,17 +287,13 @@ export function WhatsappPanel({ canManage }: { canManage: boolean }) {
               <p className="text-sm text-content-tertiary">{t('whatsapp.noGroups')}</p>
             ) : (
               <div className="flex flex-wrap items-center gap-2">
-                <select
+                <GroupPicker
+                  groups={groups}
                   value={chosen}
-                  onChange={(event) => setChosen(event.target.value)}
-                  className="h-10 min-w-0 flex-1 rounded-xl bg-surface-sunken px-3 text-sm font-medium text-content outline-none ring-1 ring-border-subtle focus:ring-primary"
-                >
-                  {groups.map((group) => (
-                    <option key={group.id} value={group.id}>
-                      {groupLabel(group)}
-                    </option>
-                  ))}
-                </select>
+                  ariaLabel={t('whatsapp.group')}
+                  labelOf={groupLabel}
+                  onChange={setChosen}
+                />
                 <Button size="sm" loading={busy === 'group'} onClick={() => void saveGroup()}>
                   {t('common.save')}
                 </Button>
@@ -352,24 +349,16 @@ export function WhatsappPanel({ canManage }: { canManage: boolean }) {
                       {route?.name || unset}
                     </span>
                   ) : (
-                    <select
-                      aria-label={t(`whatsapp.route.${category}`)}
+                    <GroupPicker
+                      groups={routeGroups}
                       value={route?.id ?? ''}
+                      currentName={route?.name}
+                      unsetLabel={unset}
+                      ariaLabel={t(`whatsapp.route.${category}`)}
                       disabled={busy === 'route'}
-                      onChange={(event) => saveRoute(category, event.target.value)}
-                      className="h-10 min-w-0 flex-1 rounded-xl bg-surface-sunken px-3 text-sm font-medium text-content outline-none ring-1 ring-border-subtle focus:ring-primary sm:max-w-xs"
-                    >
-                      <option value="">{unset}</option>
-                      {/* A group the number has since left still shows what is set. */}
-                      {route && !routeGroups.some((group) => group.id === route.id) && (
-                        <option value={route.id}>{route.name}</option>
-                      )}
-                      {routeGroups.map((group) => (
-                        <option key={group.id} value={group.id}>
-                          {groupLabel(group)}
-                        </option>
-                      ))}
-                    </select>
+                      labelOf={groupLabel}
+                      onChange={(id) => saveRoute(category, id)}
+                    />
                   )}
                 </div>
               );

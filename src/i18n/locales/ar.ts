@@ -2180,6 +2180,8 @@ const ar: Dictionary = {
     secondNumber: 'الرقم الثاني',
     secondShort: 'الرقم الثاني',
     secondLink: 'ربط رقم ثانٍ',
+    searchGroups: 'اكتب اسم المجموعة…',
+    noGroupFound: 'لا توجد مجموعة بهذا الاسم',
     privateNumber: 'الرقم الخاص للعملاء',
     privateShort: 'الرقم الخاص',
     privateLink: 'ربط الرقم الخاص',

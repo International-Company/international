@@ -1,3 +1,5 @@
+import { foldName } from './report-command';
+
 /**
  * Which WhatsApp group hears of which deals.
  *
@@ -126,6 +128,12 @@ export function parseWelcomed(raw: string): string[] {
 /** Groups that have just come into use and were never welcomed. */
 export function newlyLinked(before: string[], after: string[], welcomed: string[]): string[] {
   return after.filter((id) => !before.includes(id) && !welcomed.includes(id));
+}
+
+/** The groups whose name holds what was typed, however it is spelled. */
+export function groupsMatching<T extends { name: string }>(groups: T[], query: string): T[] {
+  const wanted = foldName(query);
+  return wanted ? groups.filter((group) => foldName(group.name).includes(wanted)) : groups;
 }
 
 /** The kinds of deal a group is sent, by what the office chose and what falls back to it. */

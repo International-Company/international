@@ -4,7 +4,7 @@ import './support/test-env.ts';
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { chooseAccount, groupEntry, isPrivateChat } from '../src/modules/whatsapp/accounts.ts';
-import { categoriesOf, groupPlan } from '../src/modules/whatsapp/group-routes.ts';
+import { categoriesOf, groupPlan, groupsMatching } from '../src/modules/whatsapp/group-routes.ts';
 import { composePriceSheet } from '../src/modules/whatsapp/price-sheet.ts';
 import { calculationLines } from '../src/modules/whatsapp/bot-calc.ts';
 import {
@@ -432,6 +432,14 @@ describe('the private number among the others', () => {
 
   it('leaves the choosing of a sender to the group numbers', () => {
     assert.equal(chooseAccount('g@g.us', ['second'], { second: new Set(['g@g.us']) }), 'second');
+  });
+
+  it('finds a group by part of its name, however it is spelled', () => {
+    const groups = [{ name: 'مجموعة الأسعار' }, { name: 'طلبات العملاء' }, { name: 'Bank Team' }];
+    assert.deepEqual(groupsMatching(groups, 'اسعار').map((g) => g.name), ['مجموعة الأسعار']);
+    assert.deepEqual(groupsMatching(groups, 'bank').map((g) => g.name), ['Bank Team']);
+    assert.equal(groupsMatching(groups, '  ').length, 3);
+    assert.equal(groupsMatching(groups, 'غير موجودة').length, 0);
   });
 
   it('lists a group WhatsApp gives no subject or members for', () => {
