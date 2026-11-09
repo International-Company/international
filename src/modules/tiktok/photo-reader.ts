@@ -4,7 +4,7 @@ import { betaZodOutputFormat } from '@anthropic-ai/sdk/helpers/beta/zod';
 import { z } from 'zod/v4';
 import { env } from '@/core/config/env';
 import { errors } from '@/core/errors/app-error';
-import { createLogger } from '@/core/logger/logger';
+import { createBotLogger } from '@/modules/whatsapp/bot-issues';
 import { readProofImage } from '@/modules/exchange/proof-image';
 import { creditIsBack, noteIfCreditOut, recordUsage } from '@/modules/whatsapp/bot-usage';
 import { photoFigure } from './photo-figures';
@@ -17,7 +17,7 @@ import { photoFigure } from './photo-figures';
  * with no key set, or a reading that fails, the teller types the figures.
  */
 
-const log = createLogger('tiktok:photo');
+const log = createBotLogger('tiktok:photo');
 
 const Figures = z.object({
   usd: z.string().nullable(),

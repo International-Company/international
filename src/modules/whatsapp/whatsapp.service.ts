@@ -11,6 +11,7 @@ import QRCode from 'qrcode';
 import { prisma } from '@/core/db/prisma';
 import { errors } from '@/core/errors/app-error';
 import { createLogger } from '@/core/logger/logger';
+import { recordIssue } from './bot-issues';
 import { ACCOUNTS, chooseAccount, firstSighting, GROUP_ACCOUNTS, isPrivateChat, SESSION_PREFIX, type Account } from './accounts';
 import { clearSession, databaseAuthState, hasSession } from './auth-state';
 
@@ -270,6 +271,7 @@ async function open(account: Account): Promise<void> {
         holder.error = 'loggedOut';
         void clearSession(prisma, prefixOf(account)).catch(() => undefined);
         log.warn('WhatsApp was unlinked from the phone', { account });
+        recordIssue('whatsapp', 'WhatsApp was unlinked from the phone', { account });
         return;
       }
 
@@ -302,6 +304,7 @@ function fail(account: Account, error: unknown) {
   holder.status = 'OFF';
   holder.error = 'failed';
   log.error('WhatsApp connection failed', { account, error });
+  recordIssue('whatsapp', 'WhatsApp connection failed', { account, error });
 }
 
 /** Starts linking a number: shows a QR when it is not linked, or resumes it when it is. */

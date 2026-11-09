@@ -686,6 +686,13 @@ const en = {
   },
 
   privateBot: {
+    tabIssues: 'Errors',
+    issuesBanner: '{count} bot errors need attention. Press to see them.',
+    issuesEmpty: 'No errors. The bots have no problems on record.',
+    issuesHint: 'Problems with every bot appear here as they happen, with what to do.',
+    issuesClear: 'Clear all',
+    issueDismiss: 'Resolved',
+    issueTimes: 'Happened {count} times, latest',
     step: { status: 'Status', info: 'Information', prices: 'Prices', behavior: 'Behaviour' },
     stepHint: {
       status: 'Switch and usage',

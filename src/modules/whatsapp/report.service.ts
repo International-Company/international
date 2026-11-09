@@ -1,6 +1,7 @@
 import 'server-only';
 import { prisma } from '@/core/db/prisma';
 import { createLogger } from '@/core/logger/logger';
+import { createBotLogger } from '@/modules/whatsapp/bot-issues';
 import { dayBounds, formatDayKey } from '@/core/time/day-key';
 import { cashLedger } from '@/modules/exchange/cash-ledger.service';
 import { dailyCount, type CountEntry } from '@/modules/exchange/daily-count.service';
@@ -35,7 +36,8 @@ import {
  * word — an answer of any kind would tell them the code works.
  */
 
-const log = createLogger('whatsapp:report');
+const log = createBotLogger('whatsapp:report');
+const plainLog = createLogger('whatsapp:report');
 
 export interface ReportDeps {
   config: () => Promise<{ group: string; code: string; numbers: string }>;
@@ -72,7 +74,8 @@ export async function handleReportCommand(
 
   const phone = await deps.phoneOf(incoming);
   if (!senderAllowed(phone, numbers)) {
-    log.warn('A report was asked for by a number not on the list', {
+    // Someone typing the code is not the bot going wrong, so it is not raised as a problem.
+    plainLog.warn('A report was asked for by a number not on the list', {
       sender: phone ? `…${phone.replace(/\D/g, '').slice(-4)}` : 'unknown',
     });
     return 'REFUSED';

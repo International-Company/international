@@ -2,7 +2,7 @@ import 'server-only';
 import { prisma } from '@/core/db/prisma';
 import { on } from '@/core/events/bus';
 import { toDecimalString } from '@/core/money/money';
-import { createLogger } from '@/core/logger/logger';
+import { createBotLogger } from '@/modules/whatsapp/bot-issues';
 import { HOME_CURRENCY } from '@/lib/home-currency';
 import { TRANSACTION_TYPE_META, type TransactionType } from '@/modules/exchange/transaction-types';
 import * as settings from '@/modules/settings/settings.service';
@@ -34,7 +34,7 @@ import { isLinked, sendImage, sendText, type SentMessage } from './whatsapp.serv
  * on, chosen a group, and the number is linked.
  */
 
-const log = createLogger('whatsapp:announce');
+const log = createBotLogger('whatsapp:announce');
 
 export interface AnnouncedDeal {
   reference: string;

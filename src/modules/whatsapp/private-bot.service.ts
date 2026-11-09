@@ -4,7 +4,7 @@ import { betaZodOutputFormat } from '@anthropic-ai/sdk/helpers/beta/zod';
 import { z } from 'zod/v4';
 import { env } from '@/core/config/env';
 import { prisma } from '@/core/db/prisma';
-import { createLogger } from '@/core/logger/logger';
+import { createBotLogger } from '@/modules/whatsapp/bot-issues';
 import { errors } from '@/core/errors/app-error';
 import { listActiveRates } from '@/modules/exchange/rates.service';
 import { destinations as remittanceDestinations } from '@/modules/exchange/remittance.service';
@@ -44,7 +44,7 @@ import {
  * from the phone takes the conversation over.
  */
 
-const log = createLogger('whatsapp:private');
+const log = createBotLogger('whatsapp:private');
 
 /** Messages kept for the assistant to follow a conversation by. */
 const KEEP_TURNS = 12;
@@ -336,7 +336,7 @@ async function liveAsk(turns: Turn[], given?: BotProfile): Promise<Answer> {
   }
   creditIsBack();
   void recordUsage('answer', response.usage).catch((error) =>
-    log.warn('Could not count an answer', { error }),
+    log.info('Could not count an answer', { error }),
   );
   const { reply, handover, summary, calculation } = response.parsed_output;
   const figures = calculation ? calculationLines(calculation, sheet.rates) : [];
@@ -461,7 +461,7 @@ async function pruneOncePerDay() {
   const { retentionDays } = await readProfile();
   await store
     .pruneOlderThan(retentionDays)
-    .catch((error) => log.warn('Could not clear old conversations', { error }));
+    .catch((error) => log.info('Could not clear old conversations', { error }));
 }
 
 export function registerPrivateBot(): void {
@@ -491,7 +491,7 @@ export function registerPrivateBot(): void {
     },
     paused: (chat, phone) =>
       store.isPaused(chat, phone).catch((error) => {
-        log.warn('Could not read whether a conversation is taken', { error });
+        log.info('Could not read whether a conversation is taken', { error });
         return false;
       }),
     record: async (chat, phone, role, text) => {

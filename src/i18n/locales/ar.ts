@@ -688,6 +688,13 @@ const ar: Dictionary = {
   },
 
   privateBot: {
+    tabIssues: 'الأخطاء',
+    issuesBanner: 'يوجد {count} خطأ في البوت يحتاج إلى مراجعة. اضغط لعرضها.',
+    issuesEmpty: 'لا توجد أخطاء. البوتات تعمل دون مشاكل مسجلة.',
+    issuesHint: 'تظهر هنا مشاكل كل البوتات فور حدوثها، مع ما يجب فعله.',
+    issuesClear: 'مسح الكل',
+    issueDismiss: 'تم الحل',
+    issueTimes: 'تكرر {count} مرة، آخرها',
     step: { status: 'الحالة', info: 'المعلومات', prices: 'الأسعار', behavior: 'السلوك' },
     stepHint: {
       status: 'التشغيل والاستهلاك',

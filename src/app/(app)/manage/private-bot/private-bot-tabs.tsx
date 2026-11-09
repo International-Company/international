@@ -1,7 +1,17 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { Bot, Check, ExternalLink, Inbox, MessagesSquare, Pause, Play } from 'lucide-react';
+import {
+  AlertTriangle,
+  Bot,
+  Check,
+  ExternalLink,
+  Inbox,
+  MessagesSquare,
+  Pause,
+  Play,
+  X,
+} from 'lucide-react';
 import { useLocale } from '@/i18n/provider';
 import { api, ApiError } from '@/lib/api-client';
 import { say } from '@/lib/failure';
@@ -9,7 +19,7 @@ import { useToast } from '@/ui/overlay';
 import { Badge, Button, Card, CardBody, EmptyState, Skeleton } from '@/ui/primitives';
 import { PrivateBotView } from './private-bot-view';
 
-type Tab = 'setup' | 'requests' | 'chats';
+type Tab = 'setup' | 'requests' | 'chats' | 'issues';
 type Status = 'NEW' | 'IN_PROGRESS' | 'DONE';
 
 interface BotRequest {
@@ -20,6 +30,18 @@ interface BotRequest {
   createdAt: string;
   phone: string | null;
   conversationId: string;
+}
+
+interface Issue {
+  id: string;
+  scope: string;
+  title: string;
+  action: string;
+  detail: string;
+  critical: boolean;
+  count: number;
+  firstAt: string;
+  lastAt: string;
 }
 
 interface ChatRow {
@@ -56,11 +78,48 @@ export function PrivateBotTabs({ canManage }: { canManage: boolean }) {
     { id: 'setup', label: t('privateBot.tabSetup'), Icon: Bot },
     { id: 'requests', label: t('privateBot.tabRequests'), Icon: Inbox },
     { id: 'chats', label: t('privateBot.tabChats'), Icon: MessagesSquare },
+    { id: 'issues', label: t('privateBot.tabIssues'), Icon: AlertTriangle },
   ] as const;
+
+  const failure = useFailure();
+  const [issues, setIssues] = useState<Issue[]>([]);
+  const loadIssues = useCallback(async () => {
+    try {
+      setIssues(await api.get<Issue[]>('/api/admin/private-bot/issues'));
+    } catch {
+      // Kept as it was; the next poll tries again.
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadIssues();
+    const timer = setInterval(() => void loadIssues(), 15_000);
+    return () => clearInterval(timer);
+  }, [loadIssues]);
+
+  // Opened from the bell, straight to what it is about.
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get('tab') === 'issues') setTab('issues');
+  }, []);
+
+  const critical = issues.filter((issue) => issue.critical).length;
 
   return (
     <div className="space-y-4">
-      <div role="tablist" className="grid grid-cols-3 gap-1 rounded-2xl bg-surface-sunken p-1">
+      {issues.length > 0 && tab !== 'issues' && (
+        <button
+          type="button"
+          onClick={() => setTab('issues')}
+          className={`flex w-full items-center gap-2 rounded-2xl px-4 py-3 text-start text-sm font-semibold ${
+            critical > 0 ? 'bg-danger-subtle text-danger-text' : 'bg-warning-subtle text-warning-text'
+          }`}
+        >
+          <AlertTriangle className="size-4 shrink-0" />
+          {t('privateBot.issuesBanner', { count: issues.length })}
+        </button>
+      )}
+
+      <div role="tablist" className="grid grid-cols-2 gap-1 rounded-2xl bg-surface-sunken p-1 sm:grid-cols-4">
         {tabs.map(({ id, label, Icon }) => (
           <button
             key={id}
@@ -76,6 +135,11 @@ export function PrivateBotTabs({ canManage }: { canManage: boolean }) {
           >
             <Icon className="size-4 shrink-0" />
             <span className="truncate">{label}</span>
+            {id === 'issues' && issues.length > 0 && (
+              <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-danger px-1 text-[11px] font-bold text-white">
+                {issues.length}
+              </span>
+            )}
           </button>
         ))}
       </div>
@@ -90,6 +154,7 @@ export function PrivateBotTabs({ canManage }: { canManage: boolean }) {
         />
       )}
       {tab === 'chats' && <Chats initial={openChat} />}
+      {tab === 'issues' && <Issues issues={issues} reload={loadIssues} onFailure={failure} />}
     </div>
   );
 }
@@ -106,6 +171,82 @@ function useFailure() {
           : t('errors.generic'),
       ),
     [t, toast],
+  );
+}
+
+function Issues({
+  issues,
+  reload,
+  onFailure,
+}: {
+  issues: Issue[];
+  reload: () => Promise<void>;
+  onFailure: (cause: unknown) => void;
+}) {
+  const { t } = useLocale();
+  const [busy, setBusy] = useState<string | null>(null);
+
+  const dismiss = async (id: string | null) => {
+    setBusy(id ?? 'all');
+    try {
+      await api.delete(`/api/admin/private-bot/issues${id ? `/${id}` : ''}`);
+      await reload();
+    } catch (cause) {
+      onFailure(cause);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  if (issues.length === 0) {
+    return <EmptyState title={t('privateBot.issuesEmpty')} />;
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-sm text-content-secondary">{t('privateBot.issuesHint')}</p>
+        <Button size="sm" variant="ghost" loading={busy === 'all'} onClick={() => void dismiss(null)}>
+          {t('privateBot.issuesClear')}
+        </Button>
+      </div>
+      {issues.map((issue) => (
+        <Card key={issue.id}>
+          <CardBody className="space-y-2">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex min-w-0 items-start gap-2">
+                <AlertTriangle
+                  className={`mt-0.5 size-4 shrink-0 ${issue.critical ? 'text-danger-text' : 'text-warning-text'}`}
+                />
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-content">{issue.title}</p>
+                  <p className="mt-1 text-sm text-content-secondary">{issue.action}</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                aria-label={t('privateBot.issueDismiss')}
+                title={t('privateBot.issueDismiss')}
+                disabled={busy === issue.id}
+                onClick={() => void dismiss(issue.id)}
+                className="flex size-9 shrink-0 items-center justify-center rounded-full text-content-tertiary transition-colors hover:bg-surface-sunken hover:text-content"
+              >
+                <X className="size-4" />
+              </button>
+            </div>
+            <p className="text-xs text-content-tertiary">
+              {t('privateBot.issueTimes', { count: issue.count })} ·{' '}
+              <span className="tabular-nums">{when(issue.lastAt)}</span>
+            </p>
+            {issue.detail && (
+              <p dir="ltr" className="break-words rounded-lg bg-surface-sunken px-2 py-1 text-start text-xs text-content-tertiary">
+                {issue.detail}
+              </p>
+            )}
+          </CardBody>
+        </Card>
+      ))}
+    </div>
   );
 }
 

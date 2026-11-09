@@ -1,6 +1,6 @@
 import 'server-only';
 import { prisma } from '@/core/db/prisma';
-import { createLogger } from '@/core/logger/logger';
+import { createBotLogger } from '@/modules/whatsapp/bot-issues';
 import { dayBounds, formatDayKey } from '@/core/time/day-key';
 import * as settings from '@/modules/settings/settings.service';
 import { categoriesOf, parseRoutes, type RouteCategory } from './group-routes';
@@ -22,7 +22,7 @@ import { onIncomingText, sendText, type IncomingText } from './whatsapp.service'
  * nothing new. A group sent none of these kinds is not answered at all.
  */
 
-const log = createLogger('whatsapp:reconcile');
+const log = createBotLogger('whatsapp:reconcile');
 
 /** The kinds of deal that put a bank payout in a group's answer. */
 const BANK_TYPES: Record<string, BankDue['kind']> = {

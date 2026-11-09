@@ -1,6 +1,6 @@
 import 'server-only';
 import { errors } from '@/core/errors/app-error';
-import { createLogger } from '@/core/logger/logger';
+import { createBotLogger } from '@/modules/whatsapp/bot-issues';
 import type { Actor } from '@/modules/exchange/transaction.service';
 import * as settings from '@/modules/settings/settings.service';
 import { groupPlan, newlyLinked, parseRoutes, parseWelcomed } from './group-routes';
@@ -11,7 +11,7 @@ import { sendText } from './whatsapp.service';
  * Each group gets it once on linking; the manager can send it again to all of them.
  */
 
-const log = createLogger('whatsapp:welcome');
+const log = createBotLogger('whatsapp:welcome');
 
 type Send = (jid: string, text: string) => Promise<unknown>;
 

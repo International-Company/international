@@ -2292,3 +2292,20 @@ model BotUsageDay {
 
   @@map("bot_usage_days")
 }
+
+/// Something that went wrong with a bot. One row per kind of failure, however often it repeats.
+model BotIssue {
+  id       String   @id @default(cuid())
+  key      String   @unique
+  scope    String
+  title    String
+  action   String
+  detail   String   @default("")
+  critical Boolean  @default(false)
+  count    Int      @default(1)
+  firstAt  DateTime @default(now())
+  lastAt   DateTime @default(now())
+
+  @@index([lastAt])
+  @@map("bot_issues")
+}
