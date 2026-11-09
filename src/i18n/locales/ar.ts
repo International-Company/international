@@ -688,6 +688,14 @@ const ar: Dictionary = {
   },
 
   privateBot: {
+    step: { status: 'الحالة', info: 'المعلومات', prices: 'الأسعار', behavior: 'السلوك' },
+    stepHint: {
+      status: 'التشغيل والاستهلاك',
+      info: 'المكتب والترحيب والأسئلة',
+      prices: 'ما يظهر وما يخفى',
+      behavior: 'الدوام والصمت والحفظ',
+    },
+    openWhatsappSettings: 'فتح إعدادات واتساب',
     tabSetup: 'الإعداد',
     tabRequests: 'الطلبات',
     tabChats: 'المحادثات',

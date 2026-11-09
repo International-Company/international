@@ -686,6 +686,14 @@ const en = {
   },
 
   privateBot: {
+    step: { status: 'Status', info: 'Information', prices: 'Prices', behavior: 'Behaviour' },
+    stepHint: {
+      status: 'Switch and usage',
+      info: 'Office, welcome and answers',
+      prices: 'What is shown or hidden',
+      behavior: 'Hours, silence and keeping',
+    },
+    openWhatsappSettings: 'Open WhatsApp settings',
     tabSetup: 'Setup',
     tabRequests: 'Requests',
     tabChats: 'Conversations',

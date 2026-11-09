@@ -1,7 +1,20 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Bot, Loader2, Plus, Save, Send, Trash2, User } from 'lucide-react';
+import {
+  Activity,
+  BookOpen,
+  Bot,
+  ExternalLink,
+  Loader2,
+  Plus,
+  Save,
+  Send,
+  SlidersHorizontal,
+  Tags,
+  Trash2,
+  User,
+} from 'lucide-react';
 import { useLocale } from '@/i18n/provider';
 import { api, ApiError } from '@/lib/api-client';
 import { say } from '@/lib/failure';
@@ -36,6 +49,14 @@ interface Turn {
 
 const SECTIONS = ['cash', 'bank', 'usdt', 'remittances'] as const;
 
+/** The setup in the order it is done. */
+const STEPS = [
+  { id: 'status', Icon: Activity },
+  { id: 'info', Icon: BookOpen },
+  { id: 'prices', Icon: Tags },
+  { id: 'behavior', Icon: SlidersHorizontal },
+] as const;
+
 /** The three the manager edits, as one value to compare with what is saved. */
 const draftOf = (panel: Panel) =>
   JSON.stringify({ profile: panel.profile, enabled: panel.enabled, dailyLimit: panel.dailyLimit });
@@ -50,6 +71,7 @@ export function PrivateBotView({ canManage }: { canManage: boolean }) {
   const [question, setQuestion] = useState('');
   const [asking, setAsking] = useState(false);
   const chatEnd = useRef<HTMLDivElement>(null);
+  const [section, setSection] = useState<(typeof STEPS)[number]['id']>('status');
 
   const failure = useCallback(
     (cause: unknown) =>
@@ -124,10 +146,7 @@ export function PrivateBotView({ canManage }: { canManage: boolean }) {
         '/api/admin/private-bot',
         { turns: asked.slice(-12).map(({ role, content: words }) => ({ role, content: words })) },
       );
-      setTurns([
-        ...asked,
-        { role: 'assistant', content: answer.reply, handover: answer.handover },
-      ]);
+      setTurns([...asked, { role: 'assistant', content: answer.reply, handover: answer.handover }]);
     } catch (cause) {
       failure(cause);
     } finally {
@@ -138,427 +157,520 @@ export function PrivateBotView({ canManage }: { canManage: boolean }) {
   return (
     <div className="grid items-start gap-4 pb-20 lg:grid-cols-[minmax(0,1fr)_24rem]">
       <div className="min-w-0 space-y-4">
-        {/* ============ Is it answering ============ */}
-        <Card>
-          <CardHeader
-            title={t('privateBot.statusTitle')}
-            description={panel.number ? `+${panel.number}` : t('privateBot.notLinked')}
-            actions={
-              saved.gaps.length === 0 ? (
-                <Badge tone="success">{t('privateBot.ready')}</Badge>
-              ) : (
-                <Badge tone="warning">{t('privateBot.notReady')}</Badge>
-              )
-            }
-          />
-          <CardBody className="space-y-4">
-            {saved.gaps.length > 0 && (
-              <Alert tone="warning" title={t('whatsapp.privateNotReady')}>
-                <ul className="list-inside list-disc space-y-1">
-                  {saved.gaps.map((gap) => (
-                    <li key={gap}>{t(`whatsapp.privateGap.${gap}`)}</li>
-                  ))}
-                </ul>
-              </Alert>
-            )}
-            <div className="grid gap-4 sm:grid-cols-2">
-              <Switch
-                checked={panel.enabled}
-                disabled={!canManage}
-                onCheckedChange={(enabled) => setPanel({ ...panel, enabled })}
-                label={t('privateBot.enabled')}
-                description={t('privateBot.enabledHint')}
+        <nav aria-label={t('privateBot.title')} className="grid grid-cols-2 gap-2 xl:grid-cols-4">
+          {STEPS.map(({ id, Icon }, index) => (
+            <button
+              key={id}
+              type="button"
+              aria-current={section === id ? 'step' : undefined}
+              onClick={() => setSection(id)}
+              className={`flex items-start gap-3 rounded-2xl p-3 text-start ring-1 transition-colors ${
+                section === id
+                  ? 'bg-primary-subtle ring-primary'
+                  : 'bg-surface ring-border-subtle hover:bg-surface-sunken'
+              }`}
+            >
+              <span
+                className={`flex size-9 shrink-0 items-center justify-center rounded-full ${
+                  section === id
+                    ? 'bg-primary text-white'
+                    : 'bg-surface-sunken text-content-secondary'
+                }`}
+              >
+                <Icon className="size-4" />
+              </span>
+              <span className="min-w-0">
+                <span className="block text-sm font-semibold text-content">
+                  {index + 1}. {t(`privateBot.step.${id}`)}
+                </span>
+                <span className="mt-0.5 block text-xs text-content-secondary">
+                  {t(`privateBot.stepHint.${id}`)}
+                </span>
+              </span>
+            </button>
+          ))}
+        </nav>
+
+        {section === 'status' && (
+          <>
+            {/* ============ Is it answering ============ */}
+            <Card>
+              <CardHeader
+                title={t('privateBot.statusTitle')}
+                description={panel.number ? `+${panel.number}` : t('privateBot.notLinked')}
+                actions={
+                  saved.gaps.length === 0 ? (
+                    <Badge tone="success">{t('privateBot.ready')}</Badge>
+                  ) : (
+                    <Badge tone="warning">{t('privateBot.notReady')}</Badge>
+                  )
+                }
               />
-              <Field label={t('privateBot.dailyLimit')} hint={t('privateBot.dailyLimitHint')}>
-                {(props) => (
-                  <NumberInput
-                    {...props}
-                    min={0}
-                    max={5000}
-                    disabled={!canManage}
-                    value={panel.dailyLimit}
-                    onValueChange={(dailyLimit) => setPanel({ ...panel, dailyLimit })}
-                  />
+              <CardBody className="space-y-4">
+                {saved.gaps.length > 0 && (
+                  <Alert tone="warning" title={t('whatsapp.privateNotReady')}>
+                    <ul className="list-inside list-disc space-y-1">
+                      {saved.gaps.map((gap) => (
+                        <li key={gap}>{t(`whatsapp.privateGap.${gap}`)}</li>
+                      ))}
+                    </ul>
+                    {(saved.gaps.includes('NOT_LINKED') || saved.gaps.includes('NO_GROUP')) && (
+                      <a
+                        href="/manage/settings"
+                        className="mt-2 inline-flex items-center gap-1.5 font-semibold underline"
+                      >
+                        <ExternalLink className="size-3.5" />
+                        {t('privateBot.openWhatsappSettings')}
+                      </a>
+                    )}
+                  </Alert>
                 )}
-              </Field>
-            </div>
-          </CardBody>
-        </Card>
-
-        {/* ============ What it has cost ============ */}
-        <Card>
-          <CardHeader title={t('privateBot.usageTitle')} description={t('privateBot.usageHint')} />
-          <CardBody className="space-y-3">
-            {saved.creditOutAt && <Alert tone="danger">{t('privateBot.creditOut')}</Alert>}
-            <div className="grid grid-cols-2 gap-3">
-              {(['today', 'month'] as const).map((period) => (
-                <div key={period} className="rounded-xl bg-surface-sunken p-3">
-                  <p className="text-xs font-medium text-content-secondary">
-                    {t(`privateBot.usage.${period}`)}
-                  </p>
-                  <p className="mt-1 text-2xl font-bold tabular-nums text-content">
-                    ${saved.usage[period].cost.toFixed(2)}
-                  </p>
-                  <p className="mt-1 text-xs text-content-secondary">
-                    {t('privateBot.usageCounts', {
-                      answers: saved.usage[period].answers,
-                      photos: saved.usage[period].photos,
-                    })}
-                  </p>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <Switch
+                    checked={panel.enabled}
+                    disabled={!canManage}
+                    onCheckedChange={(enabled) => setPanel({ ...panel, enabled })}
+                    label={t('privateBot.enabled')}
+                    description={t('privateBot.enabledHint')}
+                  />
+                  <Field label={t('privateBot.dailyLimit')} hint={t('privateBot.dailyLimitHint')}>
+                    {(props) => (
+                      <NumberInput
+                        {...props}
+                        min={0}
+                        max={5000}
+                        disabled={!canManage}
+                        value={panel.dailyLimit}
+                        onValueChange={(dailyLimit) => setPanel({ ...panel, dailyLimit })}
+                      />
+                    )}
+                  </Field>
                 </div>
-              ))}
-            </div>
-          </CardBody>
-        </Card>
+              </CardBody>
+            </Card>
 
-        {/* ============ How it behaves ============ */}
-        <Card>
-          <CardHeader title={t('privateBot.behaviorTitle')} />
-          <CardBody className="space-y-5">
-            <Switch
-              checked={profile.hours.enabled}
-              disabled={!canManage}
-              onCheckedChange={(enabled) => edit({ hours: { ...profile.hours, enabled } })}
-              label={t('privateBot.hoursEnabled')}
-              description={t('privateBot.hoursHint')}
-            />
-            {profile.hours.enabled && (
-              <div className="space-y-3">
+            {/* ============ What it has cost ============ */}
+            <Card>
+              <CardHeader
+                title={t('privateBot.usageTitle')}
+                description={t('privateBot.usageHint')}
+              />
+              <CardBody className="space-y-3">
+                {saved.creditOutAt && <Alert tone="danger">{t('privateBot.creditOut')}</Alert>}
                 <div className="grid grid-cols-2 gap-3">
-                  <Field label={t('privateBot.opens')}>
-                    {(props) => (
-                      <Input
-                        {...props}
-                        type="time"
-                        dir="ltr"
-                        disabled={!canManage}
-                        value={profile.hours.open}
-                        onChange={(event) =>
-                          edit({ hours: { ...profile.hours, open: event.target.value } })
-                        }
-                      />
-                    )}
-                  </Field>
-                  <Field label={t('privateBot.closes')}>
-                    {(props) => (
-                      <Input
-                        {...props}
-                        type="time"
-                        dir="ltr"
-                        disabled={!canManage}
-                        value={profile.hours.close}
-                        onChange={(event) =>
-                          edit({ hours: { ...profile.hours, close: event.target.value } })
-                        }
-                      />
-                    )}
-                  </Field>
+                  {(['today', 'month'] as const).map((period) => (
+                    <div key={period} className="rounded-xl bg-surface-sunken p-3">
+                      <p className="text-xs font-medium text-content-secondary">
+                        {t(`privateBot.usage.${period}`)}
+                      </p>
+                      <p className="mt-1 text-2xl font-bold tabular-nums text-content">
+                        ${saved.usage[period].cost.toFixed(2)}
+                      </p>
+                      <p className="mt-1 text-xs text-content-secondary">
+                        {t('privateBot.usageCounts', {
+                          answers: saved.usage[period].answers,
+                          photos: saved.usage[period].photos,
+                        })}
+                      </p>
+                    </div>
+                  ))}
                 </div>
-                <div>
-                  <p className="mb-2 text-xs font-medium text-content-secondary">
-                    {t('privateBot.closedDays')}
-                  </p>
-                  <div className="flex flex-wrap gap-2">
-                    {[6, 0, 1, 2, 3, 4, 5].map((day) => {
-                      const closed = profile.hours.closedDays.includes(day);
-                      return (
+              </CardBody>
+            </Card>
+          </>
+        )}
+
+        {section === 'info' && (
+          <>
+            {/* ============ About the office ============ */}
+            <Card>
+              <CardHeader
+                title={t('privateBot.aboutTitle')}
+                description={t('privateBot.aboutHint')}
+              />
+              <CardBody>
+                <Textarea
+                  rows={6}
+                  maxLength={4000}
+                  disabled={!canManage}
+                  aria-label={t('privateBot.aboutTitle')}
+                  placeholder={t('privateBot.aboutPlaceholder')}
+                  value={profile.about}
+                  onChange={(event) => edit({ about: event.target.value })}
+                />
+              </CardBody>
+            </Card>
+
+            {/* ============ The greeting ============ */}
+            <Card>
+              <CardHeader
+                title={t('privateBot.welcomeTitle')}
+                description={t('privateBot.welcomeHint')}
+              />
+              <CardBody>
+                <Textarea
+                  rows={5}
+                  maxLength={1000}
+                  disabled={!canManage}
+                  aria-label={t('privateBot.welcomeTitle')}
+                  placeholder={t('privateBot.welcomePlaceholder')}
+                  value={profile.welcome}
+                  onChange={(event) => edit({ welcome: event.target.value })}
+                />
+              </CardBody>
+            </Card>
+
+            {/* ============ Prepared answers ============ */}
+            <Card>
+              <CardHeader
+                title={t('privateBot.faqTitle')}
+                description={t('privateBot.faqHint')}
+                actions={
+                  canManage && profile.faqs.length < 50 ? (
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      icon={<Plus />}
+                      onClick={() =>
+                        edit({ faqs: [...profile.faqs, { question: '', answer: '' }] })
+                      }
+                    >
+                      {t('privateBot.add')}
+                    </Button>
+                  ) : undefined
+                }
+              />
+              <CardBody className="space-y-3">
+                {profile.faqs.length === 0 && (
+                  <p className="text-sm text-content-tertiary">{t('privateBot.faqEmpty')}</p>
+                )}
+                {profile.faqs.map((row, index) => (
+                  <div
+                    key={index}
+                    className="flex items-start gap-2 rounded-xl bg-surface-sunken p-3"
+                  >
+                    <div className="min-w-0 flex-1 space-y-2">
+                      <Input
+                        maxLength={300}
+                        disabled={!canManage}
+                        aria-label={t('privateBot.question')}
+                        placeholder={t('privateBot.question')}
+                        value={row.question}
+                        onChange={(event) =>
+                          edit({
+                            faqs: profile.faqs.map((item, at) =>
+                              at === index ? { ...item, question: event.target.value } : item,
+                            ),
+                          })
+                        }
+                      />
+                      <Textarea
+                        rows={2}
+                        maxLength={1000}
+                        disabled={!canManage}
+                        aria-label={t('privateBot.answer')}
+                        placeholder={t('privateBot.answer')}
+                        value={row.answer}
+                        onChange={(event) =>
+                          edit({
+                            faqs: profile.faqs.map((item, at) =>
+                              at === index ? { ...item, answer: event.target.value } : item,
+                            ),
+                          })
+                        }
+                      />
+                    </div>
+                    {canManage && (
+                      <button
+                        type="button"
+                        aria-label={t('common.delete')}
+                        onClick={() => edit({ faqs: profile.faqs.filter((_, at) => at !== index) })}
+                        className="flex size-10 shrink-0 items-center justify-center rounded-full text-content-tertiary transition-colors hover:bg-surface hover:text-danger-text"
+                      >
+                        <Trash2 className="size-4" />
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </CardBody>
+            </Card>
+          </>
+        )}
+
+        {section === 'prices' && (
+          <>
+            {/* ============ Prices the system does not hold ============ */}
+            <Card>
+              <CardHeader
+                title={t('privateBot.extraTitle')}
+                description={t('privateBot.extraHint')}
+                actions={
+                  canManage && profile.extraPrices.length < 50 ? (
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      icon={<Plus />}
+                      onClick={() =>
+                        edit({
+                          extraPrices: [...profile.extraPrices, { item: '', buy: '', sell: '' }],
+                        })
+                      }
+                    >
+                      {t('privateBot.add')}
+                    </Button>
+                  ) : undefined
+                }
+              />
+              <CardBody className="space-y-2">
+                {profile.extraPrices.length === 0 && (
+                  <p className="text-sm text-content-tertiary">{t('privateBot.extraEmpty')}</p>
+                )}
+                {profile.extraPrices.map((row, index) => {
+                  const change = (patch: Partial<typeof row>) =>
+                    edit({
+                      extraPrices: profile.extraPrices.map((item, at) =>
+                        at === index ? { ...item, ...patch } : item,
+                      ),
+                    });
+                  return (
+                    <div
+                      key={index}
+                      className="flex items-start gap-2 rounded-xl bg-surface-sunken p-3"
+                    >
+                      <div className="grid min-w-0 flex-1 grid-cols-2 gap-2 sm:grid-cols-[2fr_1fr_1fr]">
+                        <Field
+                          label={t('privateBot.extraItem')}
+                          className="col-span-2 sm:col-span-1"
+                        >
+                          {(props) => (
+                            <Input
+                              {...props}
+                              maxLength={120}
+                              disabled={!canManage}
+                              placeholder={t('privateBot.extraItemExample')}
+                              value={row.item}
+                              onChange={(event) => change({ item: event.target.value })}
+                            />
+                          )}
+                        </Field>
+                        <Field label={t('privateBot.extraBuy')}>
+                          {(props) => (
+                            <Input
+                              {...props}
+                              dir="ltr"
+                              maxLength={40}
+                              disabled={!canManage}
+                              placeholder="0.00"
+                              value={row.buy}
+                              onChange={(event) => change({ buy: event.target.value })}
+                            />
+                          )}
+                        </Field>
+                        <Field label={t('privateBot.extraSell')}>
+                          {(props) => (
+                            <Input
+                              {...props}
+                              dir="ltr"
+                              maxLength={40}
+                              disabled={!canManage}
+                              placeholder="0.00"
+                              value={row.sell}
+                              onChange={(event) => change({ sell: event.target.value })}
+                            />
+                          )}
+                        </Field>
+                      </div>
+                      {canManage && (
                         <button
-                          key={day}
                           type="button"
-                          disabled={!canManage}
-                          aria-pressed={closed}
+                          aria-label={t('common.delete')}
                           onClick={() =>
                             edit({
-                              hours: {
-                                ...profile.hours,
-                                closedDays: closed
-                                  ? profile.hours.closedDays.filter((item) => item !== day)
-                                  : [...profile.hours.closedDays, day],
-                              },
+                              extraPrices: profile.extraPrices.filter((_, at) => at !== index),
                             })
                           }
-                          className={`h-9 rounded-full px-3 text-sm font-medium transition-colors disabled:cursor-not-allowed ${
-                            closed
-                              ? 'bg-warning-subtle text-warning-text ring-1 ring-warning'
-                              : 'bg-surface-sunken text-content-secondary'
-                          }`}
+                          className="mt-6 flex size-10 shrink-0 items-center justify-center rounded-full text-content-tertiary transition-colors hover:bg-surface hover:text-danger-text"
                         >
-                          {t(`privateBot.day.d${day}` as never)}
+                          <Trash2 className="size-4" />
                         </button>
-                      );
-                    })}
-                  </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </CardBody>
+            </Card>
+
+            {/* ============ What a customer may be told ============ */}
+            <Card>
+              <CardHeader
+                title={t('privateBot.showTitle')}
+                description={t('privateBot.showHint')}
+              />
+              <CardBody className="space-y-5">
+                <div className="grid gap-4 sm:grid-cols-2">
+                  {SECTIONS.map((section) => (
+                    <Switch
+                      key={section}
+                      checked={profile.show[section]}
+                      disabled={!canManage}
+                      onCheckedChange={(on) => edit({ show: { ...profile.show, [section]: on } })}
+                      label={t(`privateBot.show.${section}`)}
+                    />
+                  ))}
                 </div>
-              </div>
-            )}
-            <div className="grid gap-4 sm:grid-cols-2">
-              <Field label={t('privateBot.takeover')} hint={t('privateBot.takeoverHint')}>
-                {(props) => (
-                  <NumberInput
-                    {...props}
-                    min={1}
-                    max={10080}
-                    disabled={!canManage}
-                    value={profile.takeoverMinutes}
-                    onValueChange={(takeoverMinutes) => edit({ takeoverMinutes })}
-                  />
-                )}
-              </Field>
-              <Field label={t('privateBot.retention')} hint={t('privateBot.retentionHint')}>
-                {(props) => (
-                  <NumberInput
-                    {...props}
-                    min={7}
-                    max={730}
-                    disabled={!canManage}
-                    value={profile.retentionDays}
-                    onValueChange={(retentionDays) => edit({ retentionDays })}
-                  />
-                )}
-              </Field>
-            </div>
-          </CardBody>
-        </Card>
 
-        {/* ============ About the office ============ */}
-        <Card>
-          <CardHeader title={t('privateBot.aboutTitle')} description={t('privateBot.aboutHint')} />
-          <CardBody>
-            <Textarea
-              rows={6}
-              maxLength={4000}
-              disabled={!canManage}
-              aria-label={t('privateBot.aboutTitle')}
-              placeholder={t('privateBot.aboutPlaceholder')}
-              value={profile.about}
-              onChange={(event) => edit({ about: event.target.value })}
-            />
-          </CardBody>
-        </Card>
-
-        {/* ============ The greeting ============ */}
-        <Card>
-          <CardHeader
-            title={t('privateBot.welcomeTitle')}
-            description={t('privateBot.welcomeHint')}
-          />
-          <CardBody>
-            <Textarea
-              rows={5}
-              maxLength={1000}
-              disabled={!canManage}
-              aria-label={t('privateBot.welcomeTitle')}
-              placeholder={t('privateBot.welcomePlaceholder')}
-              value={profile.welcome}
-              onChange={(event) => edit({ welcome: event.target.value })}
-            />
-          </CardBody>
-        </Card>
-
-        {/* ============ Prepared answers ============ */}
-        <Card>
-          <CardHeader
-            title={t('privateBot.faqTitle')}
-            description={t('privateBot.faqHint')}
-            actions={
-              canManage && profile.faqs.length < 50 ? (
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  icon={<Plus />}
-                  onClick={() => edit({ faqs: [...profile.faqs, { question: '', answer: '' }] })}
-                >
-                  {t('privateBot.add')}
-                </Button>
-              ) : undefined
-            }
-          />
-          <CardBody className="space-y-3">
-            {profile.faqs.length === 0 && (
-              <p className="text-sm text-content-tertiary">{t('privateBot.faqEmpty')}</p>
-            )}
-            {profile.faqs.map((row, index) => (
-              <div key={index} className="flex items-start gap-2 rounded-xl bg-surface-sunken p-3">
-                <div className="min-w-0 flex-1 space-y-2">
-                  <Input
-                    maxLength={300}
+                {panel.currencies.length > 0 && (
+                  <Chips
+                    title={t('privateBot.currencies')}
+                    entries={panel.currencies}
+                    hidden={profile.hiddenCurrencies}
                     disabled={!canManage}
-                    aria-label={t('privateBot.question')}
-                    placeholder={t('privateBot.question')}
-                    value={row.question}
-                    onChange={(event) =>
-                      edit({
-                        faqs: profile.faqs.map((item, at) =>
-                          at === index ? { ...item, question: event.target.value } : item,
-                        ),
-                      })
+                    onToggle={(code) =>
+                      edit({ hiddenCurrencies: toggled(profile.hiddenCurrencies, code) })
                     }
                   />
-                  <Textarea
-                    rows={2}
-                    maxLength={1000}
+                )}
+
+                {panel.destinations.length > 0 && profile.show.remittances && (
+                  <Chips
+                    title={t('privateBot.destinations')}
+                    entries={panel.destinations}
+                    hidden={profile.hiddenDestinations}
                     disabled={!canManage}
-                    aria-label={t('privateBot.answer')}
-                    placeholder={t('privateBot.answer')}
-                    value={row.answer}
-                    onChange={(event) =>
-                      edit({
-                        faqs: profile.faqs.map((item, at) =>
-                          at === index ? { ...item, answer: event.target.value } : item,
-                        ),
-                      })
+                    onToggle={(destination) =>
+                      edit({ hiddenDestinations: toggled(profile.hiddenDestinations, destination) })
                     }
                   />
-                </div>
-                {canManage && (
-                  <button
-                    type="button"
-                    aria-label={t('common.delete')}
-                    onClick={() => edit({ faqs: profile.faqs.filter((_, at) => at !== index) })}
-                    className="flex size-10 shrink-0 items-center justify-center rounded-full text-content-tertiary transition-colors hover:bg-surface hover:text-danger-text"
-                  >
-                    <Trash2 className="size-4" />
-                  </button>
                 )}
-              </div>
-            ))}
-          </CardBody>
-        </Card>
+              </CardBody>
+            </Card>
 
-        {/* ============ Prices the system does not hold ============ */}
-        <Card>
-          <CardHeader
-            title={t('privateBot.extraTitle')}
-            description={t('privateBot.extraHint')}
-            actions={
-              canManage && profile.extraPrices.length < 50 ? (
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  icon={<Plus />}
-                  onClick={() =>
-                    edit({ extraPrices: [...profile.extraPrices, { item: '', buy: '', sell: '' }] })
-                  }
-                >
-                  {t('privateBot.add')}
-                </Button>
-              ) : undefined
-            }
-          />
-          <CardBody className="space-y-2">
-            {profile.extraPrices.length === 0 && (
-              <p className="text-sm text-content-tertiary">{t('privateBot.extraEmpty')}</p>
-            )}
-            {profile.extraPrices.map((row, index) => {
-              const change = (patch: Partial<typeof row>) =>
-                edit({
-                  extraPrices: profile.extraPrices.map((item, at) =>
-                    at === index ? { ...item, ...patch } : item,
-                  ),
-                });
-              return (
-                <div key={index} className="flex items-start gap-2 rounded-xl bg-surface-sunken p-3">
-                  <div className="grid min-w-0 flex-1 grid-cols-2 gap-2 sm:grid-cols-[2fr_1fr_1fr]">
-                    <Field label={t('privateBot.extraItem')} className="col-span-2 sm:col-span-1">
-                      {(props) => (
-                        <Input
-                          {...props}
-                          maxLength={120}
-                          disabled={!canManage}
-                          placeholder={t('privateBot.extraItemExample')}
-                          value={row.item}
-                          onChange={(event) => change({ item: event.target.value })}
-                        />
-                      )}
-                    </Field>
-                    <Field label={t('privateBot.extraBuy')}>
-                      {(props) => (
-                        <Input
-                          {...props}
-                          dir="ltr"
-                          maxLength={40}
-                          disabled={!canManage}
-                          placeholder="0.00"
-                          value={row.buy}
-                          onChange={(event) => change({ buy: event.target.value })}
-                        />
-                      )}
-                    </Field>
-                    <Field label={t('privateBot.extraSell')}>
-                      {(props) => (
-                        <Input
-                          {...props}
-                          dir="ltr"
-                          maxLength={40}
-                          disabled={!canManage}
-                          placeholder="0.00"
-                          value={row.sell}
-                          onChange={(event) => change({ sell: event.target.value })}
-                        />
-                      )}
-                    </Field>
-                  </div>
-                  {canManage && (
-                    <button
-                      type="button"
-                      aria-label={t('common.delete')}
-                      onClick={() =>
-                        edit({ extraPrices: profile.extraPrices.filter((_, at) => at !== index) })
-                      }
-                      className="mt-6 flex size-10 shrink-0 items-center justify-center rounded-full text-content-tertiary transition-colors hover:bg-surface hover:text-danger-text"
-                    >
-                      <Trash2 className="size-4" />
-                    </button>
-                  )}
-                </div>
-              );
-            })}
-          </CardBody>
-        </Card>
+            <Card>
+              <CardHeader
+                title={t('privateBot.previewTitle')}
+                description={t('privateBot.previewHint')}
+              />
+              <CardBody>
+                <pre className="max-h-72 overflow-y-auto whitespace-pre-wrap font-sans text-xs leading-relaxed text-content-secondary">
+                  {saved.preview}
+                </pre>
+              </CardBody>
+            </Card>
+          </>
+        )}
 
-        {/* ============ What a customer may be told ============ */}
-        <Card>
-          <CardHeader title={t('privateBot.showTitle')} description={t('privateBot.showHint')} />
-          <CardBody className="space-y-5">
-            <div className="grid gap-4 sm:grid-cols-2">
-              {SECTIONS.map((section) => (
+        {section === 'behavior' && (
+          <>
+            {/* ============ How it behaves ============ */}
+            <Card>
+              <CardHeader title={t('privateBot.behaviorTitle')} />
+              <CardBody className="space-y-5">
                 <Switch
-                  key={section}
-                  checked={profile.show[section]}
+                  checked={profile.hours.enabled}
                   disabled={!canManage}
-                  onCheckedChange={(on) =>
-                    edit({ show: { ...profile.show, [section]: on } })
-                  }
-                  label={t(`privateBot.show.${section}`)}
+                  onCheckedChange={(enabled) => edit({ hours: { ...profile.hours, enabled } })}
+                  label={t('privateBot.hoursEnabled')}
+                  description={t('privateBot.hoursHint')}
                 />
-              ))}
-            </div>
-
-            {panel.currencies.length > 0 && (
-              <Chips
-                title={t('privateBot.currencies')}
-                entries={panel.currencies}
-                hidden={profile.hiddenCurrencies}
-                disabled={!canManage}
-                onToggle={(code) =>
-                  edit({ hiddenCurrencies: toggled(profile.hiddenCurrencies, code) })
-                }
-              />
-            )}
-
-            {panel.destinations.length > 0 && profile.show.remittances && (
-              <Chips
-                title={t('privateBot.destinations')}
-                entries={panel.destinations}
-                hidden={profile.hiddenDestinations}
-                disabled={!canManage}
-                onToggle={(destination) =>
-                  edit({ hiddenDestinations: toggled(profile.hiddenDestinations, destination) })
-                }
-              />
-            )}
-          </CardBody>
-        </Card>
+                {profile.hours.enabled && (
+                  <div className="space-y-3">
+                    <div className="grid grid-cols-2 gap-3">
+                      <Field label={t('privateBot.opens')}>
+                        {(props) => (
+                          <Input
+                            {...props}
+                            type="time"
+                            dir="ltr"
+                            disabled={!canManage}
+                            value={profile.hours.open}
+                            onChange={(event) =>
+                              edit({ hours: { ...profile.hours, open: event.target.value } })
+                            }
+                          />
+                        )}
+                      </Field>
+                      <Field label={t('privateBot.closes')}>
+                        {(props) => (
+                          <Input
+                            {...props}
+                            type="time"
+                            dir="ltr"
+                            disabled={!canManage}
+                            value={profile.hours.close}
+                            onChange={(event) =>
+                              edit({ hours: { ...profile.hours, close: event.target.value } })
+                            }
+                          />
+                        )}
+                      </Field>
+                    </div>
+                    <div>
+                      <p className="mb-2 text-xs font-medium text-content-secondary">
+                        {t('privateBot.closedDays')}
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        {[6, 0, 1, 2, 3, 4, 5].map((day) => {
+                          const closed = profile.hours.closedDays.includes(day);
+                          return (
+                            <button
+                              key={day}
+                              type="button"
+                              disabled={!canManage}
+                              aria-pressed={closed}
+                              onClick={() =>
+                                edit({
+                                  hours: {
+                                    ...profile.hours,
+                                    closedDays: closed
+                                      ? profile.hours.closedDays.filter((item) => item !== day)
+                                      : [...profile.hours.closedDays, day],
+                                  },
+                                })
+                              }
+                              className={`h-9 rounded-full px-3 text-sm font-medium transition-colors disabled:cursor-not-allowed ${
+                                closed
+                                  ? 'bg-warning-subtle text-warning-text ring-1 ring-warning'
+                                  : 'bg-surface-sunken text-content-secondary'
+                              }`}
+                            >
+                              {t(`privateBot.day.d${day}` as never)}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                )}
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <Field label={t('privateBot.takeover')} hint={t('privateBot.takeoverHint')}>
+                    {(props) => (
+                      <NumberInput
+                        {...props}
+                        min={1}
+                        max={10080}
+                        disabled={!canManage}
+                        value={profile.takeoverMinutes}
+                        onValueChange={(takeoverMinutes) => edit({ takeoverMinutes })}
+                      />
+                    )}
+                  </Field>
+                  <Field label={t('privateBot.retention')} hint={t('privateBot.retentionHint')}>
+                    {(props) => (
+                      <NumberInput
+                        {...props}
+                        min={7}
+                        max={730}
+                        disabled={!canManage}
+                        value={profile.retentionDays}
+                        onValueChange={(retentionDays) => edit({ retentionDays })}
+                      />
+                    )}
+                  </Field>
+                </div>
+              </CardBody>
+            </Card>
+          </>
+        )}
       </div>
 
       {/* ============ See it working ============ */}
@@ -578,7 +690,11 @@ export function PrivateBotView({ canManage }: { canManage: boolean }) {
                   className={`flex items-end gap-2 ${turn.role === 'user' ? '' : 'flex-row-reverse'}`}
                 >
                   <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-surface text-content-secondary ring-1 ring-border-subtle">
-                    {turn.role === 'user' ? <User className="size-3.5" /> : <Bot className="size-3.5" />}
+                    {turn.role === 'user' ? (
+                      <User className="size-3.5" />
+                    ) : (
+                      <Bot className="size-3.5" />
+                    )}
                   </span>
                   <div
                     className={`max-w-[85%] whitespace-pre-wrap rounded-2xl px-3 py-2 text-sm ${
@@ -596,9 +712,7 @@ export function PrivateBotView({ canManage }: { canManage: boolean }) {
                   </div>
                 </div>
               ))}
-              {asking && (
-                <Loader2 className="size-4 animate-spin self-end text-content-tertiary" />
-              )}
+              {asking && <Loader2 className="size-4 animate-spin self-end text-content-tertiary" />}
               <div ref={chatEnd} />
             </div>
             {dirty && <p className="text-xs text-warning-text">{t('privateBot.tryUnsaved')}</p>}
@@ -626,18 +740,6 @@ export function PrivateBotView({ canManage }: { canManage: boolean }) {
                 aria-label={t('privateBot.tryAsk')}
               />
             </form>
-          </CardBody>
-        </Card>
-
-        <Card>
-          <CardHeader
-            title={t('privateBot.previewTitle')}
-            description={t('privateBot.previewHint')}
-          />
-          <CardBody>
-            <pre className="max-h-72 overflow-y-auto whitespace-pre-wrap font-sans text-xs leading-relaxed text-content-secondary">
-              {saved.preview}
-            </pre>
           </CardBody>
         </Card>
       </div>
