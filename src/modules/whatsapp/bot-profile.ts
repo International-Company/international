@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { PriceSheet, SheetRate } from './price-sheet';
+import { FEE_KINDS } from './country-prices';
 import { foldName } from './report-command';
 
 /**
@@ -19,6 +20,8 @@ export const FLOW_KINDS = [
   'destinations',
   'account',
   'accounts',
+  'countries',
+  'country_quote',
   'staff',
 ] as const;
 export const MAX_FLOW_CHOICES = 9;
@@ -105,6 +108,30 @@ export const profileSchema = z.object({
       children: z.array(flowNode).max(MAX_FLOW_CHOICES).default([]),
     })
     .default({}),
+  /** What a remittance costs, by country, band of the sum received and way of paying. */
+  countryPrices: z
+    .array(
+      z.object({
+        country: z.string().max(60),
+        unit: z.string().max(20),
+        tiers: z
+          .array(
+            z.object({
+              from: z.string().max(20).default(''),
+              to: z.string().max(20).default(''),
+              cashRate: z.string().max(20).default(''),
+              bankRate: z.string().max(20).default(''),
+              cashFee: z.string().max(20).default(''),
+              bankFee: z.string().max(20).default(''),
+              feeKind: z.enum(FEE_KINDS).default('FLAT'),
+            }),
+          )
+          .max(15)
+          .default([]),
+      }),
+    )
+    .max(40)
+    .default([]),
   /** Where customers can be told to pay: given exactly as typed, one bank when asked for it. */
   accounts: z
     .array(
@@ -162,6 +189,9 @@ export function tidyProfile(profile: BotProfile): BotProfile {
       prompt: profile.flow.prompt.trim(),
       children: tidyNodes(profile.flow.children, 0),
     },
+    countryPrices: profile.countryPrices
+      .map((row) => ({ ...row, country: row.country.trim(), unit: row.unit.trim() }))
+      .filter((row) => row.country && row.unit),
     accounts: profile.accounts
       .map((row) => ({
         bank: row.bank.trim(),

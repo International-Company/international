@@ -14,10 +14,12 @@ import {
   type BotPick,
 } from '../src/modules/whatsapp/bot-answers.ts';
 import { calculationLines } from '../src/modules/whatsapp/bot-calc.ts';
+import { priceFor, quoteCountry, type CountryPrice } from '../src/modules/whatsapp/country-prices.ts';
 import {
   currentMenu,
   enterFlow,
   FLOW_EXPIRES,
+  quoteStep,
   stepFlow,
   type FlowState,
 } from '../src/modules/whatsapp/bot-flows.ts';
@@ -464,6 +466,7 @@ describe('the paths the manager drew', () => {
       step: async (text, state, now) => stepFlow(text, state, p, sheet, true, now),
       enter: async (index, now) => enterFlow(index, p, sheet, true, now),
       menu: async (state, now) => currentMenu(state, p, sheet, true, now),
+      quote: async () => null,
     };
     assert.equal(await handlePrivateMessage(message('مرحبا'), walked.deps), 'FLOW');
     assert.equal(await handlePrivateMessage(message('2'), walked.deps), 'FLOW');
@@ -472,6 +475,89 @@ describe('the paths the manager drew', () => {
     assert.equal(walked.asked.length, 1);
     assert.match(walked.sent.at(-1)!, /أي سعر؟/);
     assert.equal(await handlePrivateMessage(message('الجو بارد'), walked.deps), 'NO_INFO');
+  });
+});
+
+describe('what a remittance costs, from what is to arrive', () => {
+  const egypt: CountryPrice = {
+    country: 'مصر',
+    unit: 'جنيه',
+    tiers: [
+      { from: '1', to: '5000', cashRate: '15', bankRate: '14.5', cashFee: '10', bankFee: '5', feeKind: 'FLAT' },
+      { from: '5001', to: '', cashRate: '16', bankRate: '15', cashFee: '2', bankFee: '', feeKind: 'PERCENT' },
+    ],
+  };
+  const sheet = { rates: [], remittances: [], usdtForCashDollars: 0, usdtForBankDollars: 0, extra: [] };
+  const profile = (over: Partial<BotProfile> = {}): BotProfile => ({
+    ...emptyProfile(),
+    countryPrices: [egypt],
+    flow: {
+      prompt: 'اختر',
+      children: [
+        { title: 'الحوالات', kind: 'countries', text: 'لأي دولة؟', triggers: [], currencies: [], channel: null, destination: null, accountIndex: null, children: [] },
+      ],
+    },
+    ...over,
+  });
+
+  it('works back to whole shekels, by band, each way of paying', () => {
+    assert.equal(
+      quoteCountry(egypt, 3000n * U, null),
+      'ليصل 3,000 جنيه إلى مصر:\nنقدي: 210 شيكل (المبلغ 200، الرسوم 10)\nبنكي: 212 شيكل (المبلغ 207، الرسوم 5)\nوالسعر ممكن يتغير.',
+    );
+  });
+
+  it('takes a percentage fee on the band that has one, and one way of paying', () => {
+    assert.equal(
+      quoteCountry(egypt, 8000n * U, 'CASH'),
+      'ليصل 8,000 جنيه إلى مصر:\nنقدي: 510 شيكل (المبلغ 500، الرسوم 10)\nوالسعر ممكن يتغير.',
+    );
+  });
+
+  it('rounds up, so the office is never short', () => {
+    assert.equal(priceFor('15', '', 'FLAT', 100n * U)!.pay, 7n * U);
+    assert.equal(priceFor('15', '', 'FLAT', 150n * U)!.pay, 10n * U);
+  });
+
+  it('says nothing for a sum outside every band, or a price not filled in', () => {
+    assert.equal(quoteCountry(egypt, 0n, null), null);
+    assert.equal(quoteCountry({ ...egypt, tiers: [{ ...egypt.tiers[0]!, cashRate: '', bankRate: 'x' }] }, 100n * U, null), null);
+  });
+
+  it('asks the sum on the path, then answers, taking Arabic digits', () => {
+    let state: FlowState | null = null;
+    const go = (text: string) => {
+      const step = stepFlow(text, state, profile(), sheet, true, 1000);
+      if (step) state = step.state;
+      return step;
+    };
+    go('مرحبا');
+    assert.match(go('1')!.reply, /لأي دولة؟\n1\. مصر/);
+    assert.match(go('1')!.reply, /كم بدك يوصل للمستفيد في مصر؟ اكتب المبلغ بـجنيه/);
+    assert.match(go('٣٠٠٠')!.reply, /نقدي: 210 شيكل/);
+  });
+
+  it('answers from one sentence, and asks only for what is missing', () => {
+    const full = quoteStep({ country: 'مصر', delivered: '3000', channel: 'BANK', wantsStaff: false, summary: null }, null, profile(), sheet, true, 1000)!;
+    assert.match(full.reply, /بنكي: 212 شيكل/);
+    assert.doesNotMatch(full.reply, /نقدي/);
+    const noSum = quoteStep({ country: 'مصر', delivered: null, channel: null, wantsStaff: false, summary: null }, null, profile(), sheet, true, 1000)!;
+    assert.equal(noSum.state!.quote, 'مصر');
+    assert.equal(quoteStep({ country: 'تركيا', delivered: '1', channel: null, wantsStaff: false, summary: null }, null, profile(), sheet, true, 1000), null);
+  });
+
+  it('works without a menu drawn, for the sum it asked for', () => {
+    const noMenu = profile({ flow: { prompt: '', children: [] } });
+    const asked = quoteStep({ country: 'مصر', delivered: null, channel: null, wantsStaff: false, summary: null }, null, noMenu, sheet, true, 1000)!;
+    assert.match(stepFlow('3000', asked.state, noMenu, sheet, true, 1000)!.reply, /نقدي: 210 شيكل/);
+  });
+
+  it('hands over a sum no band covers, and a deal someone wants done', () => {
+    assert.equal(quoteStep({ country: 'مصر', delivered: '0.5', channel: null, wantsStaff: false, summary: null }, null, profile(), sheet, true, 1000)!.handover, true);
+    const deal = quoteStep({ country: 'مصر', delivered: '3000', channel: 'CASH', wantsStaff: true, summary: 'يريد إرسال حوالة' }, null, profile(), sheet, true, 1000)!;
+    assert.equal(deal.handover, true);
+    assert.equal(deal.summary, 'يريد إرسال حوالة');
+    assert.match(deal.reply, /رح يتواصل معك/);
   });
 });
 

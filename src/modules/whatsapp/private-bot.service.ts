@@ -22,7 +22,7 @@ import { composeChoices, INTENTS, renderAnswer, SAY_TO_STAFF } from './bot-answe
 import {
   currentMenu,
   enterFlow,
-  hasFlows,
+  quoteStep,
   stepFlow,
   type FlowState,
   type FlowStep,
@@ -109,6 +109,16 @@ export interface Answer {
   silent?: boolean;
   /** That the message means one of the conversations the office set up. */
   flowIndex?: number;
+  /** That the message asks what a remittance costs. */
+  quote?: QuoteAsk;
+}
+
+interface QuoteAsk {
+  country: string;
+  delivered: string | null;
+  channel: 'CASH' | 'BANK' | null;
+  wantsStaff: boolean;
+  summary: string | null;
 }
 
 /** Walking the tree, with the prices and the words read fresh each time. */
@@ -116,6 +126,7 @@ export interface FlowDeps {
   step: (text: string, state: FlowState | null, now: number) => Promise<FlowStep | null>;
   enter: (index: number, now: number) => Promise<FlowStep | null>;
   menu: (state: FlowState | null, now: number) => Promise<FlowStep | null>;
+  quote: (ask: QuoteAsk, state: FlowState | null, now: number) => Promise<FlowStep | null>;
 }
 
 export interface BotDeps {
@@ -282,6 +293,11 @@ export async function handlePrivateMessage(
     log.warn('The private number reached its daily limit', { limit });
   }
 
+  if (answer?.quote) {
+    const quoted = await deps.flows?.quote(answer.quote, conversation.flow, now);
+    if (quoted) return walk(quoted);
+  }
+
   if (answer?.flowIndex !== undefined) {
     const entered = await deps.flows?.enter(answer.flowIndex, now);
     if (entered) return walk(entered);
@@ -371,6 +387,8 @@ const Pick = z.object({
   currencies: z.array(z.string()),
   channel: z.enum(['CASH', 'BANK']).nullable(),
   destination: z.string().nullable(),
+  country: z.string().nullable(),
+  delivered: z.string().nullable(),
   calculation: z
     .object({
       side: z.enum(['customer_sells', 'customer_buys']),
@@ -397,6 +415,7 @@ Choose one intent for the customer's latest message, reading the earlier message
 - remittance: it asks what a remittance costs. Set destination from the list, or null if they named none.
 - account: it asks for the account at one of the listed banks. Set account_index.
 - account_list: it asks for a bank account without saying which bank.
+- country_quote: it asks how much it costs to send money so that an amount arrives in one of the countries with remittance prices. Set country exactly as listed, delivered to the amount to arrive in digits or null if not said (reuse the amount from earlier messages when they change only the country), and channel if they said cash or bank.
 - flow: it means one of the conversations the office has set up, and no more specific intent above answers it exactly. Set flow_index.
 - handover: it asks for a person, wants a deal carried out and nothing above answers it, or complains.
 - none: anything else, and whenever you are unsure which applies. Prefer none over a guess.
@@ -445,6 +464,21 @@ async function liveAsk(turns: Turn[], given?: BotProfile): Promise<Answer> {
   void recordUsage('answer', response.usage).catch((error) =>
     log.info('Could not count an answer', { error }),
   );
+  if (response.parsed_output.intent === 'country_quote' && response.parsed_output.country) {
+    return {
+      reply: '',
+      handover: false,
+      summary: null,
+      silent: true,
+      quote: {
+        country: response.parsed_output.country,
+        delivered: response.parsed_output.delivered,
+        channel: response.parsed_output.channel,
+        wantsStaff: response.parsed_output.wants_staff,
+        summary: response.parsed_output.summary,
+      },
+    };
+  }
   if (response.parsed_output.intent === 'flow' && response.parsed_output.flow_index !== null) {
     return {
       reply: '',
@@ -537,6 +571,10 @@ export async function tryBot(
   }
   try {
     const answer = await liveAsk(turns, profile);
+    if (answer.quote) {
+      const quoted = quoteStep(answer.quote, flowState, profile, sheet, isOpen, now);
+      if (quoted) return asFlow(quoted);
+    }
     if (answer.flowIndex !== undefined) {
       const entered = enterFlow(answer.flowIndex, profile, sheet, isOpen, now);
       if (entered) return asFlow(entered);
@@ -652,7 +690,6 @@ export function registerPrivateBot(): void {
     flows: {
       step: async (text, state, now) => {
         const profile = await readProfile();
-        if (!hasFlows(profile)) return null;
         return stepFlow(
           text,
           state,
@@ -666,6 +703,17 @@ export function registerPrivateBot(): void {
         const profile = await readProfile();
         return enterFlow(
           index,
+          profile,
+          visibleSheet(await systemSheet(), profile),
+          officeOpen(profile.hours, new Date(now)),
+          now,
+        );
+      },
+      quote: async (ask, state, now) => {
+        const profile = await readProfile();
+        return quoteStep(
+          ask,
+          state,
           profile,
           visibleSheet(await systemSheet(), profile),
           officeOpen(profile.hours, new Date(now)),

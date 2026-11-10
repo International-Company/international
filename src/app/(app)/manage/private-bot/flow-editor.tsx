@@ -53,7 +53,9 @@ function NodeEditor({
   const { disabled } = options;
   const set = (patch: Partial<FlowNode>) => onChange({ ...node, ...patch });
   const canNest = depth < MAX_FLOW_DEPTH;
-  const kinds = FLOW_KINDS.filter((kind) => kind !== 'menu' || canNest);
+  const kinds = FLOW_KINDS.filter(
+    (kind) => (kind !== 'menu' || canNest) && kind !== 'country_quote',
+  );
 
   return (
     <div className="space-y-3 rounded-xl bg-surface-sunken p-3 ring-1 ring-border-subtle">
@@ -139,7 +141,10 @@ function NodeEditor({
         </Field>
       )}
 
-      {(node.kind === 'menu' || node.kind === 'destinations' || node.kind === 'accounts') && (
+      {(node.kind === 'menu' ||
+        node.kind === 'destinations' ||
+        node.kind === 'accounts' ||
+        node.kind === 'countries') && (
         <Field label={t('privateBot.flowQuestion')}>
           {(props) => (
             <Input

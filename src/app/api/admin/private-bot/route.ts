@@ -32,7 +32,7 @@ const trySchema = z.object({
     .min(1)
     .max(12),
   flowState: z
-    .object({ path: z.array(z.number().int().min(0)).max(8), atResult: z.boolean(), at: z.number() })
+    .object({ path: z.array(z.number().int().min(0)).max(8), atResult: z.boolean(), at: z.number(), quote: z.string().max(60).nullish() })
     .nullable()
     .default(null),
 });

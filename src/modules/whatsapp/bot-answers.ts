@@ -23,6 +23,7 @@ export const INTENTS = [
   'account_list',
   'account',
   'handover',
+  'country_quote',
   'flow',
   'none',
 ] as const;
@@ -36,6 +37,9 @@ export interface BotPick {
   currencies: string[];
   channel: 'CASH' | 'BANK' | null;
   destination: string | null;
+  /** For a country quote: the country, and the sum to be received if it was given. */
+  country: string | null;
+  delivered: string | null;
   calculation: BotCalculation | null;
   wants_staff: boolean;
   summary: string | null;
@@ -50,6 +54,8 @@ export const emptyPick = (over: Partial<BotPick>): BotPick => ({
   currencies: [],
   channel: null,
   destination: null,
+  country: null,
+  delivered: null,
   calculation: null,
   wants_staff: false,
   summary: null,
@@ -155,6 +161,7 @@ function replyFor(pick: BotPick, profile: BotProfile, sheet: PriceSheet): string
       if (profile.accounts.length === 1) return accountText(profile.accounts[0]!);
       return ['أي بنك بدك؟', ...profile.accounts.map((row) => `• ${row.bank}`)].join('\n');
     case 'handover':
+    case 'country_quote':
     case 'flow':
     case 'none':
       return null;
@@ -187,6 +194,7 @@ export function composeChoices(profile: BotProfile, sheet: PriceSheet): string {
     `Other priced items (extra_index):\n${numbered((sheet.extra ?? []).map((row) => row.item)) || 'none'}`,
     `Currencies with prices: ${[...new Set(sheet.rates.map((rate) => rate.baseCode))].join(', ') || 'none'}`,
     `Remittance destinations: ${[...new Set(sheet.remittances.map((row) => row.destination))].join(', ') || 'none'}`,
+    `Countries with remittance prices: ${profile.countryPrices.map((row) => row.country).join(', ') || 'none'}`,
     `The office has written about itself: ${profile.about ? 'yes' : 'no'}`,
     `Conversations the office has set up (flow_index):\n${
       numbered(

@@ -23,6 +23,7 @@ import { say } from '@/lib/failure';
 import type { BotProfile } from '@/modules/whatsapp/bot-profile';
 import { Field, Input, NumberInput, Switch, Textarea } from '@/ui/form';
 import { useToast } from '@/ui/overlay';
+import { CountryPricesEditor } from './country-prices-editor';
 import { NodeList } from './flow-editor';
 import { Alert, Badge, Button, Card, CardBody, CardHeader, Skeleton } from '@/ui/primitives';
 
@@ -425,6 +426,12 @@ export function PrivateBotView({ canManage }: { canManage: boolean }) {
 
         {section === 'prices' && (
           <>
+            <CountryPricesEditor
+              rows={profile.countryPrices}
+              disabled={!canManage}
+              onChange={(countryPrices) => edit({ countryPrices })}
+            />
+
             {/* ============ Prices the system does not hold ============ */}
             <Card>
               <CardHeader

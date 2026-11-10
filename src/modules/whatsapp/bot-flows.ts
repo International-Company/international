@@ -1,6 +1,7 @@
 import { normalizeDigits } from '@/core/money/money';
 import { emptyPick, renderAnswer, SAY_TO_STAFF } from './bot-answers';
 import { firstMatch, isGreeting, type BotProfile, type FlowNode } from './bot-profile';
+import { figureOf, findCountry, quoteCountry } from './country-prices';
 import type { PriceSheet } from './price-sheet';
 import { foldName } from './report-command';
 
@@ -17,6 +18,8 @@ export interface FlowState {
   /** Standing on an answer, with the list it came from still open. */
   atResult: boolean;
   at: number;
+  /** Waiting to be told how much this country's beneficiary is to receive. */
+  quote?: string | null;
 }
 
 export interface FlowStep {
@@ -60,6 +63,14 @@ export function childrenOf(node: FlowNode, ctx: Pick<Context, 'profile' | 'sheet
       destination,
     }));
   }
+  if (node.kind === 'countries') {
+    return ctx.profile.countryPrices.map((row) => ({
+      ...blank,
+      title: row.country,
+      kind: 'country_quote',
+      destination: row.country,
+    }));
+  }
   if (node.kind === 'accounts') {
     return ctx.profile.accounts.map((row, accountIndex) => ({
       ...blank,
@@ -72,7 +83,10 @@ export function childrenOf(node: FlowNode, ctx: Pick<Context, 'profile' | 'sheet
 }
 
 const isList = (node: FlowNode) =>
-  node.kind === 'menu' || node.kind === 'destinations' || node.kind === 'accounts';
+  node.kind === 'menu' ||
+  node.kind === 'destinations' ||
+  node.kind === 'accounts' ||
+  node.kind === 'countries';
 
 const rootOf = (profile: BotProfile): FlowNode => ({
   ...blank,
@@ -165,6 +179,16 @@ function open(root: FlowNode, path: number[], ctx: Context): FlowStep | null {
     return showList(path, root, ctx);
   }
   const parent = path.slice(0, -1);
+  if (node.kind === 'country_quote') {
+    const country = findCountry(ctx.profile.countryPrices, node.destination);
+    if (!country) return staffStep(ctx, parent, titlesOf(root, path, ctx));
+    return {
+      reply: `كم بدك يوصل للمستفيد في ${country.country}؟ اكتب المبلغ بـ${country.unit}.\n\n${BACK}   ${STAFF}`,
+      state: { path: parent, atResult: false, at: ctx.now, quote: country.country },
+      handover: false,
+      summary: null,
+    };
+  }
   if (node.kind === 'staff') return staffStep(ctx, parent, titlesOf(root, path, ctx));
 
   const body = resultOf(node, ctx);
@@ -197,6 +221,62 @@ function choiceFrom(text: string, children: FlowNode[]): number | null {
 
 export const hasFlows = (profile: BotProfile) => profile.flow.children.length > 0;
 
+const quoteReply = (
+  country: string,
+  delivered: bigint,
+  channel: 'CASH' | 'BANK' | null,
+  ctx: Context,
+) => {
+  const row = findCountry(ctx.profile.countryPrices, country);
+  return row ? quoteCountry(row, delivered, channel) : null;
+};
+
+/** A sum for a country, however it was asked; asks for the sum when it was not said. */
+export function quoteStep(
+  ask: {
+    country: string;
+    delivered: string | null;
+    channel: 'CASH' | 'BANK' | null;
+    wantsStaff?: boolean;
+    summary?: string | null;
+  },
+  previous: FlowState | null,
+  profile: BotProfile,
+  sheet: PriceSheet,
+  isOpen: boolean,
+  now: number,
+): FlowStep | null {
+  const ctx: Context = { profile, sheet, open: isOpen, now };
+  const country = findCountry(profile.countryPrices, ask.country);
+  if (!country) return null;
+  const path = previous?.path ?? [];
+  const delivered = ask.delivered ? figureOf(ask.delivered) : null;
+  if (!delivered) {
+    return {
+      reply: `كم بدك يوصل للمستفيد في ${country.country}؟ اكتب المبلغ بـ${country.unit}.`,
+      state: { path, atResult: false, at: now, quote: country.country },
+      handover: false,
+      summary: null,
+    };
+  }
+  const body = quoteCountry(country, delivered, ask.channel);
+  if (!body)
+    return staffStep(
+      ctx,
+      path,
+      `${country.country}: ${figureText(ask.delivered!)} ${country.unit}`,
+    );
+  const staff = ask.wantsStaff ? staffStep(ctx, path, ask.summary ?? country.country) : null;
+  return {
+    reply: staff ? `${body}\n${staff.reply}` : `${body}\n\n${BACK}   ${STAFF}`,
+    state: { path, atResult: true, at: now },
+    handover: Boolean(staff),
+    summary: staff?.summary ?? null,
+  };
+}
+
+const figureText = (value: string) => value.trim();
+
 /**
  * One message against the tree. Null when the tree has nothing to say to it, so
  * the assistant can be asked what it means.
@@ -209,11 +289,31 @@ export function stepFlow(
   isOpen: boolean,
   now: number,
 ): FlowStep | null {
-  if (!hasFlows(profile)) return null;
   const ctx: Context = { profile, sheet, open: isOpen, now };
   const root = rootOf(profile);
   const text = normalizeDigits(rawText).trim();
   const state = previous && now - previous.at < FLOW_EXPIRES ? previous : null;
+  if (!hasFlows(profile) && !state?.quote) return null;
+
+  if (state?.quote) {
+    if (text === '#' || foldName(text) === 'موظف') {
+      return staffStep(ctx, state.path, state.quote);
+    }
+    if (text === '0') {
+      return hasFlows(profile) ? showList(state.path, root, ctx) : null;
+    }
+    const delivered = figureOf(text);
+    if (delivered && delivered > 0n) {
+      const body = quoteReply(state.quote, delivered, null, ctx);
+      if (!body) return staffStep(ctx, state.path, `${state.quote}: ${text}`);
+      return {
+        reply: `${body}\n\n${BACK}   ${STAFF}`,
+        state: { path: state.path, atResult: true, at: now },
+        handover: false,
+        summary: null,
+      };
+    }
+  }
 
   if (isGreeting(text)) {
     return showList([], root, ctx, state ? undefined : profile.welcome.trim() || undefined);
