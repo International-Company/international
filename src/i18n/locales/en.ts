@@ -686,6 +686,10 @@ const en = {
   },
 
   privateBot: {
+    replyMode: 'How it replies',
+    replyModeHint: 'Build the paths at your own pace and switch when they are ready.',
+    modeChat: 'Normal conversation',
+    modePaths: 'Paths and my own words only',
     countriesTitle: 'Country prices',
     countriesHint: 'Each country has bands by the sum the beneficiary receives. The bot works out the shekels to pay, rounded up to a whole shekel. Price: how many of the country’s currency one shekel buys.',
     country: 'Country',

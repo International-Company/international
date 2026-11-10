@@ -21,7 +21,7 @@ import { useLocale } from '@/i18n/provider';
 import { api, ApiError } from '@/lib/api-client';
 import { say } from '@/lib/failure';
 import type { BotProfile } from '@/modules/whatsapp/bot-profile';
-import { Field, Input, NumberInput, Switch, Textarea } from '@/ui/form';
+import { Field, Input, NumberInput, Select, Switch, Textarea } from '@/ui/form';
 import { useToast } from '@/ui/overlay';
 import { CountryPricesEditor } from './country-prices-editor';
 import { NodeList } from './flow-editor';
@@ -254,6 +254,22 @@ export function PrivateBotView({ canManage }: { canManage: boolean }) {
                     label={t('privateBot.enabled')}
                     description={t('privateBot.enabledHint')}
                   />
+                  <Field label={t('privateBot.replyMode')} hint={t('privateBot.replyModeHint')}>
+                    {(props) => (
+                      <Select
+                        {...props}
+                        disabled={!canManage}
+                        value={profile.replyMode}
+                        onChange={(event) =>
+                          edit({ replyMode: event.target.value as BotProfile['replyMode'] })
+                        }
+                        options={[
+                          { value: 'chat', label: t('privateBot.modeChat') },
+                          { value: 'paths', label: t('privateBot.modePaths') },
+                        ]}
+                      />
+                    )}
+                  </Field>
                   <Field label={t('privateBot.dailyLimit')} hint={t('privateBot.dailyLimitHint')}>
                     {(props) => (
                       <NumberInput

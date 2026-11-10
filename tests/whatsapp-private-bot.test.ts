@@ -25,6 +25,7 @@ import {
 } from '../src/modules/whatsapp/bot-flows.ts';
 import {
   cannedWelcome,
+  composeKnowledge,
   composeRules,
   emptyProfile,
   firstMatch,
@@ -323,6 +324,13 @@ describe('answers made of the office’s own words', () => {
     assert.equal(await handlePrivateMessage(message('شو رأيك بالطقس؟'), deps), 'NO_INFO');
     assert.deepEqual([sent.length, alerts.length], [0, 0]);
     assert.deepEqual(kept, ['customer:شو رأيك بالطقس؟']);
+  });
+
+  it('chats until told to follow the paths', () => {
+    assert.equal(emptyProfile().replyMode, 'chat');
+    const text = composeKnowledge(profile({ about: 'نعمل حتى 6' }));
+    assert.match(text, /نعمل حتى 6/);
+    assert.match(text, /س: متى تفتحون؟\nج: الساعة 9 بالضبط/);
   });
 
   it('keeps accounts only when complete', () => {
