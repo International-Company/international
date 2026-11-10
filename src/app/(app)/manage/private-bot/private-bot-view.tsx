@@ -148,7 +148,14 @@ export function PrivateBotView({ canManage }: { canManage: boolean }) {
         '/api/admin/private-bot',
         { turns: asked.slice(-12).map(({ role, content: words }) => ({ role, content: words })) },
       );
-      setTurns([...asked, { role: 'assistant', content: answer.reply, handover: answer.handover }]);
+      setTurns([
+        ...asked,
+        {
+          role: 'assistant',
+          content: answer.reply || t('privateBot.trySilent'),
+          handover: answer.handover,
+        },
+      ]);
     } catch (cause) {
       failure(cause);
     } finally {
@@ -324,6 +331,12 @@ export function PrivateBotView({ canManage }: { canManage: boolean }) {
                 />
               </CardBody>
             </Card>
+
+            <AccountList
+              accounts={profile.accounts}
+              disabled={!canManage}
+              onChange={(accounts) => edit({ accounts })}
+            />
 
             {/* ============ Prepared answers ============ */}
             <Card>
@@ -799,6 +812,96 @@ export function PrivateBotView({ canManage }: { canManage: boolean }) {
         </div>
       )}
     </div>
+  );
+}
+
+/** The banks the bot can give, exactly as written here. */
+function AccountList({
+  accounts,
+  disabled,
+  onChange,
+}: {
+  accounts: BotProfile['accounts'];
+  disabled: boolean;
+  onChange: (accounts: BotProfile['accounts']) => void;
+}) {
+  const { t } = useLocale();
+  const change = (index: number, patch: Partial<BotProfile['accounts'][number]>) =>
+    onChange(accounts.map((row, at) => (at === index ? { ...row, ...patch } : row)));
+  return (
+    <Card>
+      <CardHeader
+        title={t('privateBot.accountsTitle')}
+        description={t('privateBot.accountsHint')}
+        actions={
+          !disabled && accounts.length < 30 ? (
+            <Button
+              size="sm"
+              variant="secondary"
+              icon={<Plus />}
+              onClick={() => onChange([...accounts, { bank: '', name: '', account: '' }])}
+            >
+              {t('privateBot.add')}
+            </Button>
+          ) : undefined
+        }
+      />
+      <CardBody className="space-y-2">
+        {accounts.length === 0 && (
+          <p className="text-sm text-content-tertiary">{t('privateBot.listEmpty')}</p>
+        )}
+        {accounts.map((row, index) => (
+          <div key={index} className="flex items-start gap-2 rounded-xl bg-surface-sunken p-3">
+            <div className="grid min-w-0 flex-1 gap-2 sm:grid-cols-3">
+              <Field label={t('privateBot.accountBank')}>
+                {(props) => (
+                  <Input
+                    {...props}
+                    maxLength={80}
+                    disabled={disabled}
+                    value={row.bank}
+                    onChange={(event) => change(index, { bank: event.target.value })}
+                  />
+                )}
+              </Field>
+              <Field label={t('privateBot.accountName')}>
+                {(props) => (
+                  <Input
+                    {...props}
+                    maxLength={120}
+                    disabled={disabled}
+                    value={row.name}
+                    onChange={(event) => change(index, { name: event.target.value })}
+                  />
+                )}
+              </Field>
+              <Field label={t('privateBot.accountNumber')}>
+                {(props) => (
+                  <Input
+                    {...props}
+                    dir="ltr"
+                    maxLength={80}
+                    disabled={disabled}
+                    value={row.account}
+                    onChange={(event) => change(index, { account: event.target.value })}
+                  />
+                )}
+              </Field>
+            </div>
+            {!disabled && (
+              <button
+                type="button"
+                aria-label={t('common.delete')}
+                onClick={() => onChange(accounts.filter((_, at) => at !== index))}
+                className="mt-6 flex size-10 shrink-0 items-center justify-center rounded-full text-content-tertiary transition-colors hover:bg-surface hover:text-danger-text"
+              >
+                <Trash2 className="size-4" />
+              </button>
+            )}
+          </div>
+        ))}
+      </CardBody>
+    </Card>
   );
 }
 

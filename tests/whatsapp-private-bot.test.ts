@@ -6,10 +6,15 @@ import { describe, it } from 'node:test';
 import { chooseAccount, groupEntry, isPrivateChat } from '../src/modules/whatsapp/accounts.ts';
 import { categoriesOf, groupPlan, groupsMatching } from '../src/modules/whatsapp/group-routes.ts';
 import { composePriceSheet } from '../src/modules/whatsapp/price-sheet.ts';
+import {
+  composeChoices,
+  renderAnswer,
+  SAY_TO_STAFF,
+  type BotPick,
+} from '../src/modules/whatsapp/bot-answers.ts';
 import { calculationLines } from '../src/modules/whatsapp/bot-calc.ts';
 import {
   cannedWelcome,
-  composeKnowledge,
   composeRules,
   emptyProfile,
   firstMatch,
@@ -177,13 +182,6 @@ describe('what the manager tells it', () => {
     assert.match(text, /أسعار أخرى من المكتب:\n- الدرهم: نشتري بـ 0\.85، نبيع بـ 0\.90\n- الريال: نبيع بـ 0\.80/);
   });
 
-  it('gives the assistant the office’s own words and answers', () => {
-    const text = composeKnowledge(profile({ about: 'نعمل حتى 6', faqs: [{ question: 'متى تفتحون؟', answer: 'الساعة 9' }] }));
-    assert.match(text, /نعمل حتى 6/);
-    assert.match(text, /س: متى تفتحون؟\nج: الساعة 9/);
-    assert.equal(composeKnowledge(emptyProfile()), '');
-  });
-
   it('drops rows left half empty, and reads a broken save as nothing written', () => {
     const tidy = tidyProfile(profile({ faqs: [{ question: ' س ', answer: ' ج ' }, { question: 'بلا جواب', answer: ' ' }], extraPrices: [{ item: '', buy: '1', sell: '' }, { item: 'بلا سعر', buy: ' ', sell: '' }] }));
     assert.deepEqual(tidy.faqs, [{ question: 'س', answer: 'ج' }]);
@@ -214,6 +212,123 @@ describe('what the manager tells it', () => {
     assert.equal(await handlePrivateMessage(message('كم الدولار؟'), written.deps), 'ANSWERED');
     const unwritten = setup();
     assert.equal(await handlePrivateMessage(message('مرحبا'), unwritten.deps), 'ANSWERED');
+  });
+});
+
+describe('answers made of the office’s own words', () => {
+  const rates = [
+    { baseCode: 'USD', quoteCode: 'ILS', channel: 'CASH', buyRate: 365_000_000n, sellRate: 370_000_000n },
+    { baseCode: 'USD', quoteCode: 'ILS', channel: 'BROKER', buyRate: 362_000_000n, sellRate: 0n },
+    { baseCode: 'JOD', quoteCode: 'ILS', channel: 'CASH', buyRate: 512_000_000n, sellRate: 525_000_000n },
+  ];
+  const sheet = {
+    rates,
+    remittances: [{ destination: 'مصر', currency: 'ILS', chargeKind: 'PERCENT', chargeValue: 2n * U }],
+    usdtForCashDollars: 1,
+    usdtForBankDollars: 0,
+    extra: [{ item: 'الدرهم', buy: '0.85', sell: '0.90' }],
+  };
+  const account = { bank: 'بنك فلسطين', name: 'مكتب انترنشونال', account: 'PS92PALS0000' };
+  const profile = (over: Partial<BotProfile> = {}): BotProfile => ({
+    ...emptyProfile(),
+    about: 'نعمل من 9 حتى 6',
+    faqs: [{ question: 'متى تفتحون؟', answer: 'الساعة 9 بالضبط' }],
+    accounts: [account, { bank: 'جوال باي', name: 'أحمد', account: '0599' }],
+    ...over,
+  });
+  const pick = (over: Partial<BotPick>): BotPick => ({
+    intent: 'none',
+    faq_index: null,
+    extra_index: null,
+    account_index: null,
+    currencies: [],
+    channel: null,
+    destination: null,
+    calculation: null,
+    wants_staff: false,
+    summary: null,
+    ...over,
+  });
+  const say = (over: Partial<BotPick>, p = profile(), open = true) => renderAnswer(pick(over), p, sheet, open);
+
+  it('sends a prepared answer word for word', () => {
+    assert.equal(say({ intent: 'faq', faq_index: 0 }).reply, 'الساعة 9 بالضبط');
+  });
+
+  it('stays silent on what the office has written nothing for', () => {
+    assert.equal(say({ intent: 'none' }).reply, null);
+    assert.equal(say({ intent: 'faq', faq_index: 9 }).reply, null);
+    assert.equal(say({ intent: 'about' }, profile({ about: '' })).reply, null);
+    assert.equal(say({ intent: 'price', currencies: ['GBP'] }).reply, null);
+  });
+
+  it('gives one bank’s account exactly as typed', () => {
+    assert.equal(
+      say({ intent: 'account', account_index: 0 }).reply,
+      'بنك فلسطين\nالاسم: مكتب انترنشونال\nرقم الحساب: PS92PALS0000',
+    );
+    assert.equal(say({ intent: 'account', account_index: 7 }).reply, null);
+  });
+
+  it('asks which bank when none was named, and gives the only one if there is one', () => {
+    assert.equal(say({ intent: 'account_list' }).reply, 'أي بنك بدك؟\n• بنك فلسطين\n• جوال باي');
+    assert.match(say({ intent: 'account_list' }, profile({ accounts: [account] })).reply!, /PS92PALS0000/);
+    assert.equal(say({ intent: 'account_list' }, profile({ accounts: [] })).reply, null);
+  });
+
+  it('never gives the assistant an account number, a price or an answer', () => {
+    const choices = composeChoices(profile(), sheet);
+    assert.match(choices, /0: بنك فلسطين/);
+    assert.match(choices, /0: متى تفتحون؟/);
+    assert.doesNotMatch(choices, /PS92PALS0000|الساعة 9|3\.65|0\.85|مكتب انترنشونال/);
+  });
+
+  it('gives prices from the book, one way of paying when that was asked', () => {
+    assert.equal(
+      say({ intent: 'price', currencies: ['USD'], channel: 'CASH' }).reply,
+      'دولار مقابل شيكل (نقدي): نشتري بـ 3.65، نبيع بـ 3.7\nوالسعر ممكن يتغير.',
+    );
+    assert.match(say({ intent: 'price', currencies: ['USD'] }).reply!, /تحويل بنكي\): نشتري بـ 3\.62\n/);
+    assert.match(say({ intent: 'price', currencies: ['USDT'] }).reply!, /نخصم 1%/);
+  });
+
+  it('gives remittance fees and the office’s other prices', () => {
+    assert.match(say({ intent: 'remittance', destination: 'مصر' }).reply!, /الرسوم 2%/);
+    assert.match(say({ intent: 'extra', extra_index: 0 }).reply!, /الدرهم: نشتري بـ 0\.85، نبيع بـ 0\.90/);
+  });
+
+  it('works sums out, and hands a wanted deal to staff with them', () => {
+    const answer = say({
+      intent: 'calculation',
+      wants_staff: true,
+      summary: 'يريد بيع 1000 دولار',
+      calculation: { side: 'customer_sells', currency: 'USD', amount: '1000', other_currency: 'ILS', channel: 'CASH' },
+    });
+    assert.equal(answer.reply, '1,000 دولار = 3,650 شيكل (نقدي)\nوالسعر ممكن يتغير.\n' + SAY_TO_STAFF);
+    assert.equal(answer.handover, true);
+    assert.equal(answer.summary, 'يريد بيع 1000 دولار');
+  });
+
+  it('says the office is closed when it hands over out of hours', () => {
+    assert.match(say({ intent: 'handover' }, profile(), false).reply!, /المكتب مغلق الآن/);
+    assert.equal(say({ intent: 'handover' }).reply, SAY_TO_STAFF);
+  });
+
+  it('greets with the office’s welcome, or a short hello', () => {
+    assert.equal(say({ intent: 'greeting' }, profile({ welcome: 'أهلاً بك' })).reply, 'أهلاً بك');
+    assert.match(say({ intent: 'greeting' }).reply!, /أهلاً/);
+  });
+
+  it('stays out of it when an answer is silent, keeping the person’s words', async () => {
+    const { deps, sent, alerts, kept } = setup({ reply: '', handover: false, summary: null, silent: true });
+    assert.equal(await handlePrivateMessage(message('شو رأيك بالطقس؟'), deps), 'NO_INFO');
+    assert.deepEqual([sent.length, alerts.length], [0, 0]);
+    assert.deepEqual(kept, ['customer:شو رأيك بالطقس؟']);
+  });
+
+  it('keeps accounts only when complete', () => {
+    const tidy = tidyProfile(profile({ accounts: [account, { bank: 'x', name: '', account: '1' }] }));
+    assert.deepEqual(tidy.accounts, [account]);
   });
 });
 
