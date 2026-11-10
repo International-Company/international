@@ -1854,6 +1854,8 @@ const en = {
     account: 'Account / wallet number',
     accountHint: 'Where the transfer goes — a wallet number, a phone, or an IBAN.',
     savedPayouts: 'Paid before to',
+    fullNameHint: 'First name and family name.',
+    fullNameError: 'Write the whole name: at least two words, with no figures.',
     saveCustomer: 'Save as a customer, so this address is recognised next time',
     brokerShare: 'Share sent by bank ({token})',
     shareAddress: 'Send the address on WhatsApp',

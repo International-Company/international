@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { useLocale } from '@/i18n/provider';
 import { api, queryString } from '@/lib/api-client';
+import { isFullName } from '@/modules/usdt/person-name';
 import { describeFailure } from '@/lib/failure';
 import { QrCode } from '@/core/qr/qr-code';
 import { Alert, Badge, Button, Card, CardBody, CardHeader } from '@/ui/primitives';
@@ -171,6 +172,7 @@ export function ReceiveFlow({
   const [payoutCurrency, setPayoutCurrency] = useState(currencies[0]?.code ?? 'ILS');
   const [customer, setCustomer] = useState<CustomerHit | null>(null);
   const [counterpartyName, setCounterpartyName] = useState('');
+  const [nameLeft, setNameLeft] = useState(false);
   const [quote, setQuote] = useState<Priced | null>(null);
   const [mode, setMode] = useState<Mode>('CASH');
   const [brokerShare, setBrokerShare] = useState('');
@@ -420,6 +422,7 @@ export function ReceiveFlow({
     }
 
     setCounterpartyName('');
+    setNameLeft(false);
     setCounterpartyPhone('');
     setSaveCustomer(true);
     setBrokerShare('');
@@ -528,20 +531,31 @@ export function ReceiveFlow({
 
   // Open while there is anything typed in it: a price must never be hidden and still apply.
   const adjustOpen = adjusting || Boolean(priceCash || priceBroker || payoutEdit);
-  const showCustomer = customerAsked || transferring || Boolean(customer);
-  const ready = payout !== null && !missingForTransfer && !editRefused;
+  const showCustomer =
+    customerAsked || transferring || Boolean(customer) || Boolean(counterpartyName.trim());
+  // Half a name would be recorded and sent to the group as it stands.
+  const nameIncomplete =
+    !customer && Boolean(counterpartyName.trim()) && !isFullName(counterpartyName);
+  const ready = payout !== null && !missingForTransfer && !editRefused && !nameIncomplete;
 
   /*
    * A deal with nothing left to ask is one key away: the teller looks, and presses
-   * Enter. Once, when it becomes ready, so typing in a field is never interrupted.
+   * Enter. Once, when it becomes ready, and never after the teller has started on
+   * the form: the price can arrive mid-word, and the space after a first name would
+   * then press the button.
    */
   const focused = useRef<string | null>(null);
+  const handled = useRef(false);
+  const startedOnForm = () => {
+    handled.current = true;
+  };
   useEffect(() => {
     if (!chosen) {
       focused.current = null;
+      handled.current = false;
       return;
     }
-    if (!ready || focused.current === chosen.id) return;
+    if (!ready || handled.current || focused.current === chosen.id) return;
     focused.current = chosen.id;
     const frame = requestAnimationFrame(() => {
       document.querySelector<HTMLButtonElement>('button[form=settle-arrival]')?.focus();
@@ -594,6 +608,7 @@ export function ReceiveFlow({
       setChosen(null);
       setCustomer(null);
       setCounterpartyName('');
+      setNameLeft(false);
       setCounterpartyPhone('');
       setPayoutAccount('');
       await load();
@@ -1003,6 +1018,9 @@ export function ReceiveFlow({
           <form
             id="settle-arrival"
             className="space-y-3"
+            onPointerDown={startedOnForm}
+            onKeyDown={startedOnForm}
+            onInput={startedOnForm}
             onSubmit={(event) => {
               event.preventDefault();
               if (ready && !recording) void record();
@@ -1157,7 +1175,6 @@ export function ReceiveFlow({
                       value={payoutAccount}
                       onChange={(event) => setPayoutAccount(event.target.value)}
                       placeholder={customer?.phone ?? (counterpartyPhone || undefined)}
-                      required
                       className="mt-1 h-11 w-full rounded-[var(--radius-control)] bg-surface-sunken px-3 font-mono text-sm font-medium text-content outline-none ring-1 ring-transparent focus:ring-primary"
                     />
                   </label>
@@ -1396,13 +1413,25 @@ export function ReceiveFlow({
 
             {showCustomer && !customer && (
               <>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <Field label={t('transactions.counterpartyName')} required={transferring}>
+                {/* Enter here is not "record": the deal goes only from the button. */}
+                <div
+                  className="grid gap-3 sm:grid-cols-2"
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') event.preventDefault();
+                  }}
+                >
+                  <Field
+                    label={t('transactions.counterpartyName')}
+                    required={transferring}
+                    hint={t('receive.fullNameHint')}
+                    error={nameIncomplete && nameLeft ? t('receive.fullNameError') : undefined}
+                  >
                     {(props) => (
                       <Input
                         {...props}
                         value={counterpartyName}
                         onChange={(event) => setCounterpartyName(event.target.value)}
+                        onBlur={() => setNameLeft(true)}
                       />
                     )}
                   </Field>
