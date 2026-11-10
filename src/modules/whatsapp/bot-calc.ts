@@ -1,5 +1,5 @@
 import { normalizeDigits, parseMoney } from '@/core/money/money';
-import { ANY_CHANNEL, type SheetRate } from './price-sheet';
+import { ANY_CHANNEL, currencyCodeOf, type SheetRate } from './price-sheet';
 import { currencyWord, formatFigure } from './report-command';
 
 /**
@@ -32,9 +32,10 @@ export function calculationLines(calculation: BotCalculation, rates: SheetRate[]
 
   const channel =
     calculation.channel === 'CASH' ? 'CASH' : calculation.channel === 'BANK' ? 'BROKER' : null;
+  const currency = currencyCodeOf(calculation.currency) ?? calculation.currency;
   const matching = rates.filter(
     (rate) =>
-      rate.baseCode === calculation.currency &&
+      rate.baseCode === currency &&
       rate.quoteCode === calculation.other_currency &&
       (channel === null || rate.channel === channel || rate.channel === ANY_CHANNEL),
   );

@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { chooseAccount, groupEntry, isPrivateChat } from '../src/modules/whatsapp/accounts.ts';
 import { categoriesOf, groupPlan, groupsMatching } from '../src/modules/whatsapp/group-routes.ts';
-import { composePriceSheet } from '../src/modules/whatsapp/price-sheet.ts';
+import { composePriceSheet, currencyCodeOf } from '../src/modules/whatsapp/price-sheet.ts';
 import {
   composeChoices,
   emptyPick,
@@ -839,6 +839,15 @@ describe('a sum worked out for a customer', () => {
     assert.deepEqual(calculationLines(ask({ currency: 'JOD' }), rates), []);
     assert.deepEqual(calculationLines(ask({ amount: 'كثير' }), rates), []);
     assert.deepEqual(calculationLines(ask({ amount: '0' }), rates), []);
+  });
+
+  it('knows USDT however it is written', () => {
+    for (const word of ['USTD', 'udst', ' usdt ', 'يواس', 'تيثر', 'Tether']) {
+      assert.equal(currencyCodeOf(word), 'USDT', word);
+    }
+    assert.equal(currencyCodeOf('الدرهم'), null);
+    const coin = [{ baseCode: 'USDT', quoteCode: 'ILS', channel: 'ANY', buyRate: 3n * U, sellRate: 4n * U }];
+    assert.deepEqual(calculationLines({ side: 'customer_buys', currency: 'USTD', amount: '10', other_currency: 'ILS', channel: null }, coin), ['10 USDT = 40 شيكل']);
   });
 
   it('takes Arabic digits and thousands', () => {

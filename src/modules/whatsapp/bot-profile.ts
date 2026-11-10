@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { normalizeDigits, parseMoney } from '@/core/money/money';
-import { ANY_CHANNEL, type PriceSheet, type SheetRate } from './price-sheet';
+import { ANY_CHANNEL, currencyCodeOf, type PriceSheet, type SheetRate } from './price-sheet';
 import { FEE_KINDS } from './country-prices';
 import { foldName } from './report-command';
 
@@ -234,24 +234,6 @@ export function tidyProfile(profile: BotProfile): BotProfile {
 
 const isUsdt = (rate: SheetRate) => rate.baseCode === 'USDT' || rate.quoteCode === 'USDT';
 
-/** The names a manager writes a currency under, as they fold. */
-const CURRENCY_NAMES: Record<string, string> = {
-  usdt: 'USDT',
-  يواس: 'USDT',
-  'يو اس دي تي': 'USDT',
-  تيثر: 'USDT',
-  tether: 'USDT',
-  usd: 'USD',
-  دولار: 'USD',
-  الدولار: 'USD',
-  jod: 'JOD',
-  دينار: 'JOD',
-  الدينار: 'JOD',
-  egp: 'EGP',
-  جنيه: 'EGP',
-  الجنيه: 'EGP',
-};
-
 const writtenPrice = (text: string): bigint => {
   const figure = normalizeDigits(text)
     .replace(/٫/g, '.')
@@ -261,7 +243,7 @@ const writtenPrice = (text: string): bigint => {
 
 /** A row the manager wrote for a currency the board prices in shekels too; null for anything else. */
 function writtenRate(row: BotProfile['extraPrices'][number]): SheetRate | null {
-  const baseCode = CURRENCY_NAMES[foldName(row.item)];
+  const baseCode = currencyCodeOf(row.item);
   const buyRate = writtenPrice(row.buy);
   const sellRate = writtenPrice(row.sell);
   if (!baseCode || (buyRate === 0n && sellRate === 0n)) return null;

@@ -430,7 +430,7 @@ Choose one intent for the customer's latest message, reading the earlier message
 - greeting: only a hello.
 - faq: it asks one of the numbered questions, in any wording. Set faq_index.
 - about: it asks about the office itself, such as where it is or when it opens, and no question matches.
-- price: it asks a rate. Set currencies to codes such as USD, JOD, USDT, and channel to CASH or BANK only if they said which.
+- price: it asks a rate. Set currencies to codes such as USD, JOD, USDT (customers often misspell it, as USTD or UDST, or call it يواس or تيثر: it is still USDT), and channel to CASH or BANK only if they said which.
 - extra: it asks the price of one of the other priced items. Set extra_index.
 - calculation: it names an amount of one currency against another. Fill calculation, with side customer_sells if they hand that currency over and customer_buys if they want to receive it.
 - remittance: it asks what a remittance costs. Set destination from the list, or null if they named none.
@@ -490,7 +490,9 @@ Keep every reply short: one or two lines, three at the very most. Answer only wh
 
 Give only prices that appear in the list below, exactly as written. If a price is not listed, say a member of staff will confirm it. In the list, "نشتري" is what the office pays for that currency and "نبيع" is what it charges for it. When you give a price, add only "والسعر ممكن يتغير" or the same few words in their language.
 
-Never write a total for an amount yourself. When someone names an amount of one currency against another, fill in calculation, using currency codes like USD, ILS, JOD and USDT, with side customer_sells if they hand that currency over and customer_buys if they want to receive it; the program adds the exact figure after your reply, so your reply must not contain it. Otherwise set calculation to null. Never promise that a deal is done or reserved. Never ask for card numbers, passwords or codes. The office's costs and margins are not something you know.
+Customers misspell currency names. USTD, UDST, يواس, تيثر and tether all mean USDT: read what they mean and answer, and never ask about the spelling.
+
+Never write a total for an amount yourself. When someone names an amount of one currency against another, fill in calculation, using currency codes like USD, ILS, JOD and USDT, with side customer_sells if they hand that currency over and customer_buys if they want to receive it; the program adds the exact figure after your reply, so your reply must not contain it. Otherwise set calculation to null. When no amount is named it is a question about the price: give the price in your reply and set calculation to null. Your reply must never be empty. Never promise that a deal is done or reserved. Never ask for card numbers, passwords or codes. The office's costs and margins are not something you know.
 
 Use what the office has written below to answer questions about it, and state nothing about the office that is not written here.
 
@@ -584,6 +586,10 @@ async function liveChat(turns: Turn[], profile: BotProfile): Promise<Answer> {
     ...(calculation ? calculationLines(calculation, sheet.rates) : []),
     ...(account ? [`${account.bank}\nالاسم: ${account.name}\nرقم الحساب: ${account.account}`] : []),
   ];
+  // Said out loud so it reaches the manager's list, rather than ending as an apology nobody can trace.
+  if (!reply.trim() && added.length === 0) {
+    throw new Error(`Empty reply: ${calculation ? `asked to work out ${calculation.currency}` : 'nothing else'}`);
+  }
   return {
     reply: added.length > 0 ? `${reply.trim()}\n${added.join('\n')}` : reply,
     handover,

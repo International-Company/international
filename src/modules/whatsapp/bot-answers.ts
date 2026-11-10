@@ -2,7 +2,7 @@ import { toDecimalString } from '@/core/money/money';
 import { calculationLines, type BotCalculation } from './bot-calc';
 import type { BotProfile } from './bot-profile';
 import { foldName, currencyWord } from './report-command';
-import { ANY_CHANNEL, type PriceSheet, type SheetRate } from './price-sheet';
+import { ANY_CHANNEL, currencyCodeOf, type PriceSheet, type SheetRate } from './price-sheet';
 
 /**
  * Every word the private number sends, chosen and not composed.
@@ -92,12 +92,13 @@ function rateLine(rate: SheetRate): string | null {
 
 function priceLines(pick: BotPick, sheet: PriceSheet): string[] {
   const channel = pick.channel === 'CASH' ? 'CASH' : pick.channel === 'BANK' ? 'BROKER' : null;
+  const wanted = pick.currencies.map((code) => currencyCodeOf(code) ?? code);
   const rates = sheet.rates
-    .filter((rate) => pick.currencies.includes(rate.baseCode))
+    .filter((rate) => wanted.includes(rate.baseCode))
     .filter((rate) => channel === null || rate.channel === channel || rate.channel === ANY_CHANNEL)
     .map(rateLine)
     .filter((line): line is string => line !== null);
-  const usdt = pick.currencies.includes('USDT')
+  const usdt = wanted.includes('USDT')
     ? [
         channel !== 'BROKER' && sheet.usdtForCashDollars > 0
           ? `USDT مقابل دولار نقدي: نخصم ${sheet.usdtForCashDollars}%`

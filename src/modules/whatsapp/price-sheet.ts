@@ -1,4 +1,5 @@
 import { toDecimalString } from '@/core/money/money';
+import { foldName } from './report-command';
 
 /**
  * The office's prices in words, as the assistant on the private number is given them.
@@ -7,6 +8,34 @@ import { toDecimalString } from '@/core/money/money';
  * what the office charges: what the correspondent charges the office never comes
  * in here, so no question can get it out.
  */
+
+/** The names a currency goes by, as they fold, with the usual slips of the keyboard. */
+const CURRENCY_NAMES: Record<string, string> = {
+  usdt: 'USDT',
+  ustd: 'USDT',
+  udst: 'USDT',
+  usdtt: 'USDT',
+  'usd t': 'USDT',
+  tether: 'USDT',
+  يواس: 'USDT',
+  'يو اس دي تي': 'USDT',
+  'يواس دي تي': 'USDT',
+  تيثر: 'USDT',
+  تتر: 'USDT',
+  usd: 'USD',
+  دولار: 'USD',
+  الدولار: 'USD',
+  jod: 'JOD',
+  دينار: 'JOD',
+  الدينار: 'JOD',
+  egp: 'EGP',
+  جنيه: 'EGP',
+  الجنيه: 'EGP',
+};
+
+/** The code of a currency however it was written; null for what is not one of these. */
+export const currencyCodeOf = (text: string): string | null =>
+  CURRENCY_NAMES[foldName(text)] ?? null;
 
 /** A price that holds however the customer pays: one the manager wrote without saying how. */
 export const ANY_CHANNEL = 'ANY';
