@@ -75,6 +75,8 @@ export interface IncomingText {
   account: Account;
   /** A picture, voice note or file sent to the private number, which cannot be read. */
   media?: boolean;
+  /** A picture sent to the private number, with or without words. */
+  image?: boolean;
 }
 
 /** A member of staff writing from the private number's own phone. */
@@ -233,6 +235,7 @@ async function open(account: Account): Promise<void> {
         chat: message.key.remoteJid,
         text: text ?? '',
         media,
+        image: account === 'private' && Boolean(content?.imageMessage),
         sender: sender ?? null,
         senderPhone: phone ?? null,
         message,

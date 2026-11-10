@@ -75,6 +75,7 @@ const SAY_UNAVAILABLE = 'عذراً، ما بقدر أرد الآن. موظف م
 const FORWARD_FAILED = 'وصل ملف ولم يمكن نقله. افتح المحادثة في الرقم الخاص لرؤيته.';
 /** A person writing what fits nothing is shown the list once in this long. */
 const MENU_EVERY = 60 * 1000;
+const SAY_IMAGE_RECEIVED = 'وصلت الصورة، موظف رح يراجعها ويرد عليك قريباً.';
 const SAY_NOT_TEXT = 'ما بقدر أقرأ الصور أو أسمع الرسائل الصوتية، اكتب سؤالك لو سمحت.';
 /** A run of pictures gets one answer. */
 const NOT_TEXT_EVERY = 10 * 60 * 1000;
@@ -138,7 +139,12 @@ export interface BotDeps {
   /** The office's own reply to a first message, when there is one. */
   welcome: (isFirst: boolean, text: string) => Promise<string | null>;
   /** The lines the manager drew: the program holds them, not the assistant. */
-  guards: () => Promise<{ humanTopics: string[]; blockedWords: string[] }>;
+  guards: () => Promise<{
+    humanTopics: string[];
+    blockedWords: string[];
+    imageMode?: BotProfile['imageMode'];
+    imageReply?: string;
+  }>;
   flows?: FlowDeps;
   reply: (chat: string, text: string) => Promise<void>;
   alert: (text: string) => Promise<void>;
@@ -157,6 +163,7 @@ export type BotOutcome =
   | 'LIMITED'
   | 'PAUSED'
   | 'NOT_TEXT'
+  | 'IMAGE'
   | 'TOO_LONG'
   | 'WELCOMED'
   | 'TO_STAFF'
@@ -218,7 +225,7 @@ export async function handlePrivateMessage(
   if (conversation.times.length >= BURST.messages) return 'LIMITED';
   conversation.times.push(now);
 
-  if (!text) {
+  if (!text && !incoming.image) {
     if (now - conversation.mediaAt >= NOT_TEXT_EVERY) {
       conversation.mediaAt = now;
       await say(SAY_NOT_TEXT);
@@ -241,6 +248,17 @@ export async function handlePrivateMessage(
   };
 
   const guards = await deps.guards();
+
+  if (incoming.image) {
+    const mode = guards.imageMode ?? 'reply_alert';
+    // A run of pictures is one thing to answer, as the alert already is.
+    if (mode !== 'silent' && now - conversation.mediaAt >= NOT_TEXT_EVERY) {
+      conversation.mediaAt = now;
+      await say(guards.imageReply?.trim() || SAY_IMAGE_RECEIVED);
+    }
+    if (mode === 'reply_alert') await alert(text ? `صورة: ${text.slice(0, 280)}` : 'أرسل صورة');
+    return 'IMAGE';
+  }
   if (firstMatch(text, guards.humanTopics)) {
     await say(SAY_TO_STAFF);
     await alert(text.slice(0, 300));

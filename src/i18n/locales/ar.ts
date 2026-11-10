@@ -688,6 +688,15 @@ const ar: Dictionary = {
   },
 
   privateBot: {
+    imageMode: 'عند وصول صورة',
+    imageModes: {
+      reply_alert: 'يرد ويُنبّه موظفاً',
+      reply: 'يرد فقط',
+      silent: 'لا يرد',
+    },
+    imageReply: 'نص الرد على الصور',
+    imageReplyHint: 'يُرسل مرة واحدة لكل مجموعة صور متتالية. اتركه فارغاً لاستخدام النص الظاهر.',
+    imageReplyPlaceholder: 'وصلت الصورة، موظف رح يراجعها ويرد عليك قريباً.',
     replyMode: 'طريقة الرد',
     replyModeHint: 'ابنِ المسارات براحتك، وحوّل إليها عندما تكون جاهزة.',
     modeChat: 'محادثة عادية',

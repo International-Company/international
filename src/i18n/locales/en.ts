@@ -686,6 +686,15 @@ const en = {
   },
 
   privateBot: {
+    imageMode: 'When a picture arrives',
+    imageModes: {
+      reply_alert: 'Reply and alert staff',
+      reply: 'Reply only',
+      silent: 'Do not reply',
+    },
+    imageReply: 'Reply to pictures',
+    imageReplyHint: 'Sent once for a run of pictures. Left empty, the text shown is used.',
+    imageReplyPlaceholder: 'Picture received. A member of staff will review it and reply soon.',
     replyMode: 'How it replies',
     replyModeHint: 'Build the paths at your own pace and switch when they are ready.',
     modeChat: 'Normal conversation',

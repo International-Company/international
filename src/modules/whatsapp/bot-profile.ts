@@ -101,6 +101,10 @@ export const profileSchema = z.object({
   blockedWords: z.array(z.string().max(60)).max(100).default([]),
   /** A customer mentioning one goes straight to staff, and the assistant is not asked. */
   humanTopics: z.array(z.string().max(60)).max(100).default([]),
+  /** What it does with a picture: say a line, say it and tell the staff, or say nothing. */
+  imageMode: z.enum(['reply', 'reply_alert', 'silent']).default('reply_alert'),
+  /** The line. Left empty, the office's usual one. */
+  imageReply: z.string().max(500).default(''),
   /** Whether the bot talks freely, or follows the manager's paths and words. */
   replyMode: z.enum(['chat', 'paths']).default('chat'),
   /** The conversations the manager drew. Empty, the bot answers without a menu. */
@@ -201,6 +205,7 @@ export function tidyProfile(profile: BotProfile): BotProfile {
         account: row.account.trim(),
       }))
       .filter((row) => row.bank && row.name && row.account),
+    imageReply: profile.imageReply.trim(),
     rules: cleanList(profile.rules),
     blockedWords: cleanList(profile.blockedWords),
     humanTopics: cleanList(profile.humanTopics),

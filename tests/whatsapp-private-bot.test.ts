@@ -671,6 +671,46 @@ describe('passing on what reaches the number', () => {
   });
 });
 
+describe('a picture sent to the number', () => {
+  const picture = (text = '') => ({ ...message(text), image: true, media: !text }) as IncomingText;
+  const withMode = (over: Partial<BotProfile>) => setup(undefined, 100, { ...emptyProfile(), ...over });
+
+  it('is answered and shown to staff, without asking the assistant', async () => {
+    const { deps, sent, alerts, raised, asked } = withMode({});
+    assert.equal(await handlePrivateMessage(picture(), deps), 'IMAGE');
+    assert.match(sent[0]!, /وصلت الصورة/);
+    assert.match(alerts[0]!, /أرسل صورة/);
+    assert.equal(raised.length, 1);
+    assert.equal(asked.length, 0);
+  });
+
+  it('uses the office’s words, and passes on the caption', async () => {
+    const { deps, sent, alerts } = withMode({ imageReply: 'شكراً، قيد المراجعة' });
+    await handlePrivateMessage(picture('هذا الإيصال'), deps);
+    assert.deepEqual(sent, ['شكراً، قيد المراجعة']);
+    assert.match(alerts[0]!, /صورة: هذا الإيصال/);
+  });
+
+  it('answers without telling staff, or says nothing, as chosen', async () => {
+    const only = withMode({ imageMode: 'reply' });
+    await handlePrivateMessage(picture(), only.deps);
+    assert.deepEqual([only.sent.length, only.alerts.length], [1, 0]);
+    const silent = withMode({ imageMode: 'silent' });
+    assert.equal(await handlePrivateMessage(picture(), silent.deps), 'IMAGE');
+    assert.deepEqual([silent.sent.length, silent.alerts.length], [0, 0]);
+  });
+
+  it('answers a run of pictures once', async () => {
+    const { deps, sent, pass } = withMode({});
+    await handlePrivateMessage(picture(), deps);
+    await handlePrivateMessage(picture(), deps);
+    assert.equal(sent.length, 1);
+    pass(11 * 60 * 1000);
+    await handlePrivateMessage(picture(), deps);
+    assert.equal(sent.length, 2);
+  });
+});
+
 describe('working beside the staff', () => {
   const photo = () => ({ ...message(''), media: true }) as IncomingText;
 

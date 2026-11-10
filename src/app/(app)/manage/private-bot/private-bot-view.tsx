@@ -761,6 +761,38 @@ export function PrivateBotView({ canManage }: { canManage: boolean }) {
                     </div>
                   </div>
                 )}
+                <div className="grid gap-3 sm:grid-cols-[14rem_minmax(0,1fr)]">
+                  <Field label={t('privateBot.imageMode')}>
+                    {(props) => (
+                      <Select
+                        {...props}
+                        disabled={!canManage}
+                        value={profile.imageMode}
+                        onChange={(event) =>
+                          edit({ imageMode: event.target.value as BotProfile['imageMode'] })
+                        }
+                        options={[
+                          { value: 'reply_alert', label: t('privateBot.imageModes.reply_alert') },
+                          { value: 'reply', label: t('privateBot.imageModes.reply') },
+                          { value: 'silent', label: t('privateBot.imageModes.silent') },
+                        ]}
+                      />
+                    )}
+                  </Field>
+                  <Field label={t('privateBot.imageReply')} hint={t('privateBot.imageReplyHint')}>
+                    {(props) => (
+                      <Input
+                        {...props}
+                        maxLength={500}
+                        disabled={!canManage || profile.imageMode === 'silent'}
+                        placeholder={t('privateBot.imageReplyPlaceholder')}
+                        value={profile.imageReply}
+                        onChange={(event) => edit({ imageReply: event.target.value })}
+                      />
+                    )}
+                  </Field>
+                </div>
+
                 <div className="grid gap-4 sm:grid-cols-2">
                   <Field label={t('privateBot.takeover')} hint={t('privateBot.takeoverHint')}>
                     {(props) => (
