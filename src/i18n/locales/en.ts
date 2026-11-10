@@ -686,6 +686,17 @@ const en = {
   },
 
   privateBot: {
+    identityTitle: 'The bot’s identity',
+    identityHint: 'Who the bot is on this number. It speaks as this identity and from this information only.',
+    identityName: 'Name',
+    identityNamePlaceholder: 'For example: Abu Khaled',
+    identityRole: 'Role',
+    identityRolePlaceholder: 'For example: assistant to the exchange clerk',
+    identityDetails: 'About this identity',
+    identityDetailsHint: 'Write whatever you want: how it talks, its experience, what it cares about. It adds nothing about itself beyond this.',
+    identityDetailsPlaceholder: 'For example: has worked with the office team for years, speaks frankly, says clearly when a price is not a good one, and keeps things short.',
+    identityChatOnly: 'The identity works in normal conversation only. In paths mode the bot sends your texts as written.',
+    identityHonest: 'Sincerely asked whether it is a person or a program, it says plainly that it is the office’s automated assistant and offers a member of staff.',
     imageMode: 'When a picture arrives',
     imageModes: {
       reply_alert: 'Reply and alert staff',
@@ -766,9 +777,10 @@ const en = {
     issuesClear: 'Clear all',
     issueDismiss: 'Resolved',
     issueTimes: 'Happened {count} times, latest',
-    step: { flows: 'Paths', status: 'Status', info: 'Information', prices: 'Prices', behavior: 'Behaviour', rules: 'Limits' },
+    step: { flows: 'Paths', status: 'Status', identity: 'Identity', info: 'Information', prices: 'Prices', behavior: 'Behaviour', rules: 'Limits' },
     stepHint: {
       status: 'Switch and usage',
+      identity: 'Name, role and manner',
       flows: 'Lists and choices',
       info: 'Office, welcome and answers',
       prices: 'What is shown or hidden',

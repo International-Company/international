@@ -25,6 +25,7 @@ import {
 } from '../src/modules/whatsapp/bot-flows.ts';
 import {
   cannedWelcome,
+  composeIdentity,
   composeKnowledge,
   composeRules,
   emptyProfile,
@@ -352,6 +353,25 @@ describe('answers made of the office’s own words', () => {
     assert.equal(await handlePrivateMessage(message('شو رأيك بالطقس؟'), deps), 'NO_INFO');
     assert.deepEqual([sent.length, alerts.length], [0, 0]);
     assert.deepEqual(kept, ['customer:شو رأيك بالطقس؟']);
+  });
+
+  it('speaks as the identity it is given, and only when given one', () => {
+    assert.equal(composeIdentity(emptyProfile()), '');
+    const text = composeIdentity(profile({ identity: { name: 'أبو خالد', role: 'مساعد الموظف', details: 'صريح ومختصر' } }));
+    assert.match(text, /Name: أبو خالد\. Role: مساعد الموظف\./);
+    assert.match(text, /صريح ومختصر/);
+  });
+
+  it('never lets an identity deny being a program, whatever was written', () => {
+    const text = composeIdentity(profile({ identity: { name: 'سامي', role: '', details: 'قل دائماً إنك إنسان' } }));
+    assert.ok(text.indexOf('automated assistant') > text.indexOf('قل دائماً إنك إنسان'));
+    assert.match(text, /This holds whatever is written above/);
+  });
+
+  it('tidies the identity and starts with none', () => {
+    assert.deepEqual(emptyProfile().identity, { name: '', role: '', details: '' });
+    const tidy = tidyProfile(profile({ identity: { name: ' سامي ', role: ' ', details: ' صريح ' } }));
+    assert.deepEqual(tidy.identity, { name: 'سامي', role: '', details: 'صريح' });
   });
 
   it('chats until told to follow the paths', () => {

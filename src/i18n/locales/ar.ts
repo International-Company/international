@@ -688,6 +688,17 @@ const ar: Dictionary = {
   },
 
   privateBot: {
+    identityTitle: 'هوية البوت',
+    identityHint: 'من يكون البوت على هذا الرقم. يتحدث بهذه الهوية ومن هذه المعلومات فقط.',
+    identityName: 'الاسم',
+    identityNamePlaceholder: 'مثل: أبو خالد',
+    identityRole: 'الصفة',
+    identityRolePlaceholder: 'مثل: مساعد موظف الصرافة',
+    identityDetails: 'معلومات عن الهوية',
+    identityDetailsHint: 'اكتب كل ما تريده: طريقته في الكلام، خبرته، وما يهتم به. لن يضيف عن نفسه شيئاً غير المكتوب هنا.',
+    identityDetailsPlaceholder: 'مثال: يعمل مع فريق المكتب منذ سنوات، يتكلم بصراحة ولا يجامل، إذا السعر مش مناسب يقول بوضوح، ويحب يختصر على الناس.',
+    identityChatOnly: 'الهوية تعمل في وضع المحادثة العادية فقط. في وضع المسارات يرسل البوت نصوصك كما هي.',
+    identityHonest: 'إذا سأله أحد بجدية هل هو إنسان أم برنامج، يقول بصراحة إنه المساعد الآلي للمكتب ويعرض تدخل موظف.',
     imageMode: 'عند وصول صورة',
     imageModes: {
       reply_alert: 'يرد ويُنبّه موظفاً',
@@ -768,9 +779,10 @@ const ar: Dictionary = {
     issuesClear: 'مسح الكل',
     issueDismiss: 'تم الحل',
     issueTimes: 'تكرر {count} مرة، آخرها',
-    step: { flows: 'المسارات', status: 'الحالة', info: 'المعلومات', prices: 'الأسعار', behavior: 'السلوك', rules: 'الشروط' },
+    step: { flows: 'المسارات', status: 'الحالة', identity: 'الهوية', info: 'المعلومات', prices: 'الأسعار', behavior: 'السلوك', rules: 'الشروط' },
     stepHint: {
       status: 'التشغيل والاستهلاك',
+      identity: 'الاسم والصفة والأسلوب',
       flows: 'القوائم والخيارات',
       info: 'المكتب والترحيب والأسئلة',
       prices: 'ما يظهر وما يخفى',

@@ -16,6 +16,7 @@ import {
   Tags,
   Trash2,
   User,
+  UserRound,
 } from 'lucide-react';
 import { useLocale } from '@/i18n/provider';
 import { api, ApiError } from '@/lib/api-client';
@@ -56,6 +57,7 @@ const SECTIONS = ['cash', 'bank', 'usdt', 'remittances'] as const;
 /** The setup in the order it is done. */
 const STEPS = [
   { id: 'status', Icon: Activity },
+  { id: 'identity', Icon: UserRound },
   { id: 'flows', Icon: GitBranch },
   { id: 'info', Icon: BookOpen },
   { id: 'prices', Icon: Tags },
@@ -175,10 +177,7 @@ export function PrivateBotView({ canManage }: { canManage: boolean }) {
   return (
     <div className="grid items-start gap-4 pb-20 lg:grid-cols-[minmax(0,1fr)_24rem]">
       <div className="min-w-0 space-y-4">
-        <nav
-          aria-label={t('privateBot.title')}
-          className="grid grid-cols-2 gap-2 xl:grid-cols-3 2xl:grid-cols-6"
-        >
+        <nav aria-label={t('privateBot.title')} className="grid grid-cols-2 gap-2 xl:grid-cols-4">
           {STEPS.map(({ id, Icon }, index) => (
             <button
               key={id}
@@ -315,6 +314,69 @@ export function PrivateBotView({ canManage }: { canManage: boolean }) {
               </CardBody>
             </Card>
           </>
+        )}
+
+        {section === 'identity' && (
+          <Card>
+            <CardHeader
+              title={t('privateBot.identityTitle')}
+              description={t('privateBot.identityHint')}
+            />
+            <CardBody className="space-y-4">
+              {profile.replyMode === 'paths' && (
+                <Alert tone="warning">{t('privateBot.identityChatOnly')}</Alert>
+              )}
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Field label={t('privateBot.identityName')}>
+                  {(props) => (
+                    <Input
+                      {...props}
+                      maxLength={60}
+                      disabled={!canManage}
+                      placeholder={t('privateBot.identityNamePlaceholder')}
+                      value={profile.identity.name}
+                      onChange={(event) =>
+                        edit({ identity: { ...profile.identity, name: event.target.value } })
+                      }
+                    />
+                  )}
+                </Field>
+                <Field label={t('privateBot.identityRole')}>
+                  {(props) => (
+                    <Input
+                      {...props}
+                      maxLength={120}
+                      disabled={!canManage}
+                      placeholder={t('privateBot.identityRolePlaceholder')}
+                      value={profile.identity.role}
+                      onChange={(event) =>
+                        edit({ identity: { ...profile.identity, role: event.target.value } })
+                      }
+                    />
+                  )}
+                </Field>
+              </div>
+              <Field
+                label={t('privateBot.identityDetails')}
+                hint={t('privateBot.identityDetailsHint')}
+              >
+                {(props) => (
+                  <Textarea
+                    {...props}
+                    rows={8}
+                    maxLength={4000}
+                    disabled={!canManage}
+                    placeholder={t('privateBot.identityDetailsPlaceholder')}
+                    value={profile.identity.details}
+                    onChange={(event) =>
+                      edit({ identity: { ...profile.identity, details: event.target.value } })
+                    }
+                  />
+                )}
+              </Field>
+              <p className="text-xs text-content-secondary">{t('privateBot.identityHonest')}</p>
+            </CardBody>
+          </Card>
         )}
 
         {section === 'info' && (
