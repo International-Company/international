@@ -855,6 +855,51 @@ export function PrivateBotView({ canManage }: { canManage: boolean }) {
                   </Field>
                 </div>
 
+                <div className="space-y-3 rounded-xl bg-surface-sunken p-3">
+                  <Switch
+                    checked={profile.pestering.enabled}
+                    disabled={!canManage}
+                    onCheckedChange={(enabled) =>
+                      edit({ pestering: { ...profile.pestering, enabled } })
+                    }
+                    label={t('privateBot.pestering')}
+                    description={t('privateBot.pesteringHint')}
+                  />
+                  <div className="grid gap-3 sm:grid-cols-[10rem_minmax(0,1fr)]">
+                    <Field label={t('privateBot.pesteringMinutes')}>
+                      {(props) => (
+                        <NumberInput
+                          {...props}
+                          min={5}
+                          max={1440}
+                          disabled={!canManage || !profile.pestering.enabled}
+                          value={profile.pestering.minutes}
+                          onValueChange={(minutes) =>
+                            edit({ pestering: { ...profile.pestering, minutes } })
+                          }
+                        />
+                      )}
+                    </Field>
+                    <Field
+                      label={t('privateBot.pesteringReply')}
+                      hint={t('privateBot.pesteringReplyHint')}
+                    >
+                      {(props) => (
+                        <Input
+                          {...props}
+                          maxLength={300}
+                          disabled={!canManage || !profile.pestering.enabled}
+                          placeholder={t('privateBot.pesteringReplyPlaceholder')}
+                          value={profile.pestering.reply}
+                          onChange={(event) =>
+                            edit({ pestering: { ...profile.pestering, reply: event.target.value } })
+                          }
+                        />
+                      )}
+                    </Field>
+                  </div>
+                </div>
+
                 <div className="grid gap-4 sm:grid-cols-2">
                   <Field label={t('privateBot.takeover')} hint={t('privateBot.takeoverHint')}>
                     {(props) => (

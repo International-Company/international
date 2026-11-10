@@ -158,6 +158,14 @@ export const profileSchema = z.object({
     )
     .max(30)
     .default([]),
+  /** Someone who keeps on without a request: one message, then nothing for this long. */
+  pestering: z
+    .object({
+      enabled: z.boolean().default(true),
+      reply: z.string().max(300).default(''),
+      minutes: z.number().int().min(5).max(1440).default(60),
+    })
+    .default({}),
   /** How long the bot keeps out of a conversation a person has joined. */
   takeoverMinutes: z.number().int().min(1).max(10080).default(60),
   /** How long conversations and requests are kept. */
@@ -223,6 +231,7 @@ export function tidyProfile(profile: BotProfile): BotProfile {
       }))
       .filter((row) => row.bank && row.name && row.account),
     imageReply: profile.imageReply.trim(),
+    pestering: { ...profile.pestering, reply: profile.pestering.reply.trim() },
     rules: cleanList(profile.rules),
     blockedWords: cleanList(profile.blockedWords),
     humanTopics: cleanList(profile.humanTopics),

@@ -115,7 +115,7 @@ describe('the private number', () => {
     assert.equal(alerts[0], '🔔 *طلب من عميل*\nالرقم: +970599000000\nالطلب: يريد بيع 1000 دولار');
     await handlePrivateMessage(message('وينكم؟'), deps);
     assert.equal(alerts.length, 1);
-    pass(31 * 60 * 1000);
+    pass(61 * 60 * 1000);
     await handlePrivateMessage(message('ردوا علي'), deps);
     assert.equal(alerts.length, 2);
   });
@@ -756,6 +756,62 @@ describe('a picture sent to the number', () => {
     pass(11 * 60 * 1000);
     await handlePrivateMessage(picture(), deps);
     assert.equal(sent.length, 2);
+  });
+});
+
+describe('someone who keeps on', () => {
+  const pushing: Answer = { reply: 'كلام', handover: false, summary: null, pestering: true };
+  const toStaff: Answer = { reply: 'رح يتواصل معك موظف', handover: true, summary: 'بدو موظف' };
+  const withProfile = (answer: Answer, over: Partial<BotProfile['pestering']> = {}) =>
+    setup(answer, 100, { ...emptyProfile(), pestering: { ...emptyProfile().pestering, ...over } });
+
+  it('gets one message, then nothing until the time is up', async () => {
+    const { deps, sent, alerts, asked, pass } = withProfile(pushing);
+    assert.equal(await handlePrivateMessage(message('بعرض الله'), deps), 'QUIET');
+    assert.equal(await handlePrivateMessage(message('جلطتني'), deps), 'QUIET');
+    assert.equal(await handlePrivateMessage(message('وينك'), deps), 'QUIET');
+    assert.equal(sent.length, 1);
+    assert.match(sent[0]!, /وصلت رسالتك/);
+    assert.equal(alerts.length, 1);
+    assert.equal(asked.length, 1);
+    pass(61 * 60 * 1000);
+    await handlePrivateMessage(message('مرحبا'), deps);
+    assert.equal(asked.length, 2);
+  });
+
+  it('is told someone will call once, not again and again', async () => {
+    const { deps, sent, asked } = withProfile(toStaff);
+    assert.equal(await handlePrivateMessage(message('بدي مؤمن'), deps), 'ANSWERED');
+    assert.equal(await handlePrivateMessage(message('بعرض الله'), deps), 'QUIET');
+    assert.equal(await handlePrivateMessage(message('جلطتني'), deps), 'QUIET');
+    assert.deepEqual(sent, ['رح يتواصل معك موظف']);
+    assert.equal(asked.length, 2);
+  });
+
+  it('uses the office’s words and its length of time', async () => {
+    const { deps, sent, asked, pass } = withProfile(pushing, { reply: 'بنرد عليك لاحقاً', minutes: 5 });
+    await handlePrivateMessage(message('ها'), deps);
+    assert.deepEqual(sent, ['بنرد عليك لاحقاً']);
+    pass(6 * 60 * 1000);
+    await handlePrivateMessage(message('ها'), deps);
+    assert.equal(asked.length, 2);
+  });
+
+  it('carries on as before when switched off', async () => {
+    const { deps, sent } = withProfile(toStaff, { enabled: false });
+    await handlePrivateMessage(message('بدي مؤمن'), deps);
+    await handlePrivateMessage(message('بعرض الله'), deps);
+    assert.equal(sent.length, 2);
+  });
+
+  it('still answers a real question after being handed over', async () => {
+    let answer: Answer = toStaff;
+    const made = setup(toStaff);
+    made.deps.ask = async () => answer;
+    await handlePrivateMessage(message('بدي أبيع'), made.deps);
+    answer = { reply: 'الدولار 3.6', handover: false, summary: null };
+    assert.equal(await handlePrivateMessage(message('كم الدولار؟'), made.deps), 'ANSWERED');
+    assert.equal(made.sent.length, 2);
   });
 });
 

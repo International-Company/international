@@ -686,6 +686,12 @@ const en = {
   },
 
   privateBot: {
+    pestering: 'Stop with someone who keeps on',
+    pesteringHint: 'When someone repeats themselves or pushes with no clear request, the bot sends one message, stops replying to them, and alerts staff.',
+    pesteringMinutes: 'Minutes to stay quiet',
+    pesteringReply: 'The one message',
+    pesteringReplyHint: 'Left empty, the text shown is used.',
+    pesteringReplyPlaceholder: 'Your message has arrived, and a member of staff will reply as soon as possible.',
     identityTitle: 'The bot’s identity',
     identityHint: 'Who the bot is on this number. It speaks as this identity and from this information only.',
     identityName: 'Name',

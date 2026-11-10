@@ -688,6 +688,12 @@ const ar: Dictionary = {
   },
 
   privateBot: {
+    pestering: 'إيقاف من يلحّ',
+    pesteringHint: 'إذا كرر شخص الكلام أو ألحّ بلا طلب واضح، يرسل البوت رسالة واحدة ثم يسكت عنه، ويُنبّه موظفاً.',
+    pesteringMinutes: 'مدة السكوت بالدقائق',
+    pesteringReply: 'الرسالة الواحدة',
+    pesteringReplyHint: 'اتركها فارغة لاستخدام النص الظاهر.',
+    pesteringReplyPlaceholder: 'وصلت رسالتك، وموظف رح يرد عليك بأقرب وقت.',
     identityTitle: 'هوية البوت',
     identityHint: 'من يكون البوت على هذا الرقم. يتحدث بهذه الهوية ومن هذه المعلومات فقط.',
     identityName: 'الاسم',
