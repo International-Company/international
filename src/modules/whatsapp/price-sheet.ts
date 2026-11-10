@@ -8,6 +8,9 @@ import { toDecimalString } from '@/core/money/money';
  * in here, so no question can get it out.
  */
 
+/** A price that holds however the customer pays: one the manager wrote without saying how. */
+export const ANY_CHANNEL = 'ANY';
+
 export interface SheetRate {
   baseCode: string;
   quoteCode: string;
@@ -35,7 +38,12 @@ export interface PriceSheet {
   extra?: { item: string; buy: string; sell: string }[];
 }
 
-const NAMES: Record<string, string> = { USD: 'الدولار', ILS: 'الشيكل', JOD: 'الدينار', EGP: 'الجنيه' };
+const NAMES: Record<string, string> = {
+  USD: 'الدولار',
+  ILS: 'الشيكل',
+  JOD: 'الدينار',
+  EGP: 'الجنيه',
+};
 const name = (code: string) => NAMES[code] ?? code;
 
 const figure = (value: bigint, places: number) =>
@@ -47,8 +55,9 @@ function rateLine(rate: SheetRate): string | null {
     rate.sellRate > 0n ? `نبيع بـ ${figure(rate.sellRate, 4)}` : null,
   ].filter(Boolean);
   if (sides.length === 0) return null;
-  const how = rate.channel === 'CASH' ? 'نقداً' : 'بتحويل بنكي';
-  return `- ${name(rate.baseCode)} مقابل ${name(rate.quoteCode)}، ${how}: ${sides.join('، ')} ${name(rate.quoteCode)}`;
+  const how =
+    rate.channel === ANY_CHANNEL ? '' : rate.channel === 'CASH' ? '، نقداً' : '، بتحويل بنكي';
+  return `- ${name(rate.baseCode)} مقابل ${name(rate.quoteCode)}${how}: ${sides.join('، ')} ${name(rate.quoteCode)}`;
 }
 
 function remittanceLine(row: SheetRemittance): string {
@@ -86,8 +95,6 @@ export function composePriceSheet(sheet: PriceSheet): string {
     ...(sheet.remittances.length > 0
       ? sheet.remittances.map(remittanceLine)
       : ['لا توجد رسوم منشورة، يحددها موظف.']),
-    ...(sheet.extra?.length
-      ? ['', 'أسعار أخرى من المكتب:', ...sheet.extra.map(extraLine)]
-      : []),
+    ...(sheet.extra?.length ? ['', 'أسعار أخرى من المكتب:', ...sheet.extra.map(extraLine)] : []),
   ].join('\n');
 }

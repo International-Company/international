@@ -1,5 +1,5 @@
 import { normalizeDigits, parseMoney } from '@/core/money/money';
-import type { SheetRate } from './price-sheet';
+import { ANY_CHANNEL, type SheetRate } from './price-sheet';
 import { currencyWord, formatFigure } from './report-command';
 
 /**
@@ -36,15 +36,17 @@ export function calculationLines(calculation: BotCalculation, rates: SheetRate[]
     (rate) =>
       rate.baseCode === calculation.currency &&
       rate.quoteCode === calculation.other_currency &&
-      (channel === null || rate.channel === channel),
+      (channel === null || rate.channel === channel || rate.channel === ANY_CHANNEL),
   );
 
   return matching.flatMap((rate) => {
     const price = calculation.side === 'customer_sells' ? rate.buyRate : rate.sellRate;
     if (price <= 0n) return [];
     const total = (amount * price) / 100_000_000n;
+    const how =
+      rate.channel === ANY_CHANNEL ? '' : ` (${CHANNEL_WORDS[rate.channel] ?? rate.channel})`;
     return [
-      `${formatFigure(amount)} ${currencyWord(rate.baseCode)} = ${formatFigure(total)} ${currencyWord(rate.quoteCode)} (${CHANNEL_WORDS[rate.channel] ?? rate.channel})`,
+      `${formatFigure(amount)} ${currencyWord(rate.baseCode)} = ${formatFigure(total)} ${currencyWord(rate.quoteCode)}${how}`,
     ];
   });
 }

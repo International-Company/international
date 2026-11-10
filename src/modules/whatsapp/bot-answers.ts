@@ -2,7 +2,7 @@ import { toDecimalString } from '@/core/money/money';
 import { calculationLines, type BotCalculation } from './bot-calc';
 import type { BotProfile } from './bot-profile';
 import { foldName, currencyWord } from './report-command';
-import type { PriceSheet, SheetRate } from './price-sheet';
+import { ANY_CHANNEL, type PriceSheet, type SheetRate } from './price-sheet';
 
 /**
  * Every word the private number sends, chosen and not composed.
@@ -85,14 +85,16 @@ function rateLine(rate: SheetRate): string | null {
     rate.sellRate > 0n ? `نبيع بـ ${figure(rate.sellRate, 4)}` : null,
   ].filter(Boolean);
   if (sides.length === 0) return null;
-  return `${currencyWord(rate.baseCode)} مقابل ${currencyWord(rate.quoteCode)} (${CHANNEL_WORDS[rate.channel] ?? rate.channel}): ${sides.join('، ')}`;
+  const how =
+    rate.channel === ANY_CHANNEL ? '' : ` (${CHANNEL_WORDS[rate.channel] ?? rate.channel})`;
+  return `${currencyWord(rate.baseCode)} مقابل ${currencyWord(rate.quoteCode)}${how}: ${sides.join('، ')}`;
 }
 
 function priceLines(pick: BotPick, sheet: PriceSheet): string[] {
   const channel = pick.channel === 'CASH' ? 'CASH' : pick.channel === 'BANK' ? 'BROKER' : null;
   const rates = sheet.rates
     .filter((rate) => pick.currencies.includes(rate.baseCode))
-    .filter((rate) => channel === null || rate.channel === channel)
+    .filter((rate) => channel === null || rate.channel === channel || rate.channel === ANY_CHANNEL)
     .map(rateLine)
     .filter((line): line is string => line !== null);
   const usdt = pick.currencies.includes('USDT')

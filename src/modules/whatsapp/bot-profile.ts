@@ -1,5 +1,6 @@
 import { z } from 'zod';
-import type { PriceSheet, SheetRate } from './price-sheet';
+import { normalizeDigits, parseMoney } from '@/core/money/money';
+import { ANY_CHANNEL, type PriceSheet, type SheetRate } from './price-sheet';
 import { FEE_KINDS } from './country-prices';
 import { foldName } from './report-command';
 
@@ -175,12 +176,15 @@ function tidyNodes(nodes: FlowNode[], depth: number): FlowNode[] {
       title: node.title.trim(),
       text: node.text.trim(),
       triggers: cleanList(node.triggers),
-      children: depth < MAX_FLOW_DEPTH && node.kind === 'menu' ? tidyNodes(node.children, depth + 1) : [],
+      children:
+        depth < MAX_FLOW_DEPTH && node.kind === 'menu' ? tidyNodes(node.children, depth + 1) : [],
     }))
     .filter((node) => node.title);
 }
 
-const cleanList = (list: string[]) => [...new Set(list.map((entry) => entry.trim()).filter(Boolean))];
+const cleanList = (list: string[]) => [
+  ...new Set(list.map((entry) => entry.trim()).filter(Boolean)),
+];
 
 /** The profile as it is kept: rows left half empty are not rows. */
 export function tidyProfile(profile: BotProfile): BotProfile {
@@ -217,23 +221,69 @@ export function tidyProfile(profile: BotProfile): BotProfile {
 
 const isUsdt = (rate: SheetRate) => rate.baseCode === 'USDT' || rate.quoteCode === 'USDT';
 
-/** The system's prices cut down to what the customer may be told. What is cut never reaches the assistant. */
+/** The names a manager writes a currency under, as they fold. */
+const CURRENCY_NAMES: Record<string, string> = {
+  usdt: 'USDT',
+  يواس: 'USDT',
+  'يو اس دي تي': 'USDT',
+  تيثر: 'USDT',
+  tether: 'USDT',
+  usd: 'USD',
+  دولار: 'USD',
+  الدولار: 'USD',
+  jod: 'JOD',
+  دينار: 'JOD',
+  الدينار: 'JOD',
+  egp: 'EGP',
+  جنيه: 'EGP',
+  الجنيه: 'EGP',
+};
+
+const writtenPrice = (text: string): bigint => {
+  const figure = normalizeDigits(text)
+    .replace(/٫/g, '.')
+    .match(/\d+(\.\d+)?/);
+  return figure ? parseMoney(figure[0]) : 0n;
+};
+
+/** A row the manager wrote for a currency the board prices in shekels too; null for anything else. */
+function writtenRate(row: BotProfile['extraPrices'][number]): SheetRate | null {
+  const baseCode = CURRENCY_NAMES[foldName(row.item)];
+  const buyRate = writtenPrice(row.buy);
+  const sellRate = writtenPrice(row.sell);
+  if (!baseCode || (buyRate === 0n && sellRate === 0n)) return null;
+  return { baseCode, quoteCode: 'ILS', channel: ANY_CHANNEL, buyRate, sellRate };
+}
+
+/**
+ * The system's prices cut down to what the customer may be told. What is cut never
+ * reaches the assistant. A price the manager wrote for a currency takes the place
+ * of the board's, so a customer is never given two, and sums use the one written.
+ */
 export function visibleSheet(sheet: PriceSheet, profile: BotProfile): PriceSheet {
   const { show, hiddenCurrencies, hiddenDestinations } = profile;
+  const written = profile.extraPrices.map(writtenRate);
+  const replaced = new Set(written.flatMap((rate) => (rate ? [rate.baseCode] : [])));
+  const board = sheet.rates.filter(
+    (rate) => !(replaced.has(rate.baseCode) && rate.quoteCode === 'ILS'),
+  );
   return {
-    rates: sheet.rates.filter((rate) => {
-      if (hiddenCurrencies.includes(rate.baseCode) || hiddenCurrencies.includes(rate.quoteCode)) {
-        return false;
-      }
-      if (isUsdt(rate)) return show.usdt;
-      return rate.channel === 'CASH' ? show.cash : show.bank;
-    }),
+    rates: [
+      ...written.filter((rate): rate is SheetRate => rate !== null),
+      ...board.filter((rate) => {
+        if (hiddenCurrencies.includes(rate.baseCode) || hiddenCurrencies.includes(rate.quoteCode)) {
+          return false;
+        }
+        if (isUsdt(rate)) return show.usdt;
+        return rate.channel === 'CASH' ? show.cash : show.bank;
+      }),
+    ],
     remittances: show.remittances
       ? sheet.remittances.filter((row) => !hiddenDestinations.includes(row.destination))
       : [],
     usdtForCashDollars: show.usdt ? sheet.usdtForCashDollars : 0,
     usdtForBankDollars: show.usdt ? sheet.usdtForBankDollars : 0,
-    extra: profile.extraPrices,
+    extra: profile.extraPrices.filter((_, index) => written[index] === null),
   };
 }
 
@@ -330,10 +380,6 @@ export function isGreeting(text: string): boolean {
 }
 
 /** The office's own greeting, for the first message of a conversation when it is only hello. */
-export function cannedWelcome(
-  isFirst: boolean,
-  text: string,
-  profile: BotProfile,
-): string | null {
+export function cannedWelcome(isFirst: boolean, text: string, profile: BotProfile): string | null {
   return isFirst && profile.welcome && isGreeting(text) ? profile.welcome : null;
 }

@@ -842,7 +842,7 @@ const en = {
     question: 'Question',
     answer: 'Answer',
     extraTitle: 'Extra prices',
-    extraHint: 'Prices the system’s board does not hold. Keep them up to date yourself.',
+    extraHint: 'Prices you write and keep up to date yourself. Write a currency the board holds, such as USDT, and the bot uses your price instead of the board’s.',
     extraEmpty: 'No extra prices.',
     extraItem: 'Currency or service',
     extraItemExample: 'e.g. UAE dirham',

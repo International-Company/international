@@ -169,6 +169,34 @@ describe('what the manager tells it', () => {
     usdtForBankDollars: 2,
   };
 
+  it('gives only the price the manager wrote for a currency, not the board too', () => {
+    const board = {
+      ...sheet,
+      rates: [
+        ...sheet.rates,
+        { baseCode: 'USDT', quoteCode: 'ILS', channel: 'BROKER', buyRate: 3n * U, sellRate: (315n * U) / 100n },
+      ],
+    };
+    const seen = visibleSheet(board, profile({ extraPrices: [{ item: ' usdt ', buy: '3', sell: '3.20' }, { item: 'الدرهم', buy: '0.85', sell: '0.90' }] }));
+    const usdt = seen.rates.filter((r) => r.baseCode === 'USDT');
+    assert.equal(usdt.length, 1);
+    assert.deepEqual([usdt[0]!.buyRate, usdt[0]!.sellRate], [3n * U, (32n * U) / 10n]);
+    const text = composePriceSheet(seen);
+    assert.match(text, /USDT مقابل الشيكل: نشتري بـ 3، نبيع بـ 3\.2 الشيكل/);
+    assert.doesNotMatch(text, /3\.15/);
+    assert.deepEqual(seen.extra!.map((row) => row.item), ['الدرهم']);
+    assert.equal(seen.rates.filter((r) => r.baseCode === 'USD').length, 2);
+    const ask = { side: 'customer_buys', currency: 'USDT', amount: '100', other_currency: 'ILS' } as const;
+    assert.deepEqual(calculationLines({ ...ask, channel: 'BANK' }, seen.rates), ['100 USDT = 320 شيكل']);
+    assert.deepEqual(calculationLines({ ...ask, channel: null }, seen.rates), ['100 USDT = 320 شيكل']);
+  });
+
+  it('leaves the board alone when what was written holds no figure', () => {
+    const seen = visibleSheet(sheet, profile({ extraPrices: [{ item: 'USDT', buy: '', sell: 'حسب السوق' }] }));
+    assert.equal(seen.rates.length, 4);
+    assert.equal(seen.extra!.length, 1);
+  });
+
   it('shows everything until told otherwise', () => {
     const seen = visibleSheet(sheet, profile());
     assert.equal(seen.rates.length, 4);
