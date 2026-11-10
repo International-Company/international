@@ -13,6 +13,7 @@ import { prisma } from '@/core/db/prisma';
 import { errors } from '@/core/errors/app-error';
 import { createLogger } from '@/core/logger/logger';
 import { recordIssue } from './bot-issues';
+import { countHidden, installSignalFilter, isOwnDecryptFailure } from './signal-noise';
 import {
   ACCOUNTS,
   chooseAccount,
@@ -119,6 +120,8 @@ shared.staffListeners ??= [];
 // A server already running when this number was added has no place for it yet.
 shared.sessions.private ??= fresh();
 
+installSignalFilter();
+
 /** Baileys talks a great deal; only what is worth reading reaches our log. */
 const quiet = {
   level: 'warn',
@@ -132,6 +135,10 @@ const quiet = {
     log.warn(msg ?? 'baileys', { detail: obj });
   },
   error(obj: unknown, msg?: string) {
+    if (isOwnDecryptFailure(obj, msg)) {
+      countHidden();
+      return;
+    }
     log.error(msg ?? 'baileys', { detail: obj });
   },
 };
