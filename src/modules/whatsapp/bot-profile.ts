@@ -11,6 +11,49 @@ import { foldName } from './report-command';
  * added later appears without anyone having to come back here.
  */
 
+export const FLOW_KINDS = [
+  'menu',
+  'text',
+  'price',
+  'remittance',
+  'destinations',
+  'account',
+  'accounts',
+  'staff',
+] as const;
+export const MAX_FLOW_CHOICES = 9;
+/** Lists within lists a person will follow before giving up. */
+export const MAX_FLOW_DEPTH = 3;
+
+export interface FlowNode {
+  /** What it is called in the list above it. */
+  title: string;
+  kind: (typeof FLOW_KINDS)[number];
+  /** A list's question, or an answer's words. */
+  text: string;
+  /** For a top choice: what people write that means it. */
+  triggers: string[];
+  currencies: string[];
+  channel: 'CASH' | 'BANK' | null;
+  destination: string | null;
+  accountIndex: number | null;
+  children: FlowNode[];
+}
+
+const flowNode: z.ZodType<FlowNode, z.ZodTypeDef, unknown> = z.lazy(() =>
+  z.object({
+    title: z.string().max(60),
+    kind: z.enum(FLOW_KINDS).default('text'),
+    text: z.string().max(1000).default(''),
+    triggers: z.array(z.string().max(80)).max(30).default([]),
+    currencies: z.array(z.string().max(8)).max(10).default([]),
+    channel: z.enum(['CASH', 'BANK']).nullable().default(null),
+    destination: z.string().max(120).nullable().default(null),
+    accountIndex: z.number().int().min(0).nullable().default(null),
+    children: z.array(flowNode).max(MAX_FLOW_CHOICES).default([]),
+  }),
+);
+
 const TIME = /^([01]\d|2[0-3]):[0-5]\d$/;
 
 export const profileSchema = z.object({
@@ -55,6 +98,13 @@ export const profileSchema = z.object({
   blockedWords: z.array(z.string().max(60)).max(100).default([]),
   /** A customer mentioning one goes straight to staff, and the assistant is not asked. */
   humanTopics: z.array(z.string().max(60)).max(100).default([]),
+  /** The conversations the manager drew. Empty, the bot answers without a menu. */
+  flow: z
+    .object({
+      prompt: z.string().max(300).default(''),
+      children: z.array(flowNode).max(MAX_FLOW_CHOICES).default([]),
+    })
+    .default({}),
   /** Where customers can be told to pay: given exactly as typed, one bank when asked for it. */
   accounts: z
     .array(
@@ -85,6 +135,18 @@ export function parseProfile(raw: string): BotProfile {
   }
 }
 
+function tidyNodes(nodes: FlowNode[], depth: number): FlowNode[] {
+  return nodes
+    .map((node) => ({
+      ...node,
+      title: node.title.trim(),
+      text: node.text.trim(),
+      triggers: cleanList(node.triggers),
+      children: depth < MAX_FLOW_DEPTH && node.kind === 'menu' ? tidyNodes(node.children, depth + 1) : [],
+    }))
+    .filter((node) => node.title);
+}
+
 const cleanList = (list: string[]) => [...new Set(list.map((entry) => entry.trim()).filter(Boolean))];
 
 /** The profile as it is kept: rows left half empty are not rows. */
@@ -96,6 +158,10 @@ export function tidyProfile(profile: BotProfile): BotProfile {
     faqs: profile.faqs
       .map((row) => ({ question: row.question.trim(), answer: row.answer.trim() }))
       .filter((row) => row.question && row.answer),
+    flow: {
+      prompt: profile.flow.prompt.trim(),
+      children: tidyNodes(profile.flow.children, 0),
+    },
     accounts: profile.accounts
       .map((row) => ({
         bank: row.bank.trim(),

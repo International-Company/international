@@ -6,6 +6,7 @@ import {
   BookOpen,
   Bot,
   ExternalLink,
+  GitBranch,
   Loader2,
   Plus,
   Save,
@@ -22,6 +23,7 @@ import { say } from '@/lib/failure';
 import type { BotProfile } from '@/modules/whatsapp/bot-profile';
 import { Field, Input, NumberInput, Switch, Textarea } from '@/ui/form';
 import { useToast } from '@/ui/overlay';
+import { NodeList } from './flow-editor';
 import { Alert, Badge, Button, Card, CardBody, CardHeader, Skeleton } from '@/ui/primitives';
 
 type Gap = 'NOT_LINKED' | 'NO_GROUP' | 'SWITCHED_OFF' | 'NO_KEY';
@@ -53,6 +55,7 @@ const SECTIONS = ['cash', 'bank', 'usdt', 'remittances'] as const;
 /** The setup in the order it is done. */
 const STEPS = [
   { id: 'status', Icon: Activity },
+  { id: 'flows', Icon: GitBranch },
   { id: 'info', Icon: BookOpen },
   { id: 'prices', Icon: Tags },
   { id: 'behavior', Icon: SlidersHorizontal },
@@ -73,6 +76,7 @@ export function PrivateBotView({ canManage }: { canManage: boolean }) {
   const [question, setQuestion] = useState('');
   const [asking, setAsking] = useState(false);
   const chatEnd = useRef<HTMLDivElement>(null);
+  const flowState = useRef<unknown>(null);
   const [section, setSection] = useState<(typeof STEPS)[number]['id']>('status');
 
   const failure = useCallback(
@@ -144,10 +148,14 @@ export function PrivateBotView({ canManage }: { canManage: boolean }) {
     setQuestion('');
     setAsking(true);
     try {
-      const answer = await api.post<{ reply: string; handover: boolean }>(
+      const answer = await api.post<{ reply: string; handover: boolean; flowState?: unknown }>(
         '/api/admin/private-bot',
-        { turns: asked.slice(-12).map(({ role, content: words }) => ({ role, content: words })) },
+        {
+          turns: asked.slice(-12).map(({ role, content: words }) => ({ role, content: words })),
+          flowState: flowState.current,
+        },
       );
+      flowState.current = answer.flowState ?? null;
       setTurns([
         ...asked,
         {
@@ -168,7 +176,7 @@ export function PrivateBotView({ canManage }: { canManage: boolean }) {
       <div className="min-w-0 space-y-4">
         <nav
           aria-label={t('privateBot.title')}
-          className="grid grid-cols-2 gap-2 xl:grid-cols-3 2xl:grid-cols-5"
+          className="grid grid-cols-2 gap-2 xl:grid-cols-3 2xl:grid-cols-6"
         >
           {STEPS.map(({ id, Icon }, index) => (
             <button
@@ -575,6 +583,42 @@ export function PrivateBotView({ canManage }: { canManage: boolean }) {
               </CardBody>
             </Card>
           </>
+        )}
+
+        {section === 'flows' && (
+          <Card>
+            <CardHeader
+              title={t('privateBot.flowsTitle')}
+              description={t('privateBot.flowsHint')}
+            />
+            <CardBody className="space-y-3">
+              <Field label={t('privateBot.flowPrompt')}>
+                {(props) => (
+                  <Input
+                    {...props}
+                    maxLength={300}
+                    disabled={!canManage}
+                    placeholder={t('privateBot.flowPromptExample')}
+                    value={profile.flow.prompt}
+                    onChange={(event) =>
+                      edit({ flow: { ...profile.flow, prompt: event.target.value } })
+                    }
+                  />
+                )}
+              </Field>
+              <NodeList
+                nodes={profile.flow.children}
+                depth={0}
+                options={{
+                  currencies: panel.currencies,
+                  destinations: panel.destinations,
+                  accounts: profile.accounts.map((row) => row.bank),
+                  disabled: !canManage,
+                }}
+                onChange={(children) => edit({ flow: { ...profile.flow, children } })}
+              />
+            </CardBody>
+          </Card>
         )}
 
         {section === 'rules' && (

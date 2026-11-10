@@ -31,11 +31,15 @@ const trySchema = z.object({
     )
     .min(1)
     .max(12),
+  flowState: z
+    .object({ path: z.array(z.number().int().min(0)).max(8), atResult: z.boolean(), at: z.number() })
+    .nullable()
+    .default(null),
 });
 
 /** A question put to the assistant from the panel, as it stands saved. Nothing is sent to WhatsApp. */
 export const POST = route<z.infer<typeof trySchema>>({
   permissions: ['settings.manage'],
   bodySchema: trySchema,
-  handler: async ({ body }) => tryBot(body.turns),
+  handler: async ({ body }) => tryBot(body.turns, body.flowState),
 });

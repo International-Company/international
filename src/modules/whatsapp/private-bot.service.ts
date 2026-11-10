@@ -19,6 +19,14 @@ import {
   type BotProfile,
 } from './bot-profile';
 import { composeChoices, INTENTS, renderAnswer, SAY_TO_STAFF } from './bot-answers';
+import {
+  currentMenu,
+  enterFlow,
+  hasFlows,
+  stepFlow,
+  type FlowState,
+  type FlowStep,
+} from './bot-flows';
 import * as store from './bot-store';
 import { creditIsBack, creditOutAt, noteIfCreditOut, recordUsage, usageSummary } from './bot-usage';
 import { parseRoutes } from './group-routes';
@@ -63,6 +71,8 @@ const ALERT_EVERY = 30 * 60 * 1000;
 
 const SAY_UNAVAILABLE = 'عذراً، ما بقدر أرد الآن. موظف من المكتب رح يتواصل معك قريباً.';
 const FORWARD_FAILED = 'وصل ملف ولم يمكن نقله. افتح المحادثة في الرقم الخاص لرؤيته.';
+/** A person writing what fits nothing is shown the list once in this long. */
+const MENU_EVERY = 60 * 1000;
 const SAY_NOT_TEXT = 'ما بقدر أقرأ الصور أو أسمع الرسائل الصوتية، اكتب سؤالك لو سمحت.';
 /** A run of pictures gets one answer. */
 const NOT_TEXT_EVERY = 10 * 60 * 1000;
@@ -79,6 +89,8 @@ interface Conversation {
   lastAt: number;
   alertedAt: number;
   mediaAt: number;
+  flow: FlowState | null;
+  menuAt: number;
 }
 
 export interface BotState {
@@ -95,6 +107,15 @@ export interface Answer {
   summary: string | null;
   /** The office has given it nothing to say to this, so it says nothing. */
   silent?: boolean;
+  /** That the message means one of the conversations the office set up. */
+  flowIndex?: number;
+}
+
+/** Walking the tree, with the prices and the words read fresh each time. */
+export interface FlowDeps {
+  step: (text: string, state: FlowState | null, now: number) => Promise<FlowStep | null>;
+  enter: (index: number, now: number) => Promise<FlowStep | null>;
+  menu: (state: FlowState | null, now: number) => Promise<FlowStep | null>;
 }
 
 export interface BotDeps {
@@ -105,6 +126,7 @@ export interface BotDeps {
   welcome: (isFirst: boolean, text: string) => Promise<string | null>;
   /** The lines the manager drew: the program holds them, not the assistant. */
   guards: () => Promise<{ humanTopics: string[]; blockedWords: string[] }>;
+  flows?: FlowDeps;
   reply: (chat: string, text: string) => Promise<void>;
   alert: (text: string) => Promise<void>;
   /** Whether a person has taken this conversation. */
@@ -127,6 +149,7 @@ export type BotOutcome =
   | 'TO_STAFF'
   | 'HELD_BACK'
   | 'NO_INFO'
+  | 'FLOW'
   | 'UNAVAILABLE'
   | 'ANSWERED';
 
@@ -139,6 +162,8 @@ function conversationOf(state: BotState, chat: string, now: number): Conversatio
       lastAt: now,
       alertedAt: found?.alertedAt ?? 0,
       mediaAt: found?.mediaAt ?? 0,
+      flow: found?.flow ?? null,
+      menuAt: found?.menuAt ?? 0,
     };
     state.conversations.delete(chat);
     state.conversations.set(chat, found);
@@ -209,6 +234,22 @@ export async function handlePrivateMessage(
     return 'TO_STAFF';
   }
 
+  /** A step of the tree, said and kept. */
+  const walk = async (step: FlowStep): Promise<BotOutcome> => {
+    conversation.flow = step.state;
+    await say(step.reply);
+    conversation.turns = [
+      ...conversation.turns,
+      { role: 'user' as const, content: text },
+      { role: 'assistant' as const, content: step.reply },
+    ].slice(-KEEP_TURNS);
+    if (step.handover) await alert((step.summary?.trim() || text).slice(0, 300));
+    return 'FLOW';
+  };
+
+  const onTree = await deps.flows?.step(text, conversation.flow, now);
+  if (onTree) return walk(onTree);
+
   // Written by the office and sent as it stands, so a hello costs no answer.
   const welcome = await deps.welcome(conversation.turns.length === 0, text);
   if (welcome) {
@@ -241,7 +282,22 @@ export async function handlePrivateMessage(
     log.warn('The private number reached its daily limit', { limit });
   }
 
-  if (answer?.silent) return 'NO_INFO';
+  if (answer?.flowIndex !== undefined) {
+    const entered = await deps.flows?.enter(answer.flowIndex, now);
+    if (entered) return walk(entered);
+  }
+
+  if (answer?.silent) {
+    // Nothing written for it: the list says what can be asked, and not over and over.
+    if (now - conversation.menuAt >= MENU_EVERY) {
+      const menu = await deps.flows?.menu(conversation.flow, now);
+      if (menu) {
+        conversation.menuAt = now;
+        return walk(menu);
+      }
+    }
+    return 'NO_INFO';
+  }
 
   if (!answer?.reply.trim()) {
     await say(SAY_UNAVAILABLE);
@@ -309,6 +365,7 @@ export async function forwardToGroup(
 const Pick = z.object({
   intent: z.enum(INTENTS),
   faq_index: z.number().int().nullable(),
+  flow_index: z.number().int().nullable(),
   extra_index: z.number().int().nullable(),
   account_index: z.number().int().nullable(),
   currencies: z.array(z.string()),
@@ -340,6 +397,7 @@ Choose one intent for the customer's latest message, reading the earlier message
 - remittance: it asks what a remittance costs. Set destination from the list, or null if they named none.
 - account: it asks for the account at one of the listed banks. Set account_index.
 - account_list: it asks for a bank account without saying which bank.
+- flow: it means one of the conversations the office has set up, and no more specific intent above answers it exactly. Set flow_index.
 - handover: it asks for a person, wants a deal carried out and nothing above answers it, or complains.
 - none: anything else, and whenever you are unsure which applies. Prefer none over a guess.
 
@@ -387,6 +445,15 @@ async function liveAsk(turns: Turn[], given?: BotProfile): Promise<Answer> {
   void recordUsage('answer', response.usage).catch((error) =>
     log.info('Could not count an answer', { error }),
   );
+  if (response.parsed_output.intent === 'flow' && response.parsed_output.flow_index !== null) {
+    return {
+      reply: '',
+      handover: false,
+      summary: null,
+      silent: true,
+      flowIndex: response.parsed_output.flow_index,
+    };
+  }
   const rendered = renderAnswer(
     response.parsed_output,
     profile,
@@ -444,9 +511,23 @@ export async function saveBotPanel(
 }
 
 /** A question from the panel, answered as a customer would be. */
-export async function tryBot(turns: Turn[]): Promise<Answer> {
+export async function tryBot(
+  turns: Turn[],
+  flowState: FlowState | null = null,
+): Promise<Answer & { flowState?: FlowState | null }> {
   const profile = await readProfile();
   const last = turns.at(-1)!;
+  const now = Date.now();
+  const sheet = visibleSheet(await systemSheet(), profile);
+  const isOpen = officeOpen(profile.hours, new Date());
+  const asFlow = (step: FlowStep) => ({
+    reply: step.reply,
+    handover: step.handover,
+    summary: step.summary,
+    flowState: step.state,
+  });
+  const onTree = stepFlow(last.content, flowState, profile, sheet, isOpen, now);
+  if (onTree) return asFlow(onTree);
   const welcome = cannedWelcome(turns.length === 1, last.content, profile);
   if (welcome) return { reply: welcome, handover: false, summary: null };
   const toStaff = { reply: SAY_TO_STAFF, handover: true, summary: last.content.slice(0, 300) };
@@ -456,7 +537,15 @@ export async function tryBot(turns: Turn[]): Promise<Answer> {
   }
   try {
     const answer = await liveAsk(turns, profile);
-    return firstMatch(answer.reply, profile.blockedWords) ? toStaff : answer;
+    if (answer.flowIndex !== undefined) {
+      const entered = enterFlow(answer.flowIndex, profile, sheet, isOpen, now);
+      if (entered) return asFlow(entered);
+    }
+    if (answer.silent) {
+      const menu = currentMenu(flowState, profile, sheet, isOpen, now);
+      return menu ? asFlow(menu) : { ...answer, flowState };
+    }
+    return firstMatch(answer.reply, profile.blockedWords) ? toStaff : { ...answer, flowState };
   } catch (error) {
     log.warn('The panel could not get an answer', {
       status: error instanceof Anthropic.APIError ? error.status : undefined,
@@ -560,6 +649,40 @@ export function registerPrivateBot(): void {
         .catch((error) => log.warn('Could not keep a request', { error })),
     welcome: async (isFirst, text) => cannedWelcome(isFirst, text, await readProfile()),
     guards: readProfile,
+    flows: {
+      step: async (text, state, now) => {
+        const profile = await readProfile();
+        if (!hasFlows(profile)) return null;
+        return stepFlow(
+          text,
+          state,
+          profile,
+          visibleSheet(await systemSheet(), profile),
+          officeOpen(profile.hours, new Date(now)),
+          now,
+        );
+      },
+      enter: async (index, now) => {
+        const profile = await readProfile();
+        return enterFlow(
+          index,
+          profile,
+          visibleSheet(await systemSheet(), profile),
+          officeOpen(profile.hours, new Date(now)),
+          now,
+        );
+      },
+      menu: async (state, now) => {
+        const profile = await readProfile();
+        return currentMenu(
+          state,
+          profile,
+          visibleSheet(await systemSheet(), profile),
+          officeOpen(profile.hours, new Date(now)),
+          now,
+        );
+      },
+    },
     reply: replyPrivately,
     alert: async (text) => {
       await sendText(await leadsGroup(), text);

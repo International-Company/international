@@ -8,11 +8,19 @@ import { categoriesOf, groupPlan, groupsMatching } from '../src/modules/whatsapp
 import { composePriceSheet } from '../src/modules/whatsapp/price-sheet.ts';
 import {
   composeChoices,
+  emptyPick,
   renderAnswer,
   SAY_TO_STAFF,
   type BotPick,
 } from '../src/modules/whatsapp/bot-answers.ts';
 import { calculationLines } from '../src/modules/whatsapp/bot-calc.ts';
+import {
+  currentMenu,
+  enterFlow,
+  FLOW_EXPIRES,
+  stepFlow,
+  type FlowState,
+} from '../src/modules/whatsapp/bot-flows.ts';
 import {
   cannedWelcome,
   composeRules,
@@ -25,6 +33,7 @@ import {
   tidyProfile,
   visibleSheet,
   type BotProfile,
+  type FlowNode,
 } from '../src/modules/whatsapp/bot-profile.ts';
 import {
   forwardToGroup,
@@ -236,19 +245,7 @@ describe('answers made of the office’s own words', () => {
     accounts: [account, { bank: 'جوال باي', name: 'أحمد', account: '0599' }],
     ...over,
   });
-  const pick = (over: Partial<BotPick>): BotPick => ({
-    intent: 'none',
-    faq_index: null,
-    extra_index: null,
-    account_index: null,
-    currencies: [],
-    channel: null,
-    destination: null,
-    calculation: null,
-    wants_staff: false,
-    summary: null,
-    ...over,
-  });
+  const pick = (over: Partial<BotPick>): BotPick => emptyPick(over);
   const say = (over: Partial<BotPick>, p = profile(), open = true) => renderAnswer(pick(over), p, sheet, open);
 
   it('sends a prepared answer word for word', () => {
@@ -329,6 +326,152 @@ describe('answers made of the office’s own words', () => {
   it('keeps accounts only when complete', () => {
     const tidy = tidyProfile(profile({ accounts: [account, { bank: 'x', name: '', account: '1' }] }));
     assert.deepEqual(tidy.accounts, [account]);
+  });
+});
+
+describe('the paths the manager drew', () => {
+  const sheet = {
+    rates: [
+      { baseCode: 'USD', quoteCode: 'ILS', channel: 'CASH', buyRate: 365_000_000n, sellRate: 370_000_000n },
+    ],
+    remittances: [
+      { destination: 'مصر', currency: 'ILS', chargeKind: 'PERCENT', chargeValue: 2n * U },
+      { destination: 'الأردن', currency: 'USD', chargeKind: 'FLAT', chargeValue: 10n * U },
+    ],
+    usdtForCashDollars: 0,
+    usdtForBankDollars: 0,
+    extra: [],
+  };
+  const node = (over: Partial<FlowNode>): FlowNode => ({
+    title: 'x',
+    kind: 'text',
+    text: '',
+    triggers: [],
+    currencies: [],
+    channel: null,
+    destination: null,
+    accountIndex: null,
+    children: [],
+    ...over,
+  });
+  const flow = {
+    prompt: 'كيف بقدر أساعدك؟',
+    children: [
+      node({ title: 'الحوالات', kind: 'destinations', text: 'لأي دولة؟', triggers: ['بدي أحول'] }),
+      node({
+        title: 'الأسعار',
+        kind: 'menu',
+        text: 'أي سعر؟',
+        children: [
+          node({ title: 'الدولار', kind: 'price', currencies: ['USD'] }),
+          node({ title: 'غير متوفر', kind: 'price', currencies: ['GBP'] }),
+        ],
+      }),
+      node({ title: 'موقعنا', kind: 'text', text: 'نحن مقابل البنك', triggers: ['وينكم'] }),
+      node({ title: 'موظف', kind: 'staff' }),
+    ],
+  };
+  const profile = (over: Partial<BotProfile> = {}) => ({ ...emptyProfile(), flow, ...over });
+  const at = 1_000_000;
+  /** Sends messages in turn, each from where the last left off. */
+  const talk = (messages: string[], p: BotProfile = profile()) => {
+    let state: FlowState | null = null;
+    return messages.map((text) => {
+      const step = stepFlow(text, state, p, sheet, true, at);
+      if (step) state = step.state;
+      return step;
+    });
+  };
+
+  it('opens the main list on a hello, with the welcome above it', () => {
+    const [step] = talk(['مرحبا'], profile({ welcome: 'أهلاً بك' }));
+    assert.equal(step!.reply, 'أهلاً بك\n\nكيف بقدر أساعدك؟\n1. الحوالات\n2. الأسعار\n3. موقعنا\n4. موظف\n\n#. موظف');
+  });
+
+  it('walks from a list of countries, filled in itself, to the fee', () => {
+    const [, list, fee] = talk(['مرحبا', '1', '1']);
+    assert.equal(list!.reply, 'لأي دولة؟\n1. مصر\n2. الأردن\n\n0. رجوع   #. موظف');
+    assert.match(fee!.reply, /الحوالة إلى مصر \(شيكل\): الرسوم 2%/);
+    assert.match(fee!.reply, /0\. رجوع/);
+  });
+
+  it('takes Arabic digits and a name as well as a number', () => {
+    assert.match(talk(['مرحبا', '٢'])[1]!.reply, /أي سعر؟/);
+    assert.match(talk(['مرحبا', 'الاسعار'])[1]!.reply, /أي سعر؟/);
+    assert.match(talk(['مرحبا', '1', 'الأردن'])[2]!.reply, /10 دولار/);
+  });
+
+  it('opens a choice straight from what someone writes, without an assistant', () => {
+    assert.match(talk(['بدي أحول على مصر'])[0]!.reply, /لأي دولة؟/);
+    assert.equal(talk(['وينكم يا شباب'])[0]!.reply, 'نحن مقابل البنك\n\n0. رجوع   #. موظف');
+  });
+
+  it('goes back a list at a time, and from an answer to the list it came from', () => {
+    const [, , answer, back, up] = talk(['مرحبا', '2', '1', '0', '0']);
+    assert.match(answer!.reply, /دولار مقابل شيكل/);
+    assert.match(back!.reply, /أي سعر؟/);
+    assert.match(up!.reply, /كيف بقدر أساعدك؟/);
+  });
+
+  it('hands to staff on # or the choice, and on an answer that has gone', () => {
+    const viaHash = talk(['مرحبا', '#'])[1]!;
+    assert.equal(viaHash.handover, true);
+    assert.match(viaHash.reply, /رح يتواصل معك/);
+    assert.equal(talk(['مرحبا', '4'])[1]!.handover, true);
+    const gone = talk(['مرحبا', '2', '2'])[2]!;
+    assert.equal(gone.handover, true);
+    assert.equal(gone.summary, 'الأسعار ← غير متوفر');
+  });
+
+  it('hands over rather than show an empty list', () => {
+    const noCountries = stepFlow('بدي أحول', null, profile(), { ...sheet, remittances: [] }, true, at)!;
+    assert.equal(noCountries.handover, true);
+    assert.match(noCountries.reply, /رح يتواصل معك/);
+  });
+
+  it('leaves what fits nothing to be asked about, and a number out of range too', () => {
+    assert.equal(talk(['شو أخبار الطقس'])[0], null);
+    assert.equal(talk(['مرحبا', '9'])[1], null);
+  });
+
+  it('forgets a place left too long', () => {
+    const first = stepFlow('مرحبا', null, profile(), sheet, true, at)!;
+    assert.match(stepFlow('2', first.state, profile(), sheet, true, at + 60_000)!.reply, /أي سعر؟/);
+    assert.equal(stepFlow('2', first.state, profile(), sheet, true, at + FLOW_EXPIRES + 1), null);
+  });
+
+  it('is not there at all until a path is drawn', () => {
+    assert.equal(stepFlow('مرحبا', null, emptyProfile(), sheet, true, at), null);
+  });
+
+  it('opens a top choice the assistant recognised, and shows the list for the rest', () => {
+    assert.match(enterFlow(1, profile(), sheet, true, at)!.reply, /أي سعر؟/);
+    assert.equal(enterFlow(9, profile(), sheet, true, at), null);
+    assert.match(currentMenu(null, profile(), sheet, true, at)!.reply, /كيف بقدر أساعدك؟/);
+  });
+
+  it('drops unnamed choices, and lists nested too deep', () => {
+    const deep = node({ title: 'a', kind: 'menu', children: [node({ title: 'b', kind: 'menu', children: [node({ title: 'c', kind: 'menu', children: [node({ title: 'd', kind: 'menu', children: [node({ title: 'e' })] })] })] })] });
+    const tidy = tidyProfile(profile({ flow: { prompt: ' ', children: [deep, node({ title: ' ' })] } }));
+    assert.equal(tidy.flow.children.length, 1);
+    assert.equal(tidy.flow.children[0]!.children[0]!.children[0]!.children[0]!.children.length, 0);
+  });
+
+  it('walks in a real conversation, showing the list once when nothing fits', async () => {
+    const walked = setup({ reply: '', handover: false, summary: null, silent: true });
+    const p = profile();
+    walked.deps.flows = {
+      step: async (text, state, now) => stepFlow(text, state, p, sheet, true, now),
+      enter: async (index, now) => enterFlow(index, p, sheet, true, now),
+      menu: async (state, now) => currentMenu(state, p, sheet, true, now),
+    };
+    assert.equal(await handlePrivateMessage(message('مرحبا'), walked.deps), 'FLOW');
+    assert.equal(await handlePrivateMessage(message('2'), walked.deps), 'FLOW');
+    assert.equal(walked.asked.length, 0);
+    assert.equal(await handlePrivateMessage(message('الطقس حلو'), walked.deps), 'FLOW');
+    assert.equal(walked.asked.length, 1);
+    assert.match(walked.sent.at(-1)!, /أي سعر؟/);
+    assert.equal(await handlePrivateMessage(message('الجو بارد'), walked.deps), 'NO_INFO');
   });
 });
 
