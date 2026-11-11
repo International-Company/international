@@ -5,6 +5,7 @@ import makeWASocket, {
   downloadMediaMessage,
   fetchLatestBaileysVersion,
   normalizeMessageContent,
+  type BinaryNode,
   type WAMessage,
   type WASocket,
 } from '@whiskeysockets/baileys';
@@ -172,6 +173,23 @@ async function open(account: Account): Promise<void> {
     ...(version ? { version } : {}),
   });
   holder.sock = sock;
+
+  /*
+   * WhatsApp now sends people's status updates as a stanza of their own, which
+   * this version of the library never acknowledges. Left unacknowledged, the
+   * server stops delivering messages to the link while it still looks
+   * connected, and customers go unanswered with nothing in the log.
+   */
+  let statusSeen = false;
+  sock.ws.on('CB:status', (node: BinaryNode) => {
+    if (!statusSeen) {
+      statusSeen = true;
+      log.info('Acknowledging status updates', { account });
+    }
+    void sock
+      .sendMessageAck(node)
+      .catch((error) => log.warn('Could not acknowledge a status update', { account, error }));
+  });
 
   /*
    * Messages as they arrive — "notify", not the history WhatsApp replays on
