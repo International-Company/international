@@ -46,6 +46,14 @@ import { clearSession, databaseAuthState, hasSession } from './auth-state';
 
 const log = createLogger('whatsapp');
 
+/** What reaches the private number, counted by how it came and from what kind of chat. */
+const traffic = new Map<string, number>();
+setInterval(() => {
+  if (traffic.size === 0) return;
+  log.info('Private number traffic, last five minutes', Object.fromEntries(traffic));
+  traffic.clear();
+}, 5 * 60_000).unref();
+
 /** How long a copy knocked off by another waits before trying the number again. */
 const REPLACED_WAIT_MS = 2 * 60_000;
 
@@ -201,9 +209,13 @@ async function open(account: Account): Promise<void> {
     // What reaches the private number from people, before anything is filtered: never who or what.
     if (account === 'private' && generation === holder.generation) {
       for (const message of messages) {
-        if (!message.key.remoteJid || !isPrivateChat(message.key.remoteJid)) continue;
+        const jid = message.key.remoteJid ?? '';
+        const kind = jid.includes('@') ? jid.slice(jid.indexOf('@') + 1) : 'none';
+        traffic.set(`${type}:${kind}`, (traffic.get(`${type}:${kind}`) ?? 0) + 1);
+        if (kind === 'g.us' || kind === 'broadcast' || kind === 'newsletter') continue;
         log.info('A private chat message reached the link', {
           type,
+          kind,
           fromMe: Boolean(message.key.fromMe),
           readable: Boolean(message.message),
           stub: message.messageStubType ?? null,
