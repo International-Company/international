@@ -45,6 +45,9 @@ import { clearSession, databaseAuthState, hasSession } from './auth-state';
 
 const log = createLogger('whatsapp');
 
+/** How long a copy knocked off by another waits before trying the number again. */
+const REPLACED_WAIT_MS = 2 * 60_000;
+
 export type LinkStatus = 'OFF' | 'CONNECTING' | 'WAITING_QR' | 'CONNECTED';
 export type { Account } from './accounts';
 
@@ -301,6 +304,15 @@ async function open(account: Account): Promise<void> {
         return;
       }
 
+      /*
+       * Another copy of this server has taken the number, which is what a deploy
+       * does for the moments both run. Taking it straight back has the two knock
+       * each other off and both write the same keys, which can leave customers'
+       * messages unreadable. The old copy is gone long before this waits out.
+       */
+      const replaced = code === DisconnectReason.connectionReplaced;
+      if (replaced) log.warn('Another copy of the server took this number; waiting', { account });
+
       // A QR nobody scanned in time ends the attempt; anything else is a dropped line.
       void hasSession(prisma, prefixOf(account)).then((linked) => {
         if (generation !== holder.generation) return;
@@ -310,10 +322,13 @@ async function open(account: Account): Promise<void> {
           return;
         }
         holder.status = 'CONNECTING';
-        holder.retry = setTimeout(() => {
-          holder.retry = null;
-          void open(account).catch((error) => fail(account, error));
-        }, 5_000);
+        holder.retry = setTimeout(
+          () => {
+            holder.retry = null;
+            void open(account).catch((error) => fail(account, error));
+          },
+          replaced ? REPLACED_WAIT_MS : 5_000,
+        );
       });
     }
   });
