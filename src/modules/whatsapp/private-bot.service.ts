@@ -335,16 +335,17 @@ export async function handlePrivateMessage(
     log.warn('The private number reached its daily limit', { limit });
   }
 
-  // One message and no more: nothing at all if they have already been told someone will call.
+  /*
+   * One message and no more, for someone who is only keeping on. A customer still
+   * talking after being handed to staff is not that: most of what they write next
+   * is about the same deal, and going quiet on them lost real customers.
+   */
   const quiet = guards.pestering;
-  if (quiet?.enabled && answer) {
-    const alreadyTold = now - conversation.handedAt < quiet.minutes * 60 * 1000;
-    if (answer.pestering || (answer.handover && alreadyTold)) {
-      conversation.quietUntil = now + quiet.minutes * 60 * 1000;
-      if (!alreadyTold) await say(quiet.reply.trim() || SAY_ENOUGH);
-      await alert((answer.summary?.trim() || text).slice(0, 300));
-      return 'QUIET';
-    }
+  if (quiet?.enabled && answer?.pestering) {
+    conversation.quietUntil = now + quiet.minutes * 60 * 1000;
+    await say(quiet.reply.trim() || SAY_ENOUGH);
+    await alert((answer.summary?.trim() || text).slice(0, 300));
+    return 'QUIET';
   }
 
   if (answer?.quote) {

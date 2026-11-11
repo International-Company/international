@@ -779,13 +779,14 @@ describe('someone who keeps on', () => {
     assert.equal(asked.length, 2);
   });
 
-  it('is told someone will call once, not again and again', async () => {
-    const { deps, sent, asked } = withProfile(toStaff);
-    assert.equal(await handlePrivateMessage(message('بدي مؤمن'), deps), 'ANSWERED');
-    assert.equal(await handlePrivateMessage(message('بعرض الله'), deps), 'QUIET');
-    assert.equal(await handlePrivateMessage(message('جلطتني'), deps), 'QUIET');
-    assert.deepEqual(sent, ['رح يتواصل معك موظف']);
-    assert.equal(asked.length, 2);
+  it('keeps answering a customer who was handed to staff and writes again', async () => {
+    const { deps, sent, alerts } = withProfile(toStaff);
+    assert.equal(await handlePrivateMessage(message('بدي أبيع 1000 دولار'), deps), 'ANSWERED');
+    assert.equal(await handlePrivateMessage(message('كم السعر؟'), deps), 'ANSWERED');
+    assert.equal(await handlePrivateMessage(message('متى بتتصلوا؟'), deps), 'ANSWERED');
+    assert.equal(sent.length, 3);
+    // The group is still told once for a while, not on every message.
+    assert.equal(alerts.length, 1);
   });
 
   it('uses the office’s words and its length of time', async () => {
