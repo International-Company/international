@@ -198,6 +198,19 @@ async function open(account: Account): Promise<void> {
    * numbers see is handled once.
    */
   sock.ev.on('messages.upsert', ({ messages, type }) => {
+    // What reaches the private number from people, before anything is filtered: never who or what.
+    if (account === 'private' && generation === holder.generation) {
+      for (const message of messages) {
+        if (!message.key.remoteJid || !isPrivateChat(message.key.remoteJid)) continue;
+        log.info('A private chat message reached the link', {
+          type,
+          fromMe: Boolean(message.key.fromMe),
+          readable: Boolean(message.message),
+          stub: message.messageStubType ?? null,
+          reason: message.messageStubParameters?.[0] ?? null,
+        });
+      }
+    }
     if (generation !== holder.generation || type !== 'notify') return;
     for (const message of messages) {
       if (!message.key.remoteJid) continue;
