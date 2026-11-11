@@ -619,7 +619,18 @@ export async function replyPrivately(jid: string, text: string): Promise<void> {
   await sock.sendPresenceUpdate('composing', jid).catch(() => undefined);
   await new Promise((resolve) => setTimeout(resolve, Math.min(3_500, 1_000 + text.length * 15)));
   await sock.sendPresenceUpdate('paused', jid).catch(() => undefined);
-  await sock.sendMessage(jid, { text });
+  // WhatsApp not answering must end in an error someone sees, not a reply that never comes.
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      sock.sendMessage(jid, { text }),
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error('WhatsApp did not take the reply in time')), 45_000);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /**

@@ -44,6 +44,8 @@ import {
   gapsOf,
   handlePrivateMessage,
   newBotState,
+  traceDeps,
+  withinLimit,
   type Answer,
   type BotDeps,
   type ForwardDeps,
@@ -1005,5 +1007,25 @@ describe('the price sheet', () => {
   it('says so when nothing is published', () => {
     const empty = composePriceSheet({ rates: [], remittances: [], usdtForCashDollars: 0, usdtForBankDollars: 0 });
     assert.match(empty, /لا توجد أسعار منشورة/);
+  });
+});
+
+describe('a message that never finishes', () => {
+  it('fails with the step it stopped at, and keeps the conversation as it was', async () => {
+    const { deps } = setup();
+    deps.reply = () => new Promise(() => undefined);
+    let step = '';
+    const traced = traceDeps(deps, (name) => {
+      step = name;
+    });
+    assert.equal(traced.state, deps.state);
+    await assert.rejects(
+      withinLimit(handlePrivateMessage(message('كم الدولار؟'), traced), 200, () => step),
+      /Stuck at reply/,
+    );
+  });
+
+  it('lets one that finishes in time through', async () => {
+    assert.equal(await withinLimit(Promise.resolve('done'), 200, () => ''), 'done');
   });
 });

@@ -849,6 +849,40 @@ export async function privateBotGaps(): Promise<BotGap[]> {
 
 /** Its messages, each customer's one at a time and in the order they wrote them. */
 const inQueue = new Map<string, Promise<unknown>>();
+
+/** Longer than the slowest answer and send together: past it, one message is stuck. */
+const TURN_LIMIT_MS = 150_000;
+
+/**
+ * The same helpers, each noting its name as it is called, so a message that
+ * never finishes says where it stopped.
+ */
+export function traceDeps(deps: BotDeps, mark: (step: string) => void): BotDeps {
+  const wrap = <T extends object>(target: T, prefix: string): T =>
+    Object.fromEntries(
+      Object.entries(target).map(([name, value]) => [
+        name,
+        typeof value === 'function'
+          ? (...args: unknown[]) => {
+              mark(prefix + name);
+              return (value as (...a: unknown[]) => unknown)(...args);
+            }
+          : value,
+      ]),
+    ) as T;
+  return { ...wrap(deps, ''), ...(deps.flows ? { flows: wrap(deps.flows, 'flows.') } : {}) };
+}
+
+/** A turn that has not finished in time fails with where it stopped, and frees the queue. */
+export function withinLimit<T>(work: Promise<T>, ms: number, where: () => string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  return Promise.race([
+    work,
+    new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`Stuck at ${where()}`)), ms);
+    }),
+  ]).finally(() => clearTimeout(timer));
+}
 const state = newBotState();
 let registered = false;
 
@@ -1001,11 +1035,20 @@ export function registerPrivateBot(): void {
     });
     const turn = (inQueue.get(incoming.chat) ?? Promise.resolve())
       .then(async () => {
+        log.info('A customer message arrived');
+        let step = 'notice';
         if ((await notice) === 'SENDER') {
           log.info('A Western Union notice was passed on');
           return;
         }
-        const outcome = await handlePrivateMessage(incoming, deps);
+        const traced = traceDeps(deps, (name) => {
+          step = name;
+        });
+        const outcome = await withinLimit(
+          handlePrivateMessage(incoming, traced),
+          TURN_LIMIT_MS,
+          () => step,
+        );
         // The outcome only: who wrote and what they said stay out of the log.
         if (outcome === 'OFF') {
           log.info('A customer was not answered', { outcome, missing: await privateBotGaps() });
