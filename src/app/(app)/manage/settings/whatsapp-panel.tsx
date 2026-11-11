@@ -336,7 +336,8 @@ export function WhatsappPanel({ canManage }: { canManage: boolean }) {
                       category === 'TIKTOK_NAME' ||
                       category === 'USDT_SALE_COPY' ||
                       category === 'PRIVATE_LEADS' ||
-                      category === 'PRIVATE_FORWARD'
+                      category === 'PRIVATE_FORWARD' ||
+                      category === 'WESTERN_NOTICES'
                     ? t('whatsapp.routeNotSent')
                     : t('whatsapp.routeMain');
               return (

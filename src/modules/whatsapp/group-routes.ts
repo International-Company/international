@@ -18,6 +18,7 @@ export const ROUTE_CATEGORIES = [
   'TIKTOK_NAME',
   'PRIVATE_LEADS',
   'PRIVATE_FORWARD',
+  'WESTERN_NOTICES',
 ] as const;
 export type RouteCategory = (typeof ROUTE_CATEGORIES)[number];
 
@@ -46,6 +47,7 @@ const CATEGORY_WORDS: Record<RouteCategory, string> = {
   TIKTOK_NAME: 'صورة تيكتوك والاسم',
   PRIVATE_LEADS: 'طلبات عملاء الرقم الخاص',
   PRIVATE_FORWARD: 'الصور والملفات التي تصل إلى الرقم الخاص',
+  WESTERN_NOTICES: 'إشعارات الويسترن',
 };
 
 /**
@@ -65,7 +67,12 @@ const COPY_OF: Record<string, RouteCategory> = {
   USDT_SALE: 'USDT_SALE_COPY',
   TIKTOK_WITHDRAWAL: 'TIKTOK_NAME',
 };
-const COPIES: RouteCategory[] = [...Object.values(COPY_OF), 'PRIVATE_LEADS', 'PRIVATE_FORWARD'];
+const COPIES: RouteCategory[] = [
+  ...Object.values(COPY_OF),
+  'PRIVATE_LEADS',
+  'PRIVATE_FORWARD',
+  'WESTERN_NOTICES',
+];
 
 /** The stored routes. Anything unreadable counts as none: the main group still hears. */
 export function parseRoutes(raw: string): GroupRoutes {
@@ -106,9 +113,7 @@ export function withRoute(
 function routedTo(category: RouteCategory, routes: GroupRoutes, main: string): string {
   // Sent only where it is asked for: it would say nothing new in the main group.
   if (COPIES.includes(category)) return routes[category]?.id ?? '';
-  return (
-    routes[category]?.id || (category === 'USDT_SALE' ? routes.USDT?.id : undefined) || main
-  );
+  return routes[category]?.id || (category === 'USDT_SALE' ? routes.USDT?.id : undefined) || main;
 }
 
 /** The group a deal of this type goes to, or '' when none is chosen. */

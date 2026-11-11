@@ -48,6 +48,7 @@ const WORDING: Record<string, Wording> = {
   'The panel could not get an answer': { title: 'تعذر الرد في «جرّب البوت»', action: 'راجع رصيد حساب Anthropic ومفتاح API.' },
   'A reply was held back by a blocked word': { title: 'مُنع رد للبوت لأنه يحتوي كلمة ممنوعة', action: 'حُوّل العميل إلى موظف. الكلمة مكتوبة في التفاصيل.' },
   'Could not forward a message to the group': { title: 'لم تصل رسالة من الرقم الخاص إلى مجموعتها', action: CHECK_LINK, critical: true },
+  'Could not pass on a Western Union notice': { title: 'لم يصل إشعار ويسترن إلى قروب «إشعارات الويسترن»', action: CHECK_LINK, critical: true },
   'Could not fetch a file to forward': { title: 'تعذر جلب ملف وصل إلى الرقم الخاص', action: 'أُرسل تنبيه نصي للمجموعة، وافتح المحادثة في الرقم الخاص لرؤيته. الملفات فوق 30 ميغابايت لا تُنقل.' },
   'A customer message failed': { title: 'فشلت معالجة رسالة عميل', action: 'تأكد أن الرقم الخاص «مرتبط».', critical: true },
   'Could not keep a message': { title: 'لم تُحفظ رسالة في سجل المحادثات', action: 'تأكد من عمل قاعدة البيانات.' },

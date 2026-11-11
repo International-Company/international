@@ -34,6 +34,7 @@ import * as store from './bot-store';
 import { creditIsBack, creditOutAt, noteIfCreditOut, recordUsage, usageSummary } from './bot-usage';
 import { parseRoutes } from './group-routes';
 import { composePriceSheet, type PriceSheet } from './price-sheet';
+import { westernNotice } from './western-notices';
 import {
   onIncomingText,
   onStaffMessage,
@@ -408,12 +409,16 @@ export interface ForwardDeps {
   sendMedia: (group: string, media: ForwardedMedia, caption: string) => Promise<unknown>;
 }
 
-export type ForwardOutcome = 'NO_GROUP' | 'WORDS_ONLY' | 'SENT_MEDIA' | 'SENT_NOTE';
+export type ForwardOutcome = 'NO_GROUP' | 'WORDS_ONLY' | 'SENT_WORDS' | 'SENT_MEDIA' | 'SENT_NOTE';
 
-/** Passes on the files that reach the private number, not its words. One that cannot be fetched still says so. */
+/**
+ * Passes on the files that reach the private number, and its words only when asked:
+ * a notice is all words. One file that cannot be fetched still says so.
+ */
 export async function forwardToGroup(
   incoming: IncomingText,
   deps: ForwardDeps,
+  options: { words?: boolean } = {},
 ): Promise<ForwardOutcome> {
   const group = await deps.group();
   if (!group) return 'NO_GROUP';
@@ -427,7 +432,11 @@ export async function forwardToGroup(
     await deps.sendText(group, `${words}\n${FORWARD_FAILED}`);
     return 'SENT_NOTE';
   }
-  if (!media) return 'WORDS_ONLY';
+  if (!media) {
+    if (!options.words || !incoming.text.trim()) return 'WORDS_ONLY';
+    await deps.sendText(group, words);
+    return 'SENT_WORDS';
+  }
   // A sound cannot carry a caption, so who sent it goes just before it.
   if (media.kind === 'audio') await deps.sendText(group, words);
   await deps.sendMedia(group, media, words);
@@ -958,17 +967,43 @@ export function registerPrivateBot(): void {
     log.info('A member of staff took a conversation', { minutes: takeoverMinutes });
   });
 
+  const forwardTo = (category: 'PRIVATE_FORWARD' | 'WESTERN_NOTICES'): ForwardDeps => ({
+    group: async () =>
+      parseRoutes(await settings.getString('whatsapp.groupRoutes'))[category]?.id ?? '',
+    media: (message) => privateMedia(message.message),
+    sendText: (group, text) => sendText(group, text),
+    sendMedia,
+  });
+
   onIncomingText((incoming) => {
     if (incoming.account !== 'private') return;
-    void forwardToGroup(incoming, {
-      group: async () =>
-        parseRoutes(await settings.getString('whatsapp.groupRoutes')).PRIVATE_FORWARD?.id ?? '',
-      media: (message) => privateMedia(message.message),
-      sendText: (group, text) => sendText(group, text),
-      sendMedia,
-    }).catch((error) => log.warn('Could not forward a message to the group', { error }));
+    // A Western Union notice goes to its group first; one from a listed sender goes nowhere else.
+    const notice = readProfile()
+      .then(async ({ westernNotices }) => {
+        const match = westernNotice(incoming, westernNotices);
+        if (match) {
+          await forwardToGroup(incoming, forwardTo('WESTERN_NOTICES'), { words: true }).catch(
+            (error) => log.warn('Could not pass on a Western Union notice', { error }),
+          );
+        }
+        return match;
+      })
+      .catch((error) => {
+        log.info('Could not tell whether a message is a notice', { error });
+        return null;
+      });
+    void notice.then((match) => {
+      if (match === 'SENDER') return;
+      return forwardToGroup(incoming, forwardTo('PRIVATE_FORWARD')).catch((error) =>
+        log.warn('Could not forward a message to the group', { error }),
+      );
+    });
     const turn = (inQueue.get(incoming.chat) ?? Promise.resolve())
       .then(async () => {
+        if ((await notice) === 'SENDER') {
+          log.info('A Western Union notice was passed on');
+          return;
+        }
         const outcome = await handlePrivateMessage(incoming, deps);
         // The outcome only: who wrote and what they said stay out of the log.
         if (outcome === 'OFF') {

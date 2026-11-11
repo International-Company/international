@@ -743,6 +743,31 @@ export function PrivateBotView({ canManage }: { canManage: boolean }) {
 
         {section === 'behavior' && (
           <>
+            {/* ============ Western Union notices, to their own group ============ */}
+            <RuleList
+              title={t('privateBot.noticeSendersTitle')}
+              hint={t('privateBot.noticeSendersHint')}
+              placeholder={t('privateBot.noticeSendersPlaceholder')}
+              entries={profile.westernNotices.senders}
+              max={20}
+              maxLength={40}
+              disabled={!canManage}
+              onChange={(senders) =>
+                edit({ westernNotices: { ...profile.westernNotices, senders } })
+              }
+            />
+            <RuleList
+              title={t('privateBot.noticeWordsTitle')}
+              hint={t('privateBot.noticeWordsHint')}
+              placeholder={t('privateBot.noticeWordsPlaceholder')}
+              entries={profile.westernNotices.keywords}
+              max={30}
+              maxLength={60}
+              disabled={!canManage}
+              onChange={(keywords) =>
+                edit({ westernNotices: { ...profile.westernNotices, keywords } })
+              }
+            />
             {/* ============ How it behaves ============ */}
             <Card>
               <CardHeader title={t('privateBot.behaviorTitle')} />

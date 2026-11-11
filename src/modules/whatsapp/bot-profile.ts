@@ -3,6 +3,7 @@ import { normalizeDigits, parseMoney } from '@/core/money/money';
 import { ANY_CHANNEL, currencyCodeOf, type PriceSheet, type SheetRate } from './price-sheet';
 import { FEE_KINDS } from './country-prices';
 import { foldName } from './report-command';
+import { DEFAULT_NOTICE_WORDS } from './western-notices';
 
 /**
  * What the manager tells the private number's assistant from its own panel:
@@ -166,6 +167,15 @@ export const profileSchema = z.object({
       minutes: z.number().int().min(5).max(1440).default(60),
     })
     .default({}),
+  /** Western Union notices reaching the number, passed on to their own group. */
+  westernNotices: z
+    .object({
+      /** Whatever these numbers send is a notice, and the bot does not answer them. */
+      senders: z.array(z.string().max(40)).max(20).default([]),
+      /** A message with one of these is passed on too, and still answered. */
+      keywords: z.array(z.string().max(60)).max(30).default(DEFAULT_NOTICE_WORDS),
+    })
+    .default({}),
   /** How long the bot keeps out of a conversation a person has joined. */
   takeoverMinutes: z.number().int().min(1).max(10080).default(60),
   /** How long conversations and requests are kept. */
@@ -234,6 +244,10 @@ export function tidyProfile(profile: BotProfile): BotProfile {
     pestering: { ...profile.pestering, reply: profile.pestering.reply.trim() },
     rules: cleanList(profile.rules),
     blockedWords: cleanList(profile.blockedWords),
+    westernNotices: {
+      senders: cleanList(profile.westernNotices.senders),
+      keywords: cleanList(profile.westernNotices.keywords),
+    },
     humanTopics: cleanList(profile.humanTopics),
     extraPrices: profile.extraPrices
       .map((row) => ({ item: row.item.trim(), buy: row.buy.trim(), sell: row.sell.trim() }))

@@ -686,6 +686,12 @@ const en = {
   },
 
   privateBot: {
+    noticeSendersTitle: 'Western Union notices: senders',
+    noticeSendersHint: 'Whatever these numbers send goes to the Western Union notices group as it is, and the bot does not answer them. Choose the group in Settings → WhatsApp.',
+    noticeSendersPlaceholder: 'For example: +972599000000',
+    noticeWordsTitle: 'Western Union notices: words',
+    noticeWordsHint: 'A message with one of these words goes to the group too, and the bot still answers it, since it may come from a customer.',
+    noticeWordsPlaceholder: 'For example: MTCN',
     pestering: 'Stop with someone who keeps on',
     pesteringHint: 'When someone repeats themselves or pushes with no clear request, the bot sends one message, stops replying to them, and alerts staff.',
     pesteringMinutes: 'Minutes to stay quiet',
@@ -2323,6 +2329,7 @@ const en = {
       USDT_SALE_COPY: 'USDT sale: deposit address and amount only',
       PRIVATE_LEADS: 'Private number: customer requests',
       PRIVATE_FORWARD: 'Private number: pictures and files received',
+      WESTERN_NOTICES: 'Western Union notices (from the private number)',
       REMITTANCE: 'Remittances',
       REMITTANCE_COPY: 'Remittances: number and amount only',
       TIKTOK: 'TikTok: photo and all details',

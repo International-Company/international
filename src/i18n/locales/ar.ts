@@ -688,6 +688,12 @@ const ar: Dictionary = {
   },
 
   privateBot: {
+    noticeSendersTitle: 'إشعارات الويسترن: أرقام المرسلين',
+    noticeSendersHint: 'كل ما يصل من هذه الأرقام يُنقل إلى قروب «إشعارات الويسترن» كما هو، ولا يرد البوت عليها. اختر القروب من الإعدادات ← واتساب.',
+    noticeSendersPlaceholder: 'مثال: +972599000000',
+    noticeWordsTitle: 'إشعارات الويسترن: كلمات',
+    noticeWordsHint: 'أي رسالة فيها إحدى هذه الكلمات تُنقل أيضاً إلى القروب، ويبقى البوت يرد عليها لأنها قد تكون من زبون.',
+    noticeWordsPlaceholder: 'مثال: MTCN',
     pestering: 'إيقاف من يلحّ',
     pesteringHint: 'إذا كرر شخص الكلام أو ألحّ بلا طلب واضح، يرسل البوت رسالة واحدة ثم يسكت عنه، ويُنبّه موظفاً.',
     pesteringMinutes: 'مدة السكوت بالدقائق',
@@ -2322,6 +2328,7 @@ const ar: Dictionary = {
       USDT_SALE_COPY: 'بيع USDT: عنوان ومبلغ الإيداع فقط',
       PRIVATE_LEADS: 'طلبات عملاء الرقم الخاص',
       PRIVATE_FORWARD: 'الصور والملفات التي تصل إلى الرقم الخاص',
+      WESTERN_NOTICES: 'إشعارات الويسترن (من الرقم الخاص)',
       REMITTANCE: 'الحوالات',
       REMITTANCE_COPY: 'الحوالات: الرقم والمبلغ فقط',
       TIKTOK: 'تيكتوك: الصورة والبيانات كاملة',
