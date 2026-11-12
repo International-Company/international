@@ -20,6 +20,7 @@ import {
   saleCoins,
   validPercent,
 } from '@/modules/usdt/sale-sums';
+import { intakeShares } from '@/modules/exchange/intake-split';
 import { cn } from '@/ui/utils';
 
 /**
@@ -36,7 +37,7 @@ interface Currency {
   decimals: number;
 }
 
-type Mode = 'CASH' | 'BROKER';
+type Mode = 'CASH' | 'BROKER' | 'SPLIT';
 
 interface RecentSale {
   id: string;
@@ -78,6 +79,8 @@ export function SaleView({
   const [percent, setPercent] = useState('');
   const [mode, setMode] = useState<Mode>('CASH');
   const [account, setAccount] = useState(transferChannels[0] ?? '');
+  /** Paid both ways: the part that came by transfer. The notes are the rest. */
+  const [bankPart, setBankPart] = useState('');
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [notes, setNotes] = useState('');
@@ -126,14 +129,18 @@ export function SaleView({
         ? percentCoins(total, share)
         : saleCoins(total, perCoin);
 
+  // Both ways: only the transfer is typed, the cash is whatever is left of the total.
+  const bankShare = (scaleAmount(bankPart) / step) * step;
+  const split = mode === 'SPLIT' && total > 0n ? intakeShares(total, bankShare) : null;
+  const bankTooBig = mode === 'SPLIT' && total > 0n && bankShare >= total;
+  const viaBank = mode !== 'CASH';
+
   const blocked =
     coins <= 0n ||
+    (mode === 'SPLIT' && !split) ||
     (byPercent ? !validPercent(share) : perCoin <= 0n) ||
     total <= 0n ||
-    (mode === 'BROKER' &&
-      (!account ||
-        !name.trim() ||
-        !phone.trim()));
+    (viaBank && (!account || !name.trim() || !phone.trim()));
 
   const clear = () => {
     setTyped('RECEIVED');
@@ -142,6 +149,7 @@ export function SaleView({
     setPrice('');
     setPercent('');
     setMode('CASH');
+    setBankPart('');
     setName('');
     setPhone('');
     setNotes('');
@@ -167,7 +175,8 @@ export function SaleView({
         price: byPercent ? null : price.trim(),
         percent: byPercent ? percent.trim() : null,
         mode,
-        intakeChannel: mode === 'BROKER' ? account : null,
+        intakeChannel: viaBank ? account : null,
+        intakeTransfer: mode === 'SPLIT' ? bankPart.trim() : null,
         counterpartyName: name.trim() || null,
         counterpartyPhone: phone.trim() || null,
         notes: notes.trim() || null,
@@ -217,7 +226,7 @@ export function SaleView({
         <div className="flex items-center justify-between gap-3">
           <span className="text-xs font-medium text-content-secondary">{t('withdraw.paidBy')}</span>
           <div className="flex gap-1 rounded-full bg-surface-sunken p-1">
-            {(['CASH', 'BROKER'] as const).map((option) => (
+            {(['CASH', 'BROKER', 'SPLIT'] as const).map((option) => (
               <button
                 key={option}
                 type="button"
@@ -233,13 +242,17 @@ export function SaleView({
                     : 'text-content-tertiary hover:text-content-secondary',
                 )}
               >
-                {option === 'CASH' ? t('machine.payoutCash') : t('machine.payoutBank')}
+                {option === 'CASH'
+                  ? t('machine.payoutCash')
+                  : option === 'BROKER'
+                    ? t('machine.payoutBank')
+                    : t('machine.intakeSplit')}
               </button>
             ))}
           </div>
         </div>
 
-        {mode === 'BROKER' && (
+        {viaBank && (
           <label className="mt-3 block">
             <span className="text-xs text-content-tertiary">{t('withdraw.paidInto')}</span>
             <select
@@ -255,13 +268,63 @@ export function SaleView({
             </select>
           </label>
         )}
+
+        {/*
+          Both halves in the money the customer paid, the way they say it: "five
+          hundred into your account and the rest in cash". Only the transfer is
+          typed; the cash is the rest of the total, shown beside it.
+        */}
+        {mode === 'SPLIT' && (
+          <>
+            <div className="mt-3 grid grid-cols-2 gap-3">
+              <label className="block">
+                <span className="text-xs text-content-tertiary">
+                  {t('machine.intakeBankLeg')} ({currency})
+                </span>
+                <input
+                  type="text"
+                  dir="ltr"
+                  inputMode="decimal"
+                  autoComplete="off"
+                  data-zoom-safe=""
+                  value={bankPart}
+                  placeholder={(0).toFixed(decimals)}
+                  onChange={(event) => {
+                    setDone(null);
+                    setBankPart(sanitiseAmount(event.target.value, decimals));
+                  }}
+                  className={cn(
+                    'mt-1 h-12 w-full rounded-xl bg-surface-sunken px-3 text-end text-xl font-semibold tabular-nums text-content outline-none ring-1 ring-transparent focus:ring-primary',
+                    bankTooBig && 'ring-danger',
+                  )}
+                />
+              </label>
+              <div className="block">
+                <span className="text-xs text-content-tertiary">
+                  {t('machine.intakeCashLeg')} ({currency})
+                </span>
+                <p className="mt-1 flex h-12 items-center justify-end rounded-xl bg-surface-sunken px-3 text-xl font-semibold tabular-nums text-content-secondary ltr-content">
+                  {formatScaled((split?.cash ?? (bankTooBig ? 0n : total)).toString(), decimals)}
+                </p>
+              </div>
+            </div>
+            <p className="mt-2 text-xs text-content-tertiary">{t('usdtSale.splitHint')}</p>
+            {bankTooBig && (
+              <p className="mt-1 text-xs text-danger-text">{t('machine.intakeSplitTooBig')}</p>
+            )}
+          </>
+        )}
       </div>
 
       {/* ============ What came in, the price, the coins it buys ============ */}
       <section className="space-y-2 rounded-3xl bg-surface p-2 shadow-[var(--shadow-lg)] ring-1 ring-border-subtle">
         <div className="rounded-[1.35rem] bg-surface-sunken px-5 py-5">
           <span className="text-xs font-medium text-content-secondary">
-            {mode === 'BROKER' ? t('usdtSale.receivedWallet') : t('usdtSale.receivedCash')}
+            {mode === 'BROKER'
+              ? t('usdtSale.receivedWallet')
+              : mode === 'SPLIT'
+                ? t('usdtSale.receivedTotal')
+                : t('usdtSale.receivedCash')}
           </span>
           <div className="mt-3 flex items-center gap-3">
             <select
@@ -286,7 +349,13 @@ export function SaleView({
               inputMode="decimal"
               autoComplete="off"
               data-zoom-safe=""
-              aria-label={mode === 'BROKER' ? t('usdtSale.receivedWallet') : t('usdtSale.receivedCash')}
+              aria-label={
+                mode === 'BROKER'
+                  ? t('usdtSale.receivedWallet')
+                  : mode === 'SPLIT'
+                    ? t('usdtSale.receivedTotal')
+                    : t('usdtSale.receivedCash')
+              }
               value={typed === 'RECEIVED' ? received : plain(total, decimals)}
               placeholder="0.00"
               onFocus={(event) => event.currentTarget.select()}
@@ -326,29 +395,33 @@ export function SaleView({
             </div>
           </div>
         ) : (
-        <div className="rounded-[1.35rem] bg-surface-sunken px-5 py-4">
-          <span className="text-xs font-medium text-content-secondary">{t('usdtSale.price')}</span>
-          <input
-            type="text"
-            dir="ltr"
-            inputMode="decimal"
-            autoComplete="off"
-            data-zoom-safe=""
-            aria-label={t('usdtSale.price')}
-            value={price}
-            placeholder="0.0000"
-            onFocus={(event) => event.currentTarget.select()}
-            onChange={(event) => {
-              setDone(null);
-              setPrice(sanitiseAmount(event.target.value, 6));
-            }}
-            className="mt-2 block w-full bg-transparent text-end text-2xl font-semibold tabular-nums text-content outline-none placeholder:text-content-tertiary"
-          />
-        </div>
+          <div className="rounded-[1.35rem] bg-surface-sunken px-5 py-4">
+            <span className="text-xs font-medium text-content-secondary">
+              {t('usdtSale.price')}
+            </span>
+            <input
+              type="text"
+              dir="ltr"
+              inputMode="decimal"
+              autoComplete="off"
+              data-zoom-safe=""
+              aria-label={t('usdtSale.price')}
+              value={price}
+              placeholder="0.0000"
+              onFocus={(event) => event.currentTarget.select()}
+              onChange={(event) => {
+                setDone(null);
+                setPrice(sanitiseAmount(event.target.value, 6));
+              }}
+              className="mt-2 block w-full bg-transparent text-end text-2xl font-semibold tabular-nums text-content outline-none placeholder:text-content-tertiary"
+            />
+          </div>
         )}
 
         <div className="rounded-[1.35rem] bg-primary-subtle px-5 py-6">
-          <span className="text-xs font-medium text-content-secondary">{t('usdtSale.deposit')}</span>
+          <span className="text-xs font-medium text-content-secondary">
+            {t('usdtSale.deposit')}
+          </span>
           <div className="mt-3 flex items-center gap-3">
             <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-bold text-white">
               ₮
@@ -378,12 +451,12 @@ export function SaleView({
       <section className="space-y-3 rounded-2xl bg-surface p-4 ring-1 ring-border-subtle">
         <h3 className="text-sm font-semibold text-content">{t('usdtSale.customerSection')}</h3>
         <div className="grid gap-3 sm:grid-cols-2">
-          <Field label={t('usdtSale.customerName')} required={mode === 'BROKER'}>
+          <Field label={t('usdtSale.customerName')} required={viaBank}>
             {(props) => (
               <Input {...props} value={name} onChange={(event) => setName(event.target.value)} />
             )}
           </Field>
-          <Field label={t('usdtSale.phone')} required={mode === 'BROKER'}>
+          <Field label={t('usdtSale.phone')} required={viaBank}>
             {(props) => (
               <Input
                 {...props}

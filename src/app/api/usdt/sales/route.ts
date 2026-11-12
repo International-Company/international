@@ -14,6 +14,8 @@ const bodySchema = z.object({
   percent: z.string().nullish(),
   mode: z.enum(sales.SALE_MODES).default('CASH'),
   intakeChannel: z.string().max(80).nullish(),
+  /** Paid both ways: what came by transfer. */
+  intakeTransfer: z.string().nullish(),
   customerId: z.string().nullish(),
   counterpartyName: z.string().max(200).nullish(),
   counterpartyPhone: z.string().max(40).nullish(),
@@ -40,6 +42,7 @@ export const POST = route<z.infer<typeof bodySchema>>({
         percent: body.percent ? parseMoney(body.percent) : null,
         mode: body.mode,
         intakeChannel: body.intakeChannel ?? null,
+        intakeTransfer: body.intakeTransfer ? parseMoney(body.intakeTransfer) : null,
         branchId: actor.branchId,
         customerId: body.customerId ?? null,
         counterpartyName: body.counterpartyName ?? null,

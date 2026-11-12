@@ -2,6 +2,7 @@ import 'server-only';
 import { prisma, withTransaction, type DbClient } from '@/core/db/prisma';
 import { errors } from '@/core/errors/app-error';
 import { divideRounded, MONEY_FACTOR } from '@/core/money/money';
+import { intakeShares } from '@/modules/exchange/intake-split';
 import { transferChannels } from '@/modules/exchange/machine.service';
 import { readProofImage } from '@/modules/exchange/proof-image';
 import * as transactions from '@/modules/exchange/transaction.service';
@@ -28,7 +29,8 @@ import {
  * is worked out here rather than taken from the screen.
  */
 
-export const SALE_MODES = ['CASH', 'BROKER'] as const;
+/** Cash, a transfer, or both: part into an account and the rest in notes. */
+export const SALE_MODES = ['CASH', 'BROKER', 'SPLIT'] as const;
 export type SaleMode = (typeof SALE_MODES)[number];
 
 export interface SaleInput {
@@ -44,6 +46,8 @@ export interface SaleInput {
   mode: SaleMode;
   /** Which of the broker's accounts the customer paid into, when not in cash. */
   intakeChannel?: string | null;
+  /** Paid both ways: the part that came by transfer. The rest came in cash. */
+  intakeTransfer?: bigint | null;
   branchId: string;
   customerId?: string | null;
   counterpartyName?: string | null;
@@ -102,9 +106,26 @@ export async function recordSale(input: SaleInput, actor: Actor, db: DbClient = 
     throw errors.precondition('Amount must be greater than zero', 'errors.amountNotPositive');
   }
 
+  /*
+   * Paid both ways: the transfer is what was typed, the notes are the rest, so the
+   * two always add up to the total. Neither may be nothing: that is a plain sale.
+   */
+  const intake =
+    input.mode === 'SPLIT'
+      ? intakeShares(payTotal, divideRounded(input.intakeTransfer ?? 0n, step) * step)
+      : input.mode === 'BROKER'
+        ? { cash: 0n, broker: payTotal }
+        : { cash: payTotal, broker: 0n };
+  if (!intake) {
+    throw errors.precondition(
+      'The transfer must be more than nothing and less than the total',
+      'errors.intakeSplitInvalid',
+    );
+  }
+
   // Paid by transfer: into which of the broker's accounts, from the manager's list.
   let account: string | null = null;
-  if (input.mode === 'BROKER') {
+  if (input.mode !== 'CASH') {
     account = input.intakeChannel?.trim() ?? '';
     if (!account) {
       throw errors.precondition(
@@ -146,8 +167,7 @@ export async function recordSale(input: SaleInput, actor: Actor, db: DbClient = 
         fromAmount: payTotal,
         toCurrency: 'USDT',
         toAmount: usdtAmount,
-        intake:
-          input.mode === 'BROKER' ? { cash: 0n, broker: payTotal } : { cash: payTotal, broker: 0n },
+        intake,
         intakeChannel: account,
         // 1 unit of what was paid = this many coins, as every row reads its rate.
         // By a percentage, the rate is the percentage itself, so it reads back exactly.
