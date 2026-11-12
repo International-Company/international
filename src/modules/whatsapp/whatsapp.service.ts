@@ -5,6 +5,7 @@ import makeWASocket, {
   downloadMediaMessage,
   fetchLatestBaileysVersion,
   normalizeMessageContent,
+  toNumber,
   type BinaryNode,
   type WAMessage,
   type WASocket,
@@ -53,6 +54,9 @@ setInterval(() => {
   log.info('Private number traffic, last five minutes', Object.fromEntries(traffic));
   traffic.clear();
 }, 5 * 60_000).unref();
+
+/** A message older than this when it reaches the link is not acted on. */
+const STALE_AFTER_MS = 10 * 60_000;
 
 /** How long a copy knocked off by another waits before trying the number again. */
 const REPLACED_WAIT_MS = 2 * 60_000;
@@ -212,20 +216,22 @@ async function open(account: Account): Promise<void> {
         const jid = message.key.remoteJid ?? '';
         const kind = jid.includes('@') ? jid.slice(jid.indexOf('@') + 1) : 'none';
         traffic.set(`${type}:${kind}`, (traffic.get(`${type}:${kind}`) ?? 0) + 1);
-        if (kind === 'g.us' || kind === 'broadcast' || kind === 'newsletter') continue;
-        log.info('A private chat message reached the link', {
-          type,
-          kind,
-          fromMe: Boolean(message.key.fromMe),
-          readable: Boolean(message.message),
-          stub: message.messageStubType ?? null,
-          reason: message.messageStubParameters?.[0] ?? null,
-        });
       }
     }
     if (generation !== holder.generation || type !== 'notify') return;
+    let stale = 0;
     for (const message of messages) {
       if (!message.key.remoteJid) continue;
+      /*
+       * What was missed while the link was down arrives as new. A question from
+       * yesterday answered now, or a command run hours late, is worse than none:
+       * whoever wrote it has been answered by a person or has moved on.
+       */
+      const sentAt = toNumber(message.messageTimestamp) * 1000;
+      if (sentAt > 0 && Date.now() - sentAt > STALE_AFTER_MS) {
+        stale++;
+        continue;
+      }
       // The private number hears people writing to it, and nothing else.
       if (account === 'private') {
         if (!isPrivateChat(message.key.remoteJid)) continue;
@@ -295,6 +301,7 @@ async function open(account: Account): Promise<void> {
           .catch((error) => log.error('A WhatsApp message handler failed', { error }));
       }
     }
+    if (stale > 0) log.info('Old messages left unanswered', { account, count: stale });
   });
 
   sock.ev.on('creds.update', () => {
