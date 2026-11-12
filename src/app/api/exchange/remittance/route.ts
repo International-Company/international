@@ -35,6 +35,8 @@ const bodySchema = z.object({
   deliveredUnit: z.string().max(20).nullish(),
   /** Sending: the customer paid by transfer, into this account. Otherwise notes. */
   intakeChannel: z.string().max(80).nullish(),
+  /** Sending, paid both ways: the part that came by transfer; the rest was notes. */
+  intakeTransfer: z.string().nullish(),
   /** A photo of what the customer paid, shrunk by the screen, as base64. */
   proof: z.string().max(6_000_000).nullish(),
   /** A photo of who the remittance is for, the same way. */
@@ -68,6 +70,7 @@ export const POST = route<z.infer<typeof bodySchema>>({
           deliveredAmount: body.delivered ? parseMoney(body.delivered) : null,
           deliveredUnit: body.deliveredUnit ?? null,
           intakeChannel: body.intakeChannel ?? null,
+          intakeTransfer: body.intakeTransfer ? parseMoney(body.intakeTransfer) : null,
           proof: body.proof ?? null,
           beneficiary: body.beneficiary ?? null,
         },

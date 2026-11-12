@@ -8,6 +8,7 @@ import { requireOpenDay } from './business-day.service';
 import { emitAsync } from '@/core/events/bus';
 import * as audit from '@/modules/audit/audit.service';
 import * as settings from '@/modules/settings/settings.service';
+import { intakeShares } from './intake-split';
 import { transferChannels } from './machine.service';
 import { MAX_PROOFS, readProofImage, type ProofKind } from './proof-image';
 import * as transactions from './transaction.service';
@@ -113,6 +114,11 @@ export interface SendInput extends Common {
   cost: bigint | null;
   /** The customer paid by transfer, into this one of the office's accounts. Otherwise notes. */
   intakeChannel?: string | null;
+  /**
+   * Paid both ways: this much by transfer into `intakeChannel`, the rest in notes.
+   * Nothing here means the whole sum came the one way.
+   */
+  intakeTransfer?: bigint | null;
   /** What reaches the beneficiary, in the money it arrives in. For showing only. */
   deliveredAmount?: bigint | null;
   deliveredUnit?: string | null;
@@ -190,6 +196,18 @@ export async function send(input: SendInput, actor: Actor, db: DbClient = prisma
       { channel: intakeChannel },
     );
   }
+  const split = intakeChannel && input.intakeTransfer != null;
+  const intake = split
+    ? intakeShares(input.collected, input.intakeTransfer!)
+    : intakeChannel
+      ? { cash: 0n, broker: input.collected }
+      : undefined;
+  if (split && !intake) {
+    throw errors.precondition(
+      'The part paid by transfer must be above nothing and below the whole sum',
+      'errors.intakeSplitInvalid',
+    );
+  }
 
   /*
    * One transaction, so the deal and its photo are visible together. The bot is
@@ -211,7 +229,7 @@ export async function send(input: SendInput, actor: Actor, db: DbClient = prisma
         pricePending,
         deliveredAmount: delivered,
         deliveredUnit: delivered ? input.deliveredUnit?.trim() || null : null,
-        intake: intakeChannel ? { cash: 0n, broker: input.collected } : undefined,
+        intake: intake ?? undefined,
         intakeChannel,
         rate: 100000000n,
         profitAmount: input.collected - cost,

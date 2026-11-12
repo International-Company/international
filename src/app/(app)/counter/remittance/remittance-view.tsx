@@ -22,6 +22,7 @@ import { useToast } from '@/ui/overlay';
 import { Field, Input } from '@/ui/form';
 import { cn } from '@/ui/utils';
 import { PhotoField } from '@/ui/photo-field';
+import { intakeShares } from '@/modules/exchange/intake-split';
 import { priceRemittance, type FeeKind } from '@/modules/exchange/remittance-pricing';
 import { RemittancePrices, type PriceRow } from './remittance-prices';
 import { UnpricedRemittances } from './remittance-unpriced';
@@ -108,8 +109,10 @@ export function RemittanceView({
    * always differ from the list.
    */
   const [sum, setSum] = useState('');
-  /** How the customer pays: notes across the counter, or a transfer to an office account. */
-  const [paidVia, setPaidVia] = useState<'CASH' | 'TRANSFER'>('CASH');
+  /** How the customer pays: notes, a transfer to an office account, or part of each. */
+  const [paidVia, setPaidVia] = useState<'CASH' | 'TRANSFER' | 'SPLIT'>('CASH');
+  /** Paid both ways: the part that came by transfer. */
+  const [bankPart, setBankPart] = useState('');
   const [intakeChannel, setIntakeChannel] = useState(config.transferChannels[0] ?? '');
   /** What reaches the beneficiary, and the word for its money. For showing only. */
   const [delivered, setDelivered] = useState('');
@@ -137,7 +140,11 @@ export function RemittanceView({
   const margin = grossValue - netValue;
 
   const outgoing = direction === 'OUT';
-  const byTransfer = outgoing && paidVia === 'TRANSFER';
+  const byTransfer = outgoing && paidVia !== 'CASH';
+  const splitting = outgoing && paidVia === 'SPLIT';
+  const bankValue = scaleAmount(bankPart);
+  const split = splitting ? intakeShares(grossValue, bankValue) : null;
+  const bankTooBig = splitting && bankValue > 0n && bankValue >= grossValue;
   const nameRequired = !outgoing;
   const canSeeMargin = permissions.includes('exchange.margin.view');
 
@@ -171,6 +178,7 @@ export function RemittanceView({
     setProof(null);
     setBeneficiaryPhoto(null);
     setPaidVia('CASH');
+    setBankPart('');
     setCounterpartyName('');
     setCounterpartyPhone('');
     setNotes('');
@@ -192,7 +200,8 @@ export function RemittanceView({
     // A name is asked for where someone answers for the money: a remittance paid out here.
     (nameRequired && !counterpartyName.trim()) ||
     // A transfer belongs to someone who can be reached; the server insists too.
-    (byTransfer && !counterpartyPhone.trim());
+    (byTransfer && !counterpartyPhone.trim()) ||
+    (splitting && !split);
 
   const submit = async () => {
     if (blocked) return;
@@ -210,6 +219,7 @@ export function RemittanceView({
         counterpartyPhone: counterpartyPhone.trim() || null,
         notes: notes.trim() || null,
         intakeChannel: byTransfer ? intakeChannel : null,
+        intakeTransfer: split ? unscale(split.broker) : null,
         proof: outgoing ? proof : null,
         beneficiary: outgoing ? beneficiaryPhoto : null,
       });
@@ -224,6 +234,7 @@ export function RemittanceView({
       setProof(null);
       setBeneficiaryPhoto(null);
       setPaidVia('CASH');
+      setBankPart('');
       setCounterpartyName('');
       setCounterpartyPhone('');
       setNotes('');
@@ -493,12 +504,12 @@ export function RemittanceView({
               {t('machine.intakeTitle')}
             </span>
             <div dir="ltr" className="flex gap-1 rounded-full bg-surface-sunken p-1">
-              {(['CASH', 'TRANSFER'] as const).map((option) => (
+              {(['CASH', 'TRANSFER', 'SPLIT'] as const).map((option) => (
                 <button
                   key={option}
                   type="button"
                   aria-pressed={paidVia === option}
-                  disabled={option === 'TRANSFER' && config.transferChannels.length === 0}
+                  disabled={option !== 'CASH' && config.transferChannels.length === 0}
                   onClick={() => {
                     setPaidVia(option);
                     setDone(null);
@@ -510,7 +521,11 @@ export function RemittanceView({
                       : 'text-content-tertiary hover:text-content-secondary',
                   )}
                 >
-                  {option === 'CASH' ? t('machine.intakeCash') : t('machine.intakeTransfer')}
+                  {option === 'CASH'
+                    ? t('machine.intakeCash')
+                    : option === 'TRANSFER'
+                      ? t('machine.intakeTransfer')
+                      : t('machine.intakeSplit')}
                 </button>
               ))}
             </div>
@@ -530,6 +545,48 @@ export function RemittanceView({
                 ))}
               </select>
             </label>
+          )}
+          {splitting && (
+            <div className="mt-3 space-y-2">
+              <p className="text-[0.6875rem] text-content-tertiary">
+                {t('machine.intakeSplitRemittance')}
+              </p>
+              <div className="grid grid-cols-2 gap-3">
+                <label className="block">
+                  <span className="text-xs text-content-tertiary">
+                    {t('machine.intakeBankLeg')}
+                  </span>
+                  <input
+                    type="text"
+                    dir="ltr"
+                    inputMode="decimal"
+                    autoComplete="off"
+                    data-zoom-safe=""
+                    value={bankPart}
+                    placeholder="0"
+                    onFocus={(event) => event.currentTarget.select()}
+                    onChange={(event) => {
+                      setDone(null);
+                      setBankPart(sanitiseAmount(event.target.value, decimals));
+                    }}
+                    className="mt-1 h-12 w-full rounded-xl bg-surface-sunken px-3 text-end text-lg font-semibold tabular-nums text-content outline-none ring-1 ring-transparent focus:ring-primary"
+                  />
+                </label>
+                <div>
+                  <span className="text-xs text-content-tertiary">
+                    {t('machine.intakeCashLeg')}
+                  </span>
+                  <p className="mt-1 flex h-12 items-center justify-end rounded-xl bg-surface-sunken px-3 text-lg font-semibold tabular-nums text-content ltr-content">
+                    {split ? formatScaled(split.cash.toString(), decimals) : '—'} {currency}
+                  </p>
+                </div>
+              </div>
+              {bankTooBig && (
+                <p role="alert" className="text-sm text-danger-text">
+                  {t('machine.intakeSplitTooBig')}
+                </p>
+              )}
+            </div>
           )}
         </div>
       )}

@@ -1730,6 +1730,7 @@ const en = {
     intakeSplitHint:
       'The transfer at the bank rate, the notes at the till rate; the customer takes the total in cash. Name and phone are required.',
     intakeSplitTooBig: 'The transfer must be less than the amount paid — otherwise choose “Transfer”.',
+    intakeSplitRemittance: 'Type what reached the office account; the rest of what the customer pays counts as cash in your drawer. The beneficiary’s number is required.',
     today: {
       exchanged: 'Exchanged today',
       operations: '{count} operations',
