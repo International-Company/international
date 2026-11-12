@@ -101,6 +101,8 @@ export interface IncomingText {
 /** A member of staff writing from the private number's own phone. */
 export interface StaffMessage {
   chat: string;
+  /** The customer's phone address, when the chat is under a hidden (@lid) one. */
+  phone: string | null;
   /** Null when WhatsApp did not let this device read it. */
   text: string | null;
 }
@@ -258,6 +260,10 @@ async function open(account: Account): Promise<void> {
           }
           const staff: StaffMessage = {
             chat: message.key.remoteJid,
+            phone:
+              [message.key.remoteJid, message.key.remoteJidAlt].find((jid) =>
+                jid?.endsWith('@s.whatsapp.net'),
+              ) ?? null,
             text: typed?.conversation ?? typed?.extendedTextMessage?.text ?? null,
           };
           for (const listener of shared.staffListeners) {

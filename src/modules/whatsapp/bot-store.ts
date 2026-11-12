@@ -49,9 +49,21 @@ export async function recordMessage(
   ]);
 }
 
+/**
+ * One person can have a conversation under their number and another under a
+ * hidden (@lid) address; a pause on either is a pause on both.
+ */
+const samePerson = (chat: string, phoneJid: string | null) => {
+  const phone = digitsOf(phoneJid) ?? digitsOf(chat);
+  return { OR: [{ chat }, ...(phone ? [{ phone }] : [])] };
+};
+
 export async function isPaused(chat: string, phoneJid: string | null): Promise<boolean> {
-  const conversation = await conversationFor(chat, phoneJid);
-  return Boolean(conversation.pausedUntil && conversation.pausedUntil > new Date());
+  await conversationFor(chat, phoneJid);
+  const paused = await prisma.botConversation.count({
+    where: { AND: [samePerson(chat, phoneJid), { pausedUntil: { gt: new Date() } }] },
+  });
+  return paused > 0;
 }
 
 /** A member of staff has taken this conversation: the bot keeps out of it until then. */
@@ -60,9 +72,9 @@ export async function pauseChat(
   phoneJid: string | null,
   minutes: number,
 ): Promise<void> {
-  const conversation = await conversationFor(chat, phoneJid);
-  await prisma.botConversation.update({
-    where: { id: conversation.id },
+  await conversationFor(chat, phoneJid);
+  await prisma.botConversation.updateMany({
+    where: samePerson(chat, phoneJid),
     data: { pausedUntil: new Date(Date.now() + minutes * 60_000) },
   });
 }
@@ -151,10 +163,13 @@ export async function readConversation(id: string) {
 
 /** The manager handing a conversation to, or taking it from, the bot. */
 export async function setPaused(id: string, minutes: number | null): Promise<void> {
-  const row = await prisma.botConversation.findUnique({ where: { id }, select: { id: true } });
-  if (!row) throw errors.notFound('BotConversation', id);
-  await prisma.botConversation.update({
+  const row = await prisma.botConversation.findUnique({
     where: { id },
+    select: { phone: true },
+  });
+  if (!row) throw errors.notFound('BotConversation', id);
+  await prisma.botConversation.updateMany({
+    where: { OR: [{ id }, ...(row.phone ? [{ phone: row.phone }] : [])] },
     data: { pausedUntil: minutes ? new Date(Date.now() + minutes * 60_000) : null },
   });
 }

@@ -16,6 +16,7 @@ import {
   composeRules,
   firstMatch,
   officeOpen,
+  botAwake,
   parseProfile,
   visibleSheet,
   type BotProfile,
@@ -154,6 +155,7 @@ export interface BotDeps {
     imageMode?: BotProfile['imageMode'];
     imageReply?: string;
     pestering?: BotProfile['pestering'];
+    schedule?: BotProfile['schedule'];
   }>;
   flows?: FlowDeps;
   reply: (chat: string, text: string) => Promise<void>;
@@ -177,6 +179,7 @@ export type BotOutcome =
   | 'IGNORED'
   | 'LIMITED'
   | 'PAUSED'
+  | 'ASLEEP'
   | 'NOT_TEXT'
   | 'IMAGE'
   | 'QUIET'
@@ -236,6 +239,8 @@ export async function handlePrivateMessage(
   };
 
   const date = deps.now?.() ?? new Date();
+  // Outside the times the manager gave it, the office's people answer.
+  if (!botAwake((await deps.guards()).schedule, date)) return 'ASLEEP';
   const now = date.getTime();
   const conversation = conversationOf(deps.state, incoming.chat, now);
 
@@ -995,10 +1000,10 @@ export function registerPrivateBot(): void {
     state,
   };
 
-  onStaffMessage(async ({ chat, text }) => {
+  onStaffMessage(async ({ chat, phone, text }) => {
     const { takeoverMinutes } = await readProfile();
-    await store.pauseChat(chat, null, takeoverMinutes);
-    if (text) await store.recordMessage(chat, null, 'staff', text);
+    await store.pauseChat(chat, phone, takeoverMinutes);
+    if (text) await store.recordMessage(chat, phone, 'staff', text);
     log.info('A member of staff took a conversation', { minutes: takeoverMinutes });
   });
 

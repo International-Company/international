@@ -31,6 +31,7 @@ import {
   emptyProfile,
   firstMatch,
   isGreeting,
+  botAwake,
   officeOpen,
   parseProfile,
   profileSchema,
@@ -863,6 +864,37 @@ describe('working beside the staff', () => {
     assert.equal(officeOpen(hours, new Date('2026-11-09T05:00:00Z')), false);
     assert.equal(officeOpen({ ...hours, closedDays: [1] }, monday), false);
     assert.equal(officeOpen({ ...hours, enabled: false }, new Date('2026-11-09T23:00:00Z')), true);
+  });
+
+  it('answers only in the times the manager gave it, on the office’s clock', () => {
+    const schedule = { enabled: true, from: '08:00', to: '20:00', days: [0, 1, 2, 3, 4, 6] };
+    // Noon UTC on a Monday in November is 14:00 in Palestine.
+    assert.equal(botAwake(schedule, new Date('2026-11-09T12:00:00Z')), true);
+    assert.equal(botAwake(schedule, new Date('2026-11-09T19:00:00Z')), false);
+    assert.equal(botAwake(schedule, new Date('2026-11-09T05:00:00Z')), false);
+    // Friday is not one of its days.
+    assert.equal(botAwake(schedule, new Date('2026-11-13T12:00:00Z')), false);
+    assert.equal(botAwake({ ...schedule, enabled: false }, new Date('2026-11-13T23:00:00Z')), true);
+    assert.equal(botAwake(undefined, new Date('2026-11-13T23:00:00Z')), true);
+  });
+
+  it('runs through midnight when it starts later than it ends', () => {
+    const night = { enabled: true, from: '20:00', to: '08:00', days: [0, 1, 2, 3, 4, 5, 6] };
+    assert.equal(botAwake(night, new Date('2026-11-09T21:00:00Z')), true); // 23:00
+    assert.equal(botAwake(night, new Date('2026-11-09T03:00:00Z')), true); // 05:00
+    assert.equal(botAwake(night, new Date('2026-11-09T12:00:00Z')), false); // 14:00
+  });
+
+  it('stays silent outside its times, but keeps what was said', async () => {
+    const profile = emptyProfile();
+    profile.schedule = { enabled: true, from: '08:00', to: '20:00', days: [0, 1, 2, 3, 4, 5, 6] };
+    const { deps, sent, asked, kept } = setup(undefined, 100, profile);
+    deps.now = () => new Date('2026-11-09T19:00:00Z'); // 21:00 in Palestine
+    assert.equal(await handlePrivateMessage(message('كم الدولار؟'), deps), 'ASLEEP');
+    assert.deepEqual([sent.length, asked.length], [0, 0]);
+    assert.deepEqual(kept, ['customer:كم الدولار؟']);
+    deps.now = () => new Date('2026-11-10T08:00:00Z'); // 10:00 the next day
+    assert.equal(await handlePrivateMessage(message('كم الدولار؟'), deps), 'ANSWERED');
   });
 });
 

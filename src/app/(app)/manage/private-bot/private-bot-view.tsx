@@ -773,6 +773,84 @@ export function PrivateBotView({ canManage }: { canManage: boolean }) {
               <CardHeader title={t('privateBot.behaviorTitle')} />
               <CardBody className="space-y-5">
                 <Switch
+                  checked={profile.schedule.enabled}
+                  disabled={!canManage}
+                  onCheckedChange={(enabled) =>
+                    edit({ schedule: { ...profile.schedule, enabled } })
+                  }
+                  label={t('privateBot.scheduleEnabled')}
+                  description={t('privateBot.scheduleHint')}
+                />
+                {profile.schedule.enabled && (
+                  <div className="space-y-3">
+                    <div className="grid grid-cols-2 gap-3">
+                      <Field label={t('privateBot.scheduleFrom')}>
+                        {(props) => (
+                          <Input
+                            {...props}
+                            type="time"
+                            dir="ltr"
+                            disabled={!canManage}
+                            value={profile.schedule.from}
+                            onChange={(event) =>
+                              edit({ schedule: { ...profile.schedule, from: event.target.value } })
+                            }
+                          />
+                        )}
+                      </Field>
+                      <Field label={t('privateBot.scheduleTo')}>
+                        {(props) => (
+                          <Input
+                            {...props}
+                            type="time"
+                            dir="ltr"
+                            disabled={!canManage}
+                            value={profile.schedule.to}
+                            onChange={(event) =>
+                              edit({ schedule: { ...profile.schedule, to: event.target.value } })
+                            }
+                          />
+                        )}
+                      </Field>
+                    </div>
+                    <div>
+                      <p className="mb-2 text-xs font-medium text-content-secondary">
+                        {t('privateBot.scheduleDays')}
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        {[6, 0, 1, 2, 3, 4, 5].map((day) => {
+                          const on = profile.schedule.days.includes(day);
+                          return (
+                            <button
+                              key={day}
+                              type="button"
+                              disabled={!canManage}
+                              aria-pressed={on}
+                              onClick={() =>
+                                edit({
+                                  schedule: {
+                                    ...profile.schedule,
+                                    days: on
+                                      ? profile.schedule.days.filter((item) => item !== day)
+                                      : [...profile.schedule.days, day],
+                                  },
+                                })
+                              }
+                              className={`h-9 rounded-full px-3 text-sm font-medium transition-colors disabled:cursor-not-allowed ${
+                                on
+                                  ? 'bg-success-subtle text-success-text ring-1 ring-success'
+                                  : 'bg-surface-sunken text-content-secondary'
+                              }`}
+                            >
+                              {t(`privateBot.day.d${day}` as never)}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                )}
+                <Switch
                   checked={profile.hours.enabled}
                   disabled={!canManage}
                   onCheckedChange={(enabled) => edit({ hours: { ...profile.hours, enabled } })}

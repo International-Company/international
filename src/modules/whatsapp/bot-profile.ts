@@ -105,6 +105,17 @@ export const profileSchema = z.object({
       closedDays: z.array(z.number().int().min(0).max(6)).max(7).default([]),
     })
     .default({}),
+  /** When the bot answers at all; outside these times the office's people answer. */
+  schedule: z
+    .object({
+      enabled: z.boolean().default(false),
+      /** A start later than the end runs through midnight. */
+      from: z.string().regex(TIME).default('08:00'),
+      to: z.string().regex(TIME).default('20:00'),
+      /** The days it answers on; 0 is Sunday. */
+      days: z.array(z.number().int().min(0).max(6)).max(7).default([0, 1, 2, 3, 4, 5, 6]),
+    })
+    .default({}),
   /** The office's own rules for the assistant, above everything else it is told. */
   rules: z.array(z.string().max(300)).max(30).default([]),
   /** Never sent to a customer: a reply containing one is held back by the program. */
@@ -360,6 +371,24 @@ const OFFICE_ZONE = 'Asia/Hebron';
 /** Whether the office is open at this moment; hours not set count as open. */
 export function officeOpen(hours: BotProfile['hours'], at: Date): boolean {
   if (!hours.enabled) return true;
+  const { day, time } = officeClock(at);
+  if (hours.closedDays.includes(day)) return false;
+  return time >= hours.open && time < hours.close;
+}
+
+/** Whether the bot answers at this moment; no schedule set means always. */
+export function botAwake(schedule: BotProfile['schedule'] | undefined, at: Date): boolean {
+  if (!schedule?.enabled) return true;
+  const { day, time } = officeClock(at);
+  if (!schedule.days.includes(day)) return false;
+  if (schedule.from === schedule.to) return true;
+  return schedule.from < schedule.to
+    ? time >= schedule.from && time < schedule.to
+    : time >= schedule.from || time < schedule.to;
+}
+
+/** The day (0 is Sunday) and the time, "HH:MM", on the office's clock. */
+function officeClock(at: Date): { day: number; time: string } {
   const parts = new Intl.DateTimeFormat('en-GB', {
     timeZone: OFFICE_ZONE,
     weekday: 'short',
@@ -368,10 +397,10 @@ export function officeOpen(hours: BotProfile['hours'], at: Date): boolean {
     hourCycle: 'h23',
   }).formatToParts(at);
   const part = (type: string) => parts.find((entry) => entry.type === type)?.value ?? '';
-  const day = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(part('weekday'));
-  if (hours.closedDays.includes(day)) return false;
-  const now = `${part('hour')}:${part('minute')}`;
-  return now >= hours.open && now < hours.close;
+  return {
+    day: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(part('weekday')),
+    time: `${part('hour')}:${part('minute')}`,
+  };
 }
 
 const GREETINGS = [
