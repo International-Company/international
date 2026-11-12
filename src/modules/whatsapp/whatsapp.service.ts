@@ -274,8 +274,10 @@ async function open(account: Account): Promise<void> {
       if (message.key.fromMe && !text?.trim().replace(/^[\u200e\u200f]+/, '').startsWith('#')) continue;
       const sender = message.key.participant ?? message.key.remoteJid;
       const phone =
-        message.key.participantPn ??
-        message.key.senderPn ??
+        // The number behind a hidden (@lid) sender, when WhatsApp gives it.
+        [message.key.participantAlt, message.key.remoteJidAlt].find((jid) =>
+          jid?.endsWith('@s.whatsapp.net'),
+        ) ??
         (sender?.endsWith('@s.whatsapp.net') ? sender : null);
       const incoming: IncomingText = {
         chat: message.key.remoteJid,
@@ -579,7 +581,7 @@ export async function memberPhone(
   const found = metadata.participants.find(
     (participant) => participant.id === member || participant.lid === member,
   );
-  if (found?.jid) return found.jid;
+  if (found?.phoneNumber) return found.phoneNumber;
   return found?.id.endsWith('@s.whatsapp.net') ? found.id : null;
 }
 

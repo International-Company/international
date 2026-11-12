@@ -12,7 +12,7 @@ export const GROUP_ACCOUNTS = ['main', 'second'] as const satisfies readonly Acc
 
 /** A chat with one person: not a group, a status or a channel. */
 export const isPrivateChat = (jid: string): boolean =>
-  jid.endsWith('@s.whatsapp.net') || jid.endsWith('@lid');
+  ['@s.whatsapp.net', '@lid', '@hosted', '@hosted.lid'].some((server) => jid.endsWith(server));
 
 /** Where an account's session is kept: the first as it always was, the second apart. */
 export const SESSION_PREFIX: Record<Account, string> = {

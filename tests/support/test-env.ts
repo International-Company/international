@@ -17,3 +17,20 @@
 process.env.DATABASE_URL ??= 'file:./test-unused.db';
 process.env.AUTH_SECRET ??= 'test-secret-with-enough-length-to-pass-validation';
 process.env.LOG_LEVEL ??= 'error';
+
+/*
+ * The WhatsApp library's Rust bridge only names an `import` entry, and the
+ * test runner resolves through `require` under the react-server condition, so
+ * it is pointed at the file directly. The server itself loads it untouched.
+ */
+import { registerHooks } from 'node:module';
+import { pathToFileURL } from 'node:url';
+import { join } from 'node:path';
+
+const bridge = pathToFileURL(
+  join(process.cwd(), 'node_modules', 'whatsapp-rust-bridge', 'dist', 'index.js'),
+).href;
+registerHooks({
+  resolve: (specifier, context, next) =>
+    next(specifier === 'whatsapp-rust-bridge' ? bridge : specifier, context),
+});
