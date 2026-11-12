@@ -55,8 +55,11 @@ setInterval(() => {
   traffic.clear();
 }, 5 * 60_000).unref();
 
-/** A message older than this when it reaches the link is not acted on. */
-const STALE_AFTER_MS = 10 * 60_000;
+/**
+ * A message older than this when it reaches the link is not acted on: long
+ * enough for one held up behind others, short of yesterday's.
+ */
+const STALE_AFTER_MS = 30 * 60_000;
 
 /** How long a copy knocked off by another waits before trying the number again. */
 const REPLACED_WAIT_MS = 2 * 60_000;
@@ -182,6 +185,12 @@ async function open(account: Account): Promise<void> {
     printQRInTerminal: false,
     markOnlineOnConnect: false,
     syncFullHistory: false,
+    /*
+     * The library reads messages one at a time and, for one it cannot open,
+     * asks WhatsApp about the sender. Unanswered, each question held every
+     * message behind it for a minute; a shorter wait keeps customers moving.
+     */
+    defaultQueryTimeoutMs: 15_000,
     ...(version ? { version } : {}),
   });
   holder.sock = sock;
