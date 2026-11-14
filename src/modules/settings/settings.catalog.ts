@@ -454,6 +454,24 @@ export const SETTINGS: SettingDefinition[] = [
       'عند تفعيله تُرسل كل عملية إلى المجموعة المختارة أعلاه فور تسجيلها، وكذلك كل حذف. يحتاج ربط الرقم واختيار المجموعة.',
   },
   {
+    key: 'whatsapp.cancelMark', category: 'whatsapp', type: 'boolean', defaultValue: true,
+    labelEn: '❌ on a cancelled deal’s message',
+    labelAr: '❌ على رسالة العملية الملغاة',
+    descriptionEn:
+      'When a deal is cancelled, the bot reacts ❌ on the message it went out as, and on its copy in the transfers group. Only for deals sent after this was added.',
+    descriptionAr:
+      'عند إلغاء عملية يضع البوت ❌ على رسالتها في المجموعة، وعلى نسختها في مجموعة التحويلات. فقط للعمليات المرسلة بعد إضافة هذه الميزة.',
+  },
+  {
+    key: 'whatsapp.cancelMessage', category: 'whatsapp', type: 'boolean', defaultValue: true,
+    labelEn: 'Cancellation message',
+    labelAr: 'رسالة الإلغاء',
+    descriptionEn:
+      'When a deal is cancelled, the bot also writes a message saying so, with who cancelled it and why. Off, the ❌ alone marks it.',
+    descriptionAr:
+      'عند إلغاء عملية يرسل البوت أيضاً رسالة بالإلغاء، فيها من ألغاها والسبب. عند إيقافه تكفي ❌ وحدها.',
+  },
+  {
     key: 'whatsapp.reportCode', category: 'whatsapp', type: 'string', defaultValue: '#جرد',
     labelEn: 'Report code', labelAr: 'رمز طلب الجرد',
     descriptionEn:

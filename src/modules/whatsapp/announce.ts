@@ -614,11 +614,13 @@ export function registerWhatsappSubscribers(): void {
           select: { reverseReason: true, createdBy: { select: { fullNameAr: true } } },
         }),
       ]);
+      if (!deal || !(await settings.getBoolean('whatsapp.enabled'))) return;
       // Marked where it went out, whichever group that was: the message itself says it is gone.
-      if (deal) await markCancelled(deal);
+      if (await settings.getBoolean('whatsapp.cancelMark')) await markCancelled(deal);
+      // Said in words too, unless the office chose the mark alone.
+      if (!(await settings.getBoolean('whatsapp.cancelMessage'))) return;
       // A deal the group never heard of is not deleted in front of it either.
       if (
-        !deal ||
         deal.unannounced ||
         !announced({ type: deal.type, bankPayout: deal.payoutBankAmount > 0n })
       ) {
