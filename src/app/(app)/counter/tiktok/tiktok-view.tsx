@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Camera, Check, ImagePlus, Loader2, Trash2, X } from 'lucide-react';
+import { Camera, Check, ImagePlus, Loader2, Printer, Trash2, X } from 'lucide-react';
 import { useLocale } from '@/i18n/provider';
 import { normalizeDigits, parseMoney } from '@/core/money/money';
 import { api, ApiError } from '@/lib/api-client';
@@ -9,6 +9,7 @@ import { say } from '@/lib/failure';
 import { ConfirmDialog, useToast } from '@/ui/overlay';
 import { Field, Input } from '@/ui/form';
 import { shrinkPhoto } from '@/ui/proof-photo';
+import { AutoPrintToggle, printAfterRecording } from '@/ui/auto-print';
 import { tiktokPayout } from '@/modules/tiktok/tiktok-message';
 import { formatFigure } from '@/modules/whatsapp/report-command';
 
@@ -77,6 +78,8 @@ export function TiktokView({
   const [deleting, setDeleting] = useState<Row | null>(null);
 
   const canDelete = permissions.includes('exchange.transaction.reverse');
+  const canPrint = permissions.includes('exchange.receipt.print');
+  const print = (id: string) => window.open(`/print/tiktok/${id}`, '_blank');
 
   const load = useCallback(async () => {
     try {
@@ -150,7 +153,7 @@ export function TiktokView({
     if (!ready || posting) return;
     setPosting(true);
     try {
-      await api.post('/api/tiktok', {
+      const created = await api.post<{ id: string }>('/api/tiktok', {
         amount,
         rate,
         account,
@@ -160,6 +163,7 @@ export function TiktokView({
         egpAmount: egp.trim() || null,
       });
       toast.success(t('tiktok.recorded'));
+      printAfterRecording(created.id, permissions, 'tiktok');
       clearPhoto();
       setAccount('');
       setBeneficiaryName('');
@@ -385,9 +389,10 @@ export function TiktokView({
       {/* ============ The latest ============ */}
       {rows.length > 0 && (
         <div className="rounded-2xl bg-surface ring-1 ring-border-subtle">
-          <p className="px-4 pt-3 text-xs font-medium text-content-tertiary">
-            {t('machine.recent')}
-          </p>
+          <div className="flex items-center justify-between gap-2 px-4 pt-3">
+            <p className="text-xs font-medium text-content-tertiary">{t('machine.recent')}</p>
+            {canPrint && <AutoPrintToggle />}
+          </div>
           <ul className="divide-y divide-border-subtle">
             {rows.map((row) => (
               <li key={row.id} className="flex items-start gap-3 px-4 py-3">
@@ -422,6 +427,17 @@ export function TiktokView({
                     })}
                   </p>
                 </div>
+                {canPrint && (
+                  <button
+                    type="button"
+                    onClick={() => print(row.id)}
+                    title={t('transactions.printReceipt')}
+                    aria-label={t('transactions.printReceipt')}
+                    className="flex size-10 shrink-0 items-center justify-center rounded-full text-content-tertiary transition-colors hover:bg-surface-sunken hover:text-content"
+                  >
+                    <Printer className="size-4" />
+                  </button>
+                )}
                 {canDelete && (
                   <button
                     type="button"

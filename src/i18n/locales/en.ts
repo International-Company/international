@@ -2500,6 +2500,8 @@ const en = {
     inCash: 'In cash',
     paidByTransfer: 'Paid by transfer',
     paidInCash: 'Paid in cash',
+    tiktokTitle: 'TikTok withdrawal receipt',
+    withdrawn: 'Withdrawn',
   },
 
   verify: {

@@ -2498,6 +2498,8 @@ const ar: Dictionary = {
     inCash: 'نقداً',
     paidByTransfer: 'دفع بنكي',
     paidInCash: 'دفع نقدي',
+    tiktokTitle: 'إيصال سحب تيكتوك',
+    withdrawn: 'المسحوب',
   },
 
   verify: {

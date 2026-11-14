@@ -174,6 +174,43 @@ async function reachable(id: string, actor: Actor) {
 
 export const readPhoto = reachable;
 
+/** One withdrawal that stands, for its receipt: to whoever may see it, recorded as printed. */
+export async function forReceipt(id: string, actor: Actor) {
+  const row = await prisma.tiktokWithdrawal.findFirst({
+    where: { id, deletedAt: null, ...(seesAll(actor) ? {} : { createdById: actor.id }) },
+    select: {
+      id: true,
+      currency: true,
+      amount: true,
+      rate: true,
+      payoutAmount: true,
+      egpAmount: true,
+      account: true,
+      channel: true,
+      beneficiaryName: true,
+      createdAt: true,
+      createdBy: { select: { fullNameAr: true, fullNameEn: true } },
+    },
+  });
+  if (!row) return null;
+  await audit.record({
+    action: 'PRINT',
+    module: 'tiktok',
+    entityType: 'TiktokWithdrawal',
+    entityId: id,
+    summaryEn: `Printed the receipt of a TikTok withdrawal of ${formatAmount({ currency: row.currency, amount: row.amount })}`,
+    summaryAr: `طباعة إيصال سحب تيكتوك بمبلغ ${formatAmount({ currency: row.currency, amount: row.amount })}`,
+    actor,
+  });
+  return { ...row, number: tiktokReceiptNumber(row.id, row.createdAt) };
+}
+
+/** The number a TikTok receipt carries: its day, and the end of its record's id. */
+export function tiktokReceiptNumber(id: string, createdAt: Date): string {
+  const day = createdAt.toISOString().slice(0, 10).replace(/-/g, '');
+  return `TT-${day}-${id.slice(-6).toUpperCase()}`;
+}
+
 /** Taken back by whoever may reverse a deal. The row stays, for the audit trail. */
 export async function remove(id: string, actor: Actor) {
   if (!actor.permissions.includes('exchange.transaction.reverse')) {

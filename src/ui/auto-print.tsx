@@ -32,8 +32,12 @@ export function autoPrintEnabled(): boolean {
   return !window.matchMedia('(pointer: coarse)').matches;
 }
 
-/** Prints a deal's receipt, when this device prints and this person may. */
-export function printAfterRecording(transactionId: string, permissions: string[]): void {
+/** Prints a deal's receipt, or a TikTok withdrawal's, when this device prints and this person may. */
+export function printAfterRecording(
+  id: string,
+  permissions: string[],
+  kind: 'receipt' | 'tiktok' = 'receipt',
+): void {
   if (!permissions.includes('exchange.receipt.print') || !autoPrintEnabled()) return;
 
   const frame = document.createElement('iframe');
@@ -42,7 +46,7 @@ export function printAfterRecording(transactionId: string, permissions: string[]
   frame.tabIndex = -1;
   // Off the screen with a real size: some browsers will not print a frame with none.
   frame.style.cssText = 'position:fixed;left:-10000px;top:0;width:800px;height:600px;border:0';
-  frame.src = `/print/receipt/${transactionId}`;
+  frame.src = `/print/${kind}/${id}`;
 
   const remove = () => frame.remove();
   const timer = setTimeout(remove, FRAME_LIFETIME_MS);
