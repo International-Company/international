@@ -472,6 +472,15 @@ export const SETTINGS: SettingDefinition[] = [
       'عند إلغاء عملية يرسل البوت أيضاً رسالة بالإلغاء، فيها من ألغاها والسبب. عند إيقافه تكفي ❌ وحدها.',
   },
   {
+    key: 'whatsapp.bankCopyDetailed', category: 'whatsapp', type: 'boolean', defaultValue: true,
+    labelEn: 'Transfers group: the deal in full',
+    labelAr: 'مجموعة التحويلات البنكية: الحركة بتفاصيلها',
+    descriptionEn:
+      'The group chosen for bank transfers of exchange and USDT receipts gets each transfer with its number, wallet, name, amount, rate, date and time, each labelled. Off, it gets the four plain lines. The main group is unchanged either way.',
+    descriptionAr:
+      'تصل الحركة إلى مجموعة التحويلات البنكية (الصرافة واستلام USDT) بتفاصيلها: الرقم، المحفظة، الاسم، المبلغ، سعر الصرف، التاريخ والوقت. عند إيقافه تصل بالأسطر الأربعة كما كانت. المجموعة الرئيسية لا تتغير في الحالتين.',
+  },
+  {
     key: 'whatsapp.reportCode', category: 'whatsapp', type: 'string', defaultValue: '#جرد',
     labelEn: 'Report code', labelAr: 'رمز طلب الجرد',
     descriptionEn:

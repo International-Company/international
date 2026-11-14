@@ -4,6 +4,7 @@ import './support/test-env.ts';
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { pendingTransfers, shareable } from '../src/modules/exchange/share.service.ts';
+import { invalidateSettingsCache } from '../src/modules/settings/settings.service.ts';
 
 /**
  * The WhatsApp message, in the office's own order:
@@ -41,6 +42,7 @@ type Row = {
   counterpartyPhone: string | null;
   customer: { fullNameAr: string; fullNameEn: string; phone: string | null } | null;
   payoutWallet: { network: string } | null;
+  createdAt?: Date;
 };
 
 const row = (patch: Partial<Row> = {}): Row => ({
@@ -62,7 +64,9 @@ const row = (patch: Partial<Row> = {}): Row => ({
   ...patch,
 });
 
-function fakeDb(rows: Row[]) {
+function fakeDb(rows: Row[], settingRows: { key: string; value: string }[] = []) {
+  // Each fake has its own settings: none read by an earlier one are kept.
+  invalidateSettingsCache();
   const asked: { where: Record<string, unknown> }[] = [];
   return {
     asked,
@@ -80,7 +84,7 @@ function fakeDb(rows: Row[]) {
           { code: 'USD', nameAr: 'دولار أمريكي', nameEn: 'US Dollar' },
         ],
       },
-      systemSetting: { findMany: async () => [] },
+      systemSetting: { findMany: async () => settingRows },
     } as never,
   };
 }
@@ -126,10 +130,36 @@ describe('one transfer, as the office writes it', () => {
 
   it('copies only the transfer, without the cash part, for the transfers group', async () => {
     const { db } = fakeDb([
-      row({ status: 'POSTED', toAmount: 980n * UNIT, payoutBankAmount: 880n * UNIT }),
+      row({
+        status: 'POSTED',
+        fromCurrency: 'USDT',
+        rate: 350_000_000n,
+        toAmount: 980n * UNIT,
+        payoutBankAmount: 880n * UNIT,
+        createdAt: new Date('2026-11-14T13:43:00Z'),
+      }),
     ]);
     const { text, copyText } = await shareable('t1', 'ar', db);
     assert.match(text, /مزدوج: بنكي 880 \+ نقدي 100/);
+    assert.equal(
+      copyText,
+      [
+        'الرقم: 0592946938',
+        'المحفظة: بال باي',
+        'الاسم: احمد عمر',
+        'المبلغ: 880 شيكل',
+        'سعر الصرف: 3.5',
+        'التاريخ: 14/11/2026 15:43',
+      ].join('\n'),
+    );
+  });
+
+  it('copies the four plain lines when the office turned the details off', async () => {
+    const { db } = fakeDb(
+      [row({ status: 'POSTED', toAmount: 980n * UNIT, payoutBankAmount: 880n * UNIT })],
+      [{ key: 'whatsapp.bankCopyDetailed', value: 'false' }],
+    );
+    const { copyText } = await shareable('t1', 'ar', db);
     assert.equal(copyText, '0592946938\n\nاحمد عمر\n\nبال باي\n\n880 شيكل');
   });
 

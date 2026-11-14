@@ -111,6 +111,7 @@ const SHARE_SELECT = {
   counterpartyPhone: true,
   customer: { select: { fullNameAr: true, fullNameEn: true, phone: true } },
   payoutWallet: { select: { network: true } },
+  createdAt: true,
 } as const;
 
 type ShareRow = {
@@ -133,6 +134,7 @@ type ShareRow = {
   counterpartyPhone: string | null;
   customer: { fullNameAr: string; fullNameEn: string; phone: string | null } | null;
   payoutWallet: { network: string } | null;
+  createdAt?: Date;
 };
 
 /** The currency as the message says it, for each code the rows use. */
@@ -341,15 +343,67 @@ export async function shareable(
               .filter((line): line is string => Boolean(line?.trim()))
               .join('\n\n')
           : BANK_COPIED.includes(transaction.type) && transaction.payoutBankAmount > 0n
-            ? composeLines(
-                transaction,
-                locale,
-                units.get(transaction.toCurrency)!,
-                units.get(transaction.fromCurrency),
-                true,
-              ).join('\n\n')
+            ? (await settings.getBoolean('whatsapp.bankCopyDetailed', db))
+              ? detailedTransfer(transaction, locale, units.get(transaction.toCurrency)!)
+              : composeLines(
+                  transaction,
+                  locale,
+                  units.get(transaction.toCurrency)!,
+                  units.get(transaction.fromCurrency),
+                  true,
+                ).join('\n\n')
             : null,
   };
+}
+
+/**
+ * The transfer for the transfers group, each line saying what it is: the number,
+ * the wallet, the name, the sum, the price it was bought at, and when. Only what
+ * goes by transfer, as the plain copy: nothing of a part paid in notes.
+ */
+function detailedTransfer(transaction: ShareRow, locale: Locale, unit: string): string {
+  const ar = locale === 'ar';
+  const phone = transaction.customer?.phone ?? transaction.counterpartyPhone ?? null;
+  const who = transaction.customer
+    ? ar
+      ? transaction.customer.fullNameAr
+      : transaction.customer.fullNameEn
+    : transaction.counterpartyName;
+  const amount =
+    transaction.toCurrency === 'USDT'
+      ? toDecimalString(transaction.payoutBankAmount, 2).replace(/\.00$/, '')
+      : wholeAmount(transaction.payoutBankAmount).toString();
+  // One currency on both sides has no price: what it costs is a fee, not a rate.
+  const rate =
+    transaction.rate > 0n && transaction.fromCurrency !== transaction.toCurrency
+      ? toDecimalString(transaction.rate, 4).replace(/\.?0+$/, '')
+      : null;
+  const when = transaction.createdAt
+    ? new Intl.DateTimeFormat('en-GB', {
+        timeZone: 'Asia/Hebron',
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+      })
+        .format(transaction.createdAt)
+        .replace(',', '')
+    : null;
+
+  const line = (labelAr: string, labelEn: string, value: string | null | undefined) =>
+    value?.trim() ? `${ar ? labelAr : labelEn}: ${value.trim()}` : null;
+  return [
+    line('الرقم', 'Number', transaction.payoutAccount?.trim() || phone),
+    line('المحفظة', 'Wallet', transaction.payoutBankChannel),
+    line('الاسم', 'Name', who),
+    line('المبلغ', 'Amount', `${amount} ${unit}`),
+    line('سعر الصرف', 'Rate', rate),
+    line('التاريخ', 'Date', when),
+  ]
+    .filter((entry): entry is string => Boolean(entry))
+    .join('\n');
 }
 
 /** The kinds whose transfer alone also goes to the group the office keeps for transfers. */
