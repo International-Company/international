@@ -78,6 +78,8 @@ export interface Shareable {
   copyText?: string | null;
   /** Said after the kind in the bot's reply to the message: the coins of a USDT receipt. */
   kindDetail?: string | null;
+  /** The deal in full, labelled line by line, for the group it is announced in. Null unless asked. */
+  detailText?: string | null;
 }
 
 /**
@@ -343,25 +345,34 @@ export async function shareable(
               .filter((line): line is string => Boolean(line?.trim()))
               .join('\n\n')
           : BANK_COPIED.includes(transaction.type) && transaction.payoutBankAmount > 0n
-            ? (await settings.getBoolean('whatsapp.bankCopyDetailed', db))
-              ? detailedTransfer(transaction, locale, units.get(transaction.toCurrency)!)
-              : composeLines(
-                  transaction,
-                  locale,
-                  units.get(transaction.toCurrency)!,
-                  units.get(transaction.fromCurrency),
-                  true,
-                ).join('\n\n')
+            ? composeLines(
+                transaction,
+                locale,
+                units.get(transaction.toCurrency)!,
+                units.get(transaction.fromCurrency),
+                true,
+              ).join('\n\n')
             : null,
+    detailText:
+      DETAILED_KIND[transaction.type] && (await settings.getBoolean('whatsapp.dealDetailed', db))
+        ? detailedDeal(transaction, locale, units.get(transaction.toCurrency)!)
+        : null,
   };
 }
 
+/** The kinds the group is sent in full, and the word for each that heads the message. */
+const DETAILED_KIND: Record<string, { ar: string; en: string }> = {
+  EXCHANGE: { ar: 'صرافة', en: 'Exchange' },
+  WALLET_CASHOUT: { ar: 'صرافة', en: 'Exchange' },
+  USDT_RECEIVE: { ar: 'استلام يواس', en: 'USDT received' },
+};
+
 /**
- * The transfer for the transfers group, each line saying what it is: the number,
- * the wallet, the name, the sum, the price it was bought at, and when. Only what
- * goes by transfer, as the plain copy: nothing of a part paid in notes.
+ * A deal for its group, each line saying what it is: the kind, the number, the
+ * wallet, the name, the sum, the price, and when. Paid part by transfer and part
+ * in notes, it says both, so the transfer is not read as the whole.
  */
-function detailedTransfer(transaction: ShareRow, locale: Locale, unit: string): string {
+function detailedDeal(transaction: ShareRow, locale: Locale, unit: string): string {
   const ar = locale === 'ar';
   const phone = transaction.customer?.phone ?? transaction.counterpartyPhone ?? null;
   const who = transaction.customer
@@ -369,10 +380,23 @@ function detailedTransfer(transaction: ShareRow, locale: Locale, unit: string): 
       ? transaction.customer.fullNameAr
       : transaction.customer.fullNameEn
     : transaction.counterpartyName;
-  const amount =
+  const figureOf = (value: bigint) =>
     transaction.toCurrency === 'USDT'
-      ? toDecimalString(transaction.payoutBankAmount, 2).replace(/\.00$/, '')
-      : wholeAmount(transaction.payoutBankAmount).toString();
+      ? toDecimalString(value, 2).replace(/\.00$/, '')
+      : wholeAmount(value).toString();
+  const bank = transaction.payoutBankAmount;
+  const cash = transaction.toAmount - bank;
+  const split =
+    bank > 0n && cash > 0n
+      ? ar
+        ? `بنكي ${figureOf(bank)} + نقدي ${figureOf(cash)}`
+        : `bank ${figureOf(bank)} + cash ${figureOf(cash)}`
+      : null;
+  const kind = DETAILED_KIND[transaction.type];
+  const coins =
+    transaction.type === 'USDT_RECEIVE'
+      ? ` ${toDecimalString(transaction.fromAmount, 2).replace(/\.?0+$/, '')} USDT`
+      : '';
   // One currency on both sides has no price: what it costs is a fee, not a rate.
   const rate =
     transaction.rate > 0n && transaction.fromCurrency !== transaction.toCurrency
@@ -395,10 +419,12 @@ function detailedTransfer(transaction: ShareRow, locale: Locale, unit: string): 
   const line = (labelAr: string, labelEn: string, value: string | null | undefined) =>
     value?.trim() ? `${ar ? labelAr : labelEn}: ${value.trim()}` : null;
   return [
+    kind ? `${ar ? kind.ar : kind.en}${coins}` : null,
     line('الرقم', 'Number', transaction.payoutAccount?.trim() || phone),
-    line('المحفظة', 'Wallet', transaction.payoutBankChannel),
+    line('المحفظة', 'Wallet', bank > 0n ? transaction.payoutBankChannel : ar ? 'نقدي' : 'Cash'),
     line('الاسم', 'Name', who),
-    line('المبلغ', 'Amount', `${amount} ${unit}`),
+    line('المبلغ', 'Amount', `${figureOf(transaction.toAmount)} ${unit}`),
+    line('مزدوج', 'Split', split),
     line('سعر الصرف', 'Rate', rate),
     line('التاريخ', 'Date', when),
   ]

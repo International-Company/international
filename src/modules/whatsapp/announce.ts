@@ -495,7 +495,11 @@ export function registerWhatsappSubscribers(): void {
     if (unannounced) return;
     await announceDeal(transactionId, {
       target,
-      load: (id) => shareable(id, 'ar'),
+      // The deal in full when the office asks for it; the transfers group's copy keeps its plain lines.
+      load: async (id) => {
+        const message = await shareable(id, 'ar');
+        return message.detailText ? { ...message, text: message.detailText } : message;
+      },
       send: sendText,
       photos: dealPhotos,
       sendPhoto: (jid, photo, caption, quoted) =>

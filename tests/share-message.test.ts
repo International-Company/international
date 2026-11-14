@@ -139,28 +139,40 @@ describe('one transfer, as the office writes it', () => {
         createdAt: new Date('2026-11-14T13:43:00Z'),
       }),
     ]);
-    const { text, copyText } = await shareable('t1', 'ar', db);
+    const { text, copyText, detailText } = await shareable('t1', 'ar', db);
     assert.match(text, /مزدوج: بنكي 880 \+ نقدي 100/);
+    assert.equal(copyText, '0592946938\n\nاحمد عمر\n\nبال باي\n\n880 شيكل');
     assert.equal(
-      copyText,
+      detailText,
       [
+        'استلام يواس 50.5 USDT',
         'الرقم: 0592946938',
         'المحفظة: بال باي',
         'الاسم: احمد عمر',
-        'المبلغ: 880 شيكل',
+        'المبلغ: 980 شيكل',
+        'مزدوج: بنكي 880 + نقدي 100',
         'سعر الصرف: 3.5',
         'التاريخ: 14/11/2026 15:43',
       ].join('\n'),
     );
   });
 
-  it('copies the four plain lines when the office turned the details off', async () => {
+  it('says a deal paid wholly in notes went in cash, in full', async () => {
+    const { db } = fakeDb([
+      row({ status: 'POSTED', type: 'EXCHANGE', payoutBankAmount: 0n, payoutBankChannel: null }),
+    ]);
+    const lines = (await shareable('t1', 'ar', db)).detailText!.split('\n');
+    assert.equal(lines[0], 'صرافة');
+    assert.ok(lines.includes('المحفظة: نقدي'));
+    assert.ok(lines.includes('المبلغ: 320 شيكل'));
+  });
+
+  it('sends no details when the office turned them off', async () => {
     const { db } = fakeDb(
-      [row({ status: 'POSTED', toAmount: 980n * UNIT, payoutBankAmount: 880n * UNIT })],
-      [{ key: 'whatsapp.bankCopyDetailed', value: 'false' }],
+      [row({ status: 'POSTED' })],
+      [{ key: 'whatsapp.dealDetailed', value: 'false' }],
     );
-    const { copyText } = await shareable('t1', 'ar', db);
-    assert.equal(copyText, '0592946938\n\nاحمد عمر\n\nبال باي\n\n880 شيكل');
+    assert.equal((await shareable('t1', 'ar', db)).detailText, null);
   });
 
   it('copies nothing of a trade paid wholly in cash', async () => {
