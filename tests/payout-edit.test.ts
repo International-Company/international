@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
   applyPayoutEdit,
+  applySplitEdit,
   tellerPriceAllowed,
   withinEditLimit,
 } from '../src/modules/usdt/payout-edit.ts';
@@ -32,6 +33,24 @@ describe('editing what a USDT receipt pays', () => {
       cash: 594n * UNIT,
       bank: 396n * UNIT,
     });
+  });
+
+  it('takes each part as typed when paid part each', () => {
+    const legs = { cash: 594n * UNIT, bank: 392n * UNIT };
+    assert.deepEqual(applySplitEdit(legs, { cash: 500n * UNIT, bank: 490n * UNIT }, 5), {
+      cash: 500n * UNIT,
+      bank: 490n * UNIT,
+    });
+  });
+
+  it('keeps both parts, and the sum within the limit, when paid part each', () => {
+    const legs = { cash: 594n * UNIT, bank: 392n * UNIT };
+    assert.equal(applySplitEdit(legs, { cash: 0n, bank: 986n * UNIT }, 5), 'errors.payoutEditInvalid');
+    assert.equal(applySplitEdit(legs, { cash: 986n * UNIT, bank: 0n }, 5), 'errors.payoutEditInvalid');
+    assert.equal(
+      applySplitEdit(legs, { cash: 600n * UNIT, bank: 600n * UNIT }, 5),
+      'errors.payoutEditTooFar',
+    );
   });
 
   it('refuses a typing slip beyond the limit', () => {

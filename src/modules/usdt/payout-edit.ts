@@ -45,3 +45,20 @@ export function applyPayoutEdit(
   if (bank <= 0n) return 'errors.payoutEditInvalid';
   return { cash: legs.cash, bank };
 }
+
+/**
+ * Paid part each, with the teller giving each part its own figure: what goes by
+ * transfer and what is counted out in notes. Each must stay a part, and the two
+ * together are held to the same limit around the computed total.
+ */
+export function applySplitEdit(
+  legs: { cash: bigint; bank: bigint },
+  edited: { cash: bigint; bank: bigint },
+  limitPercent: number,
+): { cash: bigint; bank: bigint } | PayoutEditRefusal {
+  if (edited.cash <= 0n || edited.bank <= 0n) return 'errors.payoutEditInvalid';
+  if (!withinEditLimit(legs.cash + legs.bank, edited.cash + edited.bank, limitPercent)) {
+    return 'errors.payoutEditTooFar';
+  }
+  return { cash: edited.cash, bank: edited.bank };
+}

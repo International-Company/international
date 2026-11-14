@@ -240,10 +240,23 @@ function composeLines(
       : transaction.payoutBankAmount > 0n
         ? transaction.payoutBankAmount
         : transaction.toAmount;
-  const amount =
+  const figureOf = (value: bigint) =>
     transaction.toCurrency === 'USDT'
-      ? toDecimalString(paid, 2).replace(/\.00$/, '')
-      : wholeAmount(paid).toString();
+      ? toDecimalString(value, 2).replace(/\.00$/, '')
+      : wholeAmount(value).toString();
+  const amount = figureOf(paid);
+
+  /*
+   * USDT bought and paid part each: the group pays the transfer, and is told the
+   * rest went across the counter so the two are not read as the whole.
+   */
+  const cashPart = transaction.toAmount - transaction.payoutBankAmount;
+  const split =
+    transaction.type === 'USDT_RECEIVE' && transaction.payoutBankAmount > 0n && cashPart > 0n
+      ? locale === 'ar'
+        ? `مزدوج: بنكي ${figureOf(transaction.payoutBankAmount)} + نقدي ${figureOf(cashPart)}`
+        : `Split: bank ${figureOf(transaction.payoutBankAmount)} + cash ${figureOf(cashPart)}`
+      : null;
 
   return [
     transaction.payoutAccount?.trim() || phone,
@@ -255,6 +268,7 @@ function composeLines(
         ? `${transaction.payoutAddress} (${transaction.payoutWallet.network})`
         : transaction.payoutAddress
       : null,
+    split,
   ].filter((line): line is string => Boolean(line?.trim()));
 }
 

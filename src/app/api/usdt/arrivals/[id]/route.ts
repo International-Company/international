@@ -47,6 +47,9 @@ const bodySchema = z.object({
   percentBroker: z.string().max(12).optional(),
   /** What the customer is paid in all, when the teller changed the computed figure. */
   payoutEdit: z.string().max(30).optional(),
+  /** Paid part each: the teller's own figure for each part. */
+  payoutEditCash: z.string().max(30).optional(),
+  payoutEditBank: z.string().max(30).optional(),
   /** Into shekels: the teller's own price per coin, for each way of paying. */
   priceCash: z.string().max(20).optional(),
   priceBroker: z.string().max(20).optional(),
@@ -90,6 +93,10 @@ export const POST = route<z.infer<typeof bodySchema>, unknown, z.infer<typeof pa
           percentBroker:
             body.percentBroker !== undefined ? parseMoney(body.percentBroker) : undefined,
           payoutEdit: body.payoutEdit !== undefined ? parseMoney(body.payoutEdit) : undefined,
+          payoutEditCash:
+            body.payoutEditCash !== undefined ? parseMoney(body.payoutEditCash) : undefined,
+          payoutEditBank:
+            body.payoutEditBank !== undefined ? parseMoney(body.payoutEditBank) : undefined,
           priceCash: body.priceCash !== undefined ? parseMoney(body.priceCash) : undefined,
           priceBroker: body.priceBroker !== undefined ? parseMoney(body.priceBroker) : undefined,
           payoutChannel: body.payoutChannel ?? null,

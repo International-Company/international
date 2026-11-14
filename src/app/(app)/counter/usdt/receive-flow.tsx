@@ -186,6 +186,9 @@ export function ReceiveFlow({
   const [customerAsked, setCustomerAsked] = useState(false);
   /** The teller's own figure for what is paid in all. Empty keeps the computed one. */
   const [payoutEdit, setPayoutEdit] = useState('');
+  /** Paid part each: the teller's own figure for each part. Empty keeps the computed one. */
+  const [editBank, setEditBank] = useState('');
+  const [editCash, setEditCash] = useState('');
   const [destination, setDestination] = useState(transferChannels[0] ?? '');
   const [counterpartyPhone, setCounterpartyPhone] = useState('');
   const [payoutAccount, setPayoutAccount] = useState('');
@@ -258,7 +261,7 @@ export function ReceiveFlow({
    * will do again before it posts — so the figure shown here is the figure
    * recorded, and not an approximation of it.
    */
-  const payout = (() => {
+  const legs = ((): { cash: bigint; broker: bigint } | null => {
     if (!quote) return null;
 
     // USDT into dollars: worked out here as the percentage is typed, with the
@@ -278,7 +281,7 @@ export function ReceiveFlow({
       };
       const cash = leg(coins - share, percentCash);
       const broker = leg(share, percentBroker);
-      return cash === null || broker === null ? null : cash + broker;
+      return cash === null || broker === null ? null : { cash, broker };
     }
 
     const coins = BigInt(quote.amount);
@@ -296,8 +299,9 @@ export function ReceiveFlow({
     };
     const cash = leg(coins - share, quote.cash, priceCash);
     const broker = leg(share, quote.broker, priceBroker);
-    return cash === null || broker === null ? null : cash + broker;
+    return cash === null || broker === null ? null : { cash, broker };
   })();
+  const payout = legs ? legs.cash + legs.broker : null;
 
   /*
    * The figure that will be paid, recorded and written by the bot: the teller's
@@ -306,16 +310,48 @@ export function ReceiveFlow({
    */
   useEffect(() => {
     setPayoutEdit('');
+    setEditBank('');
+    setEditCash('');
   }, [chosen, payoutCurrency, mode, brokerShare, percentCash, percentBroker, priceCash, priceBroker]);
 
   /** Whether this deal takes a teller's own price: shekels, with a board to start from. */
   const pricing = quote !== null && !quote.percent && tellerPriceAllowed(payoutCurrency);
   const payoutPlaces = currencies.find((entry) => entry.code === payoutCurrency)?.decimals ?? 2;
-  const edited = payoutEdit.trim() ? scaleCoins(payoutEdit) : null;
-  const editChanged = edited !== null && payout !== null && edited !== payout;
+  /*
+   * Paid part each, the teller changes each part on its own: what goes by
+   * transfer and what is counted out. The two together are what is paid.
+   */
+  const splitEdit = mode === 'SPLIT' && legs !== null && legs.cash > 0n && legs.broker > 0n;
+  const editedLegs =
+    splitEdit && (editBank.trim() || editCash.trim())
+      ? {
+          cash: editCash.trim() ? scaleCoins(editCash) : legs.cash,
+          broker: editBank.trim() ? scaleCoins(editBank) : legs.broker,
+        }
+      : null;
+  const edited = editedLegs
+    ? editedLegs.cash + editedLegs.broker
+    : !splitEdit && payoutEdit.trim()
+      ? scaleCoins(payoutEdit)
+      : null;
+  const legsChanged =
+    editedLegs !== null &&
+    legs !== null &&
+    (editedLegs.cash !== legs.cash || editedLegs.broker !== legs.broker);
+  const editChanged =
+    editedLegs !== null
+      ? legsChanged
+      : edited !== null && payout !== null && edited !== payout;
   const editTooFar =
-    editChanged && !withinEditLimit(payout, edited, quote?.editLimit ?? 0);
-  const editRefused = edited !== null && (edited <= 0n || editTooFar);
+    editChanged &&
+    payout !== null &&
+    edited !== null &&
+    !withinEditLimit(payout, edited, quote?.editLimit ?? 0);
+  const editRefused =
+    edited !== null &&
+    (edited <= 0n ||
+      editTooFar ||
+      (editedLegs !== null && (editedLegs.cash <= 0n || editedLegs.broker <= 0n)));
   const finalPayout = edited !== null && !editRefused ? edited : payout;
 
   // One read of the chain at a time. A slow provider would otherwise have the
@@ -530,7 +566,8 @@ export function ReceiveFlow({
       (!customer && (!counterpartyName.trim() || !counterpartyPhone.trim())));
 
   // Open while there is anything typed in it: a price must never be hidden and still apply.
-  const adjustOpen = adjusting || Boolean(priceCash || priceBroker || payoutEdit);
+  const adjustOpen =
+    adjusting || Boolean(priceCash || priceBroker || payoutEdit || editBank || editCash);
   const showCustomer =
     customerAsked || transferring || Boolean(customer) || Boolean(counterpartyName.trim());
   // Half a name would be recorded and sent to the group as it stands.
@@ -583,7 +620,10 @@ export function ReceiveFlow({
           // Only the percentage of a way of paying actually used.
           percentCash: quote?.percent && mode !== 'BROKER' ? percentCash.trim() : undefined,
           percentBroker: quote?.percent && mode !== 'CASH' ? percentBroker.trim() : undefined,
-          payoutEdit: editChanged ? payoutEdit.trim() : undefined,
+          payoutEdit: editChanged && !editedLegs ? payoutEdit.trim() : undefined,
+          payoutEditCash: editChanged && editedLegs ? toPlainAmount(editedLegs.cash, 8) : undefined,
+          payoutEditBank:
+            editChanged && editedLegs ? toPlainAmount(editedLegs.broker, 8) : undefined,
           // Only a price the teller typed, for a way of paying actually used.
           priceCash: pricing && mode !== 'BROKER' && priceCash.trim() ? priceCash.trim() : undefined,
           priceBroker: pricing && mode !== 'CASH' && priceBroker.trim() ? priceBroker.trim() : undefined,
@@ -1354,7 +1394,52 @@ export function ReceiveFlow({
                 {t('receive.adjust')}
               </button>
             )}
-            {payout !== null && adjustOpen && (
+            {payout !== null && adjustOpen && splitEdit && legs && (
+              <div className="space-y-1">
+                <span className="text-xs text-content-tertiary">
+                  {t('receive.payoutEdit', { currency: payoutCurrency })}
+                </span>
+                <div className="grid grid-cols-2 gap-3">
+                  {(
+                    [
+                      ['BANK', 'machine.intakeBankLeg', editBank, setEditBank, legs.broker],
+                      ['CASH', 'machine.intakeCashLeg', editCash, setEditCash, legs.cash],
+                    ] as const
+                  ).map(([way, label, value, change, computed]) => (
+                    <label key={way} className="block">
+                      <span className="text-xs text-content-tertiary">{t(label)}</span>
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        dir="ltr"
+                        autoComplete="off"
+                        aria-label={t(label)}
+                        value={value}
+                        placeholder={toPlainAmount(computed, payoutPlaces)}
+                        onChange={(event) =>
+                          change(cleanAmount(event.target.value, payoutPlaces))
+                        }
+                        className="mt-1 h-11 w-full rounded-[var(--radius-control)] bg-surface-sunken px-3 text-sm font-medium tabular-nums text-content outline-none ring-1 ring-transparent focus:ring-primary"
+                      />
+                    </label>
+                  ))}
+                </div>
+                {editRefused ? (
+                  <span className="block text-xs text-danger-text">
+                    {editTooFar
+                      ? t('errors.payoutEditTooFar', { limit: String(quote?.editLimit ?? 0) })
+                      : t('errors.payoutEditInvalid')}
+                  </span>
+                ) : editChanged ? (
+                  <span className="block text-xs text-warning-text">
+                    {t('receive.payoutEdited', {
+                      computed: `${toPlainAmount(payout, payoutPlaces)} ${payoutCurrency}`,
+                    })}
+                  </span>
+                ) : null}
+              </div>
+            )}
+            {payout !== null && adjustOpen && !splitEdit && (
               <label className="block">
                 <span className="text-xs text-content-tertiary">
                   {t('receive.payoutEdit', { currency: payoutCurrency })}

@@ -116,9 +116,12 @@ describe('one transfer, as the office writes it', () => {
     assert.deepEqual(lines(text).slice(0, 2), ['0597111111', 'سامي']);
   });
 
-  it('says only what reaches the person by transfer when part was paid in cash', async () => {
+  it('pays what goes by transfer, and says it was split, when part was paid in cash', async () => {
     const { db } = fakeDb([row({ toAmount: 500n * UNIT, payoutBankAmount: 200n * UNIT })]);
-    assert.equal(lines((await shareable('t1', 'ar', db)).text).at(-1), '200 شيكل');
+    assert.deepEqual(lines((await shareable('t1', 'ar', db)).text).slice(-2), [
+      '200 شيكل',
+      'مزدوج: بنكي 200 + نقدي 300',
+    ]);
   });
 
   it('leaves out the channel of a cash trade rather than a blank line', async () => {
@@ -159,6 +162,7 @@ describe('every pending transfer, as one message', () => {
         id: 't2',
         payoutAccount: '0597222222',
         counterpartyName: 'سامي',
+        toAmount: 100n * UNIT,
         payoutBankAmount: 100n * UNIT,
       }),
     ]);

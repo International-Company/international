@@ -13,7 +13,12 @@ import * as audit from '@/modules/audit/audit.service';
 import { createCustomer } from '@/modules/customers/customers.service';
 import { syncWallet } from './sync.service';
 import { isPercentPair, payoutAtPercent, percentText, validPercent } from './percent-payout';
-import { applyPayoutEdit, tellerPriceAllowed, withinEditLimit } from './payout-edit';
+import {
+  applyPayoutEdit,
+  applySplitEdit,
+  tellerPriceAllowed,
+  withinEditLimit,
+} from './payout-edit';
 import { providerFor } from './providers';
 import * as recognition from './recognition.service';
 
@@ -1151,6 +1156,9 @@ export interface SettleArrivalInput {
   percentBroker?: bigint;
   /** What the customer is paid in all, when the teller changed the computed figure. */
   payoutEdit?: bigint;
+  /** Paid part each: the teller's own figure for each part, in place of `payoutEdit`. */
+  payoutEditCash?: bigint;
+  payoutEditBank?: bigint;
   /** Into shekels: the teller's own price per coin on what is paid in notes. */
   priceCash?: bigint;
   /** Into shekels: the teller's own price per coin on what is paid by transfer. */
@@ -1452,7 +1460,36 @@ export async function settleArrival(
   let payCash = cashLeg?.toAmount ?? 0n;
   let payBank = brokerLeg?.toAmount ?? 0n;
   let editNote = '';
-  if (input.payoutEdit !== undefined) {
+  if (
+    input.payoutEditCash !== undefined &&
+    input.payoutEditBank !== undefined &&
+    payCash > 0n &&
+    payBank > 0n
+  ) {
+    const target = await db.currency.findUnique({
+      where: { code: input.payoutCurrency },
+      select: { decimals: true },
+    });
+    const places = target?.decimals ?? 2;
+    const edited = {
+      cash: roundToDecimals(input.payoutEditCash, places),
+      bank: roundToDecimals(input.payoutEditBank, places),
+    };
+    if (edited.cash !== payCash || edited.bank !== payBank) {
+      const limit = await settings.getNumber('usdt.payoutEditLimit', db);
+      const applied = applySplitEdit({ cash: payCash, bank: payBank }, edited, limit);
+      if (typeof applied === 'string') {
+        throw errors.precondition(`That amount cannot be paid: ${applied}`, applied, {
+          limit: String(limit),
+        });
+      }
+      const legsText = (legs: { cash: bigint; bank: bigint }) =>
+        `${toDecimalString(legs.cash + legs.bank, 2)} (بنكي ${toDecimalString(legs.bank, 2)} + نقدي ${toDecimalString(legs.cash, 2)})`;
+      editNote = `عدّل التلر المبلغ من ${legsText({ cash: payCash, bank: payBank })} إلى ${legsText(applied)}`;
+      payCash = applied.cash;
+      payBank = applied.bank;
+    }
+  } else if (input.payoutEdit !== undefined) {
     const target = await db.currency.findUnique({
       where: { code: input.payoutCurrency },
       select: { decimals: true },
