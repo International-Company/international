@@ -521,6 +521,11 @@ export const SETTINGS: SettingDefinition[] = [
     labelEn: 'WhatsApp groups by kind of deal', labelAr: 'مجموعات الواتساب حسب نوع العملية',
     descriptionEn: 'Chosen on the WhatsApp panel', descriptionAr: 'تُختار من لوحة الواتساب',
   },
+  {
+    key: 'whatsapp.forwardRules', category: 'whatsapp', type: 'string', defaultValue: '[]', hidden: true,
+    labelEn: 'Messages passed from group to group', labelAr: 'نقل الرسائل من مجموعة إلى أخرى',
+    descriptionEn: 'Set on the WhatsApp panel', descriptionAr: 'تُضبط من لوحة الواتساب',
+  },
 
   {
     // Off until the manager has linked the number and chosen who hears of requests.

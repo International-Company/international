@@ -9,6 +9,7 @@ import { registerWhatsappSubscribers } from '@/modules/whatsapp/announce';
 import { registerReportCommand } from '@/modules/whatsapp/report.service';
 import { registerPrivateBot } from '@/modules/whatsapp/private-bot.service';
 import { registerReconcile } from '@/modules/whatsapp/reconcile.service';
+import { registerGroupForward } from '@/modules/whatsapp/group-forward.service';
 import { resume as resumeWhatsapp } from '@/modules/whatsapp/whatsapp.service';
 import * as notifications from '@/modules/notifications/notifications.service';
 import * as settings from '@/modules/settings/settings.service';
@@ -41,6 +42,7 @@ export function bootstrap(): void {
   registerWhatsappSubscribers();
   registerReportCommand();
   registerReconcile();
+  registerGroupForward();
   registerPrivateBot();
   registerJobHandlers();
   startWorker();

@@ -96,6 +96,8 @@ export interface IncomingText {
   media?: boolean;
   /** A picture sent to the private number, with or without words. */
   image?: boolean;
+  /** The words under a photo or video sent to a group; `text` is empty for one. */
+  caption?: string;
 }
 
 /** A member of staff writing from the private number's own phone. */
@@ -290,7 +292,12 @@ async function open(account: Account): Promise<void> {
             content?.videoMessage ??
             content?.documentMessage,
         );
-      if (!text && !media) continue;
+      // A photo's words in a group: only the forwarding rules read them, never as a command.
+      const groupCaption =
+        account !== 'private' && message.key.remoteJid.endsWith('@g.us')
+          ? (content?.imageMessage?.caption ?? content?.videoMessage?.caption ?? null)
+          : null;
+      if (!text && !media && !groupCaption) continue;
       // The office may type a command on the linked phone itself; nothing else it sends is heard.
       if (message.key.fromMe && !text?.trim().replace(/^[\u200e\u200f]+/, '').startsWith('#')) continue;
       const sender = message.key.participant ?? message.key.remoteJid;
@@ -309,6 +316,7 @@ async function open(account: Account): Promise<void> {
         senderPhone: phone ?? null,
         message,
         account,
+        caption: groupCaption ?? undefined,
       };
       for (const listener of shared.listeners) {
         void Promise.resolve()
@@ -605,6 +613,15 @@ export async function memberPhone(
   );
   if (found?.phoneNumber) return found.phoneNumber;
   return found?.id.endsWith('@s.whatsapp.net') ? found.id : null;
+}
+
+/** Whether a phone JID is one of this office's own linked numbers. */
+export function isOwnNumber(phoneJid: string | null): boolean {
+  const digits = phoneJid?.split('@')[0]?.split(':')[0];
+  if (!digits) return false;
+  return ACCOUNTS.some(
+    (account) => connected(account) && shared.sessions[account].me?.id.split(':')[0] === digits,
+  );
 }
 
 /** Whether any number is linked and connected. */

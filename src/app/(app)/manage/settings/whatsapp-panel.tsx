@@ -14,6 +14,7 @@ import { Badge, Button } from '@/ui/primitives';
 import { ConfirmDialog, useToast } from '@/ui/overlay';
 import { Field, Textarea } from '@/ui/form';
 import { GroupPicker } from './group-picker';
+import { ForwardRules } from './forward-rules';
 
 /**
  * The office's WhatsApp number: linked by scanning a QR from the phone, then
@@ -367,6 +368,9 @@ export function WhatsappPanel({ canManage }: { canManage: boolean }) {
             })}
             <p className="text-xs text-content-tertiary">{t('whatsapp.routesHint')}</p>
           </div>
+
+          {/* --- What the bot passes from one group on to another --------------- */}
+          <ForwardRules canManage={canManage} />
 
           {/* --- What a group is told when it is linked ------------------------- */}
           {canManage && (
