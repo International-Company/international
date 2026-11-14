@@ -150,6 +150,7 @@ const ar: Dictionary = {
     myCounts: 'محاضر جردي',
     tellers: 'تقييم التلرات',
     activity: 'عمليات التلرات',
+    deals: 'الحركات',
     myReport: 'تقاريري',
     workDays: 'أيام العمل',
     dailyCount: 'الجرد اليومي',

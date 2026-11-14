@@ -924,12 +924,19 @@ export async function updateDetails(
   actor: Actor,
   db: DbClient = prisma,
 ) {
-  if (!actor.permissions.includes('exchange.transaction.edit')) {
+  const anyone = actor.permissions.includes('exchange.transaction.edit');
+  if (!anyone && !actor.permissions.includes('exchange.transaction.editOwn')) {
     throw errors.forbidden('exchange.transaction.edit');
   }
 
   const original = await db.transaction.findUnique({ where: { id } });
   if (!original) throw errors.notFound('Transaction', id);
+  // A teller puts right only what they recorded themselves.
+  if (!anyone && original.createdById !== actor.id) {
+    throw errors.forbidden('exchange.transaction.edit');
+  }
+  // Which registered customer a deal belongs to is the manager's call.
+  if (!anyone) patch = { ...patch, customerId: undefined };
 
   if (original.reversalOfId) {
     throw errors.conflict(

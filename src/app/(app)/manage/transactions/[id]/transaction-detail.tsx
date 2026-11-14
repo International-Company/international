@@ -193,7 +193,11 @@ export function TransactionDetail({
    * amount here: a wrong figure is reversed and the trade recorded again, so a
    * drawer only ever moves by a whole transaction somebody can point to.
    */
-  const canEdit = !transaction.reversalOf && permissions.includes('exchange.transaction.edit');
+  // A teller sees only their own deals, so holding editOwn here means it is theirs.
+  const canEdit =
+    !transaction.reversalOf &&
+    (permissions.includes('exchange.transaction.edit') ||
+      permissions.includes('exchange.transaction.editOwn'));
 
   const [editing, setEditing] = useState(false);
   const [details, setDetails] = useState({

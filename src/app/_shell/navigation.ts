@@ -129,6 +129,14 @@ export const NAVIGATION: NavSection[] = [
         permissions: ['exchange.remittance.use'],
       },
       {
+        // Each deal of his own, opened to put a name, number or wallet right.
+        // The same list a manager has, which shows a teller only his own.
+        href: '/manage/transactions',
+        labelKey: 'nav.deals',
+        icon: 'transactions',
+        permissions: ['exchange.transaction.view'],
+      },
+      {
         // His own work, beside the tools that did it. Anyone who may see a
         // transaction may see his own, so nothing new is granted for this.
         href: '/counter/report',

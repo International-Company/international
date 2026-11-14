@@ -148,6 +148,7 @@ const en = {
     myCounts: 'My counts',
     tellers: 'Tellers',
     activity: 'Teller activity',
+    deals: 'Deals',
     myReport: 'My reports',
     workDays: 'Work days',
     dailyCount: 'Daily count',

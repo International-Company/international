@@ -77,6 +77,9 @@ export const PERMISSIONS: PermissionDefinition[] = [
   def('exchange.transaction.edit', 'exchange', 'update', 'Edit and correct transactions', 'تعديل وتصحيح العمليات',
     'Edit the details of a posting, and correct an amount by reversing and reposting it',
     'تعديل بيانات العملية، وتصحيح مبلغها بعكسها وإعادة تسجيلها', true),
+  def('exchange.transaction.editOwn', 'exchange', 'update', 'Edit own transactions’ details', 'تعديل بيانات عملياته',
+    'Change the name, number, wallet or account of a deal he recorded himself; never an amount',
+    'تغيير الاسم أو الرقم أو المحفظة أو الحساب في عملية سجّلها بنفسه؛ لا المبالغ'),
   def('exchange.remittance.use', 'exchange', 'use', 'Send and receive remittances', 'إرسال واستلام الحوالات',
     'Record remittances sent and received through the correspondent',
     'تسجيل الحوالات الصادرة والواردة عبر المراسل'),
@@ -290,6 +293,8 @@ export const SYSTEM_ROLES: RoleDefinition[] = [
       // His own exchange, while the day is open and nothing in it was sent:
       // a wrong entry caught at the counter is undone there, not by a call.
       'exchange.transaction.reverseOwn',
+      // A name or number typed wrong is put right by whoever typed it; never an amount.
+      'exchange.transaction.editOwn',
       'exchange.receipt.print',
       // Attaching a customer, which both tools can require above an amount.
       'customers.view',
