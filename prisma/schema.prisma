@@ -1211,6 +1211,12 @@ model Transaction {
 
   /// Kept from the WhatsApp group when it was recorded, so its deletion is too.
   unannounced Boolean @default(false)
+  /// The group message the deal went out as, so its cancellation is marked on it.
+  announcedChat      String?
+  announcedMessageId String?
+  /// The same for the part copied to a group of its own.
+  copyChat           String?
+  copyMessageId      String?
 
   /// A remittance sent before its correspondent's price was known. Until the price
   /// is written the correspondent is held at the whole sum, and the deal shows no profit.

@@ -711,3 +711,11 @@ export async function sendText(
 ): Promise<SentMessage> {
   return (await socketFor(jid)).sendMessage(jid, { text }, quoted ? { quoted } : undefined);
 }
+
+/** Puts a reaction on a message this office's number sent to a chat. */
+export async function reactTo(jid: string, messageId: string, emoji: string): Promise<void> {
+  const sock = await socketFor(jid);
+  await sock.sendMessage(jid, {
+    react: { text: emoji, key: { remoteJid: jid, fromMe: true, id: messageId } },
+  });
+}

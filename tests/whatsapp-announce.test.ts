@@ -95,6 +95,25 @@ describe('announcing a deal to the group', () => {
     return { deps, sent };
   }
 
+  it('keeps which message the deal went out as, not its label', async () => {
+    const kept: string[] = [];
+    const { deps } = harness({
+      remember: async (id, chat, messageId) => void kept.push(`${id}:${chat}:${messageId}`),
+    });
+    assert.equal(await announceDeal('t1', deps), 'SENT');
+    assert.deepEqual(kept, [`t1:${GROUP}:MSG1`]);
+  });
+
+  it('still announces when the message cannot be kept', async () => {
+    const { deps, sent } = harness({
+      remember: async () => {
+        throw new Error('database away');
+      },
+    });
+    assert.equal(await announceDeal('t1', deps), 'SENT');
+    assert.equal(sent.length, 2);
+  });
+
   it('puts the proof of payment with the deal and the beneficiary’s details in a reply', async () => {
     const shots: { kind: string; caption: string; quotedId: string | null }[] = [];
     const { deps, sent } = harness({

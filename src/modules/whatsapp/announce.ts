@@ -15,7 +15,7 @@ import {
   TIKTOK_DEAL_TYPE,
 } from '@/modules/tiktok/tiktok-message';
 import { copyGroupFor, groupFor, parseRoutes } from './group-routes';
-import { isLinked, sendImage, sendText, type SentMessage } from './whatsapp.service';
+import { isLinked, reactTo, sendImage, sendText, type SentMessage } from './whatsapp.service';
 
 /**
  * Every deal, to the office's WhatsApp group, the moment it is recorded — and
@@ -110,6 +110,10 @@ const DEAL_SELECT = {
   deliveredUnit: true,
   payoutAddress: true,
   unannounced: true,
+  announcedChat: true,
+  announcedMessageId: true,
+  copyChat: true,
+  copyMessageId: true,
   notes: true,
   createdAt: true,
   customer: { select: { fullNameAr: true, phone: true } },
@@ -220,6 +224,8 @@ export interface AnnounceDeps {
   ) => Promise<SentMessage>;
   /** Between attempts to read a deal not yet committed. */
   pause?: number;
+  /** Keeps which message the deal went out as, so its cancellation can be marked on it. */
+  remember?: (transactionId: string, chat: string, messageId: string) => Promise<void>;
 }
 
 export type AnnounceOutcome = 'SKIPPED' | 'NOT_FOUND' | 'SEND_FAILED' | 'NO_REPLY' | 'SENT';
@@ -297,6 +303,12 @@ export async function announceDeal(
     log.warn('A deal went out without an id to reply to', { reference: message.reference });
     return 'NO_REPLY';
   }
+  await deps.remember?.(transactionId, group, sent.key.id).catch((error) =>
+    log.warn('Could not keep which message a deal went out as', {
+      reference: message.reference,
+      error,
+    }),
+  );
 
   let outcome: AnnounceOutcome = 'SENT';
   if (!bare) {
@@ -346,7 +358,7 @@ export async function announceDeal(
  */
 export async function copyNumberAndSum(
   transactionId: string,
-  deps: Pick<AnnounceDeps, 'load' | 'send' | 'pause' | 'photos' | 'sendPhoto'> & {
+  deps: Pick<AnnounceDeps, 'load' | 'send' | 'pause' | 'photos' | 'sendPhoto' | 'remember'> & {
     target: (type: string) => Promise<string | null>;
   },
 ): Promise<void> {
@@ -355,13 +367,22 @@ export async function copyNumberAndSum(
   if (!message || !text) return;
   const group = await deps.target(message.type);
   if (!group) return;
+  const keep = async (sent: SentMessage | undefined) => {
+    if (!sent?.key?.id) return;
+    await deps.remember?.(transactionId, group, sent.key.id).catch((error) =>
+      log.warn('Could not keep which message a copy went out as', {
+        reference: message.reference,
+        error,
+      }),
+    );
+  };
 
   // A sale's address photo is where its coins go: it carries the words when there is one.
   if (message.type === 'USDT_SALE' && deps.photos && deps.sendPhoto) {
     try {
       const address = (await deps.photos(transactionId)).find((p) => p.kind === 'ADDRESS');
       if (address) {
-        await deps.sendPhoto(group, address, text);
+        await keep(await deps.sendPhoto(group, address, text));
         return;
       }
     } catch (error) {
@@ -371,12 +392,15 @@ export async function copyNumberAndSum(
       });
     }
   }
-  await deps.send(group, text).catch((error) => {
-    log.warn('Could not copy a deal’s part to its group', {
-      reference: message.reference,
-      error,
+  await deps
+    .send(group, text)
+    .then(keep)
+    .catch((error) => {
+      log.warn('Could not copy a deal’s part to its group', {
+        reference: message.reference,
+        error,
+      });
     });
-  });
 }
 
 /**
@@ -428,6 +452,30 @@ export function composeCopyCancelled(deal: {
     .join('\n\n');
 }
 
+/** The ❌ on the messages a cancelled deal went out as. One failing does not stop the other. */
+async function markCancelled(deal: {
+  reference: string;
+  announcedChat: string | null;
+  announcedMessageId: string | null;
+  copyChat: string | null;
+  copyMessageId: string | null;
+}): Promise<void> {
+  if (!isLinked()) return;
+  const marks = [
+    [deal.announcedChat, deal.announcedMessageId],
+    [deal.copyChat, deal.copyMessageId],
+  ] as const;
+  for (const [chat, messageId] of marks) {
+    if (!chat || !messageId) continue;
+    await reactTo(chat, messageId, CANCELLED_MARK).catch((error) =>
+      log.warn('Could not mark a cancelled deal', { reference: deal.reference, error }),
+    );
+  }
+}
+
+/** What the bot puts on a deal's message once the deal is cancelled. */
+export const CANCELLED_MARK = '❌';
+
 /** A deal's photos, what was paid before who it is for. */
 function dealPhotos(transactionId: string) {
   return prisma.transactionProof.findMany({
@@ -452,6 +500,12 @@ export function registerWhatsappSubscribers(): void {
       photos: dealPhotos,
       sendPhoto: (jid, photo, caption, quoted) =>
         sendImage(jid, Buffer.from(photo.data), caption, quoted, photo.mimeType),
+      remember: async (id, chat, messageId) => {
+        await prisma.transaction.update({
+          where: { id },
+          data: { announcedChat: chat, announcedMessageId: messageId },
+        });
+      },
     });
     await copyNumberAndSum(transactionId, {
       target: copyTarget,
@@ -460,6 +514,12 @@ export function registerWhatsappSubscribers(): void {
       photos: dealPhotos,
       sendPhoto: (jid, photo, caption, quoted) =>
         sendImage(jid, Buffer.from(photo.data), caption, quoted, photo.mimeType),
+      remember: async (id, chat, messageId) => {
+        await prisma.transaction.update({
+          where: { id },
+          data: { copyChat: chat, copyMessageId: messageId },
+        });
+      },
     });
   });
 
@@ -554,6 +614,8 @@ export function registerWhatsappSubscribers(): void {
           select: { reverseReason: true, createdBy: { select: { fullNameAr: true } } },
         }),
       ]);
+      // Marked where it went out, whichever group that was: the message itself says it is gone.
+      if (deal) await markCancelled(deal);
       // A deal the group never heard of is not deleted in front of it either.
       if (
         !deal ||
