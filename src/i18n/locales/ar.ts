@@ -1170,6 +1170,7 @@ const ar: Dictionary = {
     selfApplied: 'طُبّق السعر المميز',
     live: 'سعر سارٍ {rate}',
     liveHint: 'حتى {amount} — سجّل العملية الآن قبل أن ينتهي.',
+    liveHintAny: 'لأي مبلغ — سجّل العملية الآن قبل أن ينتهي.',
     expiresIn: 'ينتهي بعد {seconds} ثانية',
     expired: 'انتهت صلاحية السعر',
     useIt: 'استعمل السعر',

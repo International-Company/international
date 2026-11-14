@@ -1171,6 +1171,7 @@ const en = {
     selfApplied: 'Special price applied',
     live: 'Approved at {rate}',
     liveHint: 'Up to {amount} — record it now, before it expires.',
+    liveHintAny: 'For any amount — record the deal now, before it runs out.',
     expiresIn: 'Expires in {seconds}s',
     expired: 'That price has expired',
     useIt: 'Use it',

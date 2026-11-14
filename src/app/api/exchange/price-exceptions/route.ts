@@ -3,6 +3,7 @@ import { route } from '@/core/http/route';
 import { parseMoney } from '@/core/money/money';
 import { RATE_CHANNELS } from '@/modules/exchange/rates.service';
 import * as exceptions from '@/modules/exchange/price-exception.service';
+import * as settings from '@/modules/settings/settings.service';
 
 // A rate is scaled the same 1e8 as money, so `parseMoney` reads one exactly.
 
@@ -46,6 +47,8 @@ export const GET = route({
       const rows = await exceptions.mine(actor.id);
       return {
         role: 'teller' as const,
+        // Whether a granted price holds past the amount it was asked for.
+        anyAmount: await settings.getBoolean('exchange.priceException.anyAmount'),
         mine: rows.map((row) => ({
           id: row.id,
           reference: row.reference,

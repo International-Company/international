@@ -249,6 +249,16 @@ export const SETTINGS: SettingDefinition[] = [
       'عند التفعيل، أي سعر مميز يكتبه التلر يُطبَّق فوراً بلا حد وبلا موافقة، ويُبلَّغ المدير بكل سعر، مع تنبيه إن كان عند تكلفة المكتب أو تحتها. عند الإيقاف، تُطبَّق فوراً فقط الأسعار ضمن النسبة أعلاه، والباقي يذهب للمدير.',
   },
   {
+    key: 'exchange.priceException.anyAmount', category: 'machine', type: 'boolean',
+    defaultValue: true,
+    labelEn: 'Special price for any amount',
+    labelAr: 'السعر المميز لأي مبلغ',
+    descriptionEn:
+      'When on, a special price applies to whatever amount the deal is recorded with, not only up to the amount typed when it was asked for. When off, it covers that amount and no more.',
+    descriptionAr:
+      'عند التفعيل، يُطبَّق السعر المميز على أي مبلغ تُسجَّل به العملية، لا فقط حتى المبلغ المكتوب عند طلبه. عند الإيقاف، يغطي ذلك المبلغ فقط.',
+  },
+  {
     key: 'market.enabled', category: 'machine', type: 'boolean', defaultValue: true,
     labelEn: 'Market strip', labelAr: 'شريط السوق',
     descriptionEn:

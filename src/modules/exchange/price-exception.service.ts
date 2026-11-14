@@ -527,7 +527,10 @@ export async function claim(
   if (row.channel !== input.channel) {
     throw refuse('That approval was for a different way of paying', 'errors.exceptionWrongChannel');
   }
-  if (input.fromAmount > row.maxFromAmount) {
+  if (
+    input.fromAmount > row.maxFromAmount &&
+    !(await settings.getBoolean('exchange.priceException.anyAmount', tx))
+  ) {
     throw refuse('That is more than the approval covers', 'errors.exceptionOverAmount');
   }
 

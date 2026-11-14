@@ -2228,6 +2228,8 @@ interface Approval {
   requestedRate: string;
   approvedRate: string | null;
   expiresAt: string | null;
+  /** The price holds whatever the amount, not only up to the one it was asked for. */
+  anyAmount?: boolean;
 }
 
 /**
@@ -2272,12 +2274,14 @@ function PriceException({
 
   const poll = useCallback(async () => {
     try {
-      const data = await api.get<{ mine?: Approval[] }>('/api/exchange/price-exceptions');
+      const data = await api.get<{ mine?: Approval[]; anyAmount?: boolean }>(
+        '/api/exchange/price-exceptions',
+      );
       const rows = data.mine ?? [];
       const live = rows.find((row) => row.status === 'APPROVED');
       const pending = rows.find((row) => row.status === 'PENDING');
       setWaiting(pending ?? null);
-      if (live) onApproval(live);
+      if (live) onApproval({ ...live, anyAmount: data.anyAmount ?? false });
     } catch {
       // A poll that fails changes nothing on screen; the teller still has the
       // board and can trade on it.
@@ -2362,7 +2366,9 @@ function PriceException({
             {t('exception.live', { rate: formatPlain(approval.approvedRate ?? '0', 6) })}
           </span>
           <span className="text-content-secondary text-xs">
-            {t('exception.liveHint', { amount: formatPlain(approval.maxFromAmount, 2) })}
+            {approval.anyAmount
+              ? t('exception.liveHintAny')
+              : t('exception.liveHint', { amount: formatPlain(approval.maxFromAmount, 2) })}
           </span>
           <span className="ms-auto font-mono text-xs">
             {t('exception.expiresIn', { seconds: left })}
