@@ -1872,6 +1872,7 @@ const en = {
     fullNameError: 'Write the whole name: at least two words, with no figures.',
     saveCustomer: 'Save as a customer, so this address is recognised next time',
     brokerShare: 'Share sent by bank ({token})',
+    bankPayout: 'Paid by bank ({currency}) — the rest in cash',
     shareAddress: 'Send the address on WhatsApp',
     shareHeading: 'Deposit address — {network} network only',
     shareWarning: 'Send on the {network} network only. Sending on any other network destroys the money for good, and nobody can recover it.',

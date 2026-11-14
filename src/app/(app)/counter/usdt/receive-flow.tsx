@@ -175,7 +175,8 @@ export function ReceiveFlow({
   const [nameLeft, setNameLeft] = useState(false);
   const [quote, setQuote] = useState<Priced | null>(null);
   const [mode, setMode] = useState<Mode>('CASH');
-  const [brokerShare, setBrokerShare] = useState('');
+  /** For a split: what goes by transfer, in the money paid out. The rest is notes. */
+  const [bankPayout, setBankPayout] = useState('');
   const [percentCash, setPercentCash] = useState('');
   const [percentBroker, setPercentBroker] = useState('');
   /** The teller's own shekel price per coin, each way of paying. Empty keeps the board's. */
@@ -263,42 +264,48 @@ export function ReceiveFlow({
    */
   const legs = ((): { cash: bigint; broker: bigint } | null => {
     if (!quote) return null;
+    const coins = BigInt(quote.amount);
+    const places = currencies.find((entry) => entry.code === payoutCurrency)?.decimals ?? 2;
 
-    // USDT into dollars: worked out here as the percentage is typed, with the
-    // same arithmetic the server uses before it posts.
-    if (quote.percent) {
-      const coins = BigInt(quote.amount);
-      const share = mode === 'SPLIT' ? scaleCoins(brokerShare) : mode === 'BROKER' ? coins : 0n;
-      if (share < 0n || share > coins || (mode === 'SPLIT' && (share === 0n || share === coins))) {
-        return null;
-      }
-      const places = currencies.find((entry) => entry.code === payoutCurrency)?.decimals ?? 2;
-      const leg = (part: bigint, typed: string) => {
-        if (part === 0n) return 0n;
+    // Each part at its own price, as the server converts it. USDT into dollars
+    // goes by the percentage typed; otherwise the teller's price where they typed
+    // one the limit allows, the board's where not.
+    const valueOf = (part: bigint, way: 'CASH' | 'BROKER'): bigint | null => {
+      if (part === 0n) return 0n;
+      if (quote.percent) {
+        const typed = way === 'CASH' ? percentCash : percentBroker;
         if (!typed.trim()) return null;
         const percent = scaleCoins(typed);
         return validPercent(percent) ? payoutAtPercent(part, percent, places) : null;
-      };
-      const cash = leg(coins - share, percentCash);
-      const broker = leg(share, percentBroker);
-      return cash === null || broker === null ? null : { cash, broker };
-    }
-
-    const coins = BigInt(quote.amount);
-    const share = mode === 'SPLIT' ? scaleCoins(brokerShare) : mode === 'BROKER' ? coins : 0n;
-    if (mode === 'SPLIT' && (share <= 0n || share >= coins)) return null;
-
-    // Each part at its own price, as the server converts it: the teller's where
-    // they typed one the limit allows, the board's otherwise.
-    const places = currencies.find((entry) => entry.code === payoutCurrency)?.decimals ?? 2;
-    const leg = (part: bigint, board: Priced['cash'], typed: string) => {
-      if (part === 0n) return 0n;
+      }
+      const board = way === 'CASH' ? quote.cash : quote.broker;
       if (!board) return null;
-      const rate = priceToUse(typed, BigInt(board.rate), quote.editLimit);
+      const rate = priceToUse(
+        way === 'CASH' ? priceCash : priceBroker,
+        BigInt(board.rate),
+        quote.editLimit,
+      );
       return rate === null ? null : convert(part, rate, places);
     };
-    const cash = leg(coins - share, quote.cash, priceCash);
-    const broker = leg(share, quote.broker, priceBroker);
+
+    /*
+     * A split is given by what goes by transfer, in the money paid out. Its share
+     * of the coins is what buys that much at the transfer's price, as the server
+     * works it out, and the rest is paid in notes at the till's price.
+     */
+    if (mode === 'SPLIT') {
+      const bank = scaleCoins(bankPayout);
+      const whole = valueOf(coins, 'BROKER');
+      if (bank <= 0n || !whole) return null;
+      const share = (bank * coins) / whole;
+      if (share <= 0n || share >= coins) return null;
+      const cash = valueOf(coins - share, 'CASH');
+      return cash === null ? null : { cash, broker: bank };
+    }
+
+    const share = mode === 'BROKER' ? coins : 0n;
+    const cash = valueOf(coins - share, 'CASH');
+    const broker = valueOf(share, 'BROKER');
     return cash === null || broker === null ? null : { cash, broker };
   })();
   const payout = legs ? legs.cash + legs.broker : null;
@@ -312,7 +319,7 @@ export function ReceiveFlow({
     setPayoutEdit('');
     setEditBank('');
     setEditCash('');
-  }, [chosen, payoutCurrency, mode, brokerShare, percentCash, percentBroker, priceCash, priceBroker]);
+  }, [chosen, payoutCurrency, mode, bankPayout, percentCash, percentBroker, priceCash, priceBroker]);
 
   /** Whether this deal takes a teller's own price: shekels, with a board to start from. */
   const pricing = quote !== null && !quote.percent && tellerPriceAllowed(payoutCurrency);
@@ -461,7 +468,7 @@ export function ReceiveFlow({
     setNameLeft(false);
     setCounterpartyPhone('');
     setSaveCustomer(true);
-    setBrokerShare('');
+    setBankPayout('');
     setSavedPayouts([]);
 
     const known = arrival.recognised?.status === 'KNOWN' ? arrival.recognised : null;
@@ -616,7 +623,7 @@ export function ReceiveFlow({
            * the totals would let a screen holding a stale price post figures
            * that were never quoted.
            */
-          brokerShare: mode === 'SPLIT' ? brokerShare.trim() : undefined,
+          brokerPayout: mode === 'SPLIT' ? bankPayout.trim() : undefined,
           // Only the percentage of a way of paying actually used.
           percentCash: quote?.percent && mode !== 'BROKER' ? percentCash.trim() : undefined,
           percentBroker: quote?.percent && mode !== 'CASH' ? percentBroker.trim() : undefined,
@@ -1149,7 +1156,7 @@ export function ReceiveFlow({
                       type="button"
                       onClick={() => {
                         setMode(option);
-                        if (option !== 'SPLIT') setBrokerShare('');
+                        if (option !== 'SPLIT') setBankPayout('');
                       }}
                       aria-pressed={mode === option}
                       disabled={
@@ -1263,14 +1270,16 @@ export function ReceiveFlow({
               {mode === 'SPLIT' && (
                 <label className="mt-2 block">
                   <span className="text-xs text-content-tertiary">
-                    {t('receive.brokerShare', { token: chosen.wallet.tokenSymbol })}
+                    {t('receive.bankPayout', { currency: payoutCurrency })}
                   </span>
                   <input
                     type="text"
                     inputMode="decimal"
                     dir="ltr"
-                    value={brokerShare}
-                    onChange={(event) => setBrokerShare(event.target.value.replace(/[^\d.]/g, ''))}
+                    value={bankPayout}
+                    onChange={(event) =>
+                      setBankPayout(cleanAmount(event.target.value, payoutPlaces))
+                    }
                     className="mt-1 h-11 w-full rounded-[var(--radius-control)] bg-surface-sunken px-3 text-sm font-medium tabular-nums text-content outline-none ring-1 ring-transparent focus:ring-primary"
                   />
                 </label>

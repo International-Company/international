@@ -1150,6 +1150,11 @@ export interface SettleArrivalInput {
    * cannot be the thing divided.
    */
   brokerShare?: bigint;
+  /**
+   * For a split, in place of `brokerShare`: what goes by transfer, in the money
+   * paid out. The coins it takes at the transfer's price are worked out here.
+   */
+  brokerPayout?: bigint;
   /** USDT into dollars: the percentage taken on what is paid in notes. */
   percentCash?: bigint;
   /** USDT into dollars: the percentage taken on what is paid by transfer. */
@@ -1336,17 +1341,8 @@ export async function settleArrival(
    * not one trade divided. Exactly what the exchange machine does.
    */
   const mode = input.mode ?? 'CASH';
-  const brokerShare =
+  let brokerShare =
     mode === 'SPLIT' ? (input.brokerShare ?? 0n) : mode === 'BROKER' ? totalCoins : 0n;
-
-  if (mode === 'SPLIT' && (brokerShare <= 0n || brokerShare >= totalCoins)) {
-    throw errors.precondition(
-      'The transferred share must be part of the amount, not all or none of it',
-      'errors.splitShareOutOfRange',
-    );
-  }
-
-  const cashShare = totalCoins - brokerShare;
 
   /*
    * USDT into dollars is priced at a percentage the teller confirms, each way
@@ -1421,6 +1417,34 @@ export async function settleArrival(
     );
   };
 
+  /*
+   * A split given by what goes by transfer, in the money paid out: its share of
+   * the coins is what buys that much at the transfer's price, and the rest is
+   * paid in notes at the till's. The transfer is then exactly the figure typed.
+   */
+  let brokerPayout: bigint | null = null;
+  if (mode === 'SPLIT' && input.brokerPayout !== undefined) {
+    const target = await db.currency.findUnique({
+      where: { code: input.payoutCurrency },
+      select: { decimals: true },
+    });
+    brokerPayout = roundToDecimals(input.brokerPayout, target?.decimals ?? 2);
+    const whole = byPercent
+      ? await atPercent(totalCoins, input.percentBroker)
+      : await atBoard(totalCoins, 'BROKER', input.priceBroker);
+    brokerShare =
+      brokerPayout > 0n && whole.toAmount > 0n ? (brokerPayout * totalCoins) / whole.toAmount : 0n;
+  }
+
+  if (mode === 'SPLIT' && (brokerShare <= 0n || brokerShare >= totalCoins)) {
+    throw errors.precondition(
+      'The transferred share must be part of the amount, not all or none of it',
+      'errors.splitShareOutOfRange',
+    );
+  }
+
+  const cashShare = totalCoins - brokerShare;
+
   const priced = await Promise.all([
     cashShare > 0n
       ? byPercent
@@ -1458,7 +1482,7 @@ export async function settleArrival(
    * figure stays on the record beside it.
    */
   let payCash = cashLeg?.toAmount ?? 0n;
-  let payBank = brokerLeg?.toAmount ?? 0n;
+  let payBank = brokerLeg && brokerPayout !== null ? brokerPayout : (brokerLeg?.toAmount ?? 0n);
   let editNote = '';
   if (
     input.payoutEditCash !== undefined &&
@@ -1589,7 +1613,7 @@ export async function settleArrival(
       counterpartyPhone: input.counterpartyPhone ?? null,
       mergedParts,
       notes:
-        [mergedParts && `دمج تحويلات: ${mergedParts}`, percentNote && `النسبة: ${percentNote}`, ...priceNotes, editNote, input.notes]
+        [mergedParts && `دمج تحويلات: ${mergedParts}`, percentNote && `النسبة: ${percentNote}`, ...new Set(priceNotes), editNote, input.notes]
           .filter(Boolean)
           .join(' — ') || null,
     },
