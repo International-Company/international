@@ -333,6 +333,7 @@ export function WhatsappPanel({ canManage }: { canManage: boolean }) {
                 category === 'USDT_SALE'
                   ? t('whatsapp.routeSameAsUsdt')
                   : category === 'REMITTANCE_COPY' ||
+                      category === 'BANK_COPY' ||
                       category === 'TIKTOK_NAME' ||
                       category === 'USDT_SALE_COPY' ||
                       category === 'PRIVATE_LEADS' ||

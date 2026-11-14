@@ -10,6 +10,7 @@ import { foldName } from './report-command';
 export const ROUTE_CATEGORIES = [
   'EXCHANGE',
   'USDT',
+  'BANK_COPY',
   'USDT_SALE',
   'USDT_SALE_COPY',
   'REMITTANCE',
@@ -39,6 +40,7 @@ const CATEGORY_OF: Record<string, RouteCategory> = {
 const CATEGORY_WORDS: Record<RouteCategory, string> = {
   EXCHANGE: 'الصرافة',
   USDT: 'USDT',
+  BANK_COPY: 'التحويلات البنكية من الصرافة واستلام USDT',
   USDT_SALE: 'بيع USDT',
   USDT_SALE_COPY: 'عنوان الإيداع ومبلغه',
   REMITTANCE: 'الحوالات',
@@ -63,6 +65,10 @@ export function copyGroupFor(type: string, routes: GroupRoutes, main: string): s
 
 /** The kinds a part of a deal also goes to a group of its own: never unless one is chosen. */
 const COPY_OF: Record<string, RouteCategory> = {
+  // What is paid by transfer, and nothing of what was counted out in notes.
+  EXCHANGE: 'BANK_COPY',
+  WALLET_CASHOUT: 'BANK_COPY',
+  USDT_RECEIVE: 'BANK_COPY',
   REMITTANCE_OUT: 'REMITTANCE_COPY',
   USDT_SALE: 'USDT_SALE_COPY',
   TIKTOK_WITHDRAWAL: 'TIKTOK_NAME',

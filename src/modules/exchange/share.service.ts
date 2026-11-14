@@ -179,6 +179,8 @@ function composeLines(
   locale: Locale,
   unit: string,
   payUnit?: string,
+  /** Only what is paid by transfer: nothing said of a part paid in notes. */
+  bankOnly = false,
 ): string[] {
   const phone = transaction.customer?.phone ?? transaction.counterpartyPhone ?? null;
   const who = transaction.customer
@@ -252,7 +254,10 @@ function composeLines(
    */
   const cashPart = transaction.toAmount - transaction.payoutBankAmount;
   const split =
-    transaction.type === 'USDT_RECEIVE' && transaction.payoutBankAmount > 0n && cashPart > 0n
+    !bankOnly &&
+    transaction.type === 'USDT_RECEIVE' &&
+    transaction.payoutBankAmount > 0n &&
+    cashPart > 0n
       ? locale === 'ar'
         ? `مزدوج: بنكي ${figureOf(transaction.payoutBankAmount)} + نقدي ${figureOf(cashPart)}`
         : `Split: bank ${figureOf(transaction.payoutBankAmount)} + cash ${figureOf(cashPart)}`
@@ -335,9 +340,20 @@ export async function shareable(
             ]
               .filter((line): line is string => Boolean(line?.trim()))
               .join('\n\n')
-          : null,
+          : BANK_COPIED.includes(transaction.type) && transaction.payoutBankAmount > 0n
+            ? composeLines(
+                transaction,
+                locale,
+                units.get(transaction.toCurrency)!,
+                units.get(transaction.fromCurrency),
+                true,
+              ).join('\n\n')
+            : null,
   };
 }
+
+/** The kinds whose transfer alone also goes to the group the office keeps for transfers. */
+const BANK_COPIED = ['EXCHANGE', 'WALLET_CASHOUT', 'USDT_RECEIVE'];
 
 /** Between two transfers in one message: a line WhatsApp shows as a divider. */
 const DIVIDER = '\n\n———\n\n';

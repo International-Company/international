@@ -57,7 +57,10 @@ export async function handleReconcile(
   // The code alone: anything after it is not this command.
   if (!isReconcileCode(incoming.text)) return 'IGNORED';
   const categories = await deps.categories(incoming.chat);
-  const bankKinds = (['EXCHANGE', 'USDT'] as const).filter((kind) => categories.includes(kind));
+  // A group sent only the transfers checks the transfers of both kinds.
+  const bankKinds = (['EXCHANGE', 'USDT'] as const).filter(
+    (kind) => categories.includes(kind) || categories.includes('BANK_COPY'),
+  );
   // A group sent only each remittance's number and sum checks them the same way.
   const hearsRemittances =
     categories.includes('REMITTANCE') || categories.includes('REMITTANCE_COPY');

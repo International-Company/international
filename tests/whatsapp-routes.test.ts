@@ -40,6 +40,15 @@ describe('which group hears of which deals', () => {
     assert.equal(groupFor('USDT_RECEIVE', own, MAIN), 'coins@g.us');
   });
 
+  it('copies the transfers of exchange and USDT receipts only where asked', () => {
+    assert.equal(copyGroupFor('EXCHANGE', routes, MAIN), '', 'never by itself');
+    const bank = { ...routes, BANK_COPY: { id: 'bank@g.us', name: 'التحويلات' } };
+    assert.equal(copyGroupFor('EXCHANGE', bank, MAIN), 'bank@g.us');
+    assert.equal(copyGroupFor('USDT_RECEIVE', bank, MAIN), 'bank@g.us');
+    assert.equal(copyGroupFor('USDT_SEND', bank, MAIN), '', 'a withdrawal pays no transfer');
+    assert.equal(copyGroupFor('REMITTANCE_OUT', bank, MAIN), '');
+  });
+
   it('copies a remittance’s number and sum only where asked, and not to where it just went', () => {
     assert.equal(copyGroupFor('REMITTANCE_OUT', {}, MAIN), '', 'never to the main group by itself');
     const copy = { ...routes, REMITTANCE_COPY: { id: 'exec@g.us', name: 'التنفيذ' } };

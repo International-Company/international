@@ -387,12 +387,28 @@ export async function copyNumberAndSum(
 export function composeCopyCancelled(deal: {
   type?: string;
   toAmount?: bigint;
+  toCurrency?: string;
+  payoutBankAmount?: bigint;
+  payoutAccount?: string | null;
+  payoutBankChannel?: string | null;
   payoutAddress?: string | null;
   counterpartyPhone: string | null;
   customer: { phone: string | null } | null;
   deliveredAmount: bigint | null;
   deliveredUnit: string | null;
 }): string | null {
+  // A transfer copied on its own: cancelled as the transfer, and only if there was one.
+  if (deal.type === 'EXCHANGE' || deal.type === 'WALLET_CASHOUT' || deal.type === 'USDT_RECEIVE') {
+    if (!deal.payoutBankAmount) return null;
+    return [
+      '🔴 *تحويل ملغى*',
+      deal.payoutAccount?.trim() || deal.customer?.phone || deal.counterpartyPhone,
+      deal.payoutBankChannel,
+      `${figure(deal.payoutBankAmount)} ${deal.toCurrency ?? ''}`.trim(),
+    ]
+      .filter((line): line is string => Boolean(line))
+      .join('\n\n');
+  }
   if (deal.type === 'USDT_SALE') {
     return [
       '🔴 *إيداع ملغى*',
@@ -563,7 +579,7 @@ export function registerWhatsappSubscribers(): void {
       const cancelled = copyGroup ? composeCopyCancelled(deal) : null;
       if (copyGroup && cancelled) {
         await sendText(copyGroup, cancelled).catch((error) =>
-          log.warn('Could not cancel a remittance’s copy', { reference: deal.reference, error }),
+          log.warn('Could not cancel a deal’s copy', { reference: deal.reference, error }),
         );
       }
     },

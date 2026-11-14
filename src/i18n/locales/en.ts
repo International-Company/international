@@ -2334,6 +2334,7 @@ const en = {
     route: {
       EXCHANGE: 'Exchange',
       USDT: 'USDT (receive and send)',
+      BANK_COPY: 'Exchange and USDT receipts: bank transfers only',
       USDT_SALE: 'USDT sale: all details',
       USDT_SALE_COPY: 'USDT sale: deposit address and amount only',
       PRIVATE_LEADS: 'Private number: customer requests',

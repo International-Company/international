@@ -407,6 +407,23 @@ describe('announcing a deal to the group', () => {
       assert.equal(composeCopyCancelled(deal), '🔴 *حوالة ملغاة*\n\n+201008846989\n\n8130 جنيه');
     });
 
+    it('cancel a transfer by its account, channel and sum, and nothing paid in cash', () => {
+      const transfer = {
+        ...deal,
+        type: 'USDT_RECEIVE',
+        toCurrency: 'ILS',
+        toAmount: 980n * 100_000_000n,
+        payoutBankAmount: 880n * 100_000_000n,
+        payoutAccount: '0597896182',
+        payoutBankChannel: 'جوال باي',
+      };
+      assert.equal(
+        composeCopyCancelled(transfer),
+        '🔴 *تحويل ملغى*\n\n0597896182\n\nجوال باي\n\n880 ILS',
+      );
+      assert.equal(composeCopyCancelled({ ...transfer, payoutBankAmount: 0n }), null);
+    });
+
     it('cancel nothing for one only written down, which never went there', () => {
       assert.equal(
         composeCopyCancelled({ ...deal, counterpartyPhone: null, deliveredAmount: null }),

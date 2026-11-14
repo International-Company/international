@@ -2333,6 +2333,7 @@ const ar: Dictionary = {
     route: {
       EXCHANGE: 'الصرافة',
       USDT: 'USDT (استلام وسحب)',
+      BANK_COPY: 'الصرافة واستلام USDT: التحويلات البنكية فقط',
       USDT_SALE: 'بيع USDT: البيانات كاملة',
       USDT_SALE_COPY: 'بيع USDT: عنوان ومبلغ الإيداع فقط',
       PRIVATE_LEADS: 'طلبات عملاء الرقم الخاص',

@@ -124,6 +124,20 @@ describe('one transfer, as the office writes it', () => {
     ]);
   });
 
+  it('copies only the transfer, without the cash part, for the transfers group', async () => {
+    const { db } = fakeDb([
+      row({ status: 'POSTED', toAmount: 980n * UNIT, payoutBankAmount: 880n * UNIT }),
+    ]);
+    const { text, copyText } = await shareable('t1', 'ar', db);
+    assert.match(text, /مزدوج: بنكي 880 \+ نقدي 100/);
+    assert.equal(copyText, '0592946938\n\nاحمد عمر\n\nبال باي\n\n880 شيكل');
+  });
+
+  it('copies nothing of a trade paid wholly in cash', async () => {
+    const { db } = fakeDb([row({ status: 'POSTED', payoutBankAmount: 0n })]);
+    assert.equal((await shareable('t1', 'ar', db)).copyText, null);
+  });
+
   it('leaves out the channel of a cash trade rather than a blank line', async () => {
     const { db } = fakeDb([
       row({ status: 'POSTED', payoutBankAmount: 0n, payoutBankChannel: null, payoutAccount: null }),
