@@ -31,6 +31,8 @@ const bodySchema = z.discriminatedUnion('action', [
     counterpartyName: z.string().max(200).nullish(),
     counterpartyPhone: z.string().max(40).nullish(),
     customerId: z.string().nullish(),
+    payoutAccount: z.string().max(120).nullish(),
+    payoutBankChannel: z.string().max(120).nullish(),
   }),
 ]);
 
@@ -54,6 +56,8 @@ export const POST = route<z.infer<typeof bodySchema>, unknown, z.infer<typeof pa
             counterpartyName: body.counterpartyName,
             counterpartyPhone: body.counterpartyPhone,
             customerId: body.customerId,
+            payoutAccount: body.payoutAccount,
+            payoutBankChannel: body.payoutBankChannel,
           },
           actor,
         );

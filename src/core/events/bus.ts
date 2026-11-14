@@ -31,6 +31,8 @@ export interface DomainEvents {
   'tiktok.recorded': { withdrawalId: string };
   'tiktok.deleted': { withdrawalId: string; by: string };
   'transaction.reversed': { transactionId: string; reversalId: string; actorId: string };
+  /** Its name, number, wallet or account changed: nothing that moved money. */
+  'transaction.edited': { transactionId: string; actorId: string };
 
   'rate.changed': { baseCode: string; quoteCode: string; rateId: string; actorId: string };
 

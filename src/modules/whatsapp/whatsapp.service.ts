@@ -729,6 +729,27 @@ export async function sendText(
   return (await socketFor(jid)).sendMessage(jid, { text }, quoted ? { quoted } : undefined);
 }
 
+/** Rewrites the words of a text message this office's number sent to a chat. */
+export async function editSent(jid: string, messageId: string, text: string): Promise<void> {
+  const sock = await socketFor(jid);
+  await sock.sendMessage(jid, { text, edit: { remoteJid: jid, fromMe: true, id: messageId } });
+}
+
+/** Writes to a chat as a reply to a message this office's number sent there, known by its id. */
+export async function replyToSent(
+  jid: string,
+  messageId: string,
+  text: string,
+): Promise<SentMessage> {
+  const sock = await socketFor(jid);
+  // The words quoted are not kept; WhatsApp shows the original by its id.
+  const quoted = {
+    key: { remoteJid: jid, fromMe: true, id: messageId },
+    message: { conversation: '' },
+  } as WAMessage;
+  return sock.sendMessage(jid, { text }, { quoted });
+}
+
 /** Puts a reaction on a message this office's number sent to a chat. */
 export async function reactTo(jid: string, messageId: string, emoji: string): Promise<void> {
   const sock = await socketFor(jid);

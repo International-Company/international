@@ -200,13 +200,19 @@ export function TransactionDetail({
     counterpartyName: '',
     counterpartyPhone: '',
     notes: '',
+    payoutAccount: '',
+    payoutBankChannel: '',
   });
+  // Where a transfer goes, only on a deal that sends one.
+  const paysByTransfer = Boolean(transaction.payoutBankChannel || transaction.payoutAccount);
 
   const openEditor = () => {
     setDetails({
       counterpartyName: transaction.counterpartyName ?? '',
       counterpartyPhone: transaction.counterpartyPhone ?? '',
       notes: transaction.notes ?? '',
+      payoutAccount: transaction.payoutAccount ?? '',
+      payoutBankChannel: transaction.payoutBankChannel ?? '',
     });
     setEditing(true);
   };
@@ -219,6 +225,12 @@ export function TransactionDetail({
         counterpartyName: details.counterpartyName.trim() || null,
         counterpartyPhone: details.counterpartyPhone.trim() || null,
         notes: details.notes.trim() || null,
+        ...(paysByTransfer
+          ? {
+              payoutAccount: details.payoutAccount.trim() || null,
+              payoutBankChannel: details.payoutBankChannel.trim() || null,
+            }
+          : {}),
       });
       toast.success(t('common.saved'), transaction.reference);
       setEditing(false);
@@ -723,6 +735,34 @@ export function TransactionDetail({
               />
             )}
           </Field>
+
+          {paysByTransfer && (
+            <>
+              <Field label={t('transactions.payoutChannelEdit')}>
+                {(props) => (
+                  <Input
+                    {...props}
+                    value={details.payoutBankChannel}
+                    onChange={(event) =>
+                      setDetails({ ...details, payoutBankChannel: event.target.value })
+                    }
+                  />
+                )}
+              </Field>
+              <Field label={t('transactions.payoutAccountEdit')}>
+                {(props) => (
+                  <Input
+                    {...props}
+                    dir="ltr"
+                    value={details.payoutAccount}
+                    onChange={(event) =>
+                      setDetails({ ...details, payoutAccount: event.target.value })
+                    }
+                  />
+                )}
+              </Field>
+            </>
+          )}
 
           <Field label={t('common.notes')}>
             {(props) => (

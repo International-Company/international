@@ -481,6 +481,15 @@ export const SETTINGS: SettingDefinition[] = [
       'تصل حركة الصرافة واستلام USDT إلى مجموعتها بتفاصيلها: نوع الحركة، الرقم، المحفظة، الاسم، المبلغ، سعر الصرف، التاريخ والوقت. عند إيقافه تصل بالأسطر الأربعة. مجموعة التحويلات البنكية تبقى دائماً بدون تفاصيل.',
   },
   {
+    key: 'whatsapp.editMessages', category: 'whatsapp', type: 'boolean', defaultValue: true,
+    labelEn: 'Edited deal: correct its message',
+    labelAr: 'تعديل الحركة يعدّل رسالتها',
+    descriptionEn:
+      'When a deal’s name, number, wallet or account is edited, the bot edits its message in the group, and its copy in the transfers group. After 15 minutes WhatsApp no longer allows it, so the corrected message goes as a reply marked «✏️ تصحيح». Only for deals sent after this was added.',
+    descriptionAr:
+      'عند تعديل اسم الحركة أو رقمها أو محفظتها أو حسابها، يعدّل البوت رسالتها في المجموعة ونسختها في مجموعة التحويلات. بعد 15 دقيقة لا يسمح واتساب بالتعديل، فيرسل البوت الرسالة المصحّحة رداً على القديمة بعنوان «✏️ تصحيح».',
+  },
+  {
     key: 'whatsapp.reportCode', category: 'whatsapp', type: 'string', defaultValue: '#جرد',
     labelEn: 'Report code', labelAr: 'رمز طلب الجرد',
     descriptionEn:

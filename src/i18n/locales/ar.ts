@@ -273,6 +273,8 @@ const ar: Dictionary = {
   transactions: {
     transferredTo: 'حُوِّل إلى',
     editDetails: 'تعديل البيانات',
+    payoutChannelEdit: 'المحفظة أو البنك',
+    payoutAccountEdit: 'رقم الحساب أو المحفظة',
     editDetailsHint: 'ما لم يحرّك مالاً فقط. أما المبالغ والسعر والعملات فتُصحَّح لا تُعدَّل.',
     correct: 'تصحيح المبلغ',
     correctHint: 'يعكس هذه العملية ويسجّل الصحيحة معاً. وتبقى الثلاث على السجل.',

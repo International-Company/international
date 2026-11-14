@@ -15,7 +15,15 @@ import {
   TIKTOK_DEAL_TYPE,
 } from '@/modules/tiktok/tiktok-message';
 import { copyGroupFor, groupFor, parseRoutes } from './group-routes';
-import { isLinked, reactTo, sendImage, sendText, type SentMessage } from './whatsapp.service';
+import {
+  editSent,
+  isLinked,
+  reactTo,
+  replyToSent,
+  sendImage,
+  sendText,
+  type SentMessage,
+} from './whatsapp.service';
 
 /**
  * Every deal, to the office's WhatsApp group, the moment it is recorded — and
@@ -476,6 +484,94 @@ async function markCancelled(deal: {
 /** What the bot puts on a deal's message once the deal is cancelled. */
 export const CANCELLED_MARK = '❌';
 
+/** How long WhatsApp lets a message be edited, less a margin for the clock and the send. */
+export const EDIT_WINDOW_MS = 13 * 60 * 1000;
+
+/** Heads the reply that corrects a deal's message once it can no longer be edited. */
+export const CORRECTION_HEAD = '✏️ تصحيح';
+
+export interface EditedDeal {
+  reference: string;
+  type: string;
+  status: string;
+  createdAt: Date;
+  announcedChat: string | null;
+  announcedMessageId: string | null;
+  copyChat: string | null;
+  copyMessageId: string | null;
+}
+
+export interface ReannounceDeps {
+  load: (id: string) => Promise<Shareable | null>;
+  /** Whether the deal went out with a photo, its words then a caption that cannot be edited here. */
+  hasPhotos: (id: string) => Promise<boolean>;
+  edit: (chat: string, messageId: string, text: string) => Promise<void>;
+  reply: (chat: string, messageId: string, text: string) => Promise<unknown>;
+  now?: () => number;
+}
+
+/**
+ * A deal's messages brought in line with it after its details were changed.
+ *
+ * Rewritten in place while WhatsApp still allows it; after that, or for a
+ * message that went out as a photo's caption, the corrected words go as a reply
+ * to the old message, headed so that nobody reads it as a second deal.
+ * Returns what was done with each message, for the tests and the log.
+ */
+export async function reannounceEdited(
+  transactionId: string,
+  deal: EditedDeal,
+  deps: ReannounceDeps,
+): Promise<('EDITED' | 'REPLIED' | 'FAILED')[]> {
+  if (deal.status === 'REVERSED') return [];
+  const message = await deps.load(transactionId);
+  if (!message) return [];
+  const fresh = (deps.now ?? Date.now)() - deal.createdAt.getTime() < EDIT_WINDOW_MS;
+  const photos = await deps.hasPhotos(transactionId);
+
+  const parts = [
+    {
+      chat: deal.announcedChat,
+      id: deal.announcedMessageId,
+      text: message.detailText ?? message.text,
+      // A cash remittance opens with what was taken; a deal with a photo carries its words under it.
+      editable: !photos && !message.cashNote,
+    },
+    {
+      chat: deal.copyChat,
+      id: deal.copyMessageId,
+      text: message.copyText ?? null,
+      // A sale's copy is the address photo, its words the caption.
+      editable: deal.type !== 'USDT_SALE',
+    },
+  ];
+
+  const done: ('EDITED' | 'REPLIED' | 'FAILED')[] = [];
+  for (const part of parts) {
+    if (!part.chat || !part.id || !part.text) continue;
+    if (fresh && part.editable) {
+      try {
+        await deps.edit(part.chat, part.id, part.text);
+        done.push('EDITED');
+        continue;
+      } catch (error) {
+        log.warn('Could not edit a deal’s message; correcting it in a reply', {
+          reference: deal.reference,
+          error,
+        });
+      }
+    }
+    try {
+      await deps.reply(part.chat, part.id, `${CORRECTION_HEAD}\n\n${part.text}`);
+      done.push('REPLIED');
+    } catch (error) {
+      log.warn('Could not correct a deal’s message', { reference: deal.reference, error });
+      done.push('FAILED');
+    }
+  }
+  return done;
+}
+
 /** A deal's photos, what was paid before who it is for. */
 function dealPhotos(transactionId: string) {
   return prisma.transactionProof.findMany({
@@ -605,6 +701,32 @@ export function registerWhatsappSubscribers(): void {
         log.warn('Could not cancel a TikTok withdrawal’s name', { withdrawalId, error }),
       );
     }
+  });
+
+  on('transaction.edited', 'whatsapp-announce-edit', async ({ transactionId }) => {
+    if (!(await settings.getBoolean('whatsapp.enabled'))) return;
+    if (!(await settings.getBoolean('whatsapp.editMessages')) || !isLinked()) return;
+    const deal = await prisma.transaction.findUnique({
+      where: { id: transactionId },
+      select: {
+        reference: true,
+        type: true,
+        status: true,
+        createdAt: true,
+        announcedChat: true,
+        announcedMessageId: true,
+        copyChat: true,
+        copyMessageId: true,
+      },
+    });
+    if (!deal) return;
+    await reannounceEdited(transactionId, deal, {
+      load: (id) => shareable(id, 'ar').catch(() => null),
+      hasPhotos: async (id) =>
+        (await prisma.transactionProof.count({ where: { transactionId: id } })) > 0,
+      edit: editSent,
+      reply: replyToSent,
+    });
   });
 
   on(

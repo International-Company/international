@@ -917,6 +917,9 @@ export async function updateDetails(
     counterpartyName?: string | null;
     counterpartyPhone?: string | null;
     customerId?: string | null;
+    /** Where a transfer goes: words on the deal, not a ledger account. */
+    payoutAccount?: string | null;
+    payoutBankChannel?: string | null;
   },
   actor: Actor,
   db: DbClient = prisma,
@@ -954,6 +957,13 @@ export async function updateDetails(
         ? { counterpartyPhone: patch.counterpartyPhone }
         : {}),
       ...(patch.customerId !== undefined ? { customerId: patch.customerId } : {}),
+      // Only on a deal that pays by transfer: one paid in notes has nowhere to send.
+      ...(patch.payoutAccount !== undefined && original.payoutBankAmount > 0n
+        ? { payoutAccount: patch.payoutAccount }
+        : {}),
+      ...(patch.payoutBankChannel !== undefined && original.payoutBankAmount > 0n
+        ? { payoutBankChannel: patch.payoutBankChannel }
+        : {}),
     },
   });
 
@@ -970,16 +980,32 @@ export async function updateDetails(
       counterpartyName: original.counterpartyName,
       counterpartyPhone: original.counterpartyPhone,
       customerId: original.customerId,
+      payoutAccount: original.payoutAccount,
+      payoutBankChannel: original.payoutBankChannel,
     },
     after: {
       notes: updated.notes,
       counterpartyName: updated.counterpartyName,
       counterpartyPhone: updated.counterpartyPhone,
       customerId: updated.customerId,
+      payoutAccount: updated.payoutAccount,
+      payoutBankChannel: updated.payoutBankChannel,
     },
   });
 
   log.info('Transaction details edited', { reference: original.reference });
+
+  // What the group was told changed with it; a note alone is the office's own.
+  const said = [
+    'counterpartyName',
+    'counterpartyPhone',
+    'customerId',
+    'payoutAccount',
+    'payoutBankChannel',
+  ] as const;
+  if (said.some((field) => original[field] !== updated[field])) {
+    emitAsync('transaction.edited', { transactionId: id, actorId: actor.id });
+  }
 
   return { id: updated.id, reference: updated.reference };
 }

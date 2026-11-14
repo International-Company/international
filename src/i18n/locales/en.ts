@@ -271,6 +271,8 @@ const en = {
   transactions: {
     transferredTo: 'Transferred to',
     editDetails: 'Edit details',
+    payoutChannelEdit: 'Wallet or bank',
+    payoutAccountEdit: 'Account or wallet number',
     editDetailsHint: 'Only what never moved money. The amounts, the rate and the currencies are corrected, not edited.',
     correct: 'Correct the amount',
     correctHint: 'Reverses this posting and records the right one, together. All three stay on the record.',
