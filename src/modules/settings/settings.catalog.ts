@@ -565,6 +565,16 @@ export const SETTINGS: SettingDefinition[] = [
   },
 
   {
+    // Writing first to strangers is what gets a linked number banned.
+    key: 'whatsapp.inboxNewChatsPerDay', category: 'whatsapp', type: 'number', defaultValue: 20, min: 0, max: 200,
+    labelEn: 'Customer WhatsApp: new conversations a day', labelAr: 'واتساب العملاء: محادثات جديدة في اليوم',
+    descriptionEn:
+      'How many numbers staff may write to first in a day, counting those that have not answered yet. WhatsApp bans a number that writes first to many people.',
+    descriptionAr:
+      'كم رقماً يمكن للموظفين مراسلته أولاً خلال يوم، من الأرقام التي لم ترد بعد. واتساب يحظر الرقم الذي يراسل أشخاصاً كثيرين أولاً.',
+  },
+
+  {
     key: 'whatsapp.privateBotProfile', category: 'whatsapp', type: 'string', defaultValue: '', hidden: true,
     labelEn: 'Private number: what it has been told', labelAr: 'الرقم الخاص: معلومات البوت',
     descriptionEn: 'Written on the private number panel', descriptionAr: 'تُكتب من لوحة بوت الرقم الخاص',

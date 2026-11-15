@@ -1,13 +1,13 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from 'react';
-import { ArrowLeft, ExternalLink, Search, SendHorizontal } from 'lucide-react';
+import { ArrowLeft, ExternalLink, MessageSquarePlus, Search, SendHorizontal } from 'lucide-react';
 import { useLocale } from '@/i18n/provider';
 import { api, ApiError } from '@/lib/api-client';
 import { say } from '@/lib/failure';
-import { useToast } from '@/ui/overlay';
+import { Dialog, useToast } from '@/ui/overlay';
 import { Badge, Button, Card, EmptyState, PageHeader, Skeleton } from '@/ui/primitives';
-import { Input, Textarea } from '@/ui/form';
+import { Field, Input, Textarea } from '@/ui/form';
 
 interface ChatRow {
   id: string;
@@ -68,6 +68,8 @@ export function InboxView() {
   const [onlyWaiting, setOnlyWaiting] = useState(false);
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
+  const [starting, setStarting] = useState(false);
+  const [fresh, setFresh] = useState({ open: false, phone: '', text: '' });
   const waitingBefore = useRef<Set<string> | null>(null);
   const scroller = useRef<HTMLDivElement>(null);
   const box = useRef<HTMLTextAreaElement>(null);
@@ -147,6 +149,25 @@ export function InboxView() {
     document.title = waitingCount > 0 ? `(${waitingCount}) ${base}` : base;
   }, [waitingCount, t]);
 
+  const start = async () => {
+    if (!fresh.phone.trim() || !fresh.text.trim() || starting) return;
+    setStarting(true);
+    try {
+      const { id } = await api.post<{ id: string }>('/api/inbox', {
+        phone: fresh.phone,
+        text: fresh.text,
+      });
+      setFresh({ open: false, phone: '', text: '' });
+      setThread(null);
+      setSelected(id);
+      void load();
+    } catch (cause) {
+      failure(cause);
+    } finally {
+      setStarting(false);
+    }
+  };
+
   const send = async () => {
     const text = draft.trim();
     if (!thread || !text || sending) return;
@@ -174,7 +195,18 @@ export function InboxView() {
   const header = (
     // On a phone an open conversation takes the whole screen, title and all.
     <div className={selected ? 'hidden md:block' : undefined}>
-      <PageHeader title={t('inbox.title')} description={t('inbox.subtitle')} />
+      <PageHeader
+        title={t('inbox.title')}
+        description={t('inbox.subtitle')}
+        actions={
+          <Button
+            icon={<MessageSquarePlus />}
+            onClick={() => setFresh((current) => ({ ...current, open: true }))}
+          >
+            {t('inbox.newChat')}
+          </Button>
+        }
+      />
     </div>
   );
 
@@ -364,6 +396,53 @@ export function InboxView() {
           )}
         </Card>
       </div>
+      <Dialog
+        open={fresh.open}
+        onClose={() => setFresh((current) => ({ ...current, open: false }))}
+        title={t('inbox.newChatTitle')}
+        description={t('inbox.newChatHint')}
+        footer={
+          <Button
+            icon={<SendHorizontal className="rtl:-scale-x-100" />}
+            loading={starting}
+            disabled={!fresh.phone.trim() || !fresh.text.trim()}
+            onClick={() => void start()}
+          >
+            {t('inbox.newChatSend')}
+          </Button>
+        }
+      >
+        <div className="space-y-3">
+          <Field label={t('inbox.newChatPhone')} hint={t('inbox.newChatPhoneHint')} required>
+            {(field) => (
+              <Input
+                {...field}
+                dir="ltr"
+                inputMode="tel"
+                autoComplete="off"
+                value={fresh.phone}
+                onChange={(event) =>
+                  setFresh((current) => ({ ...current, phone: event.target.value }))
+                }
+                className="text-start"
+              />
+            )}
+          </Field>
+          <Field label={t('inbox.newChatText')} required>
+            {(field) => (
+              <Textarea
+                {...field}
+                rows={4}
+                maxLength={2000}
+                value={fresh.text}
+                onChange={(event) =>
+                  setFresh((current) => ({ ...current, text: event.target.value }))
+                }
+              />
+            )}
+          </Field>
+        </div>
+      </Dialog>
     </div>
   );
 }

@@ -761,6 +761,16 @@ export async function sendMedia(
   return sent;
 }
 
+/**
+ * The WhatsApp address of a phone number, asked of the private number, or null
+ * when the number has no WhatsApp. `digits` is the number with its country code.
+ */
+export async function privateNumberAddress(digits: string): Promise<string | null> {
+  const found = await socketOf('private').onWhatsApp(`${digits}@s.whatsapp.net`);
+  const match = found?.find((entry) => entry.exists);
+  return match ? match.jid : null;
+}
+
 /** Answers someone from the private number, showing it typing first as a person would. */
 export async function replyPrivately(jid: string, text: string): Promise<void> {
   const sock = socketOf('private');
