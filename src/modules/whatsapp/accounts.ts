@@ -15,6 +15,10 @@ export const isPrivateChat = (jid: string): boolean =>
   ['@s.whatsapp.net', '@lid', '@hosted', '@hosted.lid'].some((server) => jid.endsWith(server));
 
 /** Where an account's session is kept: the first as it always was, the second apart. */
+/** Where a teller's own number is kept, apart from the office's numbers. */
+export const TELLER_SESSION_PREFIX = 'teller:';
+export const tellerSessionPrefix = (userId: string) => `${TELLER_SESSION_PREFIX}${userId}:`;
+
 export const SESSION_PREFIX: Record<Account, string> = {
   main: '',
   second: 'second:',

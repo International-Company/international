@@ -8,7 +8,7 @@ import {
   type SignalDataTypeMap,
 } from '@whiskeysockets/baileys';
 import { prisma, type DbClient } from '@/core/db/prisma';
-import { SESSION_PREFIX } from './accounts';
+import { SESSION_PREFIX, TELLER_SESSION_PREFIX } from './accounts';
 
 /**
  * The linked number's session, in the database.
@@ -42,8 +42,7 @@ export async function databaseAuthState(
   db: DbClient = prisma,
   prefix = '',
 ): Promise<{ state: AuthenticationState; saveCreds: () => Promise<void> }> {
-  const creds =
-    ((await read(prefix + CREDS, db)) as AuthenticationCreds | null) ?? initAuthCreds();
+  const creds = ((await read(prefix + CREDS, db)) as AuthenticationCreds | null) ?? initAuthCreds();
 
   return {
     state: {
@@ -88,7 +87,10 @@ export async function hasSession(db: DbClient = prisma, prefix = ''): Promise<bo
 
 /** Forgets one linked number entirely, and nothing of the other. */
 export async function clearSession(db: DbClient = prisma, prefix = ''): Promise<void> {
-  const others = Object.values(SESSION_PREFIX).filter((other) => other && other !== prefix);
+  // The first number's keys have no prefix: everything that is not another number's is its.
+  const others = [...Object.values(SESSION_PREFIX), TELLER_SESSION_PREFIX].filter(
+    (other) => other && other !== prefix,
+  );
   await db.whatsappAuth.deleteMany({
     where: prefix
       ? { key: { startsWith: prefix } }

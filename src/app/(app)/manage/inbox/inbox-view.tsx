@@ -1,11 +1,27 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from 'react';
-import { ArrowLeft, ExternalLink, MessageSquarePlus, Search, SendHorizontal } from 'lucide-react';
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type ReactNode,
+} from 'react';
+import {
+  ArrowLeft,
+  ExternalLink,
+  MessageSquarePlus,
+  QrCode,
+  Search,
+  SendHorizontal,
+  Smartphone,
+  Unlink,
+} from 'lucide-react';
 import { useLocale } from '@/i18n/provider';
 import { api, ApiError } from '@/lib/api-client';
 import { say } from '@/lib/failure';
-import { Dialog, useToast } from '@/ui/overlay';
+import { ConfirmDialog, Dialog, useToast } from '@/ui/overlay';
 import { Badge, Button, Card, EmptyState, PageHeader, Skeleton } from '@/ui/primitives';
 import { Field, Input, Textarea } from '@/ui/form';
 
@@ -58,7 +74,20 @@ function chime() {
   }
 }
 
-export function InboxView() {
+/**
+ * One list of conversations and the one open beside it: the private number's,
+ * which everyone with the inbox shares, or the teller's own number's, which is
+ * theirs alone. `base` is where each is read and written.
+ */
+function Conversations({
+  base,
+  tabs,
+  listTop,
+}: {
+  base: string;
+  tabs: ReactNode;
+  listTop?: ReactNode;
+}) {
   const { t } = useLocale();
   const toast = useToast();
   const [rows, setRows] = useState<ChatRow[] | null>(null);
@@ -92,7 +121,7 @@ export function InboxView() {
 
   const load = useCallback(async () => {
     try {
-      const next = await api.get<ChatRow[]>('/api/inbox');
+      const next = await api.get<ChatRow[]>(base);
       const waiting = new Set(next.filter((row) => row.awaiting).map((row) => row.id));
       const before = waitingBefore.current;
       if (before && [...waiting].some((id) => !before.has(id))) chime();
@@ -102,17 +131,17 @@ export function InboxView() {
       failure(cause);
       setRows((current) => current ?? []);
     }
-  }, [failure]);
+  }, [failure, base]);
 
   const read = useCallback(
     async (id: string) => {
       try {
-        setThread(await api.get<Thread>(`/api/inbox/${id}`));
+        setThread(await api.get<Thread>(`${base}/${id}`));
       } catch (cause) {
         failure(cause);
       }
     },
-    [failure],
+    [failure, base],
   );
 
   useEffect(() => {
@@ -153,7 +182,7 @@ export function InboxView() {
     if (!fresh.phone.trim() || !fresh.text.trim() || starting) return;
     setStarting(true);
     try {
-      const { id } = await api.post<{ id: string }>('/api/inbox', {
+      const { id } = await api.post<{ id: string }>(base, {
         phone: fresh.phone,
         text: fresh.text,
       });
@@ -173,7 +202,7 @@ export function InboxView() {
     if (!thread || !text || sending) return;
     setSending(true);
     try {
-      setThread(await api.post<Thread>(`/api/inbox/${thread.id}`, { text }));
+      setThread(await api.post<Thread>(`${base}/${thread.id}`, { text }));
       setDraft('');
       void load();
     } catch (cause) {
@@ -199,12 +228,15 @@ export function InboxView() {
         title={t('inbox.title')}
         description={t('inbox.subtitle')}
         actions={
-          <Button
-            icon={<MessageSquarePlus />}
-            onClick={() => setFresh((current) => ({ ...current, open: true }))}
-          >
-            {t('inbox.newChat')}
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            {tabs}
+            <Button
+              icon={<MessageSquarePlus />}
+              onClick={() => setFresh((current) => ({ ...current, open: true }))}
+            >
+              {t('inbox.newChat')}
+            </Button>
+          </div>
         }
       />
     </div>
@@ -235,6 +267,7 @@ export function InboxView() {
         <Card
           className={`${selected ? 'hidden' : 'flex'} flex-col overflow-hidden md:flex md:h-[calc(100dvh-13.5rem)] md:min-h-[24rem]`}
         >
+          {listTop}
           <div className="shrink-0 space-y-2 border-b border-border-subtle p-3">
             <Input
               value={query}
@@ -443,6 +476,236 @@ export function InboxView() {
           </Field>
         </div>
       </Dialog>
+    </div>
+  );
+}
+
+type Source = 'office' | 'mine';
+
+interface Link {
+  status: 'OFF' | 'CONNECTING' | 'WAITING_QR' | 'CONNECTED';
+  qrImage: string | null;
+  pairingCode: string | null;
+  number: string | null;
+  error: string | null;
+}
+
+export function InboxView() {
+  const { t } = useLocale();
+  const [source, setSource] = useState<Source>('office');
+
+  useEffect(() => {
+    try {
+      if (window.localStorage.getItem('inbox.source') === 'mine') setSource('mine');
+    } catch {
+      // Remembering the tab is a nicety.
+    }
+  }, []);
+
+  const choose = (next: Source) => {
+    setSource(next);
+    try {
+      window.localStorage.setItem('inbox.source', next);
+    } catch {
+      // As above.
+    }
+  };
+
+  const tabs = (
+    <div role="tablist" className="flex gap-1 rounded-xl bg-surface-sunken p-1 text-sm">
+      {(['office', 'mine'] as const).map((id) => (
+        <button
+          key={id}
+          type="button"
+          role="tab"
+          aria-selected={source === id}
+          onClick={() => choose(id)}
+          className={`min-h-9 rounded-lg px-3 py-1.5 font-medium ${
+            source === id ? 'bg-surface text-content shadow-sm' : 'text-content-secondary'
+          }`}
+        >
+          {id === 'office' ? t('inbox.sourceOffice') : t('inbox.sourceMine')}
+        </button>
+      ))}
+    </div>
+  );
+
+  return source === 'office' ? (
+    <Conversations key="office" base="/api/inbox" tabs={tabs} />
+  ) : (
+    <Conversations key="mine" base="/api/inbox/mine" tabs={tabs} listTop={<MyNumber />} />
+  );
+}
+
+/** The teller's own number: linked by scanning a QR, shown while it is, unlinked from here. */
+function MyNumber() {
+  const { t } = useLocale();
+  const toast = useToast();
+  const [link, setLink] = useState<Link | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const [byNumber, setByNumber] = useState(false);
+  const [phone, setPhone] = useState('');
+
+  const failure = useCallback(
+    (cause: unknown) =>
+      toast.error(
+        t('errors.title'),
+        cause instanceof ApiError
+          ? say(t, cause.messageKey, cause.params) || cause.message
+          : t('errors.generic'),
+      ),
+    [toast, t],
+  );
+
+  const read = useCallback(async () => {
+    try {
+      setLink(await api.get<Link>('/api/inbox/mine/link'));
+    } catch (cause) {
+      failure(cause);
+    }
+  }, [failure]);
+
+  // Quick while a QR waits or the link comes up; slow once it is settled.
+  const settled = link?.status === 'CONNECTED' || link?.status === 'OFF';
+  useEffect(() => {
+    void read();
+    const timer = setInterval(() => void read(), settled ? 20_000 : 2_000);
+    return () => clearInterval(timer);
+  }, [read, settled]);
+
+  const act = async (action: 'start' | 'unlink', withPhone?: string) => {
+    setBusy(true);
+    try {
+      setLink(
+        await api.post<Link>('/api/inbox/mine/link', {
+          action,
+          ...(withPhone ? { phone: withPhone } : {}),
+        }),
+      );
+    } catch (cause) {
+      failure(cause);
+    } finally {
+      setBusy(false);
+      setConfirming(false);
+    }
+  };
+
+  if (!link) return null;
+
+  if (link.status === 'CONNECTED') {
+    return (
+      <div className="flex shrink-0 items-center gap-2 border-b border-border-subtle bg-success-subtle/50 px-3 py-2 text-sm">
+        <Smartphone className="size-4 shrink-0 text-success-text" />
+        <span className="min-w-0 flex-1 truncate">
+          {t('inbox.mineLinked')}{' '}
+          <span className="ltr-content font-semibold tabular-nums">+{link.number}</span>
+        </span>
+        <Button
+          size="sm"
+          variant="ghost"
+          icon={<Unlink />}
+          aria-label={t('inbox.mineUnlink')}
+          onClick={() => setConfirming(true)}
+        />
+        <ConfirmDialog
+          open={confirming}
+          onClose={() => setConfirming(false)}
+          onConfirm={() => void act('unlink')}
+          title={t('inbox.mineUnlink')}
+          message={t('inbox.mineUnlinkHint')}
+          confirmLabel={t('inbox.mineUnlink')}
+          cancelLabel={t('common.cancel')}
+          tone="danger"
+          loading={busy}
+        />
+      </div>
+    );
+  }
+
+  const code = link.pairingCode;
+  const waiting = link.status === 'WAITING_QR';
+  const toggle = (
+    <button
+      type="button"
+      onClick={() => setByNumber((current) => !current)}
+      className="block w-full text-sm font-medium text-primary-text hover:underline"
+    >
+      {byNumber ? t('inbox.mineByQr') : t('inbox.mineByNumber')}
+    </button>
+  );
+
+  // The code WhatsApp gave for the number: typed on the phone, it links.
+  if (waiting && code) {
+    return (
+      <div className="shrink-0 space-y-3 border-b border-border-subtle p-4 text-center">
+        <p className="text-sm text-content-secondary">{t('inbox.minePairCodeIs')}</p>
+        <p
+          dir="ltr"
+          className="select-all font-mono text-3xl font-bold tracking-[0.2em] text-content"
+        >
+          {code.length === 8 ? `${code.slice(0, 4)}-${code.slice(4)}` : code}
+        </p>
+        <p className="text-sm text-content-secondary">{t('inbox.minePairSteps')}</p>
+      </div>
+    );
+  }
+
+  if (link.status === 'CONNECTING') {
+    return (
+      <div className="shrink-0 border-b border-border-subtle p-4 text-center">
+        <p className="py-6 text-sm text-content-secondary">{t('inbox.mineConnecting')}</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="shrink-0 space-y-3 border-b border-border-subtle p-4 text-center">
+      {!waiting && <p className="text-sm text-content-secondary">{t('inbox.mineIntro')}</p>}
+      {link.error === 'loggedOut' && !waiting && (
+        <p className="text-xs text-warning-text">{t('inbox.mineLoggedOut')}</p>
+      )}
+      {link.error === 'pairFailed' && (
+        <p className="text-xs text-warning-text">{t('inbox.minePairFailed')}</p>
+      )}
+      {byNumber ? (
+        <div className="space-y-2 text-start">
+          <Input
+            dir="ltr"
+            inputMode="tel"
+            autoComplete="tel"
+            value={phone}
+            onChange={(event) => setPhone(event.target.value)}
+            placeholder="+970599123456"
+            aria-label={t('inbox.minePhone')}
+          />
+          <p className="text-xs text-content-tertiary">{t('inbox.minePhoneHint')}</p>
+          <Button
+            fullWidth
+            icon={<Smartphone />}
+            loading={busy}
+            disabled={phone.replace(/\D/g, '').length < 8}
+            onClick={() => void act('start', phone)}
+          >
+            {t('inbox.minePairGet')}
+          </Button>
+        </div>
+      ) : waiting && link.qrImage ? (
+        <>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={link.qrImage}
+            alt={t('inbox.mineQrAlt')}
+            className="mx-auto size-56 rounded-xl bg-white p-2"
+          />
+          <p className="text-sm text-content-secondary">{t('inbox.mineScan')}</p>
+        </>
+      ) : (
+        <Button icon={<QrCode />} loading={busy} onClick={() => void act('start')}>
+          {t('inbox.mineLink')}
+        </Button>
+      )}
+      {toggle}
     </div>
   );
 }

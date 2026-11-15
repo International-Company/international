@@ -10,6 +10,7 @@ import { registerReportCommand } from '@/modules/whatsapp/report.service';
 import { registerPrivateBot } from '@/modules/whatsapp/private-bot.service';
 import { registerReconcile } from '@/modules/whatsapp/reconcile.service';
 import { registerGroupForward } from '@/modules/whatsapp/group-forward.service';
+import { resumeTellerNumbers } from '@/modules/whatsapp/teller-whatsapp.service';
 import { resume as resumeWhatsapp } from '@/modules/whatsapp/whatsapp.service';
 import * as notifications from '@/modules/notifications/notifications.service';
 import * as settings from '@/modules/settings/settings.service';
@@ -48,6 +49,8 @@ export function bootstrap(): void {
   startWorker();
   // The linked WhatsApp number, back on after a restart or a deploy.
   void resumeWhatsapp().catch((error) => log.warn('WhatsApp did not resume', { error }));
+  // Each teller's own number, linked from the inbox.
+  void resumeTellerNumbers().catch((error) => log.warn('Teller numbers did not resume', { error }));
 
   log.info('Application bootstrapped');
 }
@@ -83,7 +86,8 @@ function registerJobHandlers(): void {
           module: 'system',
           titleEn: 'A drawer balance disagrees with its movements',
           titleAr: 'رصيد صندوق لا يطابق حركاته',
-          bodyEn: 'A drawer holds a different amount from the sum of everything recorded against it. Nothing should be able to cause this.',
+          bodyEn:
+            'A drawer holds a different amount from the sum of everything recorded against it. Nothing should be able to cause this.',
           bodyAr: 'رصيد أحد الصناديق يخالف مجموع حركاته المسجّلة. لا يُفترض أن يحدث هذا إطلاقاً.',
           link: '/manage/drawers',
         },

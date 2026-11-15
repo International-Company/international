@@ -2249,6 +2249,34 @@ model TransactionProof {
 }
 
 /// One person writing to the private number. Kept for the period set on the bot's panel.
+/// A conversation on a teller's own WhatsApp number. Only that teller reads it.
+model TellerChat {
+  id            String              @id @default(cuid())
+  ownerId       String
+  chat          String
+  phone         String?
+  lastMessageAt DateTime            @default(now())
+  createdAt     DateTime            @default(now())
+  messages      TellerChatMessage[]
+
+  @@unique([ownerId, chat])
+  @@index([ownerId, lastMessageAt])
+  @@map("teller_chats")
+}
+
+model TellerChatMessage {
+  id        String     @id @default(cuid())
+  chatId    String
+  chat      TellerChat @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  /// Written from the teller's number, here or on the phone.
+  fromMe    Boolean
+  text      String
+  createdAt DateTime   @default(now())
+
+  @@index([chatId, createdAt])
+  @@map("teller_chat_messages")
+}
+
 model BotConversation {
   id            String       @id @default(cuid())
   chat          String       @unique
