@@ -6,8 +6,10 @@ import {
   isOwnNumber,
   memberPhone,
   onIncomingText,
-  sendText,
+  onOwnGroupMessage,
+  sendPassedOn,
   type IncomingText,
+  type OwnGroupMessage,
 } from './whatsapp.service';
 
 const log = createBotLogger('whatsapp-forward');
@@ -42,16 +44,43 @@ export async function forwardGroupMessage(
     (needsSender(rules, incoming.chat) ? await deps.phoneOf(incoming) : null);
   if (deps.ownNumber(phone ?? incoming.sender)) return [];
 
-  const targets = forwardTargets(rules, {
-    chat: incoming.chat,
+  return passOn(
+    forwardTargets(rules, {
+      chat: incoming.chat,
+      text,
+      caption: !incoming.text.trim(),
+      senderPhone: phone,
+    }),
     text,
-    caption: !incoming.text.trim(),
-    senderPhone: phone,
-  });
+    deps.send,
+  );
+}
+
+export type OwnForwardDeps = Pick<ForwardServiceDeps, 'rules' | 'send'>;
+
+/**
+ * What the office's own number wrote in a group — a deal it announced, or words
+ * typed on its phone — passed on by the same rules. A rule asking for certain
+ * numbers is about the people writing there, so it does not pass these.
+ */
+export async function forwardOwnMessage(
+  message: OwnGroupMessage,
+  deps: OwnForwardDeps,
+): Promise<string[]> {
+  if (!message.chat.endsWith('@g.us') || !message.text.trim()) return [];
+  const rules = await deps.rules();
+  return passOn(forwardTargets(rules, { ...message, senderPhone: null }), message.text, deps.send);
+}
+
+async function passOn(
+  targets: string[],
+  text: string,
+  send: ForwardServiceDeps['send'],
+): Promise<string[]> {
   const sent: string[] = [];
   for (const group of targets) {
     try {
-      await deps.send(group, text);
+      await send(group, text);
       sent.push(group);
     } catch (error) {
       log.warn('Could not pass a group message on', { error });
@@ -67,18 +96,24 @@ export function registerGroupForward(): void {
   if (registered) return;
   registered = true;
 
+  const rules = async () => {
+    if (!(await settings.getBoolean('whatsapp.enabled'))) return [];
+    return parseForwardRules(await settings.getString('whatsapp.forwardRules'));
+  };
+  const send = (group: string, text: string) => sendPassedOn(group, text);
+
   onIncomingText(async (incoming) => {
     await forwardGroupMessage(incoming, {
-      rules: async () => {
-        if (!(await settings.getBoolean('whatsapp.enabled'))) return [];
-        return parseForwardRules(await settings.getString('whatsapp.forwardRules'));
-      },
+      rules,
       phoneOf: async (message) =>
         message.sender
           ? await memberPhone(message.chat, message.sender, message.account).catch(() => null)
           : null,
       ownNumber: isOwnNumber,
-      send: (group, text) => sendText(group, text),
+      send,
     });
+  });
+  onOwnGroupMessage(async (message) => {
+    await forwardOwnMessage(message, { rules, send });
   });
 }

@@ -9,7 +9,10 @@ import {
   ruleMatches,
   type ForwardRule,
 } from '../src/modules/whatsapp/group-forward.ts';
-import { forwardGroupMessage } from '../src/modules/whatsapp/group-forward.service.ts';
+import {
+  forwardGroupMessage,
+  forwardOwnMessage,
+} from '../src/modules/whatsapp/group-forward.service.ts';
 import type { IncomingText } from '../src/modules/whatsapp/whatsapp.service.ts';
 
 const rule = (patch: Partial<ForwardRule> = {}): ForwardRule => ({
@@ -140,6 +143,50 @@ describe('passing a group message on', () => {
   it('reads nothing the private number hears', async () => {
     const { sent, deps: d } = deps([rule()]);
     await forwardGroupMessage(incoming({ account: 'private' }), d);
+    assert.deepEqual(sent, []);
+  });
+});
+
+describe('passing on what the office itself wrote in a group', () => {
+  const send = () => {
+    const sent: [string, string][] = [];
+    return {
+      sent,
+      deps: (rules: ForwardRule[]) => ({
+        rules: async () => rules,
+        send: async (group: string, text: string) => sent.push([group, text]),
+      }),
+    };
+  };
+
+  it('passes on a deal it announced under a photo, by a photos-only rule', async () => {
+    const { sent, deps: d } = send();
+    await forwardOwnMessage(
+      { chat: 'a@g.us', text: 'سحب تيك توك 50', caption: true },
+      d([rule({ kind: 'CAPTION' })]),
+    );
+    assert.deepEqual(sent, [['b@g.us', 'سحب تيك توك 50']]);
+  });
+
+  it('keeps to the rule’s kind and words', async () => {
+    const { sent, deps: d } = send();
+    await forwardOwnMessage(
+      { chat: 'a@g.us', text: 'سحب تيك توك 50', caption: false },
+      d([rule({ kind: 'CAPTION' })]),
+    );
+    await forwardOwnMessage(
+      { chat: 'a@g.us', text: 'سحب تيك توك 50', caption: true },
+      d([rule({ words: 'إيداع' })]),
+    );
+    assert.deepEqual(sent, []);
+  });
+
+  it('is not passed by a rule that asks for certain numbers', async () => {
+    const { sent, deps: d } = send();
+    await forwardOwnMessage(
+      { chat: 'a@g.us', text: 'تحويل 300', caption: false },
+      d([rule({ senders: '0599123456' })]),
+    );
     assert.deepEqual(sent, []);
   });
 });

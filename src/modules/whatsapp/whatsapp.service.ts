@@ -113,13 +113,27 @@ type StaffListener = (message: StaffMessage) => Promise<void> | void;
 
 type Listener = (incoming: IncomingText) => Promise<void> | void;
 
+/** Words this office's own number put in a group: sent by the app, or typed on its phone. */
+export interface OwnGroupMessage {
+  chat: string;
+  text: string;
+  /** Whether the words are under a photo or video rather than on their own. */
+  caption: boolean;
+}
+
+type OwnListener = (message: OwnGroupMessage) => Promise<void> | void;
+
 interface Shared {
   sessions: Record<Account, Session>;
   /** Who is told of a message arriving — kept here so a reconnect keeps them. */
   listeners: Listener[];
   staffListeners: StaffListener[];
+  /** Who is told of what the office's numbers write in groups. */
+  ownListeners: OwnListener[];
   /** Messages already handled, when both numbers are in the chat they came to. */
   seen: string[];
+  /** What the app sent itself, so its echo from the phone is not told of twice. */
+  ownSeen: string[];
 }
 
 const fresh = (): Session => ({
@@ -139,9 +153,13 @@ const shared: Shared = (globalForWhatsapp.__ifmsWhatsappNumbers ??= {
   sessions: { main: fresh(), second: fresh(), private: fresh() },
   listeners: [],
   staffListeners: [],
+  ownListeners: [],
   seen: [],
+  ownSeen: [],
 });
 shared.staffListeners ??= [];
+shared.ownListeners ??= [];
+shared.ownSeen ??= [];
 // A server already running when this number was added has no place for it yet.
 shared.sessions.private ??= fresh();
 
@@ -274,6 +292,15 @@ async function open(account: Account): Promise<void> {
               .catch((error) => log.error('A WhatsApp staff handler failed', { error }));
           }
           continue;
+        }
+      }
+      // Typed on the linked phone into a group: the forwarding rules may pass it on.
+      if (message.key.fromMe && message.key.remoteJid.endsWith('@g.us')) {
+        const typed = normalizeMessageContent(message.message);
+        const words = typed?.conversation ?? typed?.extendedTextMessage?.text ?? null;
+        const under = typed?.imageMessage?.caption ?? typed?.videoMessage?.caption ?? null;
+        if ((words ?? under) && message.key.id) {
+          tellOwn(message.key.remoteJid, message.key.id, (words ?? under)!, !words);
         }
       }
       if (!firstSighting(shared.seen, `${message.key.remoteJid}:${message.key.id}`)) continue;
@@ -580,16 +607,40 @@ export async function sendImage(
   quoted?: WAMessage,
   mimetype = 'image/png',
 ): Promise<SentMessage> {
-  return (await socketFor(jid)).sendMessage(
+  const sent = await (await socketFor(jid)).sendMessage(
     jid,
     { image, caption, mimetype },
     quoted ? { quoted } : undefined,
   );
+  tellOwn(jid, sent?.key.id, caption, true);
+  return sent;
 }
 
 /** Tells `listener` of every text message others write where a number is. */
 export function onIncomingText(listener: Listener): void {
   shared.listeners.push(listener);
+}
+
+/** Tells `listener` of what the office's own numbers write in a group. */
+export function onOwnGroupMessage(listener: OwnListener): void {
+  shared.ownListeners.push(listener);
+}
+
+/** Each message the office wrote in a group, told of once, whichever way it was seen first. */
+function tellOwn(
+  chat: string,
+  id: string | null | undefined,
+  text: string,
+  caption: boolean,
+): void {
+  if (!chat.endsWith('@g.us') || !text.trim()) return;
+  if (id && !firstSighting(shared.ownSeen, `${chat}:${id}`)) return;
+  const message: OwnGroupMessage = { chat, text, caption };
+  for (const listener of shared.ownListeners) {
+    void Promise.resolve()
+      .then(() => listener(message))
+      .catch((error) => log.error('A WhatsApp group message handler failed', { error }));
+  }
 }
 
 /** Tells `listener` when someone writes from the private number's phone. */
@@ -680,21 +731,27 @@ export async function sendMedia(
 ): Promise<SentMessage> {
   const sock = await socketFor(jid);
   const { data, mimeType: mimetype } = media;
+  let sent: SentMessage;
   switch (media.kind) {
     case 'image':
-      return sock.sendMessage(jid, { image: data, caption, mimetype });
+      sent = await sock.sendMessage(jid, { image: data, caption, mimetype });
+      break;
     case 'video':
-      return sock.sendMessage(jid, { video: data, caption, mimetype });
+      sent = await sock.sendMessage(jid, { video: data, caption, mimetype });
+      break;
     case 'audio':
       return sock.sendMessage(jid, { audio: data, mimetype, ptt: media.voice ?? false });
     case 'document':
-      return sock.sendMessage(jid, {
+      sent = await sock.sendMessage(jid, {
         document: data,
         caption,
         mimetype,
         fileName: media.fileName ?? 'ملف',
       });
+      break;
   }
+  tellOwn(jid, sent?.key.id, caption, true);
+  return sent;
 }
 
 /** Answers someone from the private number, showing it typing first as a person would. */
@@ -726,7 +783,24 @@ export async function sendText(
   text: string,
   quoted?: WAMessage,
 ): Promise<SentMessage> {
-  return (await socketFor(jid)).sendMessage(jid, { text }, quoted ? { quoted } : undefined);
+  const sent = await (await socketFor(jid)).sendMessage(
+    jid,
+    { text },
+    quoted ? { quoted } : undefined,
+  );
+  tellOwn(jid, sent?.key.id, text, false);
+  return sent;
+}
+
+/**
+ * Writes a message passed on from another group. Never told of in turn, so two
+ * groups passing to each other do not send it back and forth.
+ */
+export async function sendPassedOn(jid: string, text: string): Promise<SentMessage> {
+  const sent = await (await socketFor(jid)).sendMessage(jid, { text });
+  // Its echo from the phone is known already, and is not passed on either.
+  if (sent?.key.id) firstSighting(shared.ownSeen, `${jid}:${sent.key.id}`);
+  return sent;
 }
 
 /** Rewrites the words of a text message this office's number sent to a chat. */
@@ -747,7 +821,9 @@ export async function replyToSent(
     key: { remoteJid: jid, fromMe: true, id: messageId },
     message: { conversation: '' },
   } as WAMessage;
-  return sock.sendMessage(jid, { text }, { quoted });
+  const sent = await sock.sendMessage(jid, { text }, { quoted });
+  tellOwn(jid, sent?.key.id, text, false);
+  return sent;
 }
 
 /** Puts a reaction on a message this office's number sent to a chat. */
