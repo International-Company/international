@@ -353,6 +353,11 @@ export function MachineView({
   // current when it lands. Without that a slow reply for "50" can overwrite the
   // reply for "500" and the customer is quoted the wrong figure.
   const requestId = useRef(0);
+  // Paid by transfer the board's bank price applies, and a special price cannot be used.
+  const heldException =
+    approval && approval.fromCurrency === from && approval.toCurrency === to && !paidByTransfer
+      ? approval.id
+      : null;
 
   useEffect(() => {
     const value = amount.trim();
@@ -377,6 +382,8 @@ export function MachineView({
             // priced forwards, so the till is the sensible one to size against.
             // Paid by transfer, the whole deal is at the bank rate.
             through: channel === 'BROKER' || paidByTransfer ? 'BROKER' : 'CASH',
+            // A special price held for this pair: the customer is told what it comes to.
+            exception: heldException ?? undefined,
           })}`,
         )
         .then((result) => {
@@ -399,7 +406,7 @@ export function MachineView({
     }, 220);
 
     return () => clearTimeout(timer);
-  }, [amount, from, to, side, channel, paidByTransfer, t]);
+  }, [amount, from, to, side, channel, paidByTransfer, heldException, t]);
 
   /**
    * Typed entry, as opposed to the keypad.
@@ -1503,6 +1510,8 @@ export function MachineView({
             <PriceException
               from={from}
               to={to}
+              base={base}
+              counter={counter}
               channel={channel}
               payAmount={side === 'pay' ? amount : ''}
               approval={approval}
@@ -2227,6 +2236,11 @@ interface Approval {
   maxFromAmount: string;
   requestedRate: string;
   approvedRate: string | null;
+  /** The same prices as people read them, "1 base = n counter". */
+  requestedPrice?: string | null;
+  approvedPrice?: string | null;
+  base?: string;
+  counter?: string;
   expiresAt: string | null;
   /** The price holds whatever the amount, not only up to the one it was asked for. */
   anyAmount?: boolean;
@@ -2246,6 +2260,8 @@ interface Approval {
 function PriceException({
   from,
   to,
+  base,
+  counter,
   channel,
   payAmount,
   approval,
@@ -2254,6 +2270,9 @@ function PriceException({
 }: {
   from: string;
   to: string;
+  /** The pair as it is read aloud: "1 base = n counter". */
+  base: string;
+  counter: string;
   channel: Channel;
   payAmount: string;
   approval: Approval | null;
@@ -2363,7 +2382,9 @@ function PriceException({
       {approval && fits ? (
         <div className="flex flex-wrap items-center gap-3 rounded-2xl bg-warning-subtle px-4 py-3 text-sm ring-1 ring-warning-border">
           <span className="font-semibold">
-            {t('exception.live', { rate: formatPlain(approval.approvedRate ?? '0', 6) })}
+            {t('exception.live', {
+              rate: `1 ${approval.base ?? base} = ${rateText(approval.approvedPrice ?? approval.approvedRate ?? '0')} ${approval.counter ?? counter}`,
+            })}
           </span>
           <span className="text-content-secondary text-xs">
             {approval.anyAmount
@@ -2411,7 +2432,11 @@ function PriceException({
         }
       >
         <div className="space-y-3">
-          <Field label={t('exception.askRate')} required>
+          <Field
+            label={`${t('exception.askRate')} — 1 ${base} = ? ${counter}`}
+            hint={t('exception.askRateHint', { base, counter })}
+            required
+          >
             {(field) => (
               <MoneyInput {...field} value={wanted} onValueChange={setWanted} decimals={6} />
             )}

@@ -39,9 +39,39 @@ const bodySchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('cancel'), id: z.string().min(1) }),
 ]);
 
+/**
+ * How each pair is read by people, asked once per pair: "1 USD = 3.60 ILS" is
+ * the price whichever way the money goes, and the stored rate is not.
+ */
+function readings() {
+  const known = new Map<string, Promise<boolean>>();
+  const inverted = (from: string, to: string) => {
+    const key = `${from}/${to}`;
+    if (!known.has(key)) known.set(key, exceptions.readInverted(from, to));
+    return known.get(key)!;
+  };
+  /** The prices of a row as read, and the pair named the way it is read. */
+  return async (
+    row: { fromCurrency: string; toCurrency: string },
+    rates: Record<string, bigint | null | undefined>,
+  ) => {
+    const flip = await inverted(row.fromCurrency, row.toCurrency);
+    const prices: Record<string, string | null> = {};
+    for (const [name, rate] of Object.entries(rates)) {
+      prices[name] = exceptions.asPrice(rate ?? null, flip);
+    }
+    return {
+      ...prices,
+      base: flip ? row.toCurrency : row.fromCurrency,
+      counter: flip ? row.fromCurrency : row.toCurrency,
+    };
+  };
+}
+
 export const GET = route({
   handler: async ({ actor }) => {
     const canApprove = actor.permissions.includes(exceptions.APPROVE_PERMISSION);
+    const read = readings();
 
     if (!canApprove) {
       const rows = await exceptions.mine(actor.id);
@@ -49,18 +79,24 @@ export const GET = route({
         role: 'teller' as const,
         // Whether a granted price holds past the amount it was asked for.
         anyAmount: await settings.getBoolean('exchange.priceException.anyAmount'),
-        mine: rows.map((row) => ({
-          id: row.id,
-          reference: row.reference,
-          status: row.status,
-          fromCurrency: row.fromCurrency,
-          toCurrency: row.toCurrency,
-          channel: row.channel,
-          maxFromAmount: row.maxFromAmount.toString(),
-          requestedRate: row.requestedRate.toString(),
-          approvedRate: row.approvedRate?.toString() ?? null,
-          expiresAt: row.expiresAt?.toISOString() ?? null,
-        })),
+        mine: await Promise.all(
+          rows.map(async (row) => ({
+            id: row.id,
+            reference: row.reference,
+            status: row.status,
+            fromCurrency: row.fromCurrency,
+            toCurrency: row.toCurrency,
+            channel: row.channel,
+            maxFromAmount: row.maxFromAmount.toString(),
+            requestedRate: row.requestedRate.toString(),
+            approvedRate: row.approvedRate?.toString() ?? null,
+            ...(await read(row, {
+              requestedPrice: row.requestedRate,
+              approvedPrice: row.approvedRate,
+            })),
+            expiresAt: row.expiresAt?.toISOString() ?? null,
+          })),
+        ),
       };
     }
 
@@ -83,9 +119,15 @@ export const GET = route({
 
     return {
       role: 'manager' as const,
-      pending: waiting.map((row) => {
+      pending: await Promise.all(
+        waiting.map(async (row) => {
         const cost = costs.get(`${row.fromCurrency}/${row.toCurrency}`) ?? null;
         return {
+          ...(await read(row, {
+            boardPrice: row.boardRate,
+            requestedPrice: row.requestedRate,
+            costPrice: cost,
+          })),
           id: row.id,
           reference: row.reference,
           tellerNameEn: row.requestedBy.fullNameEn,
@@ -113,8 +155,15 @@ export const GET = route({
           reason: row.reason,
           createdAt: row.createdAt.toISOString(),
         };
-      }),
-      recent: done.map((row) => ({
+        }),
+      ),
+      recent: await Promise.all(
+        done.map(async (row) => ({
+        ...(await read(row, {
+          boardPrice: row.boardRate,
+          approvedPrice: row.approvedRate,
+          costPrice: row.costRate,
+        })),
         id: row.id,
         reference: row.reference,
         status: row.status,
@@ -129,7 +178,8 @@ export const GET = route({
         costRate: row.costRate?.toString() ?? null,
         transaction: row.usedByTransaction?.reference ?? null,
         createdAt: row.createdAt.toISOString(),
-      })),
+        })),
+      ),
     };
   },
 });
@@ -138,13 +188,17 @@ export const POST = route<z.infer<typeof bodySchema>>({
   bodySchema,
   handler: async ({ body, actor }) => {
     if (body.action === 'request') {
+      const fromCurrency = body.fromCurrency.toUpperCase();
+      const toCurrency = body.toCurrency.toUpperCase();
+      // Typed as the counter says it, "1 USD = 3.60 ILS"; stored as the deal runs.
+      const inverted = await exceptions.readInverted(fromCurrency, toCurrency);
       const row = await exceptions.request(
         {
-          fromCurrency: body.fromCurrency.toUpperCase(),
-          toCurrency: body.toCurrency.toUpperCase(),
+          fromCurrency,
+          toCurrency,
           channel: body.channel,
           maxFromAmount: parseMoney(body.maxFromAmount),
-          requestedRate: parseMoney(body.requestedRate),
+          requestedRate: exceptions.fromPrice(parseMoney(body.requestedRate), inverted),
           reason: body.reason,
         },
         actor,
@@ -157,11 +211,20 @@ export const POST = route<z.infer<typeof bodySchema>>({
       return { cancelled: true };
     }
 
+    // A price granted other than the one asked for is typed the way it is read, too.
+    let rate: bigint | undefined;
+    if (body.rate) {
+      const pair = await exceptions.pairOf(body.id);
+      rate = exceptions.fromPrice(
+        parseMoney(body.rate),
+        await exceptions.readInverted(pair.fromCurrency, pair.toCurrency),
+      );
+    }
     const decided = await exceptions.decide(
       body.id,
       {
         approve: body.approve,
-        rate: body.rate ? parseMoney(body.rate) : undefined,
+        rate,
         note: body.note,
       },
       actor,

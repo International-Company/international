@@ -10,6 +10,7 @@ import * as settings from '@/modules/settings/settings.service';
 import * as cutoff from '@/modules/ledger/cutoff.service';
 import { quoteExchange, type RateChannel } from './rates.service';
 import { currentOpenDay } from './business-day.service';
+import { HOME_CURRENCY } from '@/lib/home-currency';
 
 /**
  * الاستثناء السعري — breaking the board for one deal, before it is struck.
@@ -73,6 +74,103 @@ export interface Actor {
 
 export const REQUEST_PERMISSION = 'exchange.priceException.request';
 export const APPROVE_PERMISSION = 'exchange.priceException.approve';
+
+// ---------------------------------------------------------------------------
+// How people read the price
+// ---------------------------------------------------------------------------
+
+/**
+ * Whether people read this pair's rate upside down.
+ *
+ * Rates here are what one unit of the currency paid in buys. A customer selling
+ * dollars is quoted "1 USD = 3.60 ILS", which is exactly that. A customer
+ * buying them pays shekels, so the stored rate is dollars per shekel — 0.2778 —
+ * while everyone at the counter still says "3.60". Every price a person types
+ * or reads for such a deal is turned over at the door, and only there.
+ *
+ * The base is the currency that is not the shekel; between two others, the one
+ * the board lists first.
+ */
+export async function readInverted(
+  fromCurrency: string,
+  toCurrency: string,
+  db: DbClient = prisma,
+): Promise<boolean> {
+  if (toCurrency === HOME_CURRENCY) return false;
+  if (fromCurrency === HOME_CURRENCY) return true;
+  const row = await db.exchangeRate.findFirst({
+    where: {
+      OR: [
+        { baseCode: fromCurrency, quoteCode: toCurrency },
+        { baseCode: toCurrency, quoteCode: fromCurrency },
+      ],
+    },
+    select: { baseCode: true },
+  });
+  return row?.baseCode === toCurrency;
+}
+
+/** A rate turned over: 3.60 becomes 0.27777778 and back, rounded rather than cut. */
+export function flipRate(rate: bigint): bigint {
+  return rate > 0n ? (ONE * ONE + rate / 2n) / rate : 0n;
+}
+
+/** A stored rate as people read it, to four places as the board shows it. */
+export function asPrice(rate: bigint | null, inverted: boolean): string | null {
+  if (rate === null) return null;
+  const read = inverted ? flipRate(rate) : rate;
+  return (((read + 5_000n) / 10_000n) * 10_000n).toString();
+}
+
+/** The pair an approval is for, to read a price given for it. */
+export async function pairOf(id: string, db: DbClient = prisma) {
+  const row = await db.priceException.findUnique({
+    where: { id },
+    select: { fromCurrency: true, toCurrency: true },
+  });
+  if (!row) throw errors.notFound('PriceException', id);
+  return row;
+}
+
+/**
+ * The price a teller's approval grants, for showing the customer what it comes to
+ * before the deal is recorded — read, never spent. Null when it is not theirs, has
+ * lapsed, or is for another pair: the screen then shows the board, as recording
+ * would refuse it anyway.
+ */
+export async function previewRate(
+  id: string,
+  input: { actorId: string; fromCurrency: string; toCurrency: string },
+  db: DbClient = prisma,
+): Promise<{ channel: RateChannel; rate: bigint } | null> {
+  const row = await db.priceException.findUnique({ where: { id } });
+  if (
+    !row ||
+    row.status !== 'APPROVED' ||
+    row.approvedRate === null ||
+    row.requestedById !== input.actorId ||
+    (row.expiresAt && row.expiresAt.getTime() <= Date.now()) ||
+    row.fromCurrency !== input.fromCurrency ||
+    row.toCurrency !== input.toCurrency
+  ) {
+    return null;
+  }
+  return { channel: row.channel === 'BROKER' ? 'BROKER' : 'CASH', rate: row.approvedRate };
+}
+
+/** The pair and its prices as words for a notice or the audit, the way they are read. */
+async function priceWords(fromCurrency: string, toCurrency: string, db: DbClient) {
+  const flip = await readInverted(fromCurrency, toCurrency, db);
+  return {
+    pair: flip ? `${toCurrency}/${fromCurrency}` : `${fromCurrency}/${toCurrency}`,
+    price: (rate: bigint | null) => toDecimalString(BigInt(asPrice(rate ?? 0n, flip)!), 4),
+  };
+}
+
+/** A price as people typed it, as the rate stored and traded on. */
+export function fromPrice(price: bigint, inverted: boolean): bigint {
+  return inverted ? flipRate(price) : price;
+}
 
 // ---------------------------------------------------------------------------
 // Cost
@@ -155,6 +253,7 @@ export async function request(input: RequestInput, actor: Actor, db: DbClient = 
   if (input.fromCurrency === input.toCurrency) {
     throw errors.precondition('Both sides are the same currency', 'errors.sameCurrencyPair');
   }
+  const words = await priceWords(input.fromCurrency, input.toCurrency, db);
 
   // Priced through the same path the deal will take, so the board figure the
   // manager sees is the one the teller was actually quoted.
@@ -248,8 +347,8 @@ export async function request(input: RequestInput, actor: Actor, db: DbClient = 
         module: 'exchange',
         titleEn: belowCost ? 'A teller gave a price at or past cost' : 'A teller gave a special price',
         titleAr: belowCost ? 'سعر مميز طبّقه التلر — عند التكلفة أو تحتها' : 'سعر مميز طبّقه التلر',
-        bodyEn: `${actor.name} on ${input.fromCurrency}/${input.toCurrency} at ${toDecimalString(input.requestedRate, 6)} (board ${toDecimalString(board.rate, 6)}) — ${reference}`,
-        bodyAr: `${actor.name} على ${input.fromCurrency}/${input.toCurrency} بسعر ${toDecimalString(input.requestedRate, 6)} (اللوحة ${toDecimalString(board.rate, 6)}) — ${reference}`,
+        bodyEn: `${actor.name} on ${words.pair} at ${words.price(input.requestedRate)} (board ${words.price(board.rate)}) — ${reference}`,
+        bodyAr: `${actor.name} على ${words.pair} بسعر ${words.price(input.requestedRate)} (اللوحة ${words.price(board.rate)}) — ${reference}`,
         entityType: 'PriceException',
         entityId: row.id,
         link: '/manage/exceptions',
@@ -264,13 +363,13 @@ export async function request(input: RequestInput, actor: Actor, db: DbClient = 
         module: 'exchange',
         entityType: 'PriceException',
         entityId: row.id,
-        summaryEn: `Gave a special price on ${input.fromCurrency}/${input.toCurrency}: ${toDecimalString(input.requestedRate, 6)} against a board of ${toDecimalString(board.rate, 6)}, set by ${grantedBy}`,
-        summaryAr: `طبّق سعراً مميزاً على ${input.fromCurrency}/${input.toCurrency}: ${toDecimalString(input.requestedRate, 6)} واللوحة ${toDecimalString(board.rate, 6)}${unlimited ? '' : `، ضمن حد التلر ${selfPercent}%`}`,
+        summaryEn: `Gave a special price on ${words.pair}: ${words.price(input.requestedRate)} against a board of ${words.price(board.rate)}, set by ${grantedBy}`,
+        summaryAr: `طبّق سعراً مميزاً على ${words.pair}: ${words.price(input.requestedRate)} واللوحة ${words.price(board.rate)}${unlimited ? '' : `، ضمن حد التلر ${selfPercent}%`}`,
         actor,
       },
       db,
     );
-    log.info('Price exception self-granted', { reference, pair: `${input.fromCurrency}/${input.toCurrency}` });
+    log.info('Price exception self-granted', { reference, pair: `${words.pair}` });
     return row;
   }
 
@@ -281,8 +380,8 @@ export async function request(input: RequestInput, actor: Actor, db: DbClient = 
       module: 'exchange',
       titleEn: 'A teller is asking to break a price',
       titleAr: 'طلب كسر سعر',
-      bodyEn: `${actor.name} on ${input.fromCurrency}/${input.toCurrency} — ${reference}`,
-      bodyAr: `${actor.name} على ${input.fromCurrency}/${input.toCurrency} — ${reference}`,
+      bodyEn: `${actor.name} on ${words.pair} — ${reference}`,
+      bodyAr: `${actor.name} على ${words.pair} — ${reference}`,
       entityType: 'PriceException',
       entityId: row.id,
       link: '/manage/exceptions',
@@ -298,14 +397,14 @@ export async function request(input: RequestInput, actor: Actor, db: DbClient = 
       module: 'exchange',
       entityType: 'PriceException',
       entityId: row.id,
-      summaryEn: `Asked for ${input.fromCurrency}/${input.toCurrency} at ${toDecimalString(input.requestedRate, 6)} against a board of ${toDecimalString(board.rate, 6)}`,
-      summaryAr: `طلب سعر ${toDecimalString(input.requestedRate, 6)} على ${input.fromCurrency}/${input.toCurrency} واللوحة ${toDecimalString(board.rate, 6)}`,
+      summaryEn: `Asked for ${words.pair} at ${words.price(input.requestedRate)} against a board of ${words.price(board.rate)}`,
+      summaryAr: `طلب سعر ${words.price(input.requestedRate)} على ${words.pair} واللوحة ${words.price(board.rate)}`,
       actor,
     },
     db,
   );
 
-  log.info('Price exception requested', { reference, pair: `${input.fromCurrency}/${input.toCurrency}` });
+  log.info('Price exception requested', { reference, pair: `${words.pair}` });
   return row;
 }
 
@@ -421,6 +520,7 @@ async function announce(
   tx: DbClient,
 ): Promise<void> {
   const granted = row.status === 'APPROVED';
+  const words = await priceWords(row.fromCurrency, row.toCurrency, tx);
 
   await notifications.notify(
     {
@@ -430,11 +530,11 @@ async function announce(
       titleEn: granted ? 'Your price was approved' : 'Your price was refused',
       titleAr: granted ? 'وُوفق على السعر' : 'رُفض السعر',
       bodyEn: granted
-        ? `${row.reference} — ${row.fromCurrency}/${row.toCurrency} at ${toDecimalString(row.approvedRate ?? 0n, 6)}`
-        : `${row.reference} — ${row.fromCurrency}/${row.toCurrency}`,
+        ? `${row.reference} — ${words.pair} at ${words.price(row.approvedRate)}`
+        : `${row.reference} — ${words.pair}`,
       bodyAr: granted
-        ? `${row.reference} — ${row.fromCurrency}/${row.toCurrency} بسعر ${toDecimalString(row.approvedRate ?? 0n, 6)}`
-        : `${row.reference} — ${row.fromCurrency}/${row.toCurrency}`,
+        ? `${row.reference} — ${words.pair} بسعر ${words.price(row.approvedRate)}`
+        : `${row.reference} — ${words.pair}`,
       entityType: 'PriceException',
       entityId: row.id,
       link: '/counter/machine',
@@ -451,10 +551,10 @@ async function announce(
       entityType: 'PriceException',
       entityId: row.id,
       summaryEn: granted
-        ? `Approved ${row.reference} at ${toDecimalString(row.approvedRate ?? 0n, 6)}`
+        ? `Approved ${row.reference} at ${words.price(row.approvedRate)}`
         : `Refused ${row.reference}`,
       summaryAr: granted
-        ? `وافق على ${row.reference} بسعر ${toDecimalString(row.approvedRate ?? 0n, 6)}`
+        ? `وافق على ${row.reference} بسعر ${words.price(row.approvedRate)}`
         : `رفض ${row.reference}`,
       actor,
     },

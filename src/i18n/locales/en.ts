@@ -1197,7 +1197,7 @@ const en = {
     approve: 'Approve',
     reject: 'Refuse',
     grantAt: 'Grant at',
-    grantHint: 'Leave it to grant what was asked, or enter a lower rate. You cannot grant worse than was asked.',
+    grantHint: 'Leave it empty to grant what was asked, or enter a price nearer the board. You cannot grant the customer more than was asked.',
     decisionNote: 'Note',
     approved: 'Granted',
     rejected: 'Refused',
@@ -1217,6 +1217,7 @@ const en = {
     // --- The teller's side ---
     ask: 'Special price',
     askHint: 'Enter the price you are giving the customer. It applies to this deal at once, and the manager is told.',
+    askRateHint: 'As the customer is told it: how many {counter} for 1 {base}.',
     askRate: 'The price you want',
     askAmount: 'Up to',
     askReason: 'Why?',

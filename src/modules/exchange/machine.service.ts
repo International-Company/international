@@ -199,6 +199,12 @@ export async function quote(
      * they cannot hand over.
      */
     actorId?: string;
+    /**
+     * A special price the teller holds for this deal. The figure read out to
+     * the customer is the one the deal will be recorded at, so it is priced
+     * here as recording will price it — the board otherwise.
+     */
+    priceExceptionId?: string | null;
   },
   db: DbClient = prisma,
 ): Promise<MachineQuote> {
@@ -216,11 +222,27 @@ export async function quote(
     ]);
   }
 
+  const forced =
+    input.priceExceptionId && input.actorId
+      ? await exceptions.previewRate(
+          input.priceExceptionId,
+          {
+            actorId: input.actorId,
+            fromCurrency: input.fromCurrency,
+            toCurrency: input.toCurrency,
+          },
+          db,
+        )
+      : null;
+  const forcedFor = (channel: RateChannel) =>
+    forced && forced.channel === channel ? forced.rate : undefined;
+
   /*
    * A reverse-priced amount is sized against one channel's rate, then both
    * channels are priced on the result. So the teller who types "the customer
    * needs 500" still sees what that costs each way.
    */
+  const reverseThrough = input.reverseThrough ?? 'CASH';
   const fromAmount =
     input.fromAmount ??
     (
@@ -228,16 +250,24 @@ export async function quote(
         input.fromCurrency,
         input.toCurrency,
         input.toAmount!,
-        input.reverseThrough ?? 'CASH',
+        reverseThrough,
         db,
+        forcedFor(reverseThrough),
       )
     ).fromAmount;
 
   const owner = input.actorId ? await cashOwnerFor(input.actorId, db) : drawers.TREASURY;
 
   const [cash, broker, cashHeld, brokerHeld, maxAmount, requireCustomerAbove, overdraw] = await Promise.all([
-    priceOrNull(input.fromCurrency, input.toCurrency, fromAmount, 'CASH', db),
-    priceOrNull(input.fromCurrency, input.toCurrency, fromAmount, 'BROKER', db),
+    priceOrNull(input.fromCurrency, input.toCurrency, fromAmount, 'CASH', db, forcedFor('CASH')),
+    priceOrNull(
+      input.fromCurrency,
+      input.toCurrency,
+      fromAmount,
+      'BROKER',
+      db,
+      forcedFor('BROKER'),
+    ),
     drawers.canPay(input.toCurrency, 0n, 'CASH', db, owner),
     drawers.canPay(input.toCurrency, 0n, 'BROKER', db),
     // The person's own ceiling if they have a tighter one, so they are told
@@ -280,9 +310,10 @@ async function priceOrNull(
   amount: bigint,
   channel: RateChannel,
   db: DbClient,
+  forcedRate?: bigint,
 ): Promise<Quote | null> {
   try {
-    return await quoteExchange(from, to, amount, channel, db);
+    return await quoteExchange(from, to, amount, channel, db, forcedRate);
   } catch {
     return null;
   }

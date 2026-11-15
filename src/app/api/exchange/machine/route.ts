@@ -13,6 +13,8 @@ const querySchema = z.object({
   receive: z.string().optional(),
   /** Which channel a reverse-priced amount is sized against. */
   through: z.enum(['CASH', 'BROKER']).optional(),
+  /** A special price the teller holds: the figure shown is the one it records at. */
+  exception: z.string().min(1).max(40).optional(),
 });
 
 /**
@@ -42,6 +44,7 @@ export const GET = route<unknown, z.infer<typeof querySchema>>({
       toAmount: query.receive !== undefined ? parseMoney(query.receive) : undefined,
       reverseThrough: query.through,
       branchId: actor.branchId,
+      priceExceptionId: query.exception ?? null,
     });
 
     // The spread is stripped for anyone without the financial permission — the

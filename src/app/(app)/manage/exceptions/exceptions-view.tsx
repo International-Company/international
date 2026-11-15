@@ -37,6 +37,12 @@ interface Pending {
   boardRate: string;
   requestedRate: string;
   costRate: string | null;
+  /** The same three as people read them, "1 base = n counter". */
+  boardPrice: string | null;
+  requestedPrice: string | null;
+  costPrice: string | null;
+  base: string;
+  counter: string;
   concession: string;
   aboveCost: boolean | null;
   reason: string | null;
@@ -56,6 +62,11 @@ interface Decided {
   boardRate: string;
   approvedRate: string | null;
   costRate: string | null;
+  boardPrice: string | null;
+  approvedPrice: string | null;
+  costPrice: string | null;
+  base: string;
+  counter: string;
   transaction: string | null;
   createdAt: string;
 }
@@ -118,18 +129,22 @@ export function ExceptionsView() {
 
   /** The three rates, side by side. Never two of them. */
   const Rates = ({ row }: { row: Pending | Decided }) => {
-    const asked = 'requestedRate' in row ? row.requestedRate : row.approvedRate;
+    // Read as the counter says them — "1 USD = 3.60 ILS" — whichever way the money went.
+    const asked = 'requestedPrice' in row ? row.requestedPrice : row.approvedPrice;
     return (
       <span className="flex flex-wrap items-center gap-x-4 gap-y-1">
+        <span className="text-xs font-medium" dir="ltr">
+          1 {row.base} = ? {row.counter}
+        </span>
         <span className="text-content-secondary text-xs">
-          {t('exception.board')} <Rate value={row.boardRate} />
+          {t('exception.board')} <Rate value={row.boardPrice ?? '0'} />
         </span>
         <span className="text-xs font-semibold">
           {t('exception.asked')} <Rate value={asked ?? '0'} />
         </span>
         <span className="text-content-secondary text-xs">
           {t('exception.cost')}{' '}
-          {row.costRate ? <Rate value={row.costRate} /> : t('exception.costUnknown')}
+          {row.costPrice ? <Rate value={row.costPrice} /> : t('exception.costUnknown')}
         </span>
       </span>
     );
@@ -233,7 +248,11 @@ export function ExceptionsView() {
                   >
                     {t(`exception.status.${statusKey(row.status)}`)}
                   </Badge>
-                  {row.approvedRate && <Rate value={row.approvedRate} />}
+                  {row.approvedPrice && (
+                    <span className="text-xs" dir="ltr">
+                      1 {row.base} = <Rate value={row.approvedPrice} /> {row.counter}
+                    </span>
+                  )}
                   <span className="text-content-tertiary text-xs">
                     {row.transaction
                       ? t('exception.spentOn', { reference: row.transaction })
@@ -296,14 +315,17 @@ export function ExceptionsView() {
               </p>
             </div>
 
-            <Field label={t('exception.grantAt')} hint={t('exception.grantHint')}>
+            <Field
+              label={`${t('exception.grantAt')} — 1 ${ruling.base} = ? ${ruling.counter}`}
+              hint={t('exception.grantHint')}
+            >
               {(field) => (
                 <MoneyInput
                   {...field}
                   value={grantAt}
                   onValueChange={setGrantAt}
                   decimals={6}
-                  placeholder={plain(ruling.requestedRate)}
+                  placeholder={plain(ruling.requestedPrice ?? ruling.requestedRate)}
                 />
               )}
             </Field>
