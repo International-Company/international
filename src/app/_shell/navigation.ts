@@ -38,6 +38,7 @@ export interface NavSection {
 
 export type IconName =
   | 'bot'
+  | 'inbox'
   | 'machine'
   | 'tiktok'
   | 'counter'
@@ -127,6 +128,13 @@ export const NAVIGATION: NavSection[] = [
         labelKey: 'nav.tiktok',
         icon: 'tiktok',
         permissions: ['exchange.remittance.use'],
+      },
+      {
+        // Customers on the private number, answered from the counter or the office.
+        href: '/manage/inbox',
+        labelKey: 'nav.inbox',
+        icon: 'inbox',
+        permissions: ['customers.whatsapp'],
       },
       {
         // Each deal of his own, opened to put a name, number or wallet right.

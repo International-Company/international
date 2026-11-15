@@ -227,10 +227,10 @@ export async function handlePrivateMessage(
 ): Promise<BotOutcome> {
   const text = incoming.text.trim();
   if (!text && !incoming.media) return 'IGNORED';
+  // Kept whether or not the bot is on: staff answer from the inbox either way.
+  await deps.record(incoming.chat, incoming.senderPhone, 'customer', text || '📎');
   const limit = await deps.dailyLimit();
   if (limit === null) return 'OFF';
-
-  await deps.record(incoming.chat, incoming.senderPhone, 'customer', text || '📎');
   if (await deps.paused(incoming.chat, incoming.senderPhone)) return 'PAUSED';
 
   const say = async (words: string) => {

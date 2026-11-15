@@ -2272,6 +2272,8 @@ model BotMessage {
   /// customer | bot | staff
   role           String
   text           String
+  /// Who of the staff wrote it, when it was written from the system.
+  authorName     String?
   createdAt      DateTime        @default(now())
 
   @@index([conversationId, createdAt])

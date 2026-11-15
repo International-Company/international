@@ -122,6 +122,7 @@ const en = {
 
   nav: {
     privateBot: 'Private number bot',
+    inbox: 'Customer WhatsApp',
     broker: 'The Broker',
     releases: 'Confirming USDT sends',
     machineControl: 'Machine status',
@@ -688,6 +689,23 @@ const en = {
     drawersHint: 'The machine pays out of these, and refuses what they cannot cover.',
   },
 
+  inbox: {
+    title: 'Customer WhatsApp',
+    subtitle: 'What customers write to the private number, answered from here.',
+    search: 'Search by number or word',
+    all: 'All',
+    waiting: 'Awaiting reply ({count})',
+    awaiting: 'Awaiting reply',
+    empty: 'No conversations',
+    choose: 'Choose a conversation',
+    back: 'Back',
+    phoneHidden: 'Hidden number',
+    openWhatsapp: 'Open in WhatsApp',
+    placeholder: 'Write your reply… (Enter to send, Shift+Enter for a new line)',
+    send: 'Send',
+    hint: 'The customer gets it from the private number, and the bot keeps out of this conversation for a while.',
+    role: { customer: 'Customer', bot: 'Bot', staff: 'Staff' },
+  },
   privateBot: {
     noticeSendersTitle: 'Western Union notices: senders',
     noticeSendersHint: 'Whatever these numbers send goes to the Western Union notices group as it is, and the bot does not answer them. Choose the group in Settings → WhatsApp.',
@@ -2727,6 +2745,7 @@ const en = {
     backupCorrupt: 'The backup file failed its integrity check',
     backupVersion: 'This backup was made by an incompatible version',
     noBranch: 'No branch is configured',
+    inboxSendFailed: 'The reply was not sent. Make sure the private number is linked and connected, then try again',
     whatsappNotLinked: 'The WhatsApp number is not linked — link it in the settings first',
     whatsappNoGroup: 'Choose the WhatsApp group first',
     whatsappWelcomeEmpty: 'Write the welcome message first',

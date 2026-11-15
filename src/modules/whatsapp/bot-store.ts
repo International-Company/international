@@ -36,11 +36,12 @@ export async function recordMessage(
   phoneJid: string | null,
   role: MessageRole,
   text: string,
+  authorName: string | null = null,
 ): Promise<void> {
   const conversation = await conversationFor(chat, phoneJid);
   await prisma.$transaction([
     prisma.botMessage.create({
-      data: { conversationId: conversation.id, role, text: text.slice(0, 2000) },
+      data: { conversationId: conversation.id, role, text: text.slice(0, 2000), authorName },
     }),
     prisma.botConversation.update({
       where: { id: conversation.id },
@@ -129,7 +130,9 @@ export async function listConversations() {
   const rows = await prisma.botConversation.findMany({
     orderBy: { lastMessageAt: 'desc' },
     take: 100,
-    include: { messages: { orderBy: { createdAt: 'desc' }, take: 1, select: { text: true } } },
+    include: {
+      messages: { orderBy: { createdAt: 'desc' }, take: 1, select: { text: true, role: true } },
+    },
   });
   const now = new Date();
   return rows.map((row) => ({
@@ -137,6 +140,8 @@ export async function listConversations() {
     phone: row.phone,
     lastMessageAt: row.lastMessageAt,
     lastText: row.messages[0]?.text ?? '',
+    // The customer spoke last: nobody, person or bot, has answered yet.
+    awaiting: row.messages[0]?.role === 'customer',
     paused: Boolean(row.pausedUntil && row.pausedUntil > now),
   }));
 }
@@ -148,13 +153,14 @@ export async function readConversation(id: string) {
       messages: {
         orderBy: { createdAt: 'desc' },
         take: 200,
-        select: { id: true, role: true, text: true, createdAt: true },
+        select: { id: true, role: true, text: true, authorName: true, createdAt: true },
       },
     },
   });
   if (!row) throw errors.notFound('BotConversation', id);
   return {
     id: row.id,
+    chat: row.chat,
     phone: row.phone,
     pausedUntil: row.pausedUntil,
     messages: row.messages.reverse(),

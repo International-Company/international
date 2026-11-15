@@ -96,6 +96,12 @@ describe('the private number', () => {
     assert.deepEqual([sent.length, asked.length], [0, 0]);
   });
 
+  it('keeps what is written while switched off, for staff to answer', async () => {
+    const { deps, kept } = setup(undefined, null);
+    await handlePrivateMessage(message('بدي أحول'), deps);
+    assert.deepEqual(kept, ['customer:بدي أحول']);
+  });
+
   it('answers, and follows the conversation', async () => {
     const { deps, sent, asked } = setup();
     assert.equal(await handlePrivateMessage(message('كم الدولار؟'), deps), 'ANSWERED');

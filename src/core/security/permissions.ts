@@ -205,6 +205,10 @@ export const PERMISSIONS: PermissionDefinition[] = [
   def('audit.verify', 'audit', 'verify', 'Verify audit chain', 'التحقق من سلسلة التدقيق',
     'Run integrity verification on the audit chain', 'تشغيل التحقق من سلامة سلسلة التدقيق'),
 
+  def('customers.whatsapp', 'customers', 'manage', 'Customer WhatsApp', 'محادثات العملاء على واتساب',
+    'Read what customers write to the private number and answer them from the system',
+    'قراءة ما يكتبه العملاء للرقم الخاص والرد عليهم من النظام'),
+
   // --- Settings ------------------------------------------------------------
   def('settings.view', 'settings', 'view', 'View settings', 'عرض الإعدادات',
     'View system configuration', 'عرض إعدادات النظام'),
@@ -293,6 +297,8 @@ export const SYSTEM_ROLES: RoleDefinition[] = [
       // His own exchange, while the day is open and nothing in it was sent:
       // a wrong entry caught at the counter is undone there, not by a call.
       'exchange.transaction.reverseOwn',
+      // Answering customers who wrote to the private number.
+      'customers.whatsapp',
       // A name or number typed wrong is put right by whoever typed it; never an amount.
       'exchange.transaction.editOwn',
       'exchange.receipt.print',

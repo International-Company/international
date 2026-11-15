@@ -124,6 +124,7 @@ const ar: Dictionary = {
 
   nav: {
     privateBot: 'بوت الرقم الخاص',
+    inbox: 'واتساب العملاء',
     broker: 'الوسيط',
     releases: 'تأكيد سحب USDT',
     machineControl: 'حالة الماكينة',
@@ -690,6 +691,23 @@ const ar: Dictionary = {
     drawersHint: 'الماكينة تدفع من هذه الصناديق، وترفض ما لا تغطيه.',
   },
 
+  inbox: {
+    title: 'واتساب العملاء',
+    subtitle: 'ما يكتبه العملاء للرقم الخاص، والرد عليهم من هنا.',
+    search: 'ابحث برقم أو كلمة',
+    all: 'الكل',
+    waiting: 'بانتظار الرد ({count})',
+    awaiting: 'بانتظار الرد',
+    empty: 'لا توجد محادثات',
+    choose: 'اختر محادثة من القائمة',
+    back: 'رجوع',
+    phoneHidden: 'رقم مخفي',
+    openWhatsapp: 'فتح في واتساب',
+    placeholder: 'اكتب ردك… (Enter للإرسال، Shift+Enter لسطر جديد)',
+    send: 'إرسال',
+    hint: 'يصل الرد للعميل من الرقم الخاص، ويتوقف البوت عن هذه المحادثة مؤقتاً.',
+    role: { customer: 'العميل', bot: 'البوت', staff: 'الموظف' },
+  },
   privateBot: {
     noticeSendersTitle: 'إشعارات الويسترن: أرقام المرسلين',
     noticeSendersHint: 'كل ما يصل من هذه الأرقام يُنقل إلى قروب «إشعارات الويسترن» كما هو، ولا يرد البوت عليها. اختر القروب من الإعدادات ← واتساب.',
@@ -2725,6 +2743,7 @@ const ar: Dictionary = {
     backupCorrupt: 'فشل التحقق من سلامة ملف النسخة الاحتياطية',
     backupVersion: 'أُنشئت هذه النسخة بإصدار غير متوافق',
     noBranch: 'لا يوجد فرع مهيأ',
+    inboxSendFailed: 'لم يُرسل الرد. تأكد أن الرقم الخاص مرتبط ومتصل، ثم حاول مرة أخرى',
     whatsappNotLinked: 'رقم الواتساب غير مرتبط — اربطه من الإعدادات أولاً',
     whatsappNoGroup: 'اختر مجموعة الواتساب أولاً',
     whatsappWelcomeEmpty: 'اكتب الرسالة الترحيبية أولاً',

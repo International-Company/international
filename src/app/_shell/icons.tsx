@@ -1,5 +1,6 @@
 import {
   Bot,
+  MessageCircle,
   ArrowLeftRight,
   ArrowRightLeft,
   CalendarCheck,
@@ -45,4 +46,5 @@ export const NAV_ICONS: Record<IconName, LucideIcon> = {
   staff: Users,
   settings: Settings,
   bot: Bot,
+  inbox: MessageCircle,
 };
