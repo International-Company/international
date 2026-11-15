@@ -162,7 +162,7 @@ describe('passing on what the office itself wrote in a group', () => {
   it('passes on a deal it announced under a photo, by a photos-only rule', async () => {
     const { sent, deps: d } = send();
     await forwardOwnMessage(
-      { chat: 'a@g.us', text: 'سحب تيك توك 50', caption: true },
+      { chat: 'a@g.us', text: 'سحب تيك توك 50', caption: true, phone: null },
       d([rule({ kind: 'CAPTION' })]),
     );
     assert.deepEqual(sent, [['b@g.us', 'سحب تيك توك 50']]);
@@ -171,20 +171,29 @@ describe('passing on what the office itself wrote in a group', () => {
   it('keeps to the rule’s kind and words', async () => {
     const { sent, deps: d } = send();
     await forwardOwnMessage(
-      { chat: 'a@g.us', text: 'سحب تيك توك 50', caption: false },
+      { chat: 'a@g.us', text: 'سحب تيك توك 50', caption: false, phone: null },
       d([rule({ kind: 'CAPTION' })]),
     );
     await forwardOwnMessage(
-      { chat: 'a@g.us', text: 'سحب تيك توك 50', caption: true },
+      { chat: 'a@g.us', text: 'سحب تيك توك 50', caption: true, phone: null },
       d([rule({ words: 'إيداع' })]),
     );
     assert.deepEqual(sent, []);
   });
 
-  it('is not passed by a rule that asks for certain numbers', async () => {
+  it('is passed by a rule naming the office number it was written from', async () => {
     const { sent, deps: d } = send();
     await forwardOwnMessage(
-      { chat: 'a@g.us', text: 'تحويل 300', caption: false },
+      { chat: 'a@g.us', text: 'بال باي 119', caption: true, phone: '970567556555@s.whatsapp.net' },
+      d([rule({ senders: '+970 567 556 555' })]),
+    );
+    assert.deepEqual(sent, [['b@g.us', 'بال باي 119']]);
+  });
+
+  it('is not passed by a rule naming other numbers', async () => {
+    const { sent, deps: d } = send();
+    await forwardOwnMessage(
+      { chat: 'a@g.us', text: 'تحويل 300', caption: false, phone: null },
       d([rule({ senders: '0599123456' })]),
     );
     assert.deepEqual(sent, []);

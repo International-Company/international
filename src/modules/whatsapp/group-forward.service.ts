@@ -44,16 +44,21 @@ export async function forwardGroupMessage(
     (needsSender(rules, incoming.chat) ? await deps.phoneOf(incoming) : null);
   if (deps.ownNumber(phone ?? incoming.sender)) return [];
 
-  return passOn(
-    forwardTargets(rules, {
-      chat: incoming.chat,
-      text,
-      caption: !incoming.text.trim(),
-      senderPhone: phone,
-    }),
+  const targets = forwardTargets(rules, {
+    chat: incoming.chat,
     text,
-    deps.send,
-  );
+    caption: !incoming.text.trim(),
+    senderPhone: phone,
+  });
+  // Why a message in a forwarded group stayed put, without what it said.
+  if (targets.length === 0) {
+    log.info('A group message passed no forwarding rule', {
+      caption: !incoming.text.trim(),
+      senderKnown: Boolean(phone),
+      sender: phone ? `…${phone.split('@')[0]!.slice(-4)}` : null,
+    });
+  }
+  return passOn(targets, text, deps.send);
 }
 
 export type OwnForwardDeps = Pick<ForwardServiceDeps, 'rules' | 'send'>;
@@ -61,7 +66,7 @@ export type OwnForwardDeps = Pick<ForwardServiceDeps, 'rules' | 'send'>;
 /**
  * What the office's own number wrote in a group — a deal it announced, or words
  * typed on its phone — passed on by the same rules. A rule asking for certain
- * numbers is about the people writing there, so it does not pass these.
+ * numbers passes it when the number it was written from is one of them.
  */
 export async function forwardOwnMessage(
   message: OwnGroupMessage,
@@ -69,7 +74,16 @@ export async function forwardOwnMessage(
 ): Promise<string[]> {
   if (!message.chat.endsWith('@g.us') || !message.text.trim()) return [];
   const rules = await deps.rules();
-  return passOn(forwardTargets(rules, { ...message, senderPhone: null }), message.text, deps.send);
+  return passOn(
+    forwardTargets(rules, {
+      chat: message.chat,
+      text: message.text,
+      caption: message.caption,
+      senderPhone: message.phone,
+    }),
+    message.text,
+    deps.send,
+  );
 }
 
 async function passOn(

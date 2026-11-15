@@ -119,6 +119,8 @@ export interface OwnGroupMessage {
   text: string;
   /** Whether the words are under a photo or video rather than on their own. */
   caption: boolean;
+  /** The office number it was written from, as a phone JID, when known. */
+  phone: string | null;
 }
 
 type OwnListener = (message: OwnGroupMessage) => Promise<void> | void;
@@ -300,7 +302,7 @@ async function open(account: Account): Promise<void> {
         const words = typed?.conversation ?? typed?.extendedTextMessage?.text ?? null;
         const under = typed?.imageMessage?.caption ?? typed?.videoMessage?.caption ?? null;
         if ((words ?? under) && message.key.id) {
-          tellOwn(message.key.remoteJid, message.key.id, (words ?? under)!, !words);
+          tellOwn(message.key.remoteJid, message.key.id, (words ?? under)!, !words, holder.me?.id);
         }
       }
       if (!firstSighting(shared.seen, `${message.key.remoteJid}:${message.key.id}`)) continue;
@@ -607,12 +609,13 @@ export async function sendImage(
   quoted?: WAMessage,
   mimetype = 'image/png',
 ): Promise<SentMessage> {
-  const sent = await (await socketFor(jid)).sendMessage(
+  const sock = await socketFor(jid);
+  const sent = await sock.sendMessage(
     jid,
     { image, caption, mimetype },
     quoted ? { quoted } : undefined,
   );
-  tellOwn(jid, sent?.key.id, caption, true);
+  tellOwn(jid, sent?.key.id, caption, true, sock.user?.id);
   return sent;
 }
 
@@ -632,10 +635,14 @@ function tellOwn(
   id: string | null | undefined,
   text: string,
   caption: boolean,
+  /** The office number that wrote it, as its JID. */
+  from: string | null | undefined,
 ): void {
   if (!chat.endsWith('@g.us') || !text.trim()) return;
   if (id && !firstSighting(shared.ownSeen, `${chat}:${id}`)) return;
-  const message: OwnGroupMessage = { chat, text, caption };
+  // A linked JID carries the device after a colon: the number is what is before it.
+  const phone = from ? `${from.split('@')[0]!.split(':')[0]}@s.whatsapp.net` : null;
+  const message: OwnGroupMessage = { chat, text, caption, phone };
   for (const listener of shared.ownListeners) {
     void Promise.resolve()
       .then(() => listener(message))
@@ -750,7 +757,7 @@ export async function sendMedia(
       });
       break;
   }
-  tellOwn(jid, sent?.key.id, caption, true);
+  tellOwn(jid, sent?.key.id, caption, true, sock.user?.id);
   return sent;
 }
 
@@ -783,12 +790,9 @@ export async function sendText(
   text: string,
   quoted?: WAMessage,
 ): Promise<SentMessage> {
-  const sent = await (await socketFor(jid)).sendMessage(
-    jid,
-    { text },
-    quoted ? { quoted } : undefined,
-  );
-  tellOwn(jid, sent?.key.id, text, false);
+  const sock = await socketFor(jid);
+  const sent = await sock.sendMessage(jid, { text }, quoted ? { quoted } : undefined);
+  tellOwn(jid, sent?.key.id, text, false, sock.user?.id);
   return sent;
 }
 
@@ -822,7 +826,7 @@ export async function replyToSent(
     message: { conversation: '' },
   } as WAMessage;
   const sent = await sock.sendMessage(jid, { text }, { quoted });
-  tellOwn(jid, sent?.key.id, text, false);
+  tellOwn(jid, sent?.key.id, text, false, sock.user?.id);
   return sent;
 }
 
