@@ -30,6 +30,7 @@ import { CommandPalette } from './command-palette';
 import { ShortcutHelp, useShortcuts } from './shortcuts';
 import { UpdateChip } from '../update-watcher';
 import { MarketBar } from './market-bar';
+import { useInboxUnread } from './inbox-unread';
 
 /**
  * The application shell.
@@ -70,6 +71,8 @@ export function AppShell({
   const [helpOpen, setHelpOpen] = useState(false);
 
   const sections = visibleNavigation(user.permissions);
+  // Customers waiting on WhatsApp, beside the inbox on every page.
+  const unread = useInboxUnread(user.permissions.includes('customers.whatsapp'));
 
   // Restore the sidebar width preference — it is a per-device choice, so it
   // lives in localStorage rather than on the user profile.
@@ -201,6 +204,7 @@ export function AppShell({
                       active={isActiveRoute(pathname, item)}
                       collapsed={collapsed}
                       label={t(item.labelKey)}
+                      count={item.href === '/manage/inbox' ? unread : 0}
                     />
                   </li>
                 ))}
@@ -238,10 +242,13 @@ export function AppShell({
           <button
             type="button"
             onClick={() => setMobileOpen(true)}
-            className="rounded p-2 text-content-secondary hover:bg-surface-hover lg:hidden"
+            className="relative rounded p-2 text-content-secondary hover:bg-surface-hover lg:hidden"
             aria-label={t('nav.operations')}
           >
             <Menu className="size-5" />
+            {unread > 0 && (
+              <span className="absolute end-1 top-1 size-2.5 rounded-full bg-success ring-2 ring-surface" />
+            )}
           </button>
 
           {/* Global search opens the command palette */}
@@ -415,11 +422,14 @@ function NavLink({
   active,
   collapsed,
   label,
+  count = 0,
 }: {
   item: NavItem;
   active: boolean;
   collapsed: boolean;
   label: string;
+  /** Something waiting there, shown as a number beside it. */
+  count?: number;
 }) {
   const Icon = NAV_ICONS[item.icon];
 
@@ -436,8 +446,18 @@ function NavLink({
         collapsed && 'justify-center px-0',
       )}
     >
-      <Icon className="size-4 shrink-0" />
-      {!collapsed && <span className="truncate">{label}</span>}
+      <span className="relative shrink-0">
+        <Icon className="size-4" />
+        {collapsed && count > 0 && (
+          <span className="absolute -end-1.5 -top-1.5 size-2.5 rounded-full bg-success ring-2 ring-surface" />
+        )}
+      </span>
+      {!collapsed && <span className="min-w-0 flex-1 truncate">{label}</span>}
+      {!collapsed && count > 0 && (
+        <span className="inline-flex min-w-5 shrink-0 items-center justify-center rounded-full bg-success px-1.5 text-[11px] font-bold leading-5 text-white tabular-nums">
+          {count > 99 ? '99+' : count}
+        </span>
+      )}
     </Link>
   );
 }

@@ -4,16 +4,25 @@ import { errors } from '@/core/errors/app-error';
 import { readProofImage } from '@/modules/exchange/proof-image';
 
 /**
- * Photos in the inbox's conversations, sent to customers or by them, kept so the
- * conversation shows them.
+ * Files in the inbox's conversations — photos, voice notes, videos and
+ * documents — sent to customers or by them, kept so the conversation shows them.
  *
- * The screen shrinks a photo before it leaves the browser, and it is checked by
- * its bytes here: it is sent on to WhatsApp and served back to staff, so it has
- * to actually be a picture.
+ * A photo sent from the screen is shrunk in the browser first and checked by its
+ * bytes here: it is sent on to WhatsApp and served back to staff, so it has to
+ * actually be a picture. What a customer sends is kept as WhatsApp gave it.
  */
 
-/** A photo a customer sent larger than this is left on the phone: it is kept whole. */
-export const MAX_KEPT_PHOTO = 8 * 1024 * 1024;
+/** Past this a file is left on the phone, and the conversation shows a clip. */
+export const MAX_KEPT_MEDIA = 16 * 1024 * 1024;
+
+export type MediaKind = 'image' | 'audio' | 'video' | 'document';
+
+export function mediaKindOf(mimeType: string): MediaKind {
+  if (mimeType.startsWith('image/')) return 'image';
+  if (mimeType.startsWith('audio/')) return 'audio';
+  if (mimeType.startsWith('video/')) return 'video';
+  return 'document';
+}
 
 export interface ReadyImage {
   bytes: Buffer;
@@ -27,22 +36,39 @@ export function readyImage(base64: string): ReadyImage {
   return read;
 }
 
-/** Keeps a photo that has been sent. `ownerId` is the teller whose number sent it, or null. */
-export async function keepImage(image: ReadyImage, ownerId: string | null): Promise<string> {
+export interface KeptMedia {
+  id: string;
+  kind: MediaKind;
+}
+
+/** Keeps a file. `ownerId` is the teller whose number it came through, or null for the office's. */
+export async function keepMedia(
+  media: { bytes: Buffer; mimeType: string; fileName?: string | null },
+  ownerId: string | null,
+): Promise<KeptMedia | null> {
+  if (media.bytes.length === 0 || media.bytes.length > MAX_KEPT_MEDIA) return null;
   const row = await prisma.chatImage.create({
     data: {
       ownerId,
-      mimeType: image.mimeType,
-      size: image.bytes.length,
-      data: new Uint8Array(image.bytes),
+      mimeType: media.mimeType,
+      fileName: media.fileName?.slice(0, 200) ?? null,
+      size: media.bytes.length,
+      data: new Uint8Array(media.bytes),
     },
     select: { id: true },
   });
-  return row.id;
+  return { id: row.id, kind: mediaKindOf(media.mimeType) };
+}
+
+/** A photo sent from the screen, kept. */
+export async function keepImage(image: ReadyImage, ownerId: string | null): Promise<string> {
+  const kept = await keepMedia(image, ownerId);
+  if (!kept) throw errors.precondition('Not a usable photo', 'errors.proofImageInvalid');
+  return kept.id;
 }
 
 /**
- * A photo, to whoever may read its conversation: a teller's to that teller
+ * A file, to whoever may read its conversation: a teller's to that teller
  * alone, the private number's to anyone with the inbox. Another teller's is
  * not found, rather than forbidden.
  */

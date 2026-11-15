@@ -11,9 +11,11 @@ import {
 import {
   ArrowLeft,
   ExternalLink,
+  FileText,
   ImagePlus,
   MessageSquarePlus,
   QrCode,
+  Reply,
   Search,
   SendHorizontal,
   Smartphone,
@@ -31,6 +33,9 @@ import { shrinkPhoto } from '@/ui/proof-photo';
 interface ChatRow {
   id: string;
   phone: string | null;
+  /** The customer's record name, else the name they go by on WhatsApp. */
+  name: string | null;
+  unread: number;
   lastMessageAt: string;
   lastText: string;
   awaiting: boolean;
@@ -41,42 +46,104 @@ interface Message {
   role: 'customer' | 'bot' | 'staff';
   text: string;
   authorName: string | null;
+  /** A file that came with it, and what kind. */
   imageId?: string | null;
+  mediaKind?: 'image' | 'audio' | 'video' | 'document' | null;
+  /** The message of the conversation it answered. */
+  quotedId?: string | null;
+  /** Whether it can be answered by quoting it. */
+  quotable?: boolean;
   createdAt: string;
 }
 
 interface Thread {
   id: string;
   phone: string | null;
+  name: string | null;
   messages: Message[];
+}
+
+const phoneOf = (phone: string | null) => (phone ? `+${phone}` : null);
+
+/** A file in a message: a photo to open, a sound or video to play, a document to save. */
+function MediaView({ message }: { message: Message }) {
+  const { t } = useLocale();
+  const src = `/api/inbox/images/${message.imageId}`;
+  switch (message.mediaKind) {
+    case 'audio':
+      return <audio controls preload="none" src={src} className="mb-1 h-10 w-64 max-w-full" />;
+    case 'video':
+      return (
+        <video
+          controls
+          preload="metadata"
+          src={src}
+          className="-mx-1 -mt-0.5 mb-1 max-h-72 w-full rounded-xl bg-black"
+        />
+      );
+    case 'document':
+      return (
+        <a
+          href={src}
+          className="mb-1 flex items-center gap-2 rounded-xl bg-surface-sunken px-3 py-2 text-sm font-medium text-primary-text hover:underline"
+        >
+          <FileText className="size-5 shrink-0" />
+          {t('inbox.document')}
+        </a>
+      );
+    default:
+      return (
+        <a
+          href={src}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="-mx-1 -mt-0.5 mb-1 block"
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={src}
+            alt={t('inbox.photo')}
+            loading="lazy"
+            className="max-h-72 w-full rounded-xl object-cover"
+          />
+        </a>
+      );
+  }
+}
+
+/** A quoted message, as WhatsApp shows one above an answer. */
+function QuoteLine({ message, onClose }: { message: Message | null; onClose?: () => void }) {
+  const { t } = useLocale();
+  return (
+    <div className="mb-1 flex items-start gap-2 rounded-lg border-s-4 border-primary bg-surface-sunken/80 px-2 py-1 text-xs">
+      <span className="min-w-0 flex-1">
+        <span className="block font-semibold text-primary-text">
+          {message ? t(`inbox.role.${message.role}`) : t('inbox.quoteEarlier')}
+        </span>
+        {message && (
+          <span className="line-clamp-2 text-content-secondary">
+            {message.text || (message.mediaKind ? t(`inbox.kind.${message.mediaKind}`) : '')}
+          </span>
+        )}
+      </span>
+      {onClose && (
+        <button
+          type="button"
+          aria-label={t('inbox.quoteCancel')}
+          onClick={onClose}
+          className="inline-flex size-6 shrink-0 items-center justify-center rounded-full text-content-secondary hover:bg-surface"
+        >
+          <X className="size-3.5" />
+        </button>
+      )}
+    </div>
+  );
 }
 
 const when = (value: string) =>
   new Intl.DateTimeFormat('en-GB', { dateStyle: 'short', timeStyle: 'short' }).format(
     new Date(value),
   );
-
-/** A short tone when someone new is waiting. Silent where the browser will not play it. */
-function chime() {
-  try {
-    const Context =
-      window.AudioContext ??
-      (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-    if (!Context) return;
-    const context = new Context();
-    const tone = context.createOscillator();
-    const level = context.createGain();
-    tone.frequency.value = 880;
-    level.gain.setValueAtTime(0.12, context.currentTime);
-    level.gain.exponentialRampToValueAtTime(0.001, context.currentTime + 0.35);
-    tone.connect(level).connect(context.destination);
-    tone.start();
-    tone.stop(context.currentTime + 0.35);
-    tone.onended = () => void context.close();
-  } catch {
-    // Sound is a nicety; the list shows who is waiting regardless.
-  }
-}
 
 /**
  * One list of conversations and the one open beside it: the private number's,
@@ -87,10 +154,13 @@ function Conversations({
   base,
   tabs,
   listTop,
+  hint,
 }: {
   base: string;
   tabs: ReactNode;
   listTop?: ReactNode;
+  /** What an answer from here does, under the box. */
+  hint: string;
 }) {
   const { t } = useLocale();
   const toast = useToast();
@@ -105,7 +175,7 @@ function Conversations({
   const picker = useRef<HTMLInputElement>(null);
   const [starting, setStarting] = useState(false);
   const [fresh, setFresh] = useState({ open: false, phone: '', text: '' });
-  const waitingBefore = useRef<Set<string> | null>(null);
+  const [quote, setQuote] = useState<Message | null>(null);
   const scroller = useRef<HTMLDivElement>(null);
   const box = useRef<HTMLTextAreaElement>(null);
   // On a phone Enter is a new line, as in WhatsApp there; the button sends.
@@ -127,12 +197,7 @@ function Conversations({
 
   const load = useCallback(async () => {
     try {
-      const next = await api.get<ChatRow[]>(base);
-      const waiting = new Set(next.filter((row) => row.awaiting).map((row) => row.id));
-      const before = waitingBefore.current;
-      if (before && [...waiting].some((id) => !before.has(id))) chime();
-      waitingBefore.current = waiting;
-      setRows(next);
+      setRows(await api.get<ChatRow[]>(base));
     } catch (cause) {
       failure(cause);
       setRows((current) => current ?? []);
@@ -177,9 +242,15 @@ function Conversations({
 
   const lastId = thread?.messages.at(-1)?.id;
   useEffect(() => {
-    // The conversation scrolls inside its own box, never the page under it.
-    const list = scroller.current;
-    if (list) list.scrollTop = list.scrollHeight;
+    // The conversation scrolls inside its own box, never the page under it. Photos
+    // load after it is drawn and push the end down, so it is followed once more.
+    const toEnd = () => {
+      const list = scroller.current;
+      if (list) list.scrollTop = list.scrollHeight;
+    };
+    toEnd();
+    const later = [setTimeout(toEnd, 400), setTimeout(toEnd, 1500)];
+    return () => later.forEach(clearTimeout);
   }, [lastId]);
 
   // The box grows with what is typed, up to a few lines, then scrolls.
@@ -235,10 +306,12 @@ function Conversations({
         await api.post<Thread>(`${base}/${thread.id}`, {
           text,
           ...(photo ? { image: photo.data } : {}),
+          ...(quote ? { quoteId: quote.id } : {}),
         }),
       );
       setDraft('');
       setPhoto(null);
+      setQuote(null);
       void load();
     } catch (cause) {
       failure(cause);
@@ -287,11 +360,12 @@ function Conversations({
   }
 
   const digits = query.replace(/\D/g, '');
+  const words = query.trim();
   const shown = rows.filter(
     (row) =>
       (!onlyWaiting || row.awaiting) &&
       (!digits || (row.phone ?? '').includes(digits)) &&
-      (digits || !query.trim() || row.lastText.includes(query.trim())),
+      (digits || !words || row.lastText.includes(words) || (row.name ?? '').includes(words)),
   );
 
   return (
@@ -344,18 +418,40 @@ function Conversations({
                     setThread(null);
                     setDraft('');
                     setPhoto(null);
+                    setQuote(null);
                   }}
                   className={`block w-full border-b border-border-subtle px-4 py-3 text-start transition-colors last:border-b-0 ${
                     selected === row.id ? 'bg-primary-subtle' : 'hover:bg-surface-sunken'
                   }`}
                 >
                   <span className="flex items-center justify-between gap-2">
-                    <span className="ltr-content truncate text-sm font-semibold tabular-nums text-content">
-                      {row.phone ? `+${row.phone}` : t('inbox.phoneHidden')}
+                    <span className="min-w-0 truncate text-sm font-semibold text-content">
+                      {row.name ?? (
+                        <span className="ltr-content tabular-nums">
+                          {phoneOf(row.phone) ?? t('inbox.phoneHidden')}
+                        </span>
+                      )}
                     </span>
-                    {row.awaiting && <Badge tone="warning">{t('inbox.awaiting')}</Badge>}
+                    {row.unread > 0 ? (
+                      <span className="inline-flex min-w-5 shrink-0 items-center justify-center rounded-full bg-success px-1.5 text-[11px] font-bold leading-5 text-white tabular-nums">
+                        {row.unread > 99 ? '99+' : row.unread}
+                      </span>
+                    ) : (
+                      row.awaiting && <Badge tone="warning">{t('inbox.awaiting')}</Badge>
+                    )}
                   </span>
-                  <span className="mt-1 block truncate text-xs text-content-secondary">
+                  {row.name && row.phone && (
+                    <span className="mt-0.5 block text-[11px] text-content-tertiary">
+                      <span className="ltr-content inline-block tabular-nums">
+                        {phoneOf(row.phone)}
+                      </span>
+                    </span>
+                  )}
+                  <span
+                    className={`mt-1 block truncate text-xs ${
+                      row.unread > 0 ? 'font-semibold text-content' : 'text-content-secondary'
+                    }`}
+                  >
                     {row.lastText}
                   </span>
                   <span className="mt-1 block text-xs tabular-nums text-content-tertiary">
@@ -390,11 +486,22 @@ function Conversations({
                 >
                   <ArrowLeft className="size-5 rtl:-scale-x-100" />
                 </button>
-                <p className="min-w-0 flex-1 truncate text-start text-sm font-semibold text-content">
-                  <span className="ltr-content tabular-nums">
-                    {thread.phone ? `+${thread.phone}` : t('inbox.phoneHidden')}
-                  </span>
-                </p>
+                <div className="min-w-0 flex-1 text-start">
+                  <p className="truncate text-sm font-semibold text-content">
+                    {thread.name ?? (
+                      <span className="ltr-content tabular-nums">
+                        {phoneOf(thread.phone) ?? t('inbox.phoneHidden')}
+                      </span>
+                    )}
+                  </p>
+                  {thread.name && thread.phone && (
+                    <p className="text-xs text-content-tertiary">
+                      <span className="ltr-content inline-block tabular-nums">
+                        {phoneOf(thread.phone)}
+                      </span>
+                    </p>
+                  )}
+                </div>
                 {thread.phone && (
                   <a
                     href={`https://wa.me/${thread.phone}`}
@@ -416,7 +523,7 @@ function Conversations({
                 {thread.messages.map((message) => (
                   <div
                     key={message.id}
-                    className={`max-w-[88%] rounded-2xl px-3 py-2 text-sm sm:max-w-[75%] ${
+                    className={`group max-w-[88%] rounded-2xl px-3 py-2 text-sm sm:max-w-[75%] ${
                       message.role === 'customer'
                         ? 'self-start bg-surface text-content ring-1 ring-border-subtle'
                         : message.role === 'staff'
@@ -424,36 +531,45 @@ function Conversations({
                           : 'self-end bg-primary-subtle text-content'
                     }`}
                   >
-                    {message.imageId && (
-                      <a
-                        href={`/api/inbox/images/${message.imageId}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="-mx-1 -mt-0.5 mb-1 block"
-                      >
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img
-                          src={`/api/inbox/images/${message.imageId}`}
-                          alt={t('inbox.photo')}
-                          loading="lazy"
-                          className="max-h-72 w-full rounded-xl object-cover"
-                        />
-                      </a>
+                    {message.quotedId !== undefined && message.quotedId !== null && (
+                      <QuoteLine
+                        message={
+                          thread.messages.find((other) => other.id === message.quotedId) ?? null
+                        }
+                      />
                     )}
+                    {message.imageId && <MediaView message={message} />}
                     {message.text && (
                       <span className="whitespace-pre-wrap break-words">{message.text}</span>
                     )}
-                    <span className="mt-1 block text-[11px] text-content-tertiary">
-                      {message.role === 'staff' && message.authorName
-                        ? message.authorName
-                        : t(`inbox.role.${message.role}`)}{' '}
-                      · <span className="tabular-nums">{when(message.createdAt)}</span>
+                    <span className="mt-1 flex items-center gap-1 text-[11px] text-content-tertiary">
+                      <span className="min-w-0 flex-1">
+                        {message.role === 'staff' && message.authorName
+                          ? message.authorName
+                          : t(`inbox.role.${message.role}`)}{' '}
+                        · <span className="tabular-nums">{when(message.createdAt)}</span>
+                      </span>
+                      {message.quotable && (
+                        <button
+                          type="button"
+                          aria-label={t('inbox.quote')}
+                          title={t('inbox.quote')}
+                          onClick={() => {
+                            setQuote(message);
+                            box.current?.focus();
+                          }}
+                          className="inline-flex size-6 shrink-0 items-center justify-center rounded-full text-content-tertiary hover:bg-surface-sunken hover:text-content sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100"
+                        >
+                          <Reply className="size-3.5" />
+                        </button>
+                      )}
                     </span>
                   </div>
                 ))}
               </div>
 
               <div className="shrink-0 space-y-1.5 border-t border-border-subtle p-2 sm:p-3">
+                {quote && <QuoteLine message={quote} onClose={() => setQuote(null)} />}
                 {photo && (
                   <div className="relative inline-block">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -514,7 +630,7 @@ function Conversations({
                     <span className="hidden sm:inline">{t('inbox.send')}</span>
                   </Button>
                 </div>
-                <p className="hidden text-xs text-content-tertiary md:block">{t('inbox.hint')}</p>
+                <p className="hidden text-xs text-content-tertiary md:block">{hint}</p>
               </div>
             </>
           )}
@@ -622,9 +738,15 @@ export function InboxView() {
   );
 
   return source === 'office' ? (
-    <Conversations key="office" base="/api/inbox" tabs={tabs} />
+    <Conversations key="office" base="/api/inbox" tabs={tabs} hint={t('inbox.hint')} />
   ) : (
-    <Conversations key="mine" base="/api/inbox/mine" tabs={tabs} listTop={<MyNumber />} />
+    <Conversations
+      key="mine"
+      base="/api/inbox/mine"
+      tabs={tabs}
+      listTop={<MyNumber />}
+      hint={t('inbox.hintMine')}
+    />
   );
 }
 

@@ -4,9 +4,10 @@ import { errors } from '@/core/errors/app-error';
 import * as settings from '@/modules/settings/settings.service';
 import { createBotLogger } from './bot-issues';
 import { parseProfile } from './bot-profile';
-import { pauseChat, readConversation, recordMessage } from './bot-store';
+import { markSeen, pauseChat, readConversation, recordMessage } from './bot-store';
 import { keepImage, readyImage } from './chat-images';
 import { candidateNumbers } from './inbox-numbers';
+import { quoteOf } from './wa-quote';
 import { privateNumberAddress, replyPrivately, sendPrivateImage } from './whatsapp.service';
 
 const log = createBotLogger('whatsapp-inbox');
@@ -19,9 +20,13 @@ async function keepBotOut(chat: string, phoneJid: string | null) {
   await pauseChat(chat, phoneJid, takeoverMinutes);
 }
 
-async function sendOrSay(chat: string, words: string) {
+async function sendOrSay(
+  chat: string,
+  words: string,
+  quoted?: ReturnType<typeof quoteOf>,
+): Promise<string | null> {
   try {
-    await replyPrivately(chat, words.slice(0, MAX_ANSWER_LENGTH));
+    return await replyPrivately(chat, words.slice(0, MAX_ANSWER_LENGTH), quoted);
   } catch (error) {
     log.warn('Could not write to a customer', { error });
     throw errors.precondition('WhatsApp did not take the message', 'errors.inboxSendFailed');
@@ -34,13 +39,15 @@ async function sendOrSay(chat: string, words: string) {
  * The bot keeps out of the conversation for as long as it would had they typed
  * it on the phone, so the two do not talk over each other.
  *
- * With a photo, the words go under it.
+ * With a photo, the words go under it. Given a message of the conversation,
+ * the answer quotes it, as answering one message does in WhatsApp.
  */
 export async function answerCustomer(
   conversationId: string,
   text: string,
   actor: { name: string },
   photo?: string,
+  quoteId?: string,
 ) {
   const words = text.trim();
   const image = photo ? readyImage(photo) : null;
@@ -48,15 +55,26 @@ export async function answerCustomer(
 
   const thread = await readConversation(conversationId);
   const phoneJid = thread.phone ? `${thread.phone}@s.whatsapp.net` : null;
+  const target = quoteId
+    ? await prisma.botMessage.findFirst({
+        where: { id: quoteId, conversationId, waId: { not: null } },
+        select: { waId: true, role: true, text: true },
+      })
+    : null;
+  const quoted = target?.waId
+    ? quoteOf(thread.chat, target.waId, target.role !== 'customer', target.text)
+    : undefined;
 
   let imageId: string | null = null;
+  let waId: string | null = null;
   if (image) {
     try {
-      await sendPrivateImage(
+      waId = await sendPrivateImage(
         thread.chat,
         image.bytes,
         image.mimeType,
         words.slice(0, MAX_ANSWER_LENGTH),
+        quoted,
       );
     } catch (error) {
       log.warn('Could not send a photo to a customer', { error });
@@ -64,9 +82,16 @@ export async function answerCustomer(
     }
     imageId = await keepImage(image, null);
   } else {
-    await sendOrSay(thread.chat, words);
+    waId = await sendOrSay(thread.chat, words, quoted);
   }
-  await recordMessage(thread.chat, phoneJid, 'staff', words, actor.name, imageId);
+  await recordMessage(thread.chat, phoneJid, 'staff', words, {
+    authorName: actor.name,
+    mediaId: imageId,
+    mediaKind: imageId ? 'image' : null,
+    waId,
+    quotedWaId: target?.waId ?? null,
+  });
+  await markSeen(conversationId);
   await keepBotOut(thread.chat, phoneJid);
   return readConversation(conversationId);
 }
@@ -122,8 +147,8 @@ export async function startConversation(
     }
   }
 
-  await sendOrSay(jid, words);
-  await recordMessage(jid, jid, 'staff', words, actor.name);
+  const waId = await sendOrSay(jid, words);
+  await recordMessage(jid, jid, 'staff', words, { authorName: actor.name, waId });
   await keepBotOut(jid, jid);
   const row = await prisma.botConversation.findFirst({
     where: { OR: [{ chat: jid }, { phone: digits }] },

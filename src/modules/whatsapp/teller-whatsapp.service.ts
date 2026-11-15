@@ -18,7 +18,10 @@ import { createLogger } from '@/core/logger/logger';
 import * as settings from '@/modules/settings/settings.service';
 import { isPrivateChat, TELLER_SESSION_PREFIX, tellerSessionPrefix } from './accounts';
 import { clearSession, databaseAuthState, hasSession } from './auth-state';
-import { keepImage, MAX_KEPT_PHOTO, readyImage } from './chat-images';
+import { mediaMark } from './bot-store';
+import { keepImage, keepMedia, MAX_KEPT_MEDIA, readyImage } from './chat-images';
+import { customerNames, shownName } from './chat-names';
+import { quoteOf, quotedStanzaId } from './wa-quote';
 import { candidateNumbers } from './inbox-numbers';
 import { installSignalFilter, isOwnDecryptFailure, countHidden } from './signal-noise';
 
@@ -99,27 +102,129 @@ const quiet = {
 const digitsOf = (jid: string | null | undefined) =>
   jid?.endsWith('@s.whatsapp.net') ? jid.split('@')[0]!.split(':')[0]! : null;
 
-/** Keeps one message of a teller's conversation. */
+interface KeepExtra {
+  mediaId?: string | null;
+  mediaKind?: string | null;
+  waId?: string | null;
+  quotedWaId?: string | null;
+  /** The name the customer goes by on WhatsApp. */
+  name?: string | null;
+}
+
+/**
+ * Keeps one message of a teller's conversation.
+ *
+ * WhatsApp writes to a person under their number or under a hidden id (@lid),
+ * and the same person can arrive under both; they are one conversation, found
+ * by either.
+ */
 async function keep(
   ownerId: string,
   chat: string,
   phoneJid: string | null,
   fromMe: boolean,
   text: string,
-  imageId: string | null = null,
+  extra: KeepExtra = {},
 ): Promise<string> {
   const phone = digitsOf(phoneJid) ?? digitsOf(chat);
   const now = new Date();
-  const row = await prisma.tellerChat.upsert({
-    where: { ownerId_chat: { ownerId, chat } },
-    create: { ownerId, chat, phone, lastMessageAt: now },
-    update: { lastMessageAt: now, ...(phone ? { phone } : {}) },
+  const found = await prisma.tellerChat.findFirst({
+    where: { ownerId, OR: [{ chat }, ...(phone ? [{ phone }] : [])] },
+    orderBy: { lastMessageAt: 'desc' },
     select: { id: true },
   });
+  const named = !fromMe && extra.name?.trim() ? { name: extra.name.trim().slice(0, 80) } : {};
+  const counted = fromMe ? {} : { unread: { increment: 1 } };
+  const row = found
+    ? await prisma.tellerChat.update({
+        where: { id: found.id },
+        data: { lastMessageAt: now, ...(phone ? { phone } : {}), ...named, ...counted },
+        select: { id: true },
+      })
+    : await prisma.tellerChat.create({
+        data: { ownerId, chat, phone, lastMessageAt: now, ...named, unread: fromMe ? 0 : 1 },
+        select: { id: true },
+      });
+  const quoted = extra.quotedWaId
+    ? await prisma.tellerChatMessage.findFirst({
+        where: { chatId: row.id, waId: extra.quotedWaId },
+        select: { id: true },
+      })
+    : null;
   await prisma.tellerChatMessage.create({
-    data: { chatId: row.id, fromMe, text: text.slice(0, MAX_TEXT), imageId },
+    data: {
+      chatId: row.id,
+      fromMe,
+      text: text.slice(0, MAX_TEXT),
+      imageId: extra.mediaId ?? null,
+      mediaKind: extra.mediaKind ?? null,
+      waId: extra.waId ?? null,
+      quotedId: quoted?.id ?? null,
+    },
   });
   return row.id;
+}
+
+/**
+ * Conversations kept twice for one person, before they were found by number as
+ * well as by address, made one again: the older's messages move to the newer.
+ */
+async function mergeTwins(ownerId: string): Promise<void> {
+  const rows = await prisma.tellerChat.findMany({
+    where: { ownerId, phone: { not: null } },
+    orderBy: { lastMessageAt: 'desc' },
+    select: { id: true, phone: true, unread: true },
+  });
+  const kept = new Map<string, { id: string; unread: number }>();
+  for (const row of rows) {
+    const first = kept.get(row.phone!);
+    if (!first) {
+      kept.set(row.phone!, { id: row.id, unread: row.unread });
+      continue;
+    }
+    await prisma.$transaction([
+      prisma.tellerChatMessage.updateMany({
+        where: { chatId: row.id },
+        data: { chatId: first.id },
+      }),
+      prisma.tellerChat.update({
+        where: { id: first.id },
+        data: { unread: { increment: row.unread } },
+      }),
+      prisma.tellerChat.delete({ where: { id: row.id } }),
+    ]);
+  }
+}
+
+/** A file in a message the teller's number received, kept for the conversation; null for none. */
+async function keepIncomingMedia(
+  message: Parameters<typeof downloadMediaMessage>[0],
+  content: NonNullable<ReturnType<typeof normalizeMessageContent>>,
+  sock: WASocket,
+  ownerId: string,
+) {
+  const file =
+    content.imageMessage ??
+    content.videoMessage ??
+    content.audioMessage ??
+    content.documentMessage ??
+    null;
+  if (!file || Number(file.fileLength ?? 0) > MAX_KEPT_MEDIA) return null;
+  const data = (await downloadMediaMessage(
+    message,
+    'buffer',
+    {},
+    { logger: quiet as never, reuploadRequest: sock.updateMediaMessage },
+  ).catch(() => null)) as Buffer | null;
+  if (!data) return null;
+  return keepMedia(
+    {
+      bytes: data,
+      mimeType: file.mimetype ?? 'application/octet-stream',
+      fileName: content.documentMessage?.fileName ?? null,
+    },
+    ownerId,
+  );
 }
 
 async function open(userId: string): Promise<void> {
@@ -189,27 +294,18 @@ async function open(userId: string): Promise<void> {
       if (digitsOf(chat) && digitsOf(chat) === holder.me) continue;
       const phoneJid =
         [message.key.remoteJidAlt, chat].find((jid) => jid?.endsWith('@s.whatsapp.net')) ?? null;
-      const photo = content.imageMessage;
       const fromMe = Boolean(message.key.fromMe);
       void (async () => {
-        // A photo is shown in the conversation; any other file stays a clip on the phone.
-        let imageId: string | null = null;
-        if (photo && Number(photo.fileLength ?? 0) <= MAX_KEPT_PHOTO) {
-          const data = (await downloadMediaMessage(
-            message,
-            'buffer',
-            {},
-            { logger: quiet as never, reuploadRequest: sock.updateMediaMessage },
-          ).catch(() => null)) as Buffer | null;
-          if (data) {
-            imageId = await keepImage(
-              { bytes: data, mimeType: photo.mimetype ?? 'image/jpeg' },
-              userId,
-            );
-          }
-        }
-        const text = imageId ? (words ?? '') : words ? (media ? `📎 ${words}` : words) : '📎';
-        await keep(userId, chat, phoneJid, fromMe, text, imageId);
+        // A photo, voice note, video or document is shown; a sticker stays a clip.
+        const kept = media ? await keepIncomingMedia(message, content, sock, userId) : null;
+        const text = kept ? (words ?? '') : words ? (media ? `📎 ${words}` : words) : '📎';
+        await keep(userId, chat, phoneJid, fromMe, text, {
+          mediaId: kept?.id ?? null,
+          mediaKind: kept?.kind ?? null,
+          waId: message.key.id ?? null,
+          quotedWaId: quotedStanzaId(message),
+          name: message.pushName ?? null,
+        });
       })().catch((error) => log.warn('Could not keep a teller message', { error }));
     }
   });
@@ -369,6 +465,7 @@ export async function resumeTellerNumbers(): Promise<void> {
   for (const { key } of rows) {
     const userId = key.slice(TELLER_SESSION_PREFIX.length, -':creds'.length);
     if (!userId || holderOf(userId).status !== 'OFF') continue;
+    await mergeTwins(userId).catch((error) => log.warn('Could not merge conversations', { error }));
     if (!(await hasSession(prisma, tellerSessionPrefix(userId)))) continue;
     await open(userId).catch((error) => fail(userId, error));
   }
@@ -395,17 +492,30 @@ export async function listChats(ownerId: string) {
       messages: {
         orderBy: { createdAt: 'desc' },
         take: 1,
-        select: { text: true, fromMe: true, imageId: true },
+        select: { text: true, fromMe: true, imageId: true, mediaKind: true },
       },
     },
   });
+  const records = await customerNames(rows.map((row) => row.phone));
   return rows.map((row) => ({
     id: row.id,
     phone: row.phone,
+    name: shownName(row.phone, row.name, records),
+    unread: row.unread,
     lastMessageAt: row.lastMessageAt,
-    lastText: row.messages[0]?.text || (row.messages[0]?.imageId ? '📷' : ''),
+    lastText:
+      row.messages[0]?.text || mediaMark(row.messages[0]?.mediaKind, row.messages[0]?.imageId),
     awaiting: row.messages[0] ? !row.messages[0].fromMe : false,
   }));
+}
+
+/** How many of their customers' messages the teller has not opened. */
+export async function unreadCount(ownerId: string): Promise<number> {
+  const total = await prisma.tellerChat.aggregate({
+    where: { ownerId },
+    _sum: { unread: true },
+  });
+  return total._sum.unread ?? 0;
 }
 
 export async function readChat(ownerId: string, id: string) {
@@ -415,48 +525,73 @@ export async function readChat(ownerId: string, id: string) {
   });
   // Another teller's conversation is not found, rather than forbidden: it is not theirs to know of.
   if (!row) throw errors.notFound('TellerChat', id);
+  if (row.unread > 0) {
+    await prisma.tellerChat.update({ where: { id: row.id }, data: { unread: 0 } });
+  }
+  const records = await customerNames([row.phone]);
   return {
     id: row.id,
     phone: row.phone,
+    name: shownName(row.phone, row.name, records),
     messages: row.messages.reverse().map((message) => ({
       id: message.id,
       role: message.fromMe ? ('staff' as const) : ('customer' as const),
       text: message.text,
       imageId: message.imageId,
+      mediaKind: message.mediaKind ?? (message.imageId ? 'image' : null),
+      quotedId: message.quotedId,
+      quotable: Boolean(message.waId),
       authorName: null,
       createdAt: message.createdAt,
     })),
   };
 }
 
-/** An answer from the teller's number; with a photo, the words go under it. */
-export async function answer(ownerId: string, id: string, text: string, photo?: string) {
+/**
+ * An answer from the teller's number; with a photo, the words go under it. Given
+ * a message of the conversation, the answer quotes it.
+ */
+export async function answer(
+  ownerId: string,
+  id: string,
+  text: string,
+  photo?: string,
+  quoteId?: string,
+) {
   const words = text.trim();
   const image = photo ? readyImage(photo) : null;
   if (!words && !image) throw errors.validation([{ path: 'text', message: 'Write the answer' }]);
   const row = await prisma.tellerChat.findFirst({ where: { id, ownerId } });
   if (!row) throw errors.notFound('TellerChat', id);
+  const target = quoteId
+    ? await prisma.tellerChatMessage.findFirst({
+        where: { id: quoteId, chatId: row.id, waId: { not: null } },
+        select: { waId: true, fromMe: true, text: true },
+      })
+    : null;
+  const quoted = target?.waId ? quoteOf(row.chat, target.waId, target.fromMe, target.text) : null;
   const sock = socketOf(ownerId);
+  let waId: string | null = null;
   try {
-    await sock.sendMessage(
+    const sent = await sock.sendMessage(
       row.chat,
       image
         ? { image: image.bytes, mimetype: image.mimeType, caption: words.slice(0, MAX_TEXT) }
         : { text: words.slice(0, MAX_TEXT) },
+      quoted ? { quoted } : undefined,
     );
+    waId = sent?.key.id ?? null;
   } catch (error) {
     log.warn('A teller message was not sent', { error });
     throw errors.precondition('WhatsApp did not take the message', 'errors.tellerSendFailed');
   }
   const imageId = image ? await keepImage(image, ownerId) : null;
-  await keep(
-    ownerId,
-    row.chat,
-    row.phone ? `${row.phone}@s.whatsapp.net` : null,
-    true,
-    words,
-    imageId,
-  );
+  await keep(ownerId, row.chat, row.phone ? `${row.phone}@s.whatsapp.net` : null, true, words, {
+    mediaId: imageId,
+    mediaKind: imageId ? 'image' : null,
+    waId,
+    quotedWaId: target?.waId ?? null,
+  });
   return readChat(ownerId, id);
 }
 
@@ -499,11 +634,13 @@ export async function startChat(ownerId: string, typedPhone: string, text: strin
   }
 
   const chat = known?.chat ?? jid;
+  let waId: string | null = null;
   try {
-    await sock.sendMessage(chat, { text: words.slice(0, MAX_TEXT) });
+    const sent = await sock.sendMessage(chat, { text: words.slice(0, MAX_TEXT) });
+    waId = sent?.key.id ?? null;
   } catch (error) {
     log.warn('A teller message was not sent', { error });
     throw errors.precondition('WhatsApp did not take the message', 'errors.tellerSendFailed');
   }
-  return { id: await keep(ownerId, chat, jid, true, words) };
+  return { id: await keep(ownerId, chat, jid, true, words, { waId }) };
 }

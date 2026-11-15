@@ -1,6 +1,7 @@
 import 'server-only';
 import { prisma } from '@/core/db/prisma';
 import { errors } from '@/core/errors/app-error';
+import { customerNames, shownName } from './chat-names';
 
 /**
  * What the private number keeps: each person's conversation, and the requests
@@ -31,30 +32,71 @@ async function conversationFor(chat: string, phoneJid: string | null) {
   return prisma.botConversation.create({ data: { chat, phone, lastMessageAt: new Date() } });
 }
 
+/** What else is known of a message beyond its words. */
+export interface MessageExtra {
+  /** Who of the staff wrote it from the system. */
+  authorName?: string | null;
+  /** A file that came with it, and what kind. */
+  mediaId?: string | null;
+  mediaKind?: string | null;
+  /** WhatsApp's id for it, and of the message it quotes. */
+  waId?: string | null;
+  quotedWaId?: string | null;
+  /** The name the customer goes by on WhatsApp. */
+  name?: string | null;
+}
+
 export async function recordMessage(
   chat: string,
   phoneJid: string | null,
   role: MessageRole,
   text: string,
-  authorName: string | null = null,
-  imageId: string | null = null,
+  extra: MessageExtra = {},
 ): Promise<void> {
   const conversation = await conversationFor(chat, phoneJid);
+  const quoted = extra.quotedWaId
+    ? await prisma.botMessage.findFirst({
+        where: { conversationId: conversation.id, waId: extra.quotedWaId },
+        select: { id: true },
+      })
+    : null;
+  const customer = role === 'customer';
   await prisma.$transaction([
     prisma.botMessage.create({
       data: {
         conversationId: conversation.id,
         role,
         text: text.slice(0, 2000),
-        authorName,
-        imageId,
+        authorName: extra.authorName ?? null,
+        imageId: extra.mediaId ?? null,
+        mediaKind: extra.mediaKind ?? null,
+        waId: extra.waId ?? null,
+        quotedId: quoted?.id ?? null,
       },
     }),
     prisma.botConversation.update({
       where: { id: conversation.id },
-      data: { lastMessageAt: new Date() },
+      data: {
+        lastMessageAt: new Date(),
+        ...(customer ? { unread: { increment: 1 } } : {}),
+        ...(customer && extra.name?.trim() ? { name: extra.name.trim().slice(0, 80) } : {}),
+      },
     }),
   ]);
+}
+
+/** Staff have opened it: nothing in it is unread any more. */
+export async function markSeen(id: string): Promise<void> {
+  await prisma.botConversation.updateMany({
+    where: { id, unread: { gt: 0 } },
+    data: { unread: 0 },
+  });
+}
+
+/** How many customer messages on the private number nobody has opened yet. */
+export async function unreadCount(): Promise<number> {
+  const total = await prisma.botConversation.aggregate({ _sum: { unread: true } });
+  return total._sum.unread ?? 0;
 }
 
 /**
@@ -141,16 +183,20 @@ export async function listConversations() {
       messages: {
         orderBy: { createdAt: 'desc' },
         take: 1,
-        select: { text: true, role: true, imageId: true },
+        select: { text: true, role: true, imageId: true, mediaKind: true },
       },
     },
   });
   const now = new Date();
+  const records = await customerNames(rows.map((row) => row.phone));
   return rows.map((row) => ({
     id: row.id,
     phone: row.phone,
+    name: shownName(row.phone, row.name, records),
+    unread: row.unread,
     lastMessageAt: row.lastMessageAt,
-    lastText: row.messages[0]?.text || (row.messages[0]?.imageId ? '📷' : ''),
+    lastText:
+      row.messages[0]?.text || mediaMark(row.messages[0]?.mediaKind, row.messages[0]?.imageId),
     // The customer spoke last: nobody, person or bot, has answered yet.
     awaiting: row.messages[0]?.role === 'customer',
     paused: Boolean(row.pausedUntil && row.pausedUntil > now),
@@ -170,18 +216,30 @@ export async function readConversation(id: string) {
           text: true,
           authorName: true,
           imageId: true,
+          mediaKind: true,
+          waId: true,
+          quotedId: true,
           createdAt: true,
         },
       },
     },
   });
   if (!row) throw errors.notFound('BotConversation', id);
+  const records = await customerNames([row.phone]);
   return {
     id: row.id,
     chat: row.chat,
     phone: row.phone,
+    name: shownName(row.phone, row.name, records),
     pausedUntil: row.pausedUntil,
-    messages: row.messages.reverse(),
+    messages: row.messages.reverse().map(({ waId, imageId, mediaKind, ...message }) => ({
+      ...message,
+      imageId,
+      // Kept before the kind was: every file then was a photo.
+      mediaKind: mediaKind ?? (imageId ? 'image' : null),
+      // Only a message WhatsApp knows by an id can be answered by quoting it.
+      quotable: Boolean(waId),
+    })),
   };
 }
 
@@ -196,4 +254,20 @@ export async function setPaused(id: string, minutes: number | null): Promise<voi
     where: { OR: [{ id }, ...(row.phone ? [{ phone: row.phone }] : [])] },
     data: { pausedUntil: minutes ? new Date(Date.now() + minutes * 60_000) : null },
   });
+}
+
+/** A line for the list when the last message was a file without words. */
+export function mediaMark(kind: string | null | undefined, mediaId?: string | null): string {
+  switch (kind ?? (mediaId ? 'image' : null)) {
+    case 'image':
+      return '📷';
+    case 'audio':
+      return '🎤';
+    case 'video':
+      return '🎬';
+    case 'document':
+      return '📄';
+    default:
+      return '';
+  }
 }

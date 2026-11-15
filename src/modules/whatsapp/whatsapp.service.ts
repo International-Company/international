@@ -789,12 +789,22 @@ export async function sendPrivateImage(
   image: Buffer,
   mimetype: string,
   caption: string,
-): Promise<void> {
-  await socketOf('private').sendMessage(jid, { image, mimetype, caption });
+  quoted?: WAMessage,
+): Promise<string | null> {
+  const sent = await socketOf('private').sendMessage(
+    jid,
+    { image, mimetype, caption },
+    quoted ? { quoted } : undefined,
+  );
+  return sent?.key.id ?? null;
 }
 
 /** Answers someone from the private number, showing it typing first as a person would. */
-export async function replyPrivately(jid: string, text: string): Promise<void> {
+export async function replyPrivately(
+  jid: string,
+  text: string,
+  quoted?: WAMessage,
+): Promise<string | null> {
   const sock = socketOf('private');
   await sock.sendPresenceUpdate('composing', jid).catch(() => undefined);
   await new Promise((resolve) => setTimeout(resolve, Math.min(3_500, 1_000 + text.length * 15)));
@@ -802,12 +812,14 @@ export async function replyPrivately(jid: string, text: string): Promise<void> {
   // WhatsApp not answering must end in an error someone sees, not a reply that never comes.
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    await Promise.race([
-      sock.sendMessage(jid, { text }),
-      new Promise((_, reject) => {
+    // WhatsApp's id for what was sent, so it can be quoted in turn.
+    const sent = await Promise.race([
+      sock.sendMessage(jid, { text }, quoted ? { quoted } : undefined),
+      new Promise<never>((_, reject) => {
         timer = setTimeout(() => reject(new Error('WhatsApp did not take the reply in time')), 45_000);
       }),
     ]);
+    return sent?.key.id ?? null;
   } finally {
     clearTimeout(timer);
   }

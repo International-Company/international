@@ -15,6 +15,8 @@ const bodySchema = z
   .object({
     text: z.string().trim().max(2000).default(''),
     image: z.string().min(1).max(6_000_000).optional(),
+    /** A message of the conversation the answer quotes. */
+    quoteId: z.string().min(1).max(40).optional(),
   })
   .refine((body) => body.text || body.image, { message: 'Write the answer or add a photo' });
 
@@ -22,5 +24,6 @@ export const POST = route<z.infer<typeof bodySchema>, unknown, z.infer<typeof pa
   permissions: ['customers.whatsapp'],
   paramsSchema,
   bodySchema,
-  handler: async ({ params, body, actor }) => answer(actor.id, params.id, body.text, body.image),
+  handler: async ({ params, body, actor }) =>
+    answer(actor.id, params.id, body.text, body.image, body.quoteId),
 });

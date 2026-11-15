@@ -2255,6 +2255,8 @@ model ChatImage {
   id        String   @id @default(cuid())
   ownerId   String?
   mimeType  String
+  /// A document's own name, to save it under.
+  fileName  String?
   size      Int
   data      Bytes
   createdAt DateTime @default(now())
@@ -2269,6 +2271,10 @@ model TellerChat {
   ownerId       String
   chat          String
   phone         String?
+  /// The name the person goes by on WhatsApp, as last seen.
+  name          String?
+  /// Their messages since the teller last opened it.
+  unread        Int                 @default(0)
   lastMessageAt DateTime            @default(now())
   createdAt     DateTime            @default(now())
   messages      TellerChatMessage[]
@@ -2287,6 +2293,12 @@ model TellerChatMessage {
   text      String
   /// A photo sent with it, from the system.
   imageId   String?
+  /// image | audio | video | document, when a file came with it.
+  mediaKind String?
+  /// WhatsApp's id for it, so it can be answered by quoting it.
+  waId      String?
+  /// The message of this conversation it answered, quoted.
+  quotedId  String?
   createdAt DateTime   @default(now())
 
   @@index([chatId, createdAt])
@@ -2297,6 +2309,10 @@ model BotConversation {
   id            String       @id @default(cuid())
   chat          String       @unique
   phone         String?
+  /// The name the person goes by on WhatsApp, as last seen.
+  name          String?
+  /// Customer messages since staff last opened it.
+  unread        Int          @default(0)
   /// Until when the bot keeps out of it, because a person has taken over.
   pausedUntil   DateTime?
   lastMessageAt DateTime     @default(now())
@@ -2320,6 +2336,12 @@ model BotMessage {
   authorName     String?
   /// A photo sent with it, from the system.
   imageId        String?
+  /// image | audio | video | document, when a file came with it.
+  mediaKind      String?
+  /// WhatsApp's id for it, so it can be answered by quoting it.
+  waId           String?
+  /// The message of this conversation it answered, quoted.
+  quotedId       String?
   createdAt      DateTime        @default(now())
 
   @@index([conversationId, createdAt])

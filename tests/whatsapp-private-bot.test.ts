@@ -105,8 +105,9 @@ describe('the private number', () => {
   it('keeps a photo a customer sent, for the inbox to show', async () => {
     const { deps } = setup(undefined, null);
     const records: [string, string | null | undefined][] = [];
-    deps.record = async (_chat, _phone, _role, text, imageId) => void records.push([text, imageId]);
-    deps.keepPhoto = async () => 'photo-1';
+    deps.record = async (_chat, _phone, _role, text, extra) =>
+      void records.push([text, extra?.mediaId]);
+    deps.keepMedia = async () => ({ id: 'photo-1', kind: 'image' });
     const photo = { ...message(''), media: true, image: true } as IncomingText;
     await handlePrivateMessage(photo, deps);
     await handlePrivateMessage({ ...photo, text: 'هذا الإيصال' } as IncomingText, deps);
@@ -118,7 +119,7 @@ describe('the private number', () => {
 
   it('still marks a photo it could not keep', async () => {
     const { deps, kept } = setup(undefined, null);
-    deps.keepPhoto = async () => {
+    deps.keepMedia = async () => {
       throw new Error('download failed');
     };
     await handlePrivateMessage({ ...message(''), media: true, image: true } as IncomingText, deps);
