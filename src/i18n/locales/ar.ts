@@ -703,9 +703,9 @@ const ar: Dictionary = {
     back: 'رجوع',
     phoneHidden: 'رقم مخفي',
     openWhatsapp: 'فتح في واتساب',
-    placeholder: 'اكتب ردك… (Enter للإرسال، Shift+Enter لسطر جديد)',
+    placeholder: 'اكتب ردك…',
     send: 'إرسال',
-    hint: 'يصل الرد للعميل من الرقم الخاص، ويتوقف البوت عن هذه المحادثة مؤقتاً.',
+    hint: 'Enter للإرسال، وShift+Enter لسطر جديد. يصل الرد للعميل من الرقم الخاص، ويتوقف البوت عن هذه المحادثة مؤقتاً.',
     role: { customer: 'العميل', bot: 'البوت', staff: 'الموظف' },
   },
   privateBot: {

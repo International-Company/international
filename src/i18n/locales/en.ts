@@ -701,9 +701,9 @@ const en = {
     back: 'Back',
     phoneHidden: 'Hidden number',
     openWhatsapp: 'Open in WhatsApp',
-    placeholder: 'Write your reply… (Enter to send, Shift+Enter for a new line)',
+    placeholder: 'Write your reply…',
     send: 'Send',
-    hint: 'The customer gets it from the private number, and the bot keeps out of this conversation for a while.',
+    hint: 'Enter sends, Shift+Enter starts a new line. The customer gets it from the private number, and the bot keeps out of this conversation for a while.',
     role: { customer: 'Customer', bot: 'Bot', staff: 'Staff' },
   },
   privateBot: {
