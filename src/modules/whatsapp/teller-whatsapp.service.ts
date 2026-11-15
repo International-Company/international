@@ -2,6 +2,7 @@ import 'server-only';
 import makeWASocket, {
   Browsers,
   DisconnectReason,
+  downloadMediaMessage,
   fetchLatestBaileysVersion,
   isJidBroadcast,
   isJidGroup,
@@ -17,7 +18,7 @@ import { createLogger } from '@/core/logger/logger';
 import * as settings from '@/modules/settings/settings.service';
 import { isPrivateChat, TELLER_SESSION_PREFIX, tellerSessionPrefix } from './accounts';
 import { clearSession, databaseAuthState, hasSession } from './auth-state';
-import { keepImage, readyImage } from './chat-images';
+import { keepImage, MAX_KEPT_PHOTO, readyImage } from './chat-images';
 import { candidateNumbers } from './inbox-numbers';
 import { installSignalFilter, isOwnDecryptFailure, countHidden } from './signal-noise';
 
@@ -188,10 +189,28 @@ async function open(userId: string): Promise<void> {
       if (digitsOf(chat) && digitsOf(chat) === holder.me) continue;
       const phoneJid =
         [message.key.remoteJidAlt, chat].find((jid) => jid?.endsWith('@s.whatsapp.net')) ?? null;
-      const text = words ? (media ? `📎 ${words}` : words) : '📎';
-      void keep(userId, chat, phoneJid, Boolean(message.key.fromMe), text).catch((error) =>
-        log.warn('Could not keep a teller message', { error }),
-      );
+      const photo = content.imageMessage;
+      const fromMe = Boolean(message.key.fromMe);
+      void (async () => {
+        // A photo is shown in the conversation; any other file stays a clip on the phone.
+        let imageId: string | null = null;
+        if (photo && Number(photo.fileLength ?? 0) <= MAX_KEPT_PHOTO) {
+          const data = (await downloadMediaMessage(
+            message,
+            'buffer',
+            {},
+            { logger: quiet as never, reuploadRequest: sock.updateMediaMessage },
+          ).catch(() => null)) as Buffer | null;
+          if (data) {
+            imageId = await keepImage(
+              { bytes: data, mimeType: photo.mimetype ?? 'image/jpeg' },
+              userId,
+            );
+          }
+        }
+        const text = imageId ? (words ?? '') : words ? (media ? `📎 ${words}` : words) : '📎';
+        await keep(userId, chat, phoneJid, fromMe, text, imageId);
+      })().catch((error) => log.warn('Could not keep a teller message', { error }));
     }
   });
 

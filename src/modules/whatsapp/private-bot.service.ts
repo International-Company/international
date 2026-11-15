@@ -32,6 +32,7 @@ import {
   type FlowStep,
 } from './bot-flows';
 import * as store from './bot-store';
+import { keepImage, MAX_KEPT_PHOTO } from './chat-images';
 import { creditIsBack, creditOutAt, noteIfCreditOut, recordUsage, usageSummary } from './bot-usage';
 import { parseRoutes } from './group-routes';
 import { composePriceSheet, type PriceSheet } from './price-sheet';
@@ -168,7 +169,10 @@ export interface BotDeps {
     phone: string | null,
     role: 'customer' | 'bot',
     text: string,
+    imageId?: string | null,
   ) => Promise<void>;
+  /** Keeps a photo a customer sent, for the inbox to show; its id, or null. */
+  keepPhoto?: (incoming: IncomingText) => Promise<string | null>;
   raise: (chat: string, phone: string | null, summary: string) => Promise<void>;
   state: BotState;
   now?: () => Date;
@@ -228,7 +232,15 @@ export async function handlePrivateMessage(
   const text = incoming.text.trim();
   if (!text && !incoming.media) return 'IGNORED';
   // Kept whether or not the bot is on: staff answer from the inbox either way.
-  await deps.record(incoming.chat, incoming.senderPhone, 'customer', text || '📎');
+  const imageId =
+    incoming.image && deps.keepPhoto ? await deps.keepPhoto(incoming).catch(() => null) : null;
+  await deps.record(
+    incoming.chat,
+    incoming.senderPhone,
+    'customer',
+    text || (imageId ? '' : '📎'),
+    imageId,
+  );
   const limit = await deps.dailyLimit();
   if (limit === null) return 'OFF';
   if (await deps.paused(incoming.chat, incoming.senderPhone)) return 'PAUSED';
@@ -937,11 +949,16 @@ export function registerPrivateBot(): void {
         log.info('Could not read whether a conversation is taken', { error });
         return false;
       }),
-    record: async (chat, phone, role, text) => {
+    record: async (chat, phone, role, text, imageId) => {
       await store
-        .recordMessage(chat, phone, role, text)
+        .recordMessage(chat, phone, role, text, null, imageId ?? null)
         .catch((error) => log.warn('Could not keep a message', { error }));
       await pruneOncePerDay();
+    },
+    keepPhoto: async (incoming) => {
+      const media = await privateMedia(incoming.message);
+      if (media?.kind !== 'image' || media.data.length > MAX_KEPT_PHOTO) return null;
+      return keepImage({ bytes: media.data, mimeType: media.mimeType }, null);
     },
     raise: (chat, phone, summary) =>
       store

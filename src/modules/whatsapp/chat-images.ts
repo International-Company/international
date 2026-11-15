@@ -4,12 +4,16 @@ import { errors } from '@/core/errors/app-error';
 import { readProofImage } from '@/modules/exchange/proof-image';
 
 /**
- * Photos sent to customers from the inbox, kept so the conversation shows them.
+ * Photos in the inbox's conversations, sent to customers or by them, kept so the
+ * conversation shows them.
  *
  * The screen shrinks a photo before it leaves the browser, and it is checked by
  * its bytes here: it is sent on to WhatsApp and served back to staff, so it has
  * to actually be a picture.
  */
+
+/** A photo a customer sent larger than this is left on the phone: it is kept whole. */
+export const MAX_KEPT_PHOTO = 8 * 1024 * 1024;
 
 export interface ReadyImage {
   bytes: Buffer;

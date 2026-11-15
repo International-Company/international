@@ -102,6 +102,29 @@ describe('the private number', () => {
     assert.deepEqual(kept, ['customer:بدي أحول']);
   });
 
+  it('keeps a photo a customer sent, for the inbox to show', async () => {
+    const { deps } = setup(undefined, null);
+    const records: [string, string | null | undefined][] = [];
+    deps.record = async (_chat, _phone, _role, text, imageId) => void records.push([text, imageId]);
+    deps.keepPhoto = async () => 'photo-1';
+    const photo = { ...message(''), media: true, image: true } as IncomingText;
+    await handlePrivateMessage(photo, deps);
+    await handlePrivateMessage({ ...photo, text: 'هذا الإيصال' } as IncomingText, deps);
+    assert.deepEqual(records, [
+      ['', 'photo-1'],
+      ['هذا الإيصال', 'photo-1'],
+    ]);
+  });
+
+  it('still marks a photo it could not keep', async () => {
+    const { deps, kept } = setup(undefined, null);
+    deps.keepPhoto = async () => {
+      throw new Error('download failed');
+    };
+    await handlePrivateMessage({ ...message(''), media: true, image: true } as IncomingText, deps);
+    assert.deepEqual(kept, ['customer:📎']);
+  });
+
   it('answers, and follows the conversation', async () => {
     const { deps, sent, asked } = setup();
     assert.equal(await handlePrivateMessage(message('كم الدولار؟'), deps), 'ANSWERED');
