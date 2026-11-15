@@ -771,6 +771,16 @@ export async function privateNumberAddress(digits: string): Promise<string | nul
   return match ? match.jid : null;
 }
 
+/** Sends a photo, with words under it, from the private number to a person. */
+export async function sendPrivateImage(
+  jid: string,
+  image: Buffer,
+  mimetype: string,
+  caption: string,
+): Promise<void> {
+  await socketOf('private').sendMessage(jid, { image, mimetype, caption });
+}
+
 /** Answers someone from the private number, showing it typing first as a person would. */
 export async function replyPrivately(jid: string, text: string): Promise<void> {
   const sock = socketOf('private');

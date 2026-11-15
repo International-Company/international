@@ -37,11 +37,18 @@ export async function recordMessage(
   role: MessageRole,
   text: string,
   authorName: string | null = null,
+  imageId: string | null = null,
 ): Promise<void> {
   const conversation = await conversationFor(chat, phoneJid);
   await prisma.$transaction([
     prisma.botMessage.create({
-      data: { conversationId: conversation.id, role, text: text.slice(0, 2000), authorName },
+      data: {
+        conversationId: conversation.id,
+        role,
+        text: text.slice(0, 2000),
+        authorName,
+        imageId,
+      },
     }),
     prisma.botConversation.update({
       where: { id: conversation.id },
@@ -131,7 +138,11 @@ export async function listConversations() {
     orderBy: { lastMessageAt: 'desc' },
     take: 100,
     include: {
-      messages: { orderBy: { createdAt: 'desc' }, take: 1, select: { text: true, role: true } },
+      messages: {
+        orderBy: { createdAt: 'desc' },
+        take: 1,
+        select: { text: true, role: true, imageId: true },
+      },
     },
   });
   const now = new Date();
@@ -139,7 +150,7 @@ export async function listConversations() {
     id: row.id,
     phone: row.phone,
     lastMessageAt: row.lastMessageAt,
-    lastText: row.messages[0]?.text ?? '',
+    lastText: row.messages[0]?.text || (row.messages[0]?.imageId ? '📷' : ''),
     // The customer spoke last: nobody, person or bot, has answered yet.
     awaiting: row.messages[0]?.role === 'customer',
     paused: Boolean(row.pausedUntil && row.pausedUntil > now),
@@ -153,7 +164,14 @@ export async function readConversation(id: string) {
       messages: {
         orderBy: { createdAt: 'desc' },
         take: 200,
-        select: { id: true, role: true, text: true, authorName: true, createdAt: true },
+        select: {
+          id: true,
+          role: true,
+          text: true,
+          authorName: true,
+          imageId: true,
+          createdAt: true,
+        },
       },
     },
   });

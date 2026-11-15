@@ -2249,6 +2249,20 @@ model TransactionProof {
 }
 
 /// One person writing to the private number. Kept for the period set on the bot's panel.
+/// A photo sent to a customer from the inbox. Read only by whoever may read its conversation:
+/// with an owner, that teller alone; without, anyone with the inbox.
+model ChatImage {
+  id        String   @id @default(cuid())
+  ownerId   String?
+  mimeType  String
+  size      Int
+  data      Bytes
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+  @@map("chat_images")
+}
+
 /// A conversation on a teller's own WhatsApp number. Only that teller reads it.
 model TellerChat {
   id            String              @id @default(cuid())
@@ -2271,6 +2285,8 @@ model TellerChatMessage {
   /// Written from the teller's number, here or on the phone.
   fromMe    Boolean
   text      String
+  /// A photo sent with it, from the system.
+  imageId   String?
   createdAt DateTime   @default(now())
 
   @@index([chatId, createdAt])
@@ -2302,6 +2318,8 @@ model BotMessage {
   text           String
   /// Who of the staff wrote it, when it was written from the system.
   authorName     String?
+  /// A photo sent with it, from the system.
+  imageId        String?
   createdAt      DateTime        @default(now())
 
   @@index([conversationId, createdAt])

@@ -5,8 +5,9 @@ import * as settings from '@/modules/settings/settings.service';
 import { createBotLogger } from './bot-issues';
 import { parseProfile } from './bot-profile';
 import { pauseChat, readConversation, recordMessage } from './bot-store';
+import { keepImage, readyImage } from './chat-images';
 import { candidateNumbers } from './inbox-numbers';
-import { privateNumberAddress, replyPrivately } from './whatsapp.service';
+import { privateNumberAddress, replyPrivately, sendPrivateImage } from './whatsapp.service';
 
 const log = createBotLogger('whatsapp-inbox');
 
@@ -32,20 +33,40 @@ async function sendOrSay(chat: string, words: string) {
  * number, as if from its phone: the customer sees the office, not who typed it.
  * The bot keeps out of the conversation for as long as it would had they typed
  * it on the phone, so the two do not talk over each other.
+ *
+ * With a photo, the words go under it.
  */
 export async function answerCustomer(
   conversationId: string,
   text: string,
   actor: { name: string },
+  photo?: string,
 ) {
   const words = text.trim();
-  if (!words) throw errors.validation([{ path: 'text', message: 'Write the answer' }]);
+  const image = photo ? readyImage(photo) : null;
+  if (!words && !image) throw errors.validation([{ path: 'text', message: 'Write the answer' }]);
 
   const thread = await readConversation(conversationId);
   const phoneJid = thread.phone ? `${thread.phone}@s.whatsapp.net` : null;
 
-  await sendOrSay(thread.chat, words);
-  await recordMessage(thread.chat, phoneJid, 'staff', words, actor.name);
+  let imageId: string | null = null;
+  if (image) {
+    try {
+      await sendPrivateImage(
+        thread.chat,
+        image.bytes,
+        image.mimeType,
+        words.slice(0, MAX_ANSWER_LENGTH),
+      );
+    } catch (error) {
+      log.warn('Could not send a photo to a customer', { error });
+      throw errors.precondition('WhatsApp did not take the photo', 'errors.inboxSendFailed');
+    }
+    imageId = await keepImage(image, null);
+  } else {
+    await sendOrSay(thread.chat, words);
+  }
+  await recordMessage(thread.chat, phoneJid, 'staff', words, actor.name, imageId);
   await keepBotOut(thread.chat, phoneJid);
   return readConversation(conversationId);
 }

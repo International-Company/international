@@ -14,6 +14,7 @@ import { createLogger } from '@/core/logger/logger';
 import * as settings from '@/modules/settings/settings.service';
 import { isPrivateChat, TELLER_SESSION_PREFIX, tellerSessionPrefix } from './accounts';
 import { clearSession, databaseAuthState, hasSession } from './auth-state';
+import { keepImage, readyImage } from './chat-images';
 import { candidateNumbers } from './inbox-numbers';
 import { installSignalFilter, isOwnDecryptFailure, countHidden } from './signal-noise';
 
@@ -101,6 +102,7 @@ async function keep(
   phoneJid: string | null,
   fromMe: boolean,
   text: string,
+  imageId: string | null = null,
 ): Promise<string> {
   const phone = digitsOf(phoneJid) ?? digitsOf(chat);
   const now = new Date();
@@ -111,7 +113,7 @@ async function keep(
     select: { id: true },
   });
   await prisma.tellerChatMessage.create({
-    data: { chatId: row.id, fromMe, text: text.slice(0, MAX_TEXT) },
+    data: { chatId: row.id, fromMe, text: text.slice(0, MAX_TEXT), imageId },
   });
   return row.id;
 }
@@ -359,14 +361,18 @@ export async function listChats(ownerId: string) {
     orderBy: { lastMessageAt: 'desc' },
     take: 200,
     include: {
-      messages: { orderBy: { createdAt: 'desc' }, take: 1, select: { text: true, fromMe: true } },
+      messages: {
+        orderBy: { createdAt: 'desc' },
+        take: 1,
+        select: { text: true, fromMe: true, imageId: true },
+      },
     },
   });
   return rows.map((row) => ({
     id: row.id,
     phone: row.phone,
     lastMessageAt: row.lastMessageAt,
-    lastText: row.messages[0]?.text ?? '',
+    lastText: row.messages[0]?.text || (row.messages[0]?.imageId ? '📷' : ''),
     awaiting: row.messages[0] ? !row.messages[0].fromMe : false,
   }));
 }
@@ -385,25 +391,41 @@ export async function readChat(ownerId: string, id: string) {
       id: message.id,
       role: message.fromMe ? ('staff' as const) : ('customer' as const),
       text: message.text,
+      imageId: message.imageId,
       authorName: null,
       createdAt: message.createdAt,
     })),
   };
 }
 
-export async function answer(ownerId: string, id: string, text: string) {
+/** An answer from the teller's number; with a photo, the words go under it. */
+export async function answer(ownerId: string, id: string, text: string, photo?: string) {
   const words = text.trim();
-  if (!words) throw errors.validation([{ path: 'text', message: 'Write the answer' }]);
+  const image = photo ? readyImage(photo) : null;
+  if (!words && !image) throw errors.validation([{ path: 'text', message: 'Write the answer' }]);
   const row = await prisma.tellerChat.findFirst({ where: { id, ownerId } });
   if (!row) throw errors.notFound('TellerChat', id);
   const sock = socketOf(ownerId);
   try {
-    await sock.sendMessage(row.chat, { text: words.slice(0, MAX_TEXT) });
+    await sock.sendMessage(
+      row.chat,
+      image
+        ? { image: image.bytes, mimetype: image.mimeType, caption: words.slice(0, MAX_TEXT) }
+        : { text: words.slice(0, MAX_TEXT) },
+    );
   } catch (error) {
     log.warn('A teller message was not sent', { error });
     throw errors.precondition('WhatsApp did not take the message', 'errors.tellerSendFailed');
   }
-  await keep(ownerId, row.chat, row.phone ? `${row.phone}@s.whatsapp.net` : null, true, words);
+  const imageId = image ? await keepImage(image, ownerId) : null;
+  await keep(
+    ownerId,
+    row.chat,
+    row.phone ? `${row.phone}@s.whatsapp.net` : null,
+    true,
+    words,
+    imageId,
+  );
   return readChat(ownerId, id);
 }
 

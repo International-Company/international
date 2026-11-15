@@ -11,12 +11,14 @@ import {
 import {
   ArrowLeft,
   ExternalLink,
+  ImagePlus,
   MessageSquarePlus,
   QrCode,
   Search,
   SendHorizontal,
   Smartphone,
   Unlink,
+  X,
 } from 'lucide-react';
 import { useLocale } from '@/i18n/provider';
 import { api, ApiError } from '@/lib/api-client';
@@ -24,6 +26,7 @@ import { say } from '@/lib/failure';
 import { ConfirmDialog, Dialog, useToast } from '@/ui/overlay';
 import { Badge, Button, Card, EmptyState, PageHeader, Skeleton } from '@/ui/primitives';
 import { Field, Input, Textarea } from '@/ui/form';
+import { shrinkPhoto } from '@/ui/proof-photo';
 
 interface ChatRow {
   id: string;
@@ -38,6 +41,7 @@ interface Message {
   role: 'customer' | 'bot' | 'staff';
   text: string;
   authorName: string | null;
+  imageId?: string | null;
   createdAt: string;
 }
 
@@ -97,6 +101,8 @@ function Conversations({
   const [onlyWaiting, setOnlyWaiting] = useState(false);
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
+  const [photo, setPhoto] = useState<{ data: string; preview: string } | null>(null);
+  const picker = useRef<HTMLInputElement>(null);
   const [starting, setStarting] = useState(false);
   const [fresh, setFresh] = useState({ open: false, phone: '', text: '' });
   const waitingBefore = useRef<Set<string> | null>(null);
@@ -197,13 +203,30 @@ function Conversations({
     }
   };
 
+  const choosePhoto = async (file: File | undefined) => {
+    if (!file) return;
+    try {
+      // Shrunk here, as every photo in the system is, before it is sent or kept.
+      const data = await shrinkPhoto(file);
+      setPhoto({ data, preview: `data:image/jpeg;base64,${data}` });
+    } catch {
+      toast.error(t('errors.title'), t('errors.proofImageInvalid'));
+    }
+  };
+
   const send = async () => {
     const text = draft.trim();
-    if (!thread || !text || sending) return;
+    if (!thread || (!text && !photo) || sending) return;
     setSending(true);
     try {
-      setThread(await api.post<Thread>(`${base}/${thread.id}`, { text }));
+      setThread(
+        await api.post<Thread>(`${base}/${thread.id}`, {
+          text,
+          ...(photo ? { image: photo.data } : {}),
+        }),
+      );
       setDraft('');
+      setPhoto(null);
       void load();
     } catch (cause) {
       failure(cause);
@@ -308,6 +331,7 @@ function Conversations({
                     setSelected(row.id);
                     setThread(null);
                     setDraft('');
+                    setPhoto(null);
                   }}
                   className={`block w-full border-b border-border-subtle px-4 py-3 text-start transition-colors last:border-b-0 ${
                     selected === row.id ? 'bg-primary-subtle' : 'hover:bg-surface-sunken'
@@ -388,7 +412,25 @@ function Conversations({
                           : 'self-end bg-primary-subtle text-content'
                     }`}
                   >
-                    <span className="whitespace-pre-wrap break-words">{message.text}</span>
+                    {message.imageId && (
+                      <a
+                        href={`/api/inbox/images/${message.imageId}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="-mx-1 -mt-0.5 mb-1 block"
+                      >
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={`/api/inbox/images/${message.imageId}`}
+                          alt={t('inbox.photo')}
+                          loading="lazy"
+                          className="max-h-72 w-full rounded-xl object-cover"
+                        />
+                      </a>
+                    )}
+                    {message.text && (
+                      <span className="whitespace-pre-wrap break-words">{message.text}</span>
+                    )}
                     <span className="mt-1 block text-[11px] text-content-tertiary">
                       {message.role === 'staff' && message.authorName
                         ? message.authorName
@@ -400,7 +442,44 @@ function Conversations({
               </div>
 
               <div className="shrink-0 space-y-1.5 border-t border-border-subtle p-2 sm:p-3">
+                {photo && (
+                  <div className="relative inline-block">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={photo.preview}
+                      alt={t('inbox.photo')}
+                      className="h-24 rounded-xl object-cover ring-1 ring-border-subtle"
+                    />
+                    <button
+                      type="button"
+                      aria-label={t('inbox.photoRemove')}
+                      onClick={() => setPhoto(null)}
+                      className="absolute -end-2 -top-2 inline-flex size-7 items-center justify-center rounded-full bg-surface text-content shadow ring-1 ring-border-subtle"
+                    >
+                      <X className="size-4" />
+                    </button>
+                  </div>
+                )}
                 <div className="flex items-end gap-2">
+                  <input
+                    ref={picker}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={(event) => {
+                      void choosePhoto(event.target.files?.[0]);
+                      event.target.value = '';
+                    }}
+                  />
+                  <button
+                    type="button"
+                    aria-label={t('inbox.photoAdd')}
+                    title={t('inbox.photoAdd')}
+                    onClick={() => picker.current?.click()}
+                    className="inline-flex size-11 shrink-0 items-center justify-center rounded-xl text-content-secondary ring-1 ring-border-subtle hover:bg-surface-sunken"
+                  >
+                    <ImagePlus className="size-5" />
+                  </button>
                   <Textarea
                     ref={box}
                     value={draft}
@@ -416,7 +495,7 @@ function Conversations({
                     aria-label={t('inbox.send')}
                     icon={<SendHorizontal className="rtl:-scale-x-100" />}
                     loading={sending}
-                    disabled={!draft.trim()}
+                    disabled={!draft.trim() && !photo}
                     onClick={() => void send()}
                     className="h-11 shrink-0"
                   >
