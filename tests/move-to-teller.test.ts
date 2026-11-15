@@ -26,6 +26,7 @@ describe('moving a deal to a teller', () => {
     assert.equal(moveRefusal(deal(), 'teller', 'today'), null);
     assert.equal(moveRefusal(deal({ status: 'PENDING_TRANSFER' }), 'teller', 'today'), null);
     assert.equal(moveRefusal(deal({ type: 'WALLET_CASHOUT' }), 'teller', 'today'), null);
+    assert.equal(moveRefusal(deal({ type: 'USDT_RECEIVE' }), 'teller', 'today'), null);
   });
 
   it('refuses a transfer that has already been sent', () => {
@@ -35,7 +36,7 @@ describe('moving a deal to a teller', () => {
 
   it('refuses anything the machine did not record', () => {
     assert.equal(
-      moveRefusal(deal({ type: 'USDT_RECEIVE' }), 'teller', 'today'),
+      moveRefusal(deal({ type: 'USDT_SALE' }), 'teller', 'today'),
       'errors.moveNotMachineDeal',
     );
   });

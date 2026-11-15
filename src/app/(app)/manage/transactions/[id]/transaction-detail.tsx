@@ -129,7 +129,7 @@ export function TransactionDetail({
   const others = tellers.filter((teller) => teller.id !== transaction.createdById);
   const canMove =
     canReverse &&
-    ['EXCHANGE', 'WALLET_CASHOUT', 'WALLET_TOPUP'].includes(transaction.type) &&
+    ['EXCHANGE', 'WALLET_CASHOUT', 'WALLET_TOPUP', 'USDT_RECEIVE'].includes(transaction.type) &&
     !transaction.transferConfirmedAt &&
     others.length > 0;
 

@@ -2665,7 +2665,7 @@ const en = {
     alreadyPosted: 'This transaction is already posted',
     alreadyReversed: 'This transaction has already been reversed',
     homeCurrencyBase: 'The shekel is never the base. Publish it as {pair}: how many shekels one unit is.',
-    moveNotMachineDeal: 'Only exchange machine deals can be moved',
+    moveNotMachineDeal: 'Only exchange machine deals and USDT receipts can be moved',
     moveSameTeller: 'This deal is already under that teller',
     moveOldDay: 'Only deals from the open day can be moved, because the move is dated today',
     moveNotTeller: 'That person does not work the exchange machine',

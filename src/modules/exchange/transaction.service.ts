@@ -717,6 +717,9 @@ export async function movableTellers(db: DbClient = prisma) {
   });
 }
 
+/** What a teller can be handed: the machine's deals, and USDT taken in at the counter. */
+export const MOVABLE_TYPES = [...MACHINE_TYPES, 'USDT_RECEIVE'] as const;
+
 export type MoveRefusal =
   | 'errors.moveNotMachineDeal'
   | 'errors.notPosted'
@@ -743,7 +746,7 @@ export function moveRefusal(
   tellerId: string,
   openDayId: string,
 ): MoveRefusal | null {
-  if (!(MACHINE_TYPES as readonly string[]).includes(deal.type)) return 'errors.moveNotMachineDeal';
+  if (!(MOVABLE_TYPES as readonly string[]).includes(deal.type)) return 'errors.moveNotMachineDeal';
   if (deal.reversalOfId) return 'errors.cannotReverseReversal';
   if (deal.status !== 'POSTED' && deal.status !== 'PENDING_TRANSFER') return 'errors.notPosted';
   if (deal.transferConfirmedAt) return 'errors.ownReverseSent';
@@ -811,12 +814,29 @@ export async function moveToTeller(
         customerId: original.customerId,
         counterpartyName: original.counterpartyName,
         counterpartyPhone: original.counterpartyPhone,
+        mergedParts: original.mergedParts,
         notes: original.notes,
       },
       actor,
       tx,
       { createdBy: teller.id, quiet: true },
     );
+
+    // USDT taken in is tied to the transfer that brought it and the request it
+    // settled; they follow the deal, or the transfer would read as spoken for by
+    // a deleted deal and the request as unsettled.
+    await tx.chainTransaction.updateMany({
+      where: { linkedTransactionId: id },
+      data: { linkedTransactionId: posted.id },
+    });
+    await tx.chainTransaction.updateMany({
+      where: { mergedTransactionId: id },
+      data: { mergedTransactionId: posted.id },
+    });
+    await tx.usdtDepositRequest.updateMany({
+      where: { transactionId: id },
+      data: { transactionId: posted.id },
+    });
 
     await audit.record(
       {
