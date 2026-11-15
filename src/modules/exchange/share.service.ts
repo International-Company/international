@@ -114,9 +114,13 @@ const SHARE_SELECT = {
   customer: { select: { fullNameAr: true, fullNameEn: true, phone: true } },
   payoutWallet: { select: { network: true } },
   createdAt: true,
+  branch: { select: { nameAr: true, nameEn: true } },
+  createdBy: { select: { fullNameAr: true, fullNameEn: true } },
 } as const;
 
 type ShareRow = {
+  reference?: string;
+  status?: string;
   type: string;
   fromCurrency: string;
   fromAmount: bigint;
@@ -137,6 +141,8 @@ type ShareRow = {
   customer: { fullNameAr: string; fullNameEn: string; phone: string | null } | null;
   payoutWallet: { network: string } | null;
   createdAt?: Date;
+  branch?: { nameAr: string; nameEn: string } | null;
+  createdBy?: { fullNameAr: string; fullNameEn: string } | null;
 };
 
 /** The currency as the message says it, for each code the rows use. */
@@ -355,24 +361,31 @@ export async function shareable(
             : null,
     detailText:
       DETAILED_KIND[transaction.type] && (await settings.getBoolean('whatsapp.dealDetailed', db))
-        ? detailedDeal(transaction, locale, units.get(transaction.toCurrency)!)
+        ? detailedDeal(transaction, locale, company ?? '')
         : null,
   };
 }
 
-/** The kinds the group is sent in full, and the word for each that heads the message. */
+/** The kinds the group is sent in full, and the name each is given at the top. */
 const DETAILED_KIND: Record<string, { ar: string; en: string }> = {
-  EXCHANGE: { ar: 'صرافة', en: 'Exchange' },
-  WALLET_CASHOUT: { ar: 'صرافة', en: 'Exchange' },
-  USDT_RECEIVE: { ar: 'استلام يواس', en: 'USDT received' },
+  EXCHANGE: { ar: 'تصريف عملة', en: 'Currency Exchange' },
+  WALLET_CASHOUT: { ar: 'سحب من محفظة', en: 'Wallet Cash-out' },
+  USDT_RECEIVE: { ar: 'استلام USDT', en: 'USDT Received' },
+};
+
+const STATUS_WORDS: Record<string, { ar: string; en: string }> = {
+  POSTED: { ar: 'مرحّلة', en: 'Posted' },
+  PENDING_TRANSFER: { ar: 'بانتظار التحويل', en: 'Awaiting transfer' },
 };
 
 /**
- * A deal for its group, each line saying what it is: the kind, the number, the
- * wallet, the name, the sum, the price, and when. Paid part by transfer and part
- * in notes, it says both, so the transfer is not read as the whole.
+ * A deal for its group, written like its receipt: the office, the kind, the
+ * reference and where it stands; what was taken, the price and what was handed
+ * over; when, where and by whom; and where the transfer goes. Paid part by
+ * transfer and part in notes, it says each, so the transfer is not read as the
+ * whole.
  */
-function detailedDeal(transaction: ShareRow, locale: Locale, unit: string): string {
+function detailedDeal(transaction: ShareRow, locale: Locale, company: string): string {
   const ar = locale === 'ar';
   const phone = transaction.customer?.phone ?? transaction.counterpartyPhone ?? null;
   const who = transaction.customer
@@ -380,56 +393,75 @@ function detailedDeal(transaction: ShareRow, locale: Locale, unit: string): stri
       ? transaction.customer.fullNameAr
       : transaction.customer.fullNameEn
     : transaction.counterpartyName;
-  const figureOf = (value: bigint) =>
-    transaction.toCurrency === 'USDT'
-      ? toDecimalString(value, 2).replace(/\.00$/, '')
-      : wholeAmount(value).toString();
+  const money = (value: bigint, currency: string) => `${currency} ${toDecimalString(value, 2)}`;
   const bank = transaction.payoutBankAmount;
   const cash = transaction.toAmount - bank;
-  const split =
-    bank > 0n && cash > 0n
-      ? ar
-        ? `بنكي ${figureOf(bank)} + نقدي ${figureOf(cash)}`
-        : `bank ${figureOf(bank)} + cash ${figureOf(cash)}`
-      : null;
   const kind = DETAILED_KIND[transaction.type];
-  const coins =
-    transaction.type === 'USDT_RECEIVE'
-      ? ` ${toDecimalString(transaction.fromAmount, 2).replace(/\.?0+$/, '')} USDT`
-      : '';
+  const status = STATUS_WORDS[transaction.status ?? ''];
   // One currency on both sides has no price: what it costs is a fee, not a rate.
   const rate =
     transaction.rate > 0n && transaction.fromCurrency !== transaction.toCurrency
-      ? toDecimalString(transaction.rate, 4).replace(/\.?0+$/, '')
+      ? `1 ${transaction.fromCurrency} = ${toDecimalString(transaction.rate, 4)} ${transaction.toCurrency}`
       : null;
+  // The day and the hour apart, joined the way the receipt writes them: «14 نوفمبر 2026، 15:43».
   const when = transaction.createdAt
-    ? new Intl.DateTimeFormat('en-GB', {
-        timeZone: 'Asia/Hebron',
-        day: '2-digit',
-        month: '2-digit',
-        year: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-        hour12: false,
-      })
-        .format(transaction.createdAt)
-        .replace(',', '')
+    ? [
+        new Intl.DateTimeFormat(ar ? 'ar-u-nu-latn' : 'en-GB', {
+          timeZone: 'Asia/Hebron',
+          day: 'numeric',
+          month: 'long',
+          year: 'numeric',
+        }).format(transaction.createdAt),
+        new Intl.DateTimeFormat('en-GB', {
+          timeZone: 'Asia/Hebron',
+          hour: '2-digit',
+          minute: '2-digit',
+          hour12: false,
+        }).format(transaction.createdAt),
+      ].join(ar ? '، ' : ', ')
     : null;
 
   const line = (labelAr: string, labelEn: string, value: string | null | undefined) =>
     value?.trim() ? `${ar ? labelAr : labelEn}: ${value.trim()}` : null;
+  const block = (...lines: (string | null | undefined)[]) =>
+    lines.filter((entry): entry is string => Boolean(entry?.trim())).join('\n');
+
   return [
-    kind ? `${ar ? kind.ar : kind.en}${coins}` : null,
-    line('الرقم', 'Number', transaction.payoutAccount?.trim() || phone),
-    line('المحفظة', 'Wallet', bank > 0n ? transaction.payoutBankChannel : ar ? 'نقدي' : 'Cash'),
-    line('الاسم', 'Name', who),
-    line('المبلغ', 'Amount', `${figureOf(transaction.toAmount)} ${unit}`),
-    line('مزدوج', 'Split', split),
-    line('سعر الصرف', 'Rate', rate),
-    line('التاريخ', 'Date', when),
+    block(company),
+    block(
+      kind ? (ar ? kind.ar : kind.en) : null,
+      line('الرقم المرجعي', 'Reference', transaction.reference),
+      status ? (ar ? status.ar : status.en) : null,
+    ),
+    block(
+      line('المستلم', 'Received', money(transaction.fromAmount, transaction.fromCurrency)),
+      line('السعر', 'Rate', rate),
+      line('المسلّم', 'Delivered', money(transaction.toAmount, transaction.toCurrency)),
+      bank > 0n && cash > 0n
+        ? line('بنكي', 'By transfer', money(bank, transaction.toCurrency))
+        : null,
+      bank > 0n && cash > 0n ? line('نقدي', 'In cash', money(cash, transaction.toCurrency)) : null,
+      bank === 0n ? line('التسليم', 'Paid', ar ? 'نقدي' : 'In cash') : null,
+    ),
+    block(
+      line('التاريخ', 'Date', when),
+      line('الفرع', 'Branch', ar ? transaction.branch?.nameAr : transaction.branch?.nameEn),
+      line('العميل', 'Customer', who),
+      line(
+        'الموظف',
+        'Teller',
+        ar ? transaction.createdBy?.fullNameAr : transaction.createdBy?.fullNameEn,
+      ),
+    ),
+    bank > 0n
+      ? block(
+          line('البنك / المحفظة', 'Bank / wallet', transaction.payoutBankChannel),
+          line('رقم الحساب', 'Account', transaction.payoutAccount?.trim() || phone),
+        )
+      : null,
   ]
     .filter((entry): entry is string => Boolean(entry))
-    .join('\n');
+    .join('\n\n');
 }
 
 /** The kinds whose transfer alone also goes to the group the office keeps for transfers. */

@@ -42,6 +42,8 @@ type Row = {
   counterpartyPhone: string | null;
   customer: { fullNameAr: string; fullNameEn: string; phone: string | null } | null;
   payoutWallet: { network: string } | null;
+  branch?: { nameAr: string; nameEn: string } | null;
+  createdBy?: { fullNameAr: string; fullNameEn: string } | null;
   createdAt?: Date;
 };
 
@@ -137,6 +139,8 @@ describe('one transfer, as the office writes it', () => {
         toAmount: 980n * UNIT,
         payoutBankAmount: 880n * UNIT,
         createdAt: new Date('2026-11-14T13:43:00Z'),
+        branch: { nameAr: 'المركز الرئيسي', nameEn: 'Main' },
+        createdBy: { fullNameAr: 'موظف الواجهة', fullNameEn: 'Teller' },
       }),
     ]);
     const { text, copyText, detailText } = await shareable('t1', 'ar', db);
@@ -145,26 +149,38 @@ describe('one transfer, as the office writes it', () => {
     assert.equal(
       detailText,
       [
-        'استلام يواس 50.5 USDT',
-        'الرقم: 0592946938',
-        'المحفظة: بال باي',
-        'الاسم: احمد عمر',
-        'المبلغ: 980 شيكل',
-        'مزدوج: بنكي 880 + نقدي 100',
-        'سعر الصرف: 3.5',
-        'التاريخ: 14/11/2026 15:43',
+        'شركة انترنشونال للخدمات المالية والمجوهرات',
+        '',
+        'استلام USDT',
+        'الرقم المرجعي: TXN-20261022-00001',
+        'مرحّلة',
+        '',
+        'المستلم: USDT 50.50',
+        'السعر: 1 USDT = 3.5000 ILS',
+        'المسلّم: ILS 980.00',
+        'بنكي: ILS 880.00',
+        'نقدي: ILS 100.00',
+        '',
+        'التاريخ: 14 نوفمبر 2026، 15:43',
+        'الفرع: المركز الرئيسي',
+        'العميل: احمد عمر',
+        'الموظف: موظف الواجهة',
+        '',
+        'البنك / المحفظة: بال باي',
+        'رقم الحساب: 0592946938',
       ].join('\n'),
     );
   });
 
-  it('says a deal paid wholly in notes went in cash, in full', async () => {
+  it('says a deal paid wholly in notes went in cash, with no bank lines', async () => {
     const { db } = fakeDb([
       row({ status: 'POSTED', type: 'EXCHANGE', payoutBankAmount: 0n, payoutBankChannel: null }),
     ]);
     const lines = (await shareable('t1', 'ar', db)).detailText!.split('\n');
-    assert.equal(lines[0], 'صرافة');
-    assert.ok(lines.includes('المحفظة: نقدي'));
-    assert.ok(lines.includes('المبلغ: 320 شيكل'));
+    assert.ok(lines.includes('تصريف عملة'));
+    assert.ok(lines.includes('التسليم: نقدي'));
+    assert.ok(lines.includes('المسلّم: ILS 320.00'));
+    assert.ok(!lines.some((line) => line.startsWith('البنك / المحفظة')));
   });
 
   it('sends no details when the office turned them off', async () => {
