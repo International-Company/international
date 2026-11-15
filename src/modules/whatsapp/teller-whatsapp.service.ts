@@ -3,6 +3,9 @@ import makeWASocket, {
   Browsers,
   DisconnectReason,
   fetchLatestBaileysVersion,
+  isJidBroadcast,
+  isJidGroup,
+  isJidNewsletter,
   normalizeMessageContent,
   type BinaryNode,
   type WASocket,
@@ -137,6 +140,15 @@ async function open(userId: string): Promise<void> {
     printQRInTerminal: false,
     markOnlineOnConnect: false,
     syncFullHistory: false,
+    /*
+     * A teller's own number is in their family's groups, hears every contact's
+     * status, and carries years of history. None of it is a customer writing to
+     * them, and decrypting it all, and keeping a key for every member of every
+     * group, held up the whole server. It is acknowledged and dropped unread.
+     */
+    shouldIgnoreJid: (jid) =>
+      Boolean(isJidGroup(jid) || isJidBroadcast(jid) || isJidNewsletter(jid)),
+    shouldSyncHistoryMessage: () => false,
     defaultQueryTimeoutMs: 15_000,
     ...(version ? { version } : {}),
   });

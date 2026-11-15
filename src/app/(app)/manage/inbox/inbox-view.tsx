@@ -152,14 +152,26 @@ function Conversations({
 
   useEffect(() => {
     void load();
-    const timer = setInterval(() => void load(), 8_000);
-    return () => clearInterval(timer);
+    // A tab nobody is looking at asks nothing; it catches up when it is shown.
+    const timer = setInterval(() => {
+      if (!document.hidden) void load();
+    }, 10_000);
+    const shown = () => {
+      if (!document.hidden) void load();
+    };
+    document.addEventListener('visibilitychange', shown);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener('visibilitychange', shown);
+    };
   }, [load]);
 
   useEffect(() => {
     if (!selected) return;
     void read(selected);
-    const timer = setInterval(() => void read(selected), 4_000);
+    const timer = setInterval(() => {
+      if (!document.hidden) void read(selected);
+    }, 5_000);
     return () => clearInterval(timer);
   }, [selected, read]);
 
@@ -649,7 +661,12 @@ function MyNumber() {
   const settled = link?.status === 'CONNECTED' || link?.status === 'OFF';
   useEffect(() => {
     void read();
-    const timer = setInterval(() => void read(), settled ? 20_000 : 2_000);
+    const timer = setInterval(
+      () => {
+        if (!document.hidden) void read();
+      },
+      settled ? 30_000 : 2_000,
+    );
     return () => clearInterval(timer);
   }, [read, settled]);
 

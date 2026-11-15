@@ -4,6 +4,9 @@ import makeWASocket, {
   DisconnectReason,
   downloadMediaMessage,
   fetchLatestBaileysVersion,
+  isJidBroadcast,
+  isJidGroup,
+  isJidNewsletter,
   normalizeMessageContent,
   toNumber,
   type BinaryNode,
@@ -209,6 +212,15 @@ async function open(account: Account): Promise<void> {
     printQRInTerminal: false,
     markOnlineOnConnect: false,
     syncFullHistory: false,
+    /*
+     * Contacts' statuses and channels are nobody's message to the office, and the
+     * private number answers people, never groups. Each is acknowledged and
+     * dropped before it is decrypted, which is most of the work a number does.
+     */
+    shouldIgnoreJid: (jid) =>
+      Boolean(
+        isJidBroadcast(jid) || isJidNewsletter(jid) || (account === 'private' && isJidGroup(jid)),
+      ),
     /*
      * The library reads messages one at a time and, for one it cannot open,
      * asks WhatsApp about the sender. Unanswered, each question held every
