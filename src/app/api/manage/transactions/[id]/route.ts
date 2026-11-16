@@ -1,6 +1,8 @@
 import { z } from 'zod';
 import { route } from '@/core/http/route';
 import * as transactions from '@/modules/exchange/transaction.service';
+import { transferChannels } from '@/modules/exchange/machine.service';
+import { parseMoney } from '@/core/money/money';
 
 const paramsSchema = z.object({ id: z.string().min(1) });
 
@@ -25,6 +27,12 @@ const bodySchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('moveToTeller'), tellerId: z.string().min(1) }),
   // No amount correction: a posted figure that is wrong is reversed and the
   // trade recorded again, so the drawer only ever moves by a whole transaction.
+  // How a remittance sent was paid: the part by transfer and into which account, the rest notes.
+  z.object({
+    action: z.literal('changeIntake'),
+    transfer: z.string().max(40),
+    channel: z.string().max(120).nullish(),
+  }),
   z.object({
     action: z.literal('edit'),
     notes: z.string().max(1000).nullish(),
@@ -46,6 +54,13 @@ export const POST = route<z.infer<typeof bodySchema>, unknown, z.infer<typeof pa
         return transactions.reverse(params.id, body.reason, actor);
       case 'confirmTransfer':
         return transactions.confirmTransfer(params.id, actor);
+      case 'changeIntake':
+        return transactions.changeIntake(
+          params.id,
+          { broker: parseMoney(body.transfer || '0'), channel: body.channel ?? null },
+          await transferChannels(),
+          actor,
+        );
       case 'moveToTeller':
         return transactions.moveToTeller(params.id, body.tellerId, actor);
       case 'edit':

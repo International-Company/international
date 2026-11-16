@@ -153,6 +153,33 @@ type ShareRow = {
   createdBy?: { fullNameAr: string; fullNameEn: string } | null;
 };
 
+/**
+ * How a remittance sent was paid for, in one line for the group: the line a cash
+ * one opens with, and what replaces it once the payment is put right.
+ */
+export async function intakeNote(id: string, db: DbClient = prisma): Promise<string | null> {
+  const row = await db.transaction.findUnique({
+    where: { id },
+    select: {
+      fromCurrency: true,
+      fromAmount: true,
+      intakeCashAmount: true,
+      intakeBrokerAmount: true,
+      intakeBankChannel: true,
+    },
+  });
+  if (!row) return null;
+  const unit = (await unitsFor([row.fromCurrency], 'ar', db)).get(row.fromCurrency)!;
+  const total = `${wholeAmount(row.fromAmount)} ${unit}`;
+  const bank = row.intakeBrokerAmount;
+  if (bank <= 0n) return `استلمت ${total} نقدي`;
+  const into = row.intakeBankChannel ? ` — ${row.intakeBankChannel}` : '';
+  const cash = row.fromAmount - bank;
+  return cash > 0n
+    ? `استلمت ${total}: تحويل ${wholeAmount(bank)}${into} + نقدي ${wholeAmount(cash)}`
+    : `استلمت ${total} تحويل${into}`;
+}
+
 /** The currency as the message says it, for each code the rows use. */
 async function unitsFor(
   codes: string[],

@@ -9,6 +9,7 @@ import {
   ArrowUpRight,
   Camera,
   Check,
+  Landmark,
   Pencil,
   Printer,
   Undo2,
@@ -85,6 +86,14 @@ interface TransactionData {
   movements: Movement[];
 }
 
+/** A stored amount (scaled by 1e8) as typed: "500", "12.5". Exact, with no float in between. */
+function plainFigure(scaled: string): string {
+  const digits = scaled.replace(/^-/, "").padStart(9, "0");
+  const whole = digits.slice(0, -8).replace(/^0+(?=d)/, "");
+  const fraction = digits.slice(-8).replace(/0+$/, "");
+  return fraction ? `${whole}.${fraction}` : whole;
+}
+
 interface AuditEntry {
   id: number;
   at: string;
@@ -99,6 +108,7 @@ export function TransactionDetail({
   history,
   proofs,
   tellers,
+  channels = [],
   permissions,
 }: {
   transaction: TransactionData;
@@ -107,6 +117,8 @@ export function TransactionDetail({
   proofs: { id: string; kind: string; createdAt: string }[];
   /** Who a deal can be moved to; empty for anyone who cannot move one. */
   tellers: { id: string; fullNameAr: string; fullNameEn: string }[];
+  /** The office's accounts a remittance's payment can be put right to. */
+  channels?: string[];
   permissions: string[];
 }) {
   const { t, ln } = useLocale();
@@ -245,6 +257,56 @@ export function TransactionDetail({
       });
       toast.success(t('common.saved'), transaction.reference);
       setEditing(false);
+      router.refresh();
+    } catch (cause) {
+      toast.error(
+        t('errors.title'),
+        cause instanceof ApiError
+          ? say(t, cause.messageKey, cause.params) || cause.message
+          : t('errors.generic'),
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  /*
+   * How a remittance sent was paid, put right: notes that were a transfer, or
+   * the reverse. The drawers move by the difference and the group is told.
+   */
+  const canChangeIntake =
+    canEdit &&
+    transaction.type === 'REMITTANCE_OUT' &&
+    (transaction.status === 'POSTED' || transaction.status === 'PENDING_TRANSFER');
+  const [changingIntake, setChangingIntake] = useState(false);
+  const [intakeVia, setIntakeVia] = useState<'CASH' | 'TRANSFER' | 'SPLIT'>('CASH');
+  const [intakeChannel, setIntakeChannel] = useState('');
+  const [intakePart, setIntakePart] = useState('');
+
+  const openIntake = () => {
+    const broker = Number(transaction.intakeBrokerAmount);
+    const total = Number(transaction.fromAmount);
+    setIntakeVia(broker <= 0 ? 'TRANSFER' : broker >= total ? 'CASH' : 'SPLIT');
+    setIntakeChannel(transaction.intakeBankChannel ?? channels[0] ?? '');
+    setIntakePart(broker > 0 && broker < total ? plainFigure(transaction.intakeBrokerAmount) : '');
+    setChangingIntake(true);
+  };
+
+  const saveIntake = async () => {
+    setBusy(true);
+    try {
+      await api.post(`/api/manage/transactions/${transaction.id}`, {
+        action: 'changeIntake',
+        transfer:
+          intakeVia === 'CASH'
+            ? '0'
+            : intakeVia === 'TRANSFER'
+              ? plainFigure(transaction.fromAmount)
+              : intakePart.trim() || '0',
+        channel: intakeVia === 'CASH' ? null : intakeChannel,
+      });
+      toast.success(t('common.saved'), transaction.reference);
+      setChangingIntake(false);
       router.refresh();
     } catch (cause) {
       toast.error(
@@ -520,6 +582,11 @@ export function TransactionDetail({
                   {t('transactions.editDetails')}
                 </Button>
               )}
+              {canChangeIntake && (
+                <Button variant="secondary" fullWidth icon={<Landmark />} onClick={openIntake}>
+                  {t('transactions.changeIntake')}
+                </Button>
+              )}
               {canMove && (
                 <Button
                   variant="secondary"
@@ -720,6 +787,75 @@ export function TransactionDetail({
           )}
         </Field>
       </ConfirmDialog>
+
+      {/* --- How a remittance sent was paid -------------------------------- */}
+      <Dialog
+        open={changingIntake}
+        onClose={() => setChangingIntake(false)}
+        title={t('transactions.changeIntake')}
+        description={t('transactions.changeIntakeHint')}
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setChangingIntake(false)} disabled={busy}>
+              {t('common.cancel')}
+            </Button>
+            <Button variant="primary" loading={busy} onClick={() => void saveIntake()}>
+              {t('common.save')}
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-3">
+          <div className="grid grid-cols-3 gap-1 rounded-full bg-surface-sunken p-1">
+            {(['CASH', 'TRANSFER', 'SPLIT'] as const).map((option) => (
+              <button
+                key={option}
+                type="button"
+                aria-pressed={intakeVia === option}
+                disabled={option !== 'CASH' && channels.length === 0}
+                onClick={() => setIntakeVia(option)}
+                className={cn(
+                  'h-9 rounded-full text-sm font-medium transition-colors disabled:opacity-40',
+                  intakeVia === option
+                    ? 'bg-surface text-content shadow-[var(--shadow-sm)]'
+                    : 'text-content-tertiary hover:text-content-secondary',
+                )}
+              >
+                {option === 'CASH'
+                  ? t('machine.intakeCash')
+                  : option === 'TRANSFER'
+                    ? t('machine.intakeTransfer')
+                    : t('machine.intakeSplit')}
+              </button>
+            ))}
+          </div>
+          {intakeVia !== 'CASH' && (
+            <Field label={t('machine.intakeInto')}>
+              {(props) => (
+                <Select
+                  {...props}
+                  options={channels.map((entry) => ({ value: entry, label: entry }))}
+                  value={intakeChannel}
+                  onChange={(event) => setIntakeChannel(event.target.value)}
+                />
+              )}
+            </Field>
+          )}
+          {intakeVia === 'SPLIT' && (
+            <Field label={`${t('machine.intakeBankLeg')} (${transaction.fromCurrency})`}>
+              {(props) => (
+                <Input
+                  {...props}
+                  dir="ltr"
+                  inputMode="decimal"
+                  value={intakePart}
+                  onChange={(event) => setIntakePart(event.target.value)}
+                />
+              )}
+            </Field>
+          )}
+        </div>
+      </Dialog>
 
       {/* --- The parts that never moved money ---------------------------- */}
       <Dialog

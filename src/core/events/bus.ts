@@ -36,6 +36,8 @@ export interface DomainEvents {
    * is in the group's message (name, number, wallet or account), not a note alone.
    */
   'transaction.edited': { transactionId: string; actorId: string; told: boolean };
+  /** How the customer paid was put right: notes, a transfer, or both. `wasCash` before. */
+  'transaction.intakeChanged': { transactionId: string; actorId: string; wasCash: boolean };
 
   'rate.changed': { baseCode: string; quoteCode: string; rateId: string; actorId: string };
 

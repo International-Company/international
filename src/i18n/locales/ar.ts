@@ -276,6 +276,9 @@ const ar: Dictionary = {
     transferredTo: 'حُوِّل إلى',
     editDetails: 'تعديل البيانات',
     payoutChannelEdit: 'المحفظة أو البنك',
+    changeIntake: 'تعديل طريقة الاستلام',
+    changeIntakeHint:
+      'كيف دفع العميل فعلاً: نقداً، أو بتحويل إلى حساب المكتب، أو الاثنين. يُصحَّح الدرج ورصيد البنك بالفرق، ويُعدَّل سطر الاستلام في القروب.',
     payoutAccountEdit: 'رقم الحساب أو المحفظة',
     editDetailsHint: 'ما لم يحرّك مالاً فقط. أما المبالغ والسعر والعملات فتُصحَّح لا تُعدَّل.',
     correct: 'تصحيح المبلغ',
@@ -2688,6 +2691,7 @@ const ar: Dictionary = {
     walletOpCurrency: 'خدمات المحفظة للعملات البنكية فقط',
     walletOpFee: 'العمولة يجب أن تكون صفراً أو أكثر، وأقل من المبلغ في السحب',
     transferChannelUnknown: '{channel} ليست جهة يعرضها الشباك',
+    intakeNotChangeable: 'طريقة الاستلام تُعدَّل في الحوالة الصادرة فقط',
     cannotEditReversal: 'العملية العكسية تحمل سبب عكسها، ولا تُعدَّل',
     nothingToCorrect: 'هذا هو المبلغ المسجّل أصلاً',
     drawerExists: 'يوجد صندوق بالفعل لـ {currency}',

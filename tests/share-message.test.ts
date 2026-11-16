@@ -3,7 +3,7 @@ import './support/test-env.ts';
 
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { pendingTransfers, shareable } from '../src/modules/exchange/share.service.ts';
+import { intakeNote, pendingTransfers, shareable } from '../src/modules/exchange/share.service.ts';
 import { invalidateSettingsCache } from '../src/modules/settings/settings.service.ts';
 
 /**
@@ -324,6 +324,42 @@ describe('a remittance received, as the group reads it', () => {
       false,
     );
     assert.equal(text.at(-2), 'المستحق: 149 شيكل');
+  });
+});
+
+describe('how a remittance sent was paid, in one line', () => {
+  const sent = (patch: Record<string, unknown> = {}) =>
+    ({
+      ...row(),
+      type: 'REMITTANCE_OUT',
+      fromCurrency: 'ILS',
+      fromAmount: 500n * UNIT,
+      intakeCashAmount: 500n * UNIT,
+      intakeBrokerAmount: 0n,
+      intakeBankChannel: null,
+      ...patch,
+    }) as unknown as Row;
+
+  it('says notes, as a cash one opens with', async () => {
+    const { db } = fakeDb([sent()]);
+    assert.equal(await intakeNote('t1', db), 'استلمت 500 شيكل نقدي');
+  });
+
+  it('says a transfer, and into which account', async () => {
+    const { db } = fakeDb([
+      sent({ intakeCashAmount: 0n, intakeBrokerAmount: 500n * UNIT, intakeBankChannel: 'بنك فلسطين' }),
+    ]);
+    assert.equal(await intakeNote('t1', db), 'استلمت 500 شيكل تحويل — بنك فلسطين');
+  });
+
+  it('says each part of one paid both ways', async () => {
+    const { db } = fakeDb([
+      sent({ intakeCashAmount: 200n * UNIT, intakeBrokerAmount: 300n * UNIT, intakeBankChannel: 'بال باي' }),
+    ]);
+    assert.equal(
+      await intakeNote('t1', db),
+      'استلمت 500 شيكل: تحويل 300 — بال باي + نقدي 200',
+    );
   });
 });
 

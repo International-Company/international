@@ -6,7 +6,7 @@ import { createBotLogger } from '@/modules/whatsapp/bot-issues';
 import { HOME_CURRENCY } from '@/lib/home-currency';
 import { TRANSACTION_TYPE_META, type TransactionType } from '@/modules/exchange/transaction-types';
 import * as settings from '@/modules/settings/settings.service';
-import { shareable, type Shareable } from '@/modules/exchange/share.service';
+import { intakeNote, shareable, type Shareable } from '@/modules/exchange/share.service';
 import {
   composeWithdrawal,
   composeWithdrawalDeleted,
@@ -739,6 +739,50 @@ export function registerWhatsappSubscribers(): void {
       edit: editSent,
       reply: replyToSent,
     });
+  });
+
+  /*
+   * The payment put right. A cash remittance went out opening with what was
+   * taken in notes: that line is rewritten while WhatsApp allows it, and
+   * otherwise corrected in a reply. Either way the deal carries the edit mark.
+   */
+  on('transaction.intakeChanged', 'whatsapp-announce-intake', async ({ transactionId, wasCash }) => {
+    if (!(await settings.getBoolean('whatsapp.enabled')) || !isLinked()) return;
+    const deal = await prisma.transaction.findUnique({
+      where: { id: transactionId },
+      select: {
+        reference: true,
+        status: true,
+        createdAt: true,
+        announcedChat: true,
+        announcedMessageId: true,
+        copyChat: true,
+        copyMessageId: true,
+      },
+    });
+    if (!deal || deal.status === 'REVERSED') return;
+    await markMessages(deal, EDITED_MARK);
+    if (!deal.announcedChat || !deal.announcedMessageId) return;
+    const note = await intakeNote(transactionId);
+    if (!note) return;
+    // The line itself only when it went out as words: a payment photo's caption cannot be edited here.
+    const openedWithPhoto =
+      (await prisma.transactionProof.count({ where: { transactionId, kind: 'PAYMENT' } })) > 0;
+    const fresh = Date.now() - deal.createdAt.getTime() < EDIT_WINDOW_MS;
+    if (wasCash && !openedWithPhoto && fresh) {
+      try {
+        await editSent(deal.announcedChat, deal.announcedMessageId, note);
+        return;
+      } catch (error) {
+        log.warn('Could not edit how a deal was paid; correcting it in a reply', {
+          reference: deal.reference,
+          error,
+        });
+      }
+    }
+    await replyToSent(deal.announcedChat, deal.announcedMessageId, `${CORRECTION_HEAD}\n\n${note}`).catch(
+      (error) => log.warn('Could not correct how a deal was paid', { reference: deal.reference, error }),
+    );
   });
 
   on(

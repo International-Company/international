@@ -274,6 +274,9 @@ const en = {
     transferredTo: 'Transferred to',
     editDetails: 'Edit details',
     payoutChannelEdit: 'Wallet or bank',
+    changeIntake: 'Change how it was paid',
+    changeIntakeHint:
+      'How the customer really paid: notes, a transfer into an office account, or both. The drawer and the bank balance move by the difference, and the line in the group is put right.',
     payoutAccountEdit: 'Account or wallet number',
     editDetailsHint: 'Only what never moved money. The amounts, the rate and the currencies are corrected, not edited.',
     correct: 'Correct the amount',
@@ -2689,6 +2692,7 @@ const en = {
     intakeTransferNoException: 'A broken price cannot be used on a deal paid by transfer',
     walletOpCurrency: 'Wallet services are for bank currencies only',
     walletOpFee: 'The fee must be zero or more, and less than the amount on a cash-out',
+    intakeNotChangeable: 'Only a remittance sent has its payment changed',
     transferChannelUnknown: '{channel} is not a destination the counter offers',
     cannotEditReversal: 'A reversal carries the reason it was made; it is not edited',
     nothingToCorrect: 'That is the amount already recorded',

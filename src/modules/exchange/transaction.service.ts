@@ -1051,6 +1051,193 @@ export async function updateDetails(
   return { id: updated.id, reference: updated.reference };
 }
 
+/** The deals whose payment can be put right in place: a remittance sent. */
+export const INTAKE_CHANGEABLE = ['REMITTANCE_OUT'] as const;
+
+/**
+ * How the customer paid for a remittance, put right after it was recorded:
+ * notes taken that were really a transfer into an office account, or the reverse.
+ *
+ * Unlike the rest of a deal's money this is changed in place, because nothing
+ * about the deal itself changes — the same sum, the same price, the same
+ * customer, the same message in the group. Only where the money landed was
+ * written wrong. So the drawers are moved by the difference, against this same
+ * deal, and its two legs are rewritten to match: the movements under it still
+ * add up to what the row says, and a later reversal undoes what the row now says.
+ *
+ * `allowed` is the counter's list of accounts, read by the caller.
+ */
+export async function changeIntake(
+  id: string,
+  change: { broker: bigint; channel: string | null },
+  allowed: string[],
+  actor: Actor,
+  db: DbClient = prisma,
+): Promise<{ id: string; reference: string }> {
+  const anyone = actor.permissions.includes('exchange.transaction.edit');
+  if (!anyone && !actor.permissions.includes('exchange.transaction.editOwn')) {
+    throw errors.forbidden('exchange.transaction.edit');
+  }
+
+  const result = await withTransaction(async (tx) => {
+    const original = await tx.transaction.findUnique({ where: { id } });
+    if (!original) throw errors.notFound('Transaction', id);
+    if (!anyone && original.createdById !== actor.id) {
+      throw errors.forbidden('exchange.transaction.edit');
+    }
+    if (!(INTAKE_CHANGEABLE as readonly string[]).includes(original.type)) {
+      throw errors.precondition(
+        'Only a remittance sent has its payment changed',
+        'errors.intakeNotChangeable',
+      );
+    }
+    if (original.reversalOfId) {
+      throw errors.conflict('A reversal cannot itself be changed', 'errors.cannotEditReversal');
+    }
+    if (original.status !== 'POSTED' && original.status !== 'PENDING_TRANSFER') {
+      throw errors.conflict('Only a posted transaction can be changed', 'errors.notPosted');
+    }
+
+    const total = original.fromAmount;
+    const broker = change.broker;
+    if (broker < 0n || broker > total) {
+      throw errors.precondition('The transfer is more than was paid', 'errors.intakeDoesNotBalance');
+    }
+    const channel = broker > 0n ? change.channel?.trim() || '' : null;
+    if (channel !== null) {
+      if (!channel) {
+        throw errors.precondition(
+          'Say which account it came into',
+          'errors.transferChannelRequired',
+        );
+      }
+      if (!allowed.includes(channel)) {
+        throw errors.precondition(
+          `${channel} is not a destination the counter offers`,
+          'errors.transferChannelUnknown',
+          { channel },
+        );
+      }
+      // A transfer belongs to someone who can be reached, as when it was recorded.
+      const customerPhone = original.customerId
+        ? (await tx.customer.findUnique({ where: { id: original.customerId } }))?.phone
+        : null;
+      if (!customerPhone?.trim() && !original.counterpartyPhone?.trim()) {
+        throw errors.precondition(
+          'A transfer needs a telephone number for the person it is for',
+          'errors.transferNeedsPhone',
+        );
+      }
+    }
+
+    // What the row said, read the way a reversal reads it.
+    const was =
+      original.intakeCashAmount + original.intakeBrokerAmount === total
+        ? { cash: original.intakeCashAmount, broker: original.intakeBrokerAmount }
+        : { cash: total, broker: 0n };
+    const now = { cash: total - broker, broker };
+    if (
+      was.cash === now.cash &&
+      was.broker === now.broker &&
+      (was.broker === 0n || original.intakeBankChannel === channel)
+    ) {
+      return { original, changed: false, wasCash: was.broker === 0n };
+    }
+
+    const day = await requireOpenDay(original.branchId, new Date(), tx, actor);
+    if (!anyone && original.businessDayId !== day.id) {
+      throw errors.conflict(
+        'Only a deal from the open day can be changed',
+        'errors.ownReverseOldDay',
+      );
+    }
+
+    // Whose cash it was: the drawer it went into, or the treasury once that shift closed.
+    const movedCash = await tx.drawerMovement.findFirst({
+      where: { transactionId: id, drawer: { kind: 'CASH' } },
+      select: { drawer: { select: { ownerKey: true } } },
+    });
+    const tellerId = movedCash ? drawers.ownerTellerId(movedCash.drawer.ownerKey) : null;
+    const cashOwner = tellerId
+      ? await cashOwnerFor(tellerId, tx)
+      : await cashOwnerFor(original.createdById, tx);
+
+    const common = {
+      currency: original.fromCurrency,
+      reason: 'TRANSACTION' as const,
+      transactionId: id,
+      businessDayId: day.id,
+    };
+    const movements: drawers.Movement[] = [];
+    // The cash by the difference; the transfer taken off the account it was on and put on the new one.
+    if (now.cash !== was.cash) {
+      movements.push({
+        ...common,
+        kind: 'CASH',
+        owner: cashOwner,
+        direction: now.cash > was.cash ? 'IN' : 'OUT',
+        amount: now.cash > was.cash ? now.cash - was.cash : was.cash - now.cash,
+      });
+    }
+    if (was.broker > 0n) {
+      movements.push({
+        ...common,
+        kind: 'BROKER',
+        account: original.intakeBankChannel,
+        direction: 'OUT',
+        amount: was.broker,
+      });
+    }
+    if (now.broker > 0n) {
+      movements.push({ ...common, kind: 'BROKER', account: channel, direction: 'IN', amount: now.broker });
+    }
+    await drawers.move(movements, actor, tx);
+
+    await tx.transaction.update({
+      where: { id },
+      data: {
+        intakeCashAmount: now.cash,
+        intakeBrokerAmount: now.broker,
+        intakeBankChannel: now.broker > 0n ? channel : null,
+      },
+    });
+
+    await audit.record(
+      {
+        action: 'UPDATE',
+        module: 'exchange',
+        entityType: 'Transaction',
+        entityId: id,
+        summaryEn: `Changed how ${original.reference} was paid`,
+        summaryAr: `تعديل طريقة استلام العملية ${original.reference}`,
+        actor,
+        before: {
+          intakeCash: toDecimalString(was.cash, 2),
+          intakeTransfer: toDecimalString(was.broker, 2),
+          intakeChannel: original.intakeBankChannel,
+        },
+        after: {
+          intakeCash: toDecimalString(now.cash, 2),
+          intakeTransfer: toDecimalString(now.broker, 2),
+          intakeChannel: now.broker > 0n ? channel : null,
+        },
+      },
+      tx,
+    );
+    return { original, changed: true, wasCash: was.broker === 0n };
+  }, db);
+
+  if (result.changed) {
+    log.info('Transaction payment changed', { reference: result.original.reference });
+    emitAsync('transaction.intakeChanged', {
+      transactionId: id,
+      actorId: actor.id,
+      wasCash: result.wasCash,
+    });
+  }
+  return { id, reference: result.original.reference };
+}
+
 /**
  * Records that a promised bank transfer actually left.
  *
