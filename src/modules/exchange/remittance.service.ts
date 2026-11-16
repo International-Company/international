@@ -133,6 +133,11 @@ export interface ReceiveInput extends Common {
   paid: bigint;
   /** What the correspondent credits the branch for handling it. */
   credited: bigint;
+  /** What the sender paid abroad, in the money they paid it in — 1500 جنيه. For showing only. */
+  sentAmount?: bigint | null;
+  sentUnit?: string | null;
+  /** A photo of the notice of the transfer, as base64. */
+  notice?: string | null;
 }
 
 async function check(input: Common, amounts: bigint[], db: DbClient): Promise<void> {
@@ -415,6 +420,7 @@ function readProof_(base64: string) {
 /** Which deals take which photos afterwards, and who may add them. */
 const PHOTOS_BY_TYPE: Record<string, { kinds: ProofKind[]; permission: string }> = {
   REMITTANCE_OUT: { kinds: ['PAYMENT', 'BENEFICIARY'], permission: 'exchange.remittance.use' },
+  REMITTANCE_IN: { kinds: ['NOTICE'], permission: 'exchange.remittance.use' },
   USDT_SALE: { kinds: ['PAYMENT', 'ADDRESS'], permission: 'usdt.withdrawal.use' },
 };
 
@@ -422,6 +428,7 @@ const PHOTO_SUMMARIES: Record<ProofKind, { en: string; ar: string }> = {
   PAYMENT: { en: 'payment', ar: 'دليل الدفع' },
   BENEFICIARY: { en: 'beneficiary', ar: 'بيانات المستفيد' },
   ADDRESS: { en: 'address', ar: 'عنوان التحويل' },
+  NOTICE: { en: 'transfer notice', ar: 'إشعار التحويل' },
 };
 
 /**
@@ -438,7 +445,7 @@ export async function addProof(
   const takes = PHOTOS_BY_TYPE[deal.type];
   if (!takes || !takes.kinds.includes(kind) || deal.status === 'REVERSED') {
     throw errors.precondition(
-      'Only an outgoing remittance or a USDT sale that stands takes a photo',
+      'Only a remittance or a USDT sale that stands takes a photo',
       'errors.proofNotHere',
     );
   }
@@ -510,22 +517,45 @@ export async function receive(input: ReceiveInput, actor: Actor, db: DbClient = 
     );
   }
 
-  return transactions.record(
-    {
-      type: 'REMITTANCE_IN',
-      branchId: input.branchId,
-      customerId: input.customerId ?? null,
-      fromCurrency: input.currency,
-      fromAmount: input.credited,
-      toCurrency: input.currency,
-      toAmount: input.paid,
-      rate: 100000000n,
-      profitAmount: input.credited - input.paid,
-      counterpartyName: input.counterpartyName ?? null,
-      counterpartyPhone: input.counterpartyPhone ?? null,
-      notes: [input.destination.trim(), input.notes?.trim()].filter(Boolean).join(' — '),
-    },
-    actor,
-    db,
-  );
+  // Read before anything is written: a bad photo records no deal.
+  const notice = input.notice ? readProof_(input.notice) : null;
+  const sent = input.sentAmount && input.sentAmount > 0n ? input.sentAmount : null;
+
+  // One transaction, so the deal and its notice are seen together.
+  return withTransaction(async (tx) => {
+    const posted = await transactions.record(
+      {
+        type: 'REMITTANCE_IN',
+        branchId: input.branchId,
+        customerId: input.customerId ?? null,
+        fromCurrency: input.currency,
+        fromAmount: input.credited,
+        toCurrency: input.currency,
+        toAmount: input.paid,
+        rate: 100000000n,
+        profitAmount: input.credited - input.paid,
+        // What the sender paid abroad, shown beside what is paid out here.
+        deliveredAmount: sent,
+        deliveredUnit: sent ? input.sentUnit?.trim() || null : null,
+        counterpartyName: input.counterpartyName ?? null,
+        counterpartyPhone: input.counterpartyPhone ?? null,
+        notes: [input.destination.trim(), input.notes?.trim()].filter(Boolean).join(' — '),
+      },
+      actor,
+      tx,
+    );
+    if (notice) {
+      await tx.transactionProof.create({
+        data: {
+          transactionId: posted.id,
+          kind: 'NOTICE',
+          mimeType: notice.mimeType,
+          size: notice.bytes.length,
+          data: new Uint8Array(notice.bytes),
+          createdById: actor.id,
+        },
+      });
+    }
+    return posted;
+  }, db);
 }

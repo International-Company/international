@@ -41,6 +41,8 @@ const bodySchema = z.object({
   proof: z.string().max(6_000_000).nullish(),
   /** A photo of who the remittance is for, the same way. */
   beneficiary: z.string().max(6_000_000).nullish(),
+  /** Receiving: a photo of the notice of the transfer from abroad, the same way. */
+  notice: z.string().max(6_000_000).nullish(),
 });
 
 export const POST = route<z.infer<typeof bodySchema>>({
@@ -79,7 +81,15 @@ export const POST = route<z.infer<typeof bodySchema>>({
     }
 
     return remittances.receive(
-      { ...common, credited: parseMoney(body.gross), paid: net },
+      {
+        ...common,
+        credited: parseMoney(body.gross),
+        paid: net,
+        // What the sender paid abroad, in what they paid it — 1500 جنيه.
+        sentAmount: body.delivered ? parseMoney(body.delivered) : null,
+        sentUnit: body.deliveredUnit ?? null,
+        notice: body.notice ?? null,
+      },
       actor,
     );
   },

@@ -135,14 +135,18 @@ export function TransactionDetail({
 
   const [addingProof, setAddingProof] = useState(false);
   const isSale = transaction.type === 'USDT_SALE';
+  const incoming = transaction.type === 'REMITTANCE_IN';
   const canAddProof =
-    (transaction.type === 'REMITTANCE_OUT' || isSale) &&
+    (transaction.type === 'REMITTANCE_OUT' || incoming || isSale) &&
     transaction.status !== 'REVERSED' &&
     !transaction.reversalOf &&
     permissions.includes(isSale ? 'usdt.withdrawal.use' : 'exchange.remittance.use') &&
     proofs.length < 5;
 
-  const addProof = async (file: File | undefined, kind: 'PAYMENT' | 'BENEFICIARY' | 'ADDRESS') => {
+  const addProof = async (
+    file: File | undefined,
+    kind: 'PAYMENT' | 'BENEFICIARY' | 'ADDRESS' | 'NOTICE',
+  ) => {
     if (!file) return;
     setAddingProof(true);
     try {
@@ -398,7 +402,7 @@ export function TransactionDetail({
                   </>
                 )}
               {transaction.deliveredAmount && (
-                <DetailRow label={t('remittance.delivered')}>
+                <DetailRow label={incoming ? t('remittance.sentAbroad') : t('remittance.delivered')}>
                   <Money value={transaction.deliveredAmount} currency={transaction.deliveredUnit ?? ''} />
                 </DetailRow>
               )}
@@ -534,7 +538,9 @@ export function TransactionDetail({
                   ['PAYMENT', t('usdtSale.transferPhoto'), t('usdtSale.transferPhotoAttach')],
                   ['ADDRESS', t('usdtSale.addressPhoto'), t('usdtSale.addressPhotoAttach')],
                 ] as const)
-              : ([
+              : incoming
+                ? ([['NOTICE', t('remittance.notice'), t('remittance.noticeAttach')]] as const)
+                : ([
                   ['PAYMENT', t('remittance.proof'), t('remittance.proofAttach')],
                   ['BENEFICIARY', t('remittance.beneficiaryDetails'), t('remittance.beneficiaryAttach')],
                 ] as const)

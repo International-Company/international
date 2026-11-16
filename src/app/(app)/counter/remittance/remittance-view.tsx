@@ -213,8 +213,9 @@ export function RemittanceView({
         destination,
         gross: unscale(grossValue),
         net: netValue > 0n ? unscale(netValue) : null,
-        delivered: outgoing && delivered ? delivered : null,
-        deliveredUnit: outgoing && delivered ? deliveredUnit.trim() : null,
+        // Sending, what reaches the beneficiary; receiving, what the sender paid abroad.
+        delivered: delivered || null,
+        deliveredUnit: delivered ? deliveredUnit.trim() : null,
         counterpartyName: counterpartyName.trim() || null,
         counterpartyPhone: counterpartyPhone.trim() || null,
         notes: notes.trim() || null,
@@ -222,6 +223,7 @@ export function RemittanceView({
         intakeTransfer: split ? unscale(split.broker) : null,
         proof: outgoing ? proof : null,
         beneficiary: outgoing ? beneficiaryPhoto : null,
+        notice: outgoing ? null : proof,
       });
 
       toast.success(t('remittance.recorded'), result.reference);
@@ -305,7 +307,11 @@ export function RemittanceView({
             type="button"
             onClick={() => {
               setQuick(option === 'QUICK');
-              if (option !== 'QUICK') setDirection(option);
+              if (option !== 'QUICK' && option !== direction) {
+                setDirection(option);
+                setProof(null);
+                setDelivered('');
+              }
               setDone(null);
             }}
             aria-pressed={chosen}
@@ -439,13 +445,19 @@ export function RemittanceView({
         />
       </section>
 
-      {/* ============ What reaches them, in what it reaches them in ============ */}
-      {outgoing && (
+      {/*
+        ============ The other money ============
+        Sending, what reaches the beneficiary there; receiving, what the sender
+        paid there. Shown on the deal, never counted.
+      */}
+      {(
         <div className="rounded-2xl bg-surface p-4 ring-1 ring-border-subtle">
           <span className="text-xs font-medium text-content-secondary">
-            {t('remittance.delivered')}
+            {outgoing ? t('remittance.delivered') : t('remittance.sentAbroad')}
           </span>
-          <p className="text-[0.6875rem] text-content-tertiary">{t('remittance.deliveredHint')}</p>
+          <p className="text-[0.6875rem] text-content-tertiary">
+            {outgoing ? t('remittance.deliveredHint') : t('remittance.sentAbroadHint')}
+          </p>
           <div className="mt-2 flex items-center gap-3">
             <input
               aria-label={t('remittance.deliveredUnit')}
@@ -467,7 +479,7 @@ export function RemittanceView({
               inputMode="decimal"
               autoComplete="off"
               data-zoom-safe=""
-              aria-label={t('remittance.delivered')}
+              aria-label={outgoing ? t('remittance.delivered') : t('remittance.sentAbroad')}
               value={delivered}
               placeholder="0"
               onFocus={(event) => event.currentTarget.select()}
@@ -589,6 +601,16 @@ export function RemittanceView({
             </div>
           )}
         </div>
+      )}
+
+      {/* ============ Receiving: the notice of the transfer, optional ============ */}
+      {!outgoing && (
+        <PhotoField
+          label={t('remittance.notice')}
+          attach={t('remittance.noticeAttach')}
+          value={proof}
+          onChange={setProof}
+        />
       )}
 
       {/* ============ What goes with it: two photos, each optional ============ */}
