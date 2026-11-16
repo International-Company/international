@@ -8,7 +8,13 @@ import { markSeen, pauseChat, readConversation, recordMessage } from './bot-stor
 import { keepImage, readyImage } from './chat-images';
 import { candidateNumbers } from './inbox-numbers';
 import { quoteOf } from './wa-quote';
-import { privateNumberAddress, replyPrivately, sendPrivateImage } from './whatsapp.service';
+import { changeRefusal } from './message-change';
+import {
+  changePrivately,
+  privateNumberAddress,
+  replyPrivately,
+  sendPrivateImage,
+} from './whatsapp.service';
 
 const log = createBotLogger('whatsapp-inbox');
 
@@ -93,6 +99,53 @@ export async function answerCustomer(
   });
   await markSeen(conversationId);
   await keepBotOut(thread.chat, phoneJid);
+  return readConversation(conversationId);
+}
+
+/**
+ * A message the office sent, put right for the customer too: new words, or
+ * deleted for everyone. Only within WhatsApp's own windows; see message-change.
+ */
+export async function changeAnswer(
+  conversationId: string,
+  messageId: string,
+  change: { text: string } | { delete: true },
+  actor: { name: string },
+) {
+  const message = await prisma.botMessage.findFirst({
+    where: { id: messageId, conversationId },
+    include: { conversation: { select: { chat: true } } },
+  });
+  if (!message) throw errors.notFound('BotMessage', messageId);
+  const words = 'text' in change ? change.text.trim().slice(0, MAX_ANSWER_LENGTH) : '';
+  if ('text' in change && !words) {
+    throw errors.validation([{ path: 'text', message: 'Write the message' }]);
+  }
+  const refusal = changeRefusal(
+    {
+      ours: message.role !== 'customer',
+      waId: message.waId,
+      mediaKind: message.mediaKind ?? (message.imageId ? 'image' : null),
+      deletedAt: message.deletedAt,
+      createdAt: message.createdAt,
+    },
+    'text' in change ? 'edit' : 'delete',
+  );
+  if (refusal) throw errors.precondition('This message cannot be changed', refusal);
+
+  try {
+    await changePrivately(message.conversation.chat, message.waId!, 'text' in change ? { text: words } : change);
+  } catch (error) {
+    log.warn('Could not change a message to a customer', { error });
+    throw errors.precondition('WhatsApp did not take the change', 'errors.inboxSendFailed');
+  }
+  await prisma.botMessage.update({
+    where: { id: message.id },
+    data: 'text' in change ? { text: words, editedAt: new Date() } : { deletedAt: new Date() },
+  });
+  log.info('text' in change ? 'A message to a customer was edited' : 'A message to a customer was deleted', {
+    by: actor.name,
+  });
   return readConversation(conversationId);
 }
 

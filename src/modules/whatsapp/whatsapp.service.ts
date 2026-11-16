@@ -784,6 +784,22 @@ export async function privateNumberAddress(digits: string): Promise<string | nul
 }
 
 /** Sends a photo, with words under it, from the private number to a person. */
+/**
+ * Changes, for the customer too, a message the private number sent: new words,
+ * or gone, as WhatsApp's own edit and delete-for-everyone do.
+ */
+export async function changePrivately(
+  jid: string,
+  waId: string,
+  change: { text: string } | { delete: true },
+): Promise<void> {
+  const key = { remoteJid: jid, fromMe: true, id: waId };
+  await socketOf('private').sendMessage(
+    jid,
+    'text' in change ? { text: change.text, edit: key } : { delete: key },
+  );
+}
+
 export async function sendPrivateImage(
   jid: string,
   image: Buffer,

@@ -2304,6 +2304,9 @@ model TellerChatMessage {
   waId      String?
   /// The message of this conversation it answered, quoted.
   quotedId  String?
+  /// When its words were changed from the system, and when it was deleted for the customer.
+  editedAt  DateTime?
+  deletedAt DateTime?
   createdAt DateTime   @default(now())
 
   @@index([chatId, createdAt])
@@ -2347,6 +2350,9 @@ model BotMessage {
   waId           String?
   /// The message of this conversation it answered, quoted.
   quotedId       String?
+  /// When its words were changed from the system, and when it was deleted for the customer.
+  editedAt       DateTime?
+  deletedAt      DateTime?
   createdAt      DateTime        @default(now())
 
   @@index([conversationId, createdAt])

@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { route } from '@/core/http/route';
-import { answer, readChat } from '@/modules/whatsapp/teller-whatsapp.service';
+import { answer, changeMine, readChat } from '@/modules/whatsapp/teller-whatsapp.service';
 
 const paramsSchema = z.object({ id: z.string().min(1) });
 
@@ -26,4 +26,18 @@ export const POST = route<z.infer<typeof bodySchema>, unknown, z.infer<typeof pa
   bodySchema,
   handler: async ({ params, body, actor }) =>
     answer(actor.id, params.id, body.text, body.image, body.quoteId),
+});
+
+/** A message the teller sent, edited or deleted for the customer too. */
+const changeSchema = z.union([
+  z.object({ messageId: z.string().min(1).max(40), text: z.string().trim().min(1).max(2000) }),
+  z.object({ messageId: z.string().min(1).max(40), delete: z.literal(true) }),
+]);
+
+export const PATCH = route<z.infer<typeof changeSchema>, unknown, z.infer<typeof paramsSchema>>({
+  permissions: ['customers.whatsapp'],
+  paramsSchema,
+  bodySchema: changeSchema,
+  handler: async ({ params, body, actor }) =>
+    changeMine(actor.id, params.id, body.messageId, 'text' in body ? { text: body.text } : { delete: true }),
 });

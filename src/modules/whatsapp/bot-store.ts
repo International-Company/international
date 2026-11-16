@@ -1,6 +1,7 @@
 import 'server-only';
 import { prisma } from '@/core/db/prisma';
 import { errors } from '@/core/errors/app-error';
+import { changesAllowed } from './message-change';
 import { customerNames, shownName } from './chat-names';
 
 /**
@@ -183,7 +184,7 @@ export async function listConversations() {
       messages: {
         orderBy: { createdAt: 'desc' },
         take: 1,
-        select: { text: true, role: true, imageId: true, mediaKind: true },
+        select: { text: true, role: true, imageId: true, mediaKind: true, deletedAt: true },
       },
     },
   });
@@ -195,8 +196,9 @@ export async function listConversations() {
     name: shownName(row.phone, row.name, records),
     unread: row.unread,
     lastMessageAt: row.lastMessageAt,
-    lastText:
-      row.messages[0]?.text || mediaMark(row.messages[0]?.mediaKind, row.messages[0]?.imageId),
+    lastText: row.messages[0]?.deletedAt
+      ? '🚫'
+      : row.messages[0]?.text || mediaMark(row.messages[0]?.mediaKind, row.messages[0]?.imageId),
     // The customer spoke last: nobody, person or bot, has answered yet.
     awaiting: row.messages[0]?.role === 'customer',
     paused: Boolean(row.pausedUntil && row.pausedUntil > now),
@@ -219,12 +221,15 @@ export async function readConversation(id: string) {
           mediaKind: true,
           waId: true,
           quotedId: true,
+          editedAt: true,
+          deletedAt: true,
           createdAt: true,
         },
       },
     },
   });
   if (!row) throw errors.notFound('BotConversation', id);
+  const now = Date.now();
   const records = await customerNames([row.phone]);
   return {
     id: row.id,
@@ -232,14 +237,33 @@ export async function readConversation(id: string) {
     phone: row.phone,
     name: shownName(row.phone, row.name, records),
     pausedUntil: row.pausedUntil,
-    messages: row.messages.reverse().map(({ waId, imageId, mediaKind, ...message }) => ({
-      ...message,
-      imageId,
-      // Kept before the kind was: every file then was a photo.
-      mediaKind: mediaKind ?? (imageId ? 'image' : null),
-      // Only a message WhatsApp knows by an id can be answered by quoting it.
-      quotable: Boolean(waId),
-    })),
+    messages: row.messages
+      .reverse()
+      .map(({ waId, imageId, mediaKind, editedAt, deletedAt, ...message }) => {
+        const kind = mediaKind ?? (imageId ? 'image' : null);
+        return {
+          ...message,
+          // Deleted for the customer: here only that it was, not what it said.
+          text: deletedAt ? '' : message.text,
+          // Kept before the kind was: every file then was a photo.
+          imageId: deletedAt ? null : imageId,
+          mediaKind: deletedAt ? null : kind,
+          // Only a message WhatsApp knows by an id can be answered by quoting it.
+          quotable: Boolean(waId) && !deletedAt,
+          edited: Boolean(editedAt),
+          deleted: Boolean(deletedAt),
+          ...changesAllowed(
+            {
+              ours: message.role !== 'customer',
+              waId,
+              mediaKind: kind,
+              deletedAt,
+              createdAt: message.createdAt,
+            },
+            now,
+          ),
+        };
+      }),
   };
 }
 

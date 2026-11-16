@@ -22,6 +22,7 @@ import { mediaMark } from './bot-store';
 import { keepImage, keepMedia, MAX_KEPT_MEDIA, readyImage } from './chat-images';
 import { customerNames, shownName } from './chat-names';
 import { quoteOf, quotedStanzaId } from './wa-quote';
+import { changeRefusal, changesAllowed } from './message-change';
 import { candidateNumbers } from './inbox-numbers';
 import { installSignalFilter, isOwnDecryptFailure, countHidden } from './signal-noise';
 
@@ -492,7 +493,7 @@ export async function listChats(ownerId: string) {
       messages: {
         orderBy: { createdAt: 'desc' },
         take: 1,
-        select: { text: true, fromMe: true, imageId: true, mediaKind: true },
+        select: { text: true, fromMe: true, imageId: true, mediaKind: true, deletedAt: true },
       },
     },
   });
@@ -503,8 +504,9 @@ export async function listChats(ownerId: string) {
     name: shownName(row.phone, row.name, records),
     unread: row.unread,
     lastMessageAt: row.lastMessageAt,
-    lastText:
-      row.messages[0]?.text || mediaMark(row.messages[0]?.mediaKind, row.messages[0]?.imageId),
+    lastText: row.messages[0]?.deletedAt
+      ? '🚫'
+      : row.messages[0]?.text || mediaMark(row.messages[0]?.mediaKind, row.messages[0]?.imageId),
     awaiting: row.messages[0] ? !row.messages[0].fromMe : false,
   }));
 }
@@ -529,21 +531,38 @@ export async function readChat(ownerId: string, id: string) {
     await prisma.tellerChat.update({ where: { id: row.id }, data: { unread: 0 } });
   }
   const records = await customerNames([row.phone]);
+  const now = Date.now();
   return {
     id: row.id,
     phone: row.phone,
     name: shownName(row.phone, row.name, records),
-    messages: row.messages.reverse().map((message) => ({
-      id: message.id,
-      role: message.fromMe ? ('staff' as const) : ('customer' as const),
-      text: message.text,
-      imageId: message.imageId,
-      mediaKind: message.mediaKind ?? (message.imageId ? 'image' : null),
-      quotedId: message.quotedId,
-      quotable: Boolean(message.waId),
-      authorName: null,
-      createdAt: message.createdAt,
-    })),
+    messages: row.messages.reverse().map((message) => {
+      const kind = message.mediaKind ?? (message.imageId ? 'image' : null);
+      const deleted = Boolean(message.deletedAt);
+      return {
+        id: message.id,
+        role: message.fromMe ? ('staff' as const) : ('customer' as const),
+        text: deleted ? '' : message.text,
+        imageId: deleted ? null : message.imageId,
+        mediaKind: deleted ? null : kind,
+        quotedId: message.quotedId,
+        quotable: Boolean(message.waId) && !deleted,
+        authorName: null,
+        createdAt: message.createdAt,
+        edited: Boolean(message.editedAt),
+        deleted,
+        ...changesAllowed(
+          {
+            ours: message.fromMe,
+            waId: message.waId,
+            mediaKind: kind,
+            deletedAt: message.deletedAt,
+            createdAt: message.createdAt,
+          },
+          now,
+        ),
+      };
+    }),
   };
 }
 
@@ -591,6 +610,52 @@ export async function answer(
     mediaKind: imageId ? 'image' : null,
     waId,
     quotedWaId: target?.waId ?? null,
+  });
+  return readChat(ownerId, id);
+}
+
+/** A message the teller sent, edited or deleted for the customer too, as on the office's number. */
+export async function changeMine(
+  ownerId: string,
+  id: string,
+  messageId: string,
+  change: { text: string } | { delete: true },
+) {
+  const row = await prisma.tellerChat.findFirst({ where: { id, ownerId } });
+  if (!row) throw errors.notFound('TellerChat', id);
+  const message = await prisma.tellerChatMessage.findFirst({
+    where: { id: messageId, chatId: row.id },
+  });
+  if (!message) throw errors.notFound('TellerChatMessage', messageId);
+  const words = 'text' in change ? change.text.trim().slice(0, MAX_TEXT) : '';
+  if ('text' in change && !words) {
+    throw errors.validation([{ path: 'text', message: 'Write the message' }]);
+  }
+  const refusal = changeRefusal(
+    {
+      ours: message.fromMe,
+      waId: message.waId,
+      mediaKind: message.mediaKind ?? (message.imageId ? 'image' : null),
+      deletedAt: message.deletedAt,
+      createdAt: message.createdAt,
+    },
+    'text' in change ? 'edit' : 'delete',
+  );
+  if (refusal) throw errors.precondition('This message cannot be changed', refusal);
+
+  const key = { remoteJid: row.chat, fromMe: true, id: message.waId! };
+  try {
+    await socketOf(ownerId).sendMessage(
+      row.chat,
+      'text' in change ? { text: words, edit: key } : { delete: key },
+    );
+  } catch (error) {
+    log.warn('A teller message was not changed', { error });
+    throw errors.precondition('WhatsApp did not take the change', 'errors.tellerSendFailed');
+  }
+  await prisma.tellerChatMessage.update({
+    where: { id: message.id },
+    data: 'text' in change ? { text: words, editedAt: new Date() } : { deletedAt: new Date() },
   });
   return readChat(ownerId, id);
 }

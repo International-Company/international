@@ -14,11 +14,13 @@ import {
   FileText,
   ImagePlus,
   MessageSquarePlus,
+  Pencil,
   QrCode,
   Reply,
   Search,
   SendHorizontal,
   Smartphone,
+  Trash2,
   Unlink,
   X,
 } from 'lucide-react';
@@ -53,6 +55,12 @@ interface Message {
   quotedId?: string | null;
   /** Whether it can be answered by quoting it. */
   quotable?: boolean;
+  /** Its words were changed after it went; it was deleted for the customer. */
+  edited?: boolean;
+  deleted?: boolean;
+  /** What may still be done to it: WhatsApp allows each only for a while. */
+  editable?: boolean;
+  deletable?: boolean;
   createdAt: string;
 }
 
@@ -176,6 +184,10 @@ function Conversations({
   const [starting, setStarting] = useState(false);
   const [fresh, setFresh] = useState({ open: false, phone: '', text: '' });
   const [quote, setQuote] = useState<Message | null>(null);
+  /** A sent message being put right: its new words, or about to be deleted. */
+  const [editing, setEditing] = useState<{ id: string; text: string } | null>(null);
+  const [deleting, setDeleting] = useState<Message | null>(null);
+  const [changing, setChanging] = useState(false);
   const scroller = useRef<HTMLDivElement>(null);
   const box = useRef<HTMLTextAreaElement>(null);
   // On a phone Enter is a new line, as in WhatsApp there; the button sends.
@@ -317,6 +329,21 @@ function Conversations({
       failure(cause);
     } finally {
       setSending(false);
+    }
+  };
+
+  const change = async (body: { messageId: string; text: string } | { messageId: string; delete: true }) => {
+    if (!thread || changing) return;
+    setChanging(true);
+    try {
+      setThread(await api.patch<Thread>(`${base}/${thread.id}`, body));
+      setEditing(null);
+      setDeleting(null);
+      void load();
+    } catch (cause) {
+      failure(cause);
+    } finally {
+      setChanging(false);
     }
   };
 
@@ -539,8 +566,12 @@ function Conversations({
                       />
                     )}
                     {message.imageId && <MediaView message={message} />}
-                    {message.text && (
-                      <span className="whitespace-pre-wrap break-words">{message.text}</span>
+                    {message.deleted ? (
+                      <span className="italic text-content-tertiary">🚫 {t('inbox.deleted')}</span>
+                    ) : (
+                      message.text && (
+                        <span className="whitespace-pre-wrap break-words">{message.text}</span>
+                      )
                     )}
                     <span className="mt-1 flex items-center gap-1 text-[11px] text-content-tertiary">
                       <span className="min-w-0 flex-1">
@@ -548,7 +579,30 @@ function Conversations({
                           ? message.authorName
                           : t(`inbox.role.${message.role}`)}{' '}
                         · <span className="tabular-nums">{when(message.createdAt)}</span>
+                        {message.edited && !message.deleted && <> · {t('inbox.edited')}</>}
                       </span>
+                      {message.editable && (
+                        <button
+                          type="button"
+                          aria-label={t('inbox.edit')}
+                          title={t('inbox.edit')}
+                          onClick={() => setEditing({ id: message.id, text: message.text })}
+                          className="inline-flex size-6 shrink-0 items-center justify-center rounded-full text-content-tertiary hover:bg-surface-sunken hover:text-content sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100"
+                        >
+                          <Pencil className="size-3.5" />
+                        </button>
+                      )}
+                      {message.deletable && (
+                        <button
+                          type="button"
+                          aria-label={t('inbox.delete')}
+                          title={t('inbox.delete')}
+                          onClick={() => setDeleting(message)}
+                          className="inline-flex size-6 shrink-0 items-center justify-center rounded-full text-content-tertiary hover:bg-surface-sunken hover:text-danger-text sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100"
+                        >
+                          <Trash2 className="size-3.5" />
+                        </button>
+                      )}
                       {message.quotable && (
                         <button
                           type="button"
@@ -683,6 +737,51 @@ function Conversations({
           </Field>
         </div>
       </Dialog>
+      {/* --- A sent message, put right for the customer too --------------- */}
+      <Dialog
+        open={editing !== null}
+        onClose={() => setEditing(null)}
+        title={t('inbox.editTitle')}
+        description={t('inbox.editHint')}
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setEditing(null)} disabled={changing}>
+              {t('common.cancel')}
+            </Button>
+            <Button
+              variant="primary"
+              loading={changing}
+              disabled={!editing?.text.trim()}
+              onClick={() =>
+                editing && void change({ messageId: editing.id, text: editing.text.trim() })
+              }
+            >
+              {t('common.save')}
+            </Button>
+          </>
+        }
+      >
+        <Field label={t('inbox.message')}>
+          {(props) => (
+            <Textarea
+              {...props}
+              rows={4}
+              value={editing?.text ?? ''}
+              onChange={(event) => editing && setEditing({ ...editing, text: event.target.value })}
+            />
+          )}
+        </Field>
+      </Dialog>
+      <ConfirmDialog
+        open={deleting !== null}
+        onClose={() => setDeleting(null)}
+        onConfirm={() => deleting && void change({ messageId: deleting.id, delete: true })}
+        title={t('inbox.deleteTitle')}
+        message={t('inbox.deleteHint')}
+        confirmLabel={t('inbox.delete')}
+        cancelLabel={t('common.cancel')}
+        loading={changing}
+      />
     </div>
   );
 }
