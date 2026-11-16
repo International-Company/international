@@ -111,6 +111,7 @@ const SHARE_SELECT = {
   intakeBankChannel: true,
   counterpartyName: true,
   counterpartyPhone: true,
+  notes: true,
   customer: { select: { fullNameAr: true, fullNameEn: true, phone: true } },
   payoutWallet: { select: { network: true } },
   createdAt: true,
@@ -138,6 +139,8 @@ type ShareRow = {
   intakeBankChannel: string | null;
   counterpartyName: string | null;
   counterpartyPhone: string | null;
+  /** The destination first, then anything the teller noted. */
+  notes?: string | null;
   customer: { fullNameAr: string; fullNameEn: string; phone: string | null } | null;
   payoutWallet: { network: string } | null;
   createdAt?: Date;
@@ -203,6 +206,27 @@ function composeLines(
    * A remittance sent is the number and what reaches them, in what it reaches them
    * in, the way the office writes one. Without that sum, what the customer paid.
    */
+  /*
+   * A remittance received says who sent it, from where, what they paid there in
+   * their own money, and what is owed here — the two sums labelled, since they
+   * are in different money and either could be read as the other.
+   */
+  if (transaction.type === 'REMITTANCE_IN') {
+    const ar = locale === 'ar';
+    const from = transaction.notes?.split(' — ')[0]?.trim() || null;
+    const sent = transaction.deliveredAmount
+      ? `${toDecimalString(transaction.deliveredAmount, 2).replace(/\.00$/, '')} ${transaction.deliveredUnit ?? ''}`.trim()
+      : null;
+    const due = `${toDecimalString(transaction.toAmount, 2).replace(/\.00$/, '')} ${unit}`;
+    return [
+      phone,
+      who,
+      from ? `${ar ? 'من' : 'From'}: ${from}` : null,
+      sent ? `${ar ? 'المرسل' : 'Sent'}: ${sent}` : null,
+      `${ar ? 'المستحق' : 'Due'}: ${due}`,
+    ].filter((line): line is string => Boolean(line?.trim()));
+  }
+
   if (transaction.type === 'REMITTANCE_OUT') {
     const sum = transaction.deliveredAmount
       ? `${toDecimalString(transaction.deliveredAmount, 2).replace(/\.00$/, '')} ${transaction.deliveredUnit ?? ''}`

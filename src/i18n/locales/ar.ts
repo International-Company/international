@@ -2391,6 +2391,7 @@ const ar: Dictionary = {
     welcomeConfirmBody: 'ستصل الآن إلى كل المجموعات المربوطة بالنظام، حتى التي وصلها الترحيب من قبل.',
     routesHint: 'ما لم تحدد له مجموعة يذهب إلى الرئيسية. أمر الجرد يعمل في المجموعة الرئيسية فقط.',
     routeSameAsUsdt: 'نفس مجموعة USDT',
+    routeSameAsRemittance: 'نفس مجموعة الحوالات',
     routeNotSent: 'لا تُرسل',
     forward: {
       title: 'نقل الرسائل من مجموعة إلى أخرى',
@@ -2426,6 +2427,7 @@ const ar: Dictionary = {
       PRIVATE_FORWARD: 'الصور والملفات التي تصل إلى الرقم الخاص',
       WESTERN_NOTICES: 'إشعارات الويسترن (من الرقم الخاص)',
       REMITTANCE: 'الحوالات',
+      REMITTANCE_IN: 'الحوالات الواردة',
       REMITTANCE_COPY: 'الحوالات: الرقم والمبلغ فقط',
       TIKTOK: 'تيكتوك: الصورة والبيانات كاملة',
       TIKTOK_NAME: 'تيكتوك: الصورة والاسم فقط',

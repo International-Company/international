@@ -104,7 +104,8 @@ describe('the kinds a group is sent', () => {
     TIKTOK_NAME: { id: 'names@g.us', name: 'الأسماء' },
   };
   it('follows the routes, and what falls back to the main group', () => {
-    assert.deepEqual(categoriesOf('rem@g.us', routes, 'main@g.us'), ['REMITTANCE']);
+    // Incoming remittances go with the rest until they are given a group of their own.
+    assert.deepEqual(categoriesOf('rem@g.us', routes, 'main@g.us'), ['REMITTANCE', 'REMITTANCE_IN']);
     assert.deepEqual(categoriesOf('tt@g.us', routes, 'main@g.us'), ['TIKTOK']);
     assert.deepEqual(categoriesOf('names@g.us', routes, 'main@g.us'), ['TIKTOK_NAME']);
     assert.deepEqual(categoriesOf('main@g.us', routes, 'main@g.us'), [

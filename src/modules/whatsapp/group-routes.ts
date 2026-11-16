@@ -14,6 +14,7 @@ export const ROUTE_CATEGORIES = [
   'USDT_SALE',
   'USDT_SALE_COPY',
   'REMITTANCE',
+  'REMITTANCE_IN',
   'REMITTANCE_COPY',
   'TIKTOK',
   'TIKTOK_NAME',
@@ -33,7 +34,7 @@ const CATEGORY_OF: Record<string, RouteCategory> = {
   USDT_SEND: 'USDT',
   USDT_SALE: 'USDT_SALE',
   REMITTANCE_OUT: 'REMITTANCE',
-  REMITTANCE_IN: 'REMITTANCE',
+  REMITTANCE_IN: 'REMITTANCE_IN',
   TIKTOK_WITHDRAWAL: 'TIKTOK',
 };
 
@@ -44,6 +45,7 @@ const CATEGORY_WORDS: Record<RouteCategory, string> = {
   USDT_SALE: 'بيع USDT',
   USDT_SALE_COPY: 'عنوان الإيداع ومبلغه',
   REMITTANCE: 'الحوالات',
+  REMITTANCE_IN: 'الحوالات الواردة',
   REMITTANCE_COPY: 'رقم الحوالة ومبلغها',
   TIKTOK: 'تيكتوك',
   TIKTOK_NAME: 'صورة تيكتوك والاسم',
@@ -115,11 +117,19 @@ export function withRoute(
   return next;
 }
 
-/** Where a kind goes: its own group, else the USDT group for a sale, else the main one. */
+/** The kind a kind falls back to when it has no group of its own. */
+const FALLS_BACK_TO: Partial<Record<RouteCategory, RouteCategory>> = {
+  USDT_SALE: 'USDT',
+  // Incoming remittances go with the rest until they are given a group of their own.
+  REMITTANCE_IN: 'REMITTANCE',
+};
+
+/** Where a kind goes: its own group, else the one it falls back to, else the main one. */
 function routedTo(category: RouteCategory, routes: GroupRoutes, main: string): string {
   // Sent only where it is asked for: it would say nothing new in the main group.
   if (COPIES.includes(category)) return routes[category]?.id ?? '';
-  return routes[category]?.id || (category === 'USDT_SALE' ? routes.USDT?.id : undefined) || main;
+  const fallback = FALLS_BACK_TO[category];
+  return routes[category]?.id || (fallback ? routes[fallback]?.id : undefined) || main;
 }
 
 /** The group a deal of this type goes to, or '' when none is chosen. */

@@ -2392,6 +2392,7 @@ const en = {
     welcomeConfirmBody: 'It goes now to every linked group, including those that have had it.',
     routesHint: 'Whatever has no group of its own goes to the main one. The count command works in the main group only.',
     routeSameAsUsdt: 'Same group as USDT',
+    routeSameAsRemittance: 'Same group as remittances',
     routeNotSent: 'Not sent',
     forward: {
       title: 'Messages passed from group to group',
@@ -2427,6 +2428,7 @@ const en = {
       PRIVATE_FORWARD: 'Private number: pictures and files received',
       WESTERN_NOTICES: 'Western Union notices (from the private number)',
       REMITTANCE: 'Remittances',
+      REMITTANCE_IN: 'Incoming remittances',
       REMITTANCE_COPY: 'Remittances: number and amount only',
       TIKTOK: 'TikTok: photo and all details',
       TIKTOK_NAME: 'TikTok: photo and name only',

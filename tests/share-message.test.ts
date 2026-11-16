@@ -40,6 +40,7 @@ type Row = {
   payoutAddress: string | null;
   counterpartyName: string | null;
   counterpartyPhone: string | null;
+  notes?: string | null;
   customer: { fullNameAr: string; fullNameEn: string; phone: string | null } | null;
   payoutWallet: { network: string } | null;
   branch?: { nameAr: string; nameEn: string } | null;
@@ -216,6 +217,47 @@ describe('one transfer, as the office writes it', () => {
     assert.equal(await at(32060n * 1_000_000n), '321 شيكل');
     assert.equal(await at(32040n * 1_000_000n), '320 شيكل');
     assert.equal(await at(32099n * 1_000_000n), '321 شيكل');
+  });
+});
+
+describe('a remittance received, as the group reads it', () => {
+  const incoming = (patch: Partial<Row> = {}) =>
+    row({
+      type: 'REMITTANCE_IN',
+      status: 'POSTED',
+      fromCurrency: 'ILS',
+      fromAmount: 149n * UNIT,
+      toAmount: 149n * UNIT,
+      payoutBankAmount: 0n,
+      payoutBankChannel: null,
+      payoutAccount: null,
+      counterpartyName: 'هدى مشفق زيادة',
+      counterpartyPhone: '0597768070',
+      deliveredAmount: 2000n * UNIT,
+      deliveredUnit: 'جنيه',
+      notes: 'مصر — عبر فودافون',
+      ...patch,
+    });
+
+  it('says who sent it, from where, what they paid there and what is owed here', async () => {
+    const { db } = fakeDb([incoming()]);
+    assert.deepEqual(lines((await shareable('t1', 'ar', db)).text), [
+      '0597768070',
+      'هدى مشفق زيادة',
+      'من: مصر',
+      'المرسل: 2000 جنيه',
+      'المستحق: 149 شيكل',
+    ]);
+  });
+
+  it('leaves out what the sender paid when it was not written down', async () => {
+    const { db } = fakeDb([incoming({ deliveredAmount: null, deliveredUnit: null })]);
+    const text = lines((await shareable('t1', 'ar', db)).text);
+    assert.equal(
+      text.some((line) => line.startsWith('المرسل')),
+      false,
+    );
+    assert.equal(text.at(-1), 'المستحق: 149 شيكل');
   });
 });
 
