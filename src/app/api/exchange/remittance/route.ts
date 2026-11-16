@@ -17,6 +17,8 @@ const bodySchema = z.object({
   direction: z.enum(['OUT', 'IN']),
   /** Through the office's PayPal account: no destination, in dollars. */
   paypal: z.boolean().optional(),
+  /** PayPal received: the money it is paid out in, when not dollars. */
+  payCurrency: z.string().min(2).max(8).nullish(),
   currency: z.string().min(2).max(8),
   destination: z.string().min(1).max(120),
   /**
@@ -96,6 +98,7 @@ export const POST = route<z.infer<typeof bodySchema>>({
         ...common,
         credited: parseMoney(body.gross),
         paid: net,
+        payCurrency: body.paypal ? (body.payCurrency ?? null) : null,
         // What the sender paid abroad, in what they paid it — 1500 جنيه.
         sentAmount: body.delivered ? parseMoney(body.delivered) : null,
         sentUnit: body.deliveredUnit ?? null,

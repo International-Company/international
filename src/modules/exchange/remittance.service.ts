@@ -11,6 +11,7 @@ import * as settings from '@/modules/settings/settings.service';
 import { intakeShares } from './intake-split';
 import { transferChannels } from './machine.service';
 import { isSentRemittance } from './transaction-types';
+import { quoteExchange } from './rates.service';
 import { MAX_PROOFS, readProofImage, type ProofKind } from './proof-image';
 import * as transactions from './transaction.service';
 import type { Actor } from './transaction.service';
@@ -139,6 +140,11 @@ export interface ReceiveInput extends Common {
   paid: bigint;
   /** What the correspondent credits the branch for handling it. */
   credited: bigint;
+  /**
+   * PayPal only: the money it is paid out in, when not the dollars that came in
+   * — shekels, mostly. `paid` is then in this currency.
+   */
+  payCurrency?: string | null;
   /** What the sender paid abroad, in the money they paid it in — 1500 جنيه. For showing only. */
   sentAmount?: bigint | null;
   sentUnit?: string | null;
@@ -531,6 +537,26 @@ export async function readProof(transactionId: string, proofId: string, actor: A
 }
 
 /**
+ * What the office kept on dollars paid out in other money, in that money: the
+ * dollars at the board's middle rate, less what was handed over. Nothing when the
+ * board has no rate for the pair, rather than a figure made up.
+ */
+async function convertedProfit(
+  from: string,
+  to: string,
+  credited: bigint,
+  paid: bigint,
+  db: DbClient,
+): Promise<bigint> {
+  try {
+    const quoted = await quoteExchange(from, to, credited, 'CASH', db);
+    return quoted.toAmount + quoted.profit - paid;
+  } catch {
+    return 0n;
+  }
+}
+
+/**
  * A remittance arriving: the correspondent owes, the branch pays the customer.
  *
  * The mirror of sending. The correspondent balance rises by what they credit,
@@ -539,7 +565,20 @@ export async function readProof(transactionId: string, proofId: string, actor: A
 export async function receive(input: ReceiveInput, actor: Actor, db: DbClient = prisma) {
   await check(input, [input.paid, input.credited], db);
 
-  if (input.paid > input.credited) {
+  // Paid out in other money: PayPal only, and the profit is read off the board.
+  const payCurrency = input.payCurrency?.trim().toUpperCase() || input.currency;
+  const converted = payCurrency !== input.currency;
+  if (converted && !input.paypal) {
+    throw errors.precondition(
+      'A remittance settles in one currency on both sides',
+      'errors.remittanceCurrencyMismatch',
+    );
+  }
+  if (converted && !(await db.currency.findFirst({ where: { code: payCurrency, isActive: true } }))) {
+    throw errors.notFound('Currency', payCurrency);
+  }
+
+  if (!converted && input.paid > input.credited) {
     throw errors.precondition(
       `Paying ${toDecimalString(input.paid, 2)} against a credit of ${toDecimalString(input.credited, 2)} loses money on the transfer`,
       'errors.remittanceBelowCost',
@@ -581,10 +620,13 @@ export async function receive(input: ReceiveInput, actor: Actor, db: DbClient = 
         customerId: input.customerId ?? null,
         fromCurrency: input.currency,
         fromAmount: input.credited,
-        toCurrency: input.currency,
+        toCurrency: payCurrency,
         toAmount: input.paid,
-        rate: 100000000n,
-        profitAmount: input.credited - input.paid,
+        // What was paid for each dollar, when it was paid in other money.
+        rate: converted ? (input.paid * 100000000n) / input.credited : 100000000n,
+        profitAmount: converted
+          ? await convertedProfit(input.currency, payCurrency, input.credited, input.paid, db)
+          : input.credited - input.paid,
         payout: { cash: input.paid - bank, bank },
         payoutChannel: channel,
         payoutAccount: bank > 0n ? input.payoutAccount?.trim() || null : null,

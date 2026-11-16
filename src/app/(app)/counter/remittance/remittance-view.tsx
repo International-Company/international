@@ -108,6 +108,8 @@ export function RemittanceView({
    * dollars, with no destination, and its own balance, count and group.
    */
   const [paypal, setPaypal] = useState(false);
+  /** PayPal received: what it is paid out in — shekels, mostly — not the dollars that came. */
+  const [payCurrency, setPayCurrency] = useState('ILS');
   const paypalReady = config.currencies.some((entry) => entry.code === 'USD');
   const chooseNetwork = (next: boolean) => {
     if (next === paypal) return;
@@ -170,10 +172,18 @@ export function RemittanceView({
 
   const selected = config.currencies.find((entry) => entry.code === currency);
   const decimals = selected?.decimals ?? 2;
+  // The paid figure's own places: PayPal received may be paid out in other money.
+  const payDecimals =
+    paypal && direction === 'IN'
+      ? (config.currencies.find((entry) => entry.code === payCurrency)?.decimals ?? 2)
+      : decimals;
 
   const grossValue = scaleAmount(gross);
   const netValue = scaleAmount(net);
-  const margin = grossValue - netValue;
+  // Paid out in other money, the two figures are not comparable: the server prices it.
+  const paidIn = paypal && direction === 'IN' ? payCurrency : currency;
+  const converted = paidIn !== currency;
+  const margin = converted ? 0n : grossValue - netValue;
 
   const outgoing = direction === 'OUT';
   const byTransfer = outgoing && paidVia !== 'CASH';
@@ -277,6 +287,7 @@ export function RemittanceView({
         direction,
         paypal,
         currency: paypal ? 'USD' : currency,
+        payCurrency: paypal && !outgoing ? payCurrency : null,
         destination: paypal ? 'باي بال' : destination,
         gross: unscale(grossValue),
         net: netValue > 0n ? unscale(netValue) : null,
@@ -560,14 +571,45 @@ export function RemittanceView({
           hint={
             outgoing ? t('remittance.priceLaterHint') : t('remittance.customerReceivesHint')
           }
-          code={currency}
-          decimals={decimals}
+          code={paidIn}
+          decimals={payDecimals}
           value={net}
           onType={(raw) => {
             setDone(null);
-            setNet(sanitiseAmount(raw, decimals));
+            setNet(sanitiseAmount(raw, payDecimals));
           }}
         />
+        {/* PayPal received: dollars in, handed over in whichever money the customer takes. */}
+        {paypal && !outgoing && (
+          <div className="flex flex-wrap items-center gap-1.5 px-1">
+            <span className="text-xs text-content-tertiary">{t('remittance.payCurrency')}</span>
+            {config.currencies.map((entry) => (
+              <button
+                key={entry.code}
+                type="button"
+                aria-pressed={payCurrency === entry.code}
+                onClick={() => {
+                  setPayCurrency(entry.code);
+                  setNet('');
+                  setDone(null);
+                }}
+                className={cn(
+                  'h-8 rounded-full px-3 text-xs font-semibold transition-colors',
+                  payCurrency === entry.code
+                    ? 'bg-primary text-white'
+                    : 'bg-surface-sunken text-content-secondary hover:text-content',
+                )}
+              >
+                {entry.code}
+              </button>
+            ))}
+            {converted && grossValue > 0n && netValue > 0n && (
+              <span className="ms-auto text-xs tabular-nums text-content-secondary ltr-content">
+                1 {currency} = {(Number(netValue) / Number(grossValue)).toFixed(4)} {paidIn}
+              </span>
+            )}
+          </div>
+        )}
       </section>
 
       {/*
@@ -638,7 +680,7 @@ export function RemittanceView({
       )}
 
       {/* The earning, as a consequence of the two figures above it. */}
-      {canSeeMargin && grossValue > 0n && netValue > 0n && (
+      {canSeeMargin && !converted && grossValue > 0n && netValue > 0n && (
         <p
           className={cn(
             'text-center text-sm',

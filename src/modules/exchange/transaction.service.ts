@@ -141,7 +141,8 @@ export async function record(
   if (!isRemittance && input.fromCurrency === input.toCurrency) {
     throw errors.precondition('Both sides are the same currency', 'errors.sameCurrencyPair');
   }
-  if (isRemittance && input.fromCurrency !== input.toCurrency) {
+  // PayPal received is the one exception: dollars in, paid out in shekels or another.
+  if (isRemittance && input.type !== 'PAYPAL_IN' && input.fromCurrency !== input.toCurrency) {
     throw errors.precondition(
       'A remittance settles in one currency on both sides',
       'errors.remittanceCurrencyMismatch',

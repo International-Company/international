@@ -1016,6 +1016,7 @@ const en = {
     sentAbroadHint: 'What the sender paid there, in their money — such as 1500 EGP. Shown on the deal only, never counted.',
     notice: 'Transfer notice',
     regular: 'Regular remittance',
+    payCurrency: 'Paid out in:',
     paypal: 'PayPal',
     paypalOutHint: 'Sent from the PayPal account in dollars; it comes off the PayPal balance, not the correspondent.',
     paypalInHint: 'Arrived on the PayPal account in dollars; it goes onto the PayPal balance, not the correspondent.',
