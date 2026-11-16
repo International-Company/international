@@ -175,7 +175,9 @@ export const errors = {
             ? 'errors.insufficientBroker'
             : kind === 'CORRESPONDENT'
               ? 'errors.insufficientCorrespondent'
-              : 'errors.insufficientCash',
+              : kind === 'PAYPAL'
+                ? 'errors.insufficientPaypal'
+                : 'errors.insufficientCash',
         params: { currency, available, required },
       },
     ),

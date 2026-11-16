@@ -69,9 +69,16 @@ type Granted = Record<string, Flags>;
  */
 function kindLabel(
   kind: string,
-): 'drawers.cash' | 'drawers.broker' | 'drawers.correspondent' | 'drawers.difference' | 'drawers.receivable' {
+):
+  | 'drawers.cash'
+  | 'drawers.broker'
+  | 'drawers.correspondent'
+  | 'drawers.paypal'
+  | 'drawers.difference'
+  | 'drawers.receivable' {
   if (kind === 'BROKER') return 'drawers.broker';
   if (kind === 'CORRESPONDENT') return 'drawers.correspondent';
+  if (kind === 'PAYPAL') return 'drawers.paypal';
   if (kind === 'DIFFERENCE') return 'drawers.difference';
   if (kind === 'RECEIVABLE') return 'drawers.receivable';
   return 'drawers.cash';

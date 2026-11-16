@@ -887,6 +887,9 @@ function nameFor(target: Openable): { nameEn: string; nameAr: string } {
   if (target.kind === 'CORRESPONDENT') {
     return { nameEn: `${target.nameEn} — correspondent`, nameAr: `المراسل — ${target.nameAr}` };
   }
+  if (target.kind === 'PAYPAL') {
+    return { nameEn: `${target.nameEn} — PayPal`, nameAr: `باي بال — ${target.nameAr}` };
+  }
   return { nameEn: `${target.nameEn} drawer`, nameAr: `صندوق ${target.nameAr}` };
 }
 
@@ -898,9 +901,12 @@ function nameFor(target: Openable): { nameEn: string; nameAr: string } {
  * balance as a till the moment that kind existed — and a liability displayed as
  * money on hand is exactly the error this screen exists to prevent.
  */
-function kindLabel(kind: string): 'drawers.broker' | 'drawers.correspondent' | 'drawers.cash' {
+function kindLabel(
+  kind: string,
+): 'drawers.broker' | 'drawers.correspondent' | 'drawers.paypal' | 'drawers.cash' {
   if (kind === 'BROKER') return 'drawers.broker';
   if (kind === 'CORRESPONDENT') return 'drawers.correspondent';
+  if (kind === 'PAYPAL') return 'drawers.paypal';
   return 'drawers.cash';
 }
 

@@ -333,7 +333,7 @@ export function WhatsappPanel({ canManage }: { canManage: boolean }) {
               const unset =
                 category === 'USDT_SALE'
                   ? t('whatsapp.routeSameAsUsdt')
-                  : category === 'REMITTANCE_IN'
+                  : category === 'REMITTANCE_IN' || category === 'PAYPAL'
                     ? t('whatsapp.routeSameAsRemittance')
                   : category === 'REMITTANCE_COPY' ||
                       category === 'BANK_COPY' ||

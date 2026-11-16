@@ -238,7 +238,7 @@ export default async function ReceiptPage({ params }: { params: Promise<{ id: st
               {!transaction.customer && transaction.counterpartyName && (
                 <Row
                   label={
-                    transaction.type === 'REMITTANCE_IN'
+                    transaction.type === 'REMITTANCE_IN' || transaction.type === 'PAYPAL_IN'
                       ? t('remittance.sender')
                       : t('receipt.customer')
                   }

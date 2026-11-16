@@ -15,6 +15,8 @@ import * as remittances from '@/modules/exchange/remittance.service';
 
 const bodySchema = z.object({
   direction: z.enum(['OUT', 'IN']),
+  /** Through the office's PayPal account: no destination, in dollars. */
+  paypal: z.boolean().optional(),
   currency: z.string().min(2).max(8),
   destination: z.string().min(1).max(120),
   /**
@@ -61,7 +63,8 @@ export const POST = route<z.infer<typeof bodySchema>>({
 
     const common = {
       currency: body.currency.toUpperCase(),
-      destination: body.destination,
+      destination: body.paypal ? remittances.PAYPAL_DESTINATION : body.destination,
+      paypal: body.paypal ?? false,
       branchId: actor.branchId,
       customerId: body.customerId ?? null,
       counterpartyName: body.counterpartyName ?? null,

@@ -150,9 +150,10 @@ export function TransactionDetail({
 
   const [addingProof, setAddingProof] = useState(false);
   const isSale = transaction.type === 'USDT_SALE';
-  const incoming = transaction.type === 'REMITTANCE_IN';
+  const incoming = transaction.type === 'REMITTANCE_IN' || transaction.type === 'PAYPAL_IN';
+  const sentRemittance = transaction.type === 'REMITTANCE_OUT' || transaction.type === 'PAYPAL_OUT';
   const canAddProof =
-    (transaction.type === 'REMITTANCE_OUT' || incoming || isSale) &&
+    (sentRemittance || incoming || isSale) &&
     transaction.status !== 'REVERSED' &&
     !transaction.reversalOf &&
     permissions.includes(isSale ? 'usdt.withdrawal.use' : 'exchange.remittance.use') &&
@@ -276,7 +277,7 @@ export function TransactionDetail({
    */
   const canChangeIntake =
     canEdit &&
-    transaction.type === 'REMITTANCE_OUT' &&
+    (transaction.type === 'REMITTANCE_OUT' || transaction.type === 'PAYPAL_OUT') &&
     (transaction.status === 'POSTED' || transaction.status === 'PENDING_TRANSFER');
   const [changingIntake, setChangingIntake] = useState(false);
   const [intakeVia, setIntakeVia] = useState<'CASH' | 'TRANSFER' | 'SPLIT'>('CASH');

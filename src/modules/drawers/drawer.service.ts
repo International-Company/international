@@ -135,6 +135,7 @@ export interface Movement {
 function describe(currency: string, kind: DrawerKind): string {
   if (kind === 'BROKER') return `The ${currency} broker balance`;
   if (kind === 'CORRESPONDENT') return `The ${currency} correspondent balance`;
+  if (kind === 'PAYPAL') return `The ${currency} PayPal balance`;
   return `The ${currency} drawer`;
 }
 
@@ -280,7 +281,15 @@ export async function ensureTellerDrawer(
       allowNegative: false,
       sortOrder:
         currencyRow.sortOrder * 10 +
-        (kind === 'BROKER' ? 1 : kind === 'CORRESPONDENT' ? 2 : kind === 'RECEIVABLE' ? 4 : 0),
+        (kind === 'BROKER'
+          ? 1
+          : kind === 'CORRESPONDENT'
+            ? 2
+            : kind === 'PAYPAL'
+              ? 3
+              : kind === 'RECEIVABLE'
+                ? 4
+                : 0),
     },
   });
 }

@@ -392,8 +392,8 @@ function list(part: ListPart, top: number): { parts: string[]; y: number } {
     }),
   );
   y += 16;
-  const sent = part.kind === 'REMITTANCE_OUT';
-  const paidOut = part.kind === 'REMITTANCE_IN';
+  const sent = part.kind === 'REMITTANCE_OUT' || part.kind === 'PAYPAL_OUT';
+  const paidOut = part.kind === 'REMITTANCE_IN' || part.kind === 'PAYPAL_IN';
   const wallet = part.kind === 'WALLET_TOPUP';
   const noted = sent || paidOut;
   // One currency on both sides: the gap is a fee, not a price.

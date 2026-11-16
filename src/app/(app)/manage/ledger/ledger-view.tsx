@@ -549,9 +549,12 @@ function Line({
   );
 }
 
-function kindLabel(kind: string): 'drawers.broker' | 'drawers.correspondent' | 'drawers.cash' {
+function kindLabel(
+  kind: string,
+): 'drawers.broker' | 'drawers.correspondent' | 'drawers.paypal' | 'drawers.cash' {
   if (kind === 'BROKER') return 'drawers.broker';
   if (kind === 'CORRESPONDENT') return 'drawers.correspondent';
+  if (kind === 'PAYPAL') return 'drawers.paypal';
   return 'drawers.cash';
 }
 

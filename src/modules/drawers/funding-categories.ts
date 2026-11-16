@@ -28,6 +28,7 @@ export const DRAWER_KINDS = [
   'CASH',
   'BROKER',
   'CORRESPONDENT',
+  'PAYPAL',
   'DIFFERENCE',
   'RECEIVABLE',
   'IN_TRANSIT',
@@ -58,7 +59,7 @@ export const IN_TRANSIT: DrawerKind = 'IN_TRANSIT';
  * debtor doing anything. `IN_TRANSIT` is excluded because it is the machinery,
  * not a destination anyone chooses.
  */
-export const TRANSFERABLE_KINDS = ['CASH', 'BROKER', 'CORRESPONDENT'] as const;
+export const TRANSFERABLE_KINDS = ['CASH', 'BROKER', 'CORRESPONDENT', 'PAYPAL'] as const;
 export type TransferableKind = (typeof TRANSFERABLE_KINDS)[number];
 
 export function isTransferable(kind: string): kind is TransferableKind {

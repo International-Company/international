@@ -15,6 +15,7 @@ export const ROUTE_CATEGORIES = [
   'USDT_SALE_COPY',
   'REMITTANCE',
   'REMITTANCE_IN',
+  'PAYPAL',
   'REMITTANCE_COPY',
   'TIKTOK',
   'TIKTOK_NAME',
@@ -35,6 +36,8 @@ const CATEGORY_OF: Record<string, RouteCategory> = {
   USDT_SALE: 'USDT_SALE',
   REMITTANCE_OUT: 'REMITTANCE',
   REMITTANCE_IN: 'REMITTANCE_IN',
+  PAYPAL_OUT: 'PAYPAL',
+  PAYPAL_IN: 'PAYPAL',
   TIKTOK_WITHDRAWAL: 'TIKTOK',
 };
 
@@ -46,6 +49,7 @@ const CATEGORY_WORDS: Record<RouteCategory, string> = {
   USDT_SALE_COPY: 'عنوان الإيداع ومبلغه',
   REMITTANCE: 'الحوالات',
   REMITTANCE_IN: 'الحوالات الواردة',
+  PAYPAL: 'حوالات باي بال',
   REMITTANCE_COPY: 'رقم الحوالة ومبلغها',
   TIKTOK: 'تيكتوك',
   TIKTOK_NAME: 'صورة تيكتوك والاسم',
@@ -73,7 +77,9 @@ const COPY_OF: Record<string, RouteCategory> = {
   USDT_RECEIVE: 'BANK_COPY',
   // A remittance received and paid out to a bank or a wallet: the same transfers.
   REMITTANCE_IN: 'BANK_COPY',
+  PAYPAL_IN: 'BANK_COPY',
   REMITTANCE_OUT: 'REMITTANCE_COPY',
+  PAYPAL_OUT: 'REMITTANCE_COPY',
   USDT_SALE: 'USDT_SALE_COPY',
   TIKTOK_WITHDRAWAL: 'TIKTOK_NAME',
 };
@@ -124,6 +130,8 @@ const FALLS_BACK_TO: Partial<Record<RouteCategory, RouteCategory>> = {
   USDT_SALE: 'USDT',
   // Incoming remittances go with the rest until they are given a group of their own.
   REMITTANCE_IN: 'REMITTANCE',
+  // PayPal goes with the remittances until it is given a group of its own.
+  PAYPAL: 'REMITTANCE',
 };
 
 /** Where a kind goes: its own group, else the one it falls back to, else the main one. */

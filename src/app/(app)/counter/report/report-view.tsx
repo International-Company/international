@@ -69,6 +69,7 @@ interface Report {
 function kindLabel(kind: string) {
   if (kind === 'BROKER') return 'drawers.broker' as const;
   if (kind === 'CORRESPONDENT') return 'drawers.correspondent' as const;
+  if (kind === 'PAYPAL') return 'drawers.paypal' as const;
   if (kind === 'DIFFERENCE') return 'drawers.difference' as const;
   if (kind === 'RECEIVABLE') return 'drawers.receivable' as const;
   return 'drawers.cash' as const;

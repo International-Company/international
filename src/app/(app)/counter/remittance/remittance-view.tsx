@@ -103,6 +103,19 @@ export function RemittanceView({
   const [quick, setQuick] = useState(false);
   const [currency, setCurrency] = useState(config.currencies[0]?.code ?? 'ILS');
   const [destination, setDestination] = useState(config.destinations[0] ?? '');
+  /**
+   * Through the office's PayPal account rather than the correspondent: in
+   * dollars, with no destination, and its own balance, count and group.
+   */
+  const [paypal, setPaypal] = useState(false);
+  const paypalReady = config.currencies.some((entry) => entry.code === 'USD');
+  const chooseNetwork = (next: boolean) => {
+    if (next === paypal) return;
+    setPaypal(next);
+    setCurrency(next ? 'USD' : (config.currencies[0]?.code ?? 'ILS'));
+    setSum('');
+    setDone(null);
+  };
 
   /*
    * The two figures, in the order the counter meets them.
@@ -184,7 +197,13 @@ export function RemittanceView({
         await api.get<RecentRow[]>(
           `/api/manage/transactions${queryString({
             recent: true,
-            type: direction === 'OUT' ? 'REMITTANCE_OUT' : 'REMITTANCE_IN',
+            type: paypal
+              ? direction === 'OUT'
+                ? 'PAYPAL_OUT'
+                : 'PAYPAL_IN'
+              : direction === 'OUT'
+                ? 'REMITTANCE_OUT'
+                : 'REMITTANCE_IN',
             pageSize: 4,
           })}`,
         ),
@@ -192,7 +211,7 @@ export function RemittanceView({
     } catch {
       setRecent([]);
     }
-  }, [direction]);
+  }, [direction, paypal]);
 
   useEffect(() => {
     void loadRecent();
@@ -223,7 +242,7 @@ export function RemittanceView({
    * courteous version, not the trusted one.
    */
   // The first thing standing in the way, named under the button: a faded button says nothing.
-  const missing: Missing | null = !destination
+  const missing: Missing | null = !paypal && !destination
     ? 'destination'
     : grossValue <= 0n
       ? 'gross'
@@ -256,8 +275,9 @@ export function RemittanceView({
     try {
       const result = await api.post<{ id: string; reference: string }>('/api/exchange/remittance', {
         direction,
-        currency,
-        destination,
+        paypal,
+        currency: paypal ? 'USD' : currency,
+        destination: paypal ? 'باي بال' : destination,
         gross: unscale(grossValue),
         net: netValue > 0n ? unscale(netValue) : null,
         // Sending, what reaches the beneficiary; receiving, what the sender paid abroad.
@@ -316,7 +336,7 @@ export function RemittanceView({
   const print = (id: string) => window.open(`/print/receipt/${id}`, '_blank');
 
   // This destination's price in this currency, when the manager has set one.
-  const price = outgoing
+  const price = outgoing && !paypal
     ? config.prices.find((row) => row.destination === destination && row.currency === currency)
     : undefined;
 
@@ -413,7 +433,34 @@ export function RemittanceView({
     >
       {tabs}
 
-      {/* ============ Where, and in what ============ */}
+      {/* ============ Through the correspondent, or the PayPal account ============ */}
+      <div dir="rtl" className="grid grid-cols-2 gap-1 rounded-full bg-surface-sunken p-1">
+        {([false, true] as const).map((option) => (
+          <button
+            key={String(option)}
+            type="button"
+            aria-pressed={paypal === option}
+            disabled={option && !paypalReady}
+            onClick={() => chooseNetwork(option)}
+            className={cn(
+              'h-10 rounded-full text-sm font-semibold transition-colors disabled:opacity-40',
+              paypal === option
+                ? option
+                  ? 'bg-[#003087] text-white shadow-[var(--shadow-sm)]'
+                  : 'bg-surface text-content shadow-[var(--shadow-sm)]'
+                : 'text-content-tertiary hover:text-content-secondary',
+            )}
+          >
+            {option ? t('remittance.paypal') : t('remittance.regular')}
+          </button>
+        ))}
+      </div>
+
+      {paypal ? (
+        <p className="rounded-2xl bg-surface p-4 text-sm text-content-secondary ring-1 ring-border-subtle">
+          {outgoing ? t('remittance.paypalOutHint') : t('remittance.paypalInHint')}
+        </p>
+      ) : (
       <div className="grid gap-3 rounded-2xl bg-surface p-4 ring-1 ring-border-subtle sm:grid-cols-2">
         <label className="block">
           <span className="text-xs text-content-tertiary">{t('remittance.destination')}</span>
@@ -457,6 +504,7 @@ export function RemittanceView({
           </select>
         </label>
       </div>
+      )}
 
       {/*
         ============ The sum, on this destination's price ============
@@ -476,8 +524,20 @@ export function RemittanceView({
       {/* ============ The two figures ============ */}
       <section className="space-y-2 rounded-3xl bg-surface p-2 shadow-[var(--shadow-lg)] ring-1 ring-border-subtle">
         <AmountRow
-          label={outgoing ? t('remittance.customerPays') : t('remittance.correspondentCredits')}
-          hint={outgoing ? t('remittance.customerPaysHint') : t('remittance.correspondentCreditsHint')}
+          label={
+            outgoing
+              ? t('remittance.customerPays')
+              : paypal
+                ? t('remittance.paypalCredits')
+                : t('remittance.correspondentCredits')
+          }
+          hint={
+            outgoing
+              ? t('remittance.customerPaysHint')
+              : paypal
+                ? t('remittance.paypalCreditsHint')
+                : t('remittance.correspondentCreditsHint')
+          }
           code={currency}
           decimals={decimals}
           value={gross}
@@ -490,7 +550,13 @@ export function RemittanceView({
         />
 
         <AmountRow
-          label={outgoing ? t('remittance.correspondentCharges') : t('remittance.customerReceives')}
+          label={
+            !outgoing
+              ? t('remittance.customerReceives')
+              : paypal
+                ? t('remittance.paypalCharges')
+                : t('remittance.correspondentCharges')
+          }
           hint={
             outgoing ? t('remittance.priceLaterHint') : t('remittance.customerReceivesHint')
           }

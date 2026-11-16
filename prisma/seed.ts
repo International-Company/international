@@ -93,7 +93,13 @@ async function main() {
   // a balance nobody could ever fund.
   let drawerCount = 0;
   for (const currency of CURRENCIES) {
-    const kinds = currency.kind === 'CRYPTO' ? ['CASH'] : ['CASH', 'BROKER', 'CORRESPONDENT'];
+    const kinds =
+      currency.kind === 'CRYPTO'
+        ? ['CASH']
+        : // The office's PayPal account holds dollars only.
+          currency.code === 'USD'
+          ? ['CASH', 'BROKER', 'CORRESPONDENT', 'PAYPAL']
+          : ['CASH', 'BROKER', 'CORRESPONDENT'];
 
     for (const kind of kinds) {
       await prisma.drawer.upsert({
@@ -111,18 +117,25 @@ async function main() {
               ? `${currency.nameEn} — broker`
               : kind === 'CORRESPONDENT'
                 ? `${currency.nameEn} — correspondent`
-                : `${currency.nameEn} drawer`,
+                : kind === 'PAYPAL'
+                  ? `${currency.nameEn} — PayPal`
+                  : `${currency.nameEn} drawer`,
           nameAr:
             kind === 'BROKER'
               ? `الوسيط — ${currency.nameAr}`
               : kind === 'CORRESPONDENT'
                 ? `المراسل — ${currency.nameAr}`
-                : `صندوق ${currency.nameAr}`,
+                : kind === 'PAYPAL'
+                  ? `باي بال — ${currency.nameAr}`
+                  : `صندوق ${currency.nameAr}`,
           // Sending a remittance means owing the correspondent until it settles,
           // so that balance lives below zero as a matter of course.
-          allowNegative: kind === 'CORRESPONDENT',
+          // PayPal too: a remittance sent before the account is funded is still owed.
+          allowNegative: kind === 'CORRESPONDENT' || kind === 'PAYPAL',
           // Each sorts immediately after its own cash row.
-          sortOrder: currency.sortOrder * 10 + (kind === 'BROKER' ? 1 : kind === 'CORRESPONDENT' ? 2 : 0),
+          sortOrder:
+            currency.sortOrder * 10 +
+            (kind === 'BROKER' ? 1 : kind === 'CORRESPONDENT' ? 2 : kind === 'PAYPAL' ? 3 : 0),
         },
         update: {},
       });

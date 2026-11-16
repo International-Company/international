@@ -42,8 +42,10 @@ type Kind =
   | 'SELL'
   | 'WALLET_TOPUP'
   | 'REMITTANCE_OUT'
-  | 'REMITTANCE_IN';
-type Tab = 'USDT' | 'EXCHANGE' | 'REMITTANCE' | 'WALLET' | 'TIKTOK';
+  | 'REMITTANCE_IN'
+  | 'PAYPAL_OUT'
+  | 'PAYPAL_IN';
+type Tab = 'USDT' | 'EXCHANGE' | 'REMITTANCE' | 'PAYPAL' | 'WALLET' | 'TIKTOK';
 
 interface Entry {
   id: string;
@@ -93,6 +95,7 @@ const TABS: { tab: Tab; icon: LucideIcon; kinds: Kind[] }[] = [
   { tab: 'USDT', icon: Coins, kinds: ['USDT_RECEIVE', 'USDT_SEND'] },
   { tab: 'EXCHANGE', icon: ArrowLeftRight, kinds: ['BUY', 'SELL'] },
   { tab: 'REMITTANCE', icon: Send, kinds: ['REMITTANCE_OUT', 'REMITTANCE_IN'] },
+  { tab: 'PAYPAL', icon: Send, kinds: ['PAYPAL_OUT', 'PAYPAL_IN'] },
   { tab: 'WALLET', icon: Wallet, kinds: ['WALLET_TOPUP'] },
 ];
 
@@ -138,6 +141,18 @@ const LOOK: Record<
     goodsOn: 'from',
   },
   REMITTANCE_IN: {
+    icon: ArrowDownToLine,
+    tone: 'text-success-text bg-success-subtle',
+    active: 'ring-2 ring-success',
+    goodsOn: 'to',
+  },
+  PAYPAL_OUT: {
+    icon: ArrowUpFromLine,
+    tone: 'text-warning-text bg-warning-subtle',
+    active: 'ring-2 ring-warning',
+    goodsOn: 'from',
+  },
+  PAYPAL_IN: {
     icon: ArrowDownToLine,
     tone: 'text-success-text bg-success-subtle',
     active: 'ring-2 ring-success',

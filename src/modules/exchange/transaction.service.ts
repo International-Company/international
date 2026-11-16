@@ -16,6 +16,8 @@ import {
   MACHINE_TYPES,
   TRANSACTION_TYPE_META,
   balancesFor,
+  isRemittanceType,
+  isSentRemittance,
   isWalletType,
   type BalanceSide,
   type Category,
@@ -135,8 +137,7 @@ export async function record(
    */
   // A wallet cash-out or top-up is one currency through two balances, the
   // fee being the gap — the same shape as a remittance, for the same reason.
-  const isRemittance =
-    input.type === 'REMITTANCE_OUT' || input.type === 'REMITTANCE_IN' || isWalletType(input.type);
+  const isRemittance = isRemittanceType(input.type) || isWalletType(input.type);
   if (!isRemittance && input.fromCurrency === input.toCurrency) {
     throw errors.precondition('Both sides are the same currency', 'errors.sameCurrencyPair');
   }
@@ -162,7 +163,9 @@ export async function record(
    */
   const balances = balancesFor(input.type);
   const split = (side: BalanceSide, total: bigint, given: { cash: bigint; broker: bigint } | undefined) => {
-    if (side === 'CORRESPONDENT' || side === 'NONE') return { cash: 0n, broker: 0n };
+    if (side === 'CORRESPONDENT' || side === 'PAYPAL' || side === 'NONE') {
+      return { cash: 0n, broker: 0n };
+    }
     if (side === 'CASH') return { cash: total, broker: 0n };
     return given ?? { cash: total, broker: 0n };
   };
@@ -228,7 +231,7 @@ export async function record(
 
       // A customer paying for a remittance by transfer can go without a name:
       // the proof and the number say whose it was. Their number still has to be there.
-      if (!named && input.type !== 'REMITTANCE_OUT') {
+      if (!named && !isSentRemittance(input.type)) {
         throw errors.precondition(
           'A transfer needs the name of the person it is for',
           'errors.transferNeedsCustomer',
@@ -1052,7 +1055,7 @@ export async function updateDetails(
 }
 
 /** The deals whose payment can be put right in place: a remittance sent. */
-export const INTAKE_CHANGEABLE = ['REMITTANCE_OUT'] as const;
+export const INTAKE_CHANGEABLE = ['REMITTANCE_OUT', 'PAYPAL_OUT'] as const;
 
 /**
  * How the customer paid for a remittance, put right after it was recorded:

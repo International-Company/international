@@ -10,6 +10,7 @@ import * as audit from '@/modules/audit/audit.service';
 import * as settings from '@/modules/settings/settings.service';
 import { intakeShares } from './intake-split';
 import { transferChannels } from './machine.service';
+import { isSentRemittance } from './transaction-types';
 import { MAX_PROOFS, readProofImage, type ProofKind } from './proof-image';
 import * as transactions from './transaction.service';
 import type { Actor } from './transaction.service';
@@ -97,9 +98,14 @@ export async function config(db: DbClient = prisma): Promise<RemittanceConfig> {
   return { destinations: list, transferChannels: channels, prices, currencies };
 }
 
+/** What a PayPal remittance says in place of a destination: it goes through the account. */
+export const PAYPAL_DESTINATION = 'باي بال';
+
 interface Common {
   currency: string;
   destination: string;
+  /** Through the office's PayPal account rather than the correspondent. */
+  paypal?: boolean;
   branchId: string;
   customerId?: string | null;
   counterpartyName?: string | null;
@@ -157,6 +163,14 @@ async function check(input: Common, amounts: bigint[], db: DbClient): Promise<vo
     throw errors.precondition('Amount must be greater than zero', 'errors.amountNotPositive');
   }
 
+  // PayPal has no list of destinations: the money goes through the one account.
+  if (input.paypal) {
+    // The account holds dollars; there is no PayPal balance in anything else.
+    if (input.currency !== 'USD') {
+      throw errors.precondition('PayPal remittances are in dollars', 'errors.paypalDollarsOnly');
+    }
+    return;
+  }
   const allowed = await destinations(db);
   const destination = input.destination.trim();
   if (!destination) {
@@ -234,7 +248,7 @@ export async function send(input: SendInput, actor: Actor, db: DbClient = prisma
   return withTransaction(async (tx) => {
     const posted = await transactions.record(
       {
-        type: 'REMITTANCE_OUT',
+        type: input.paypal ? 'PAYPAL_OUT' : 'REMITTANCE_OUT',
         branchId: input.branchId,
         customerId: input.customerId ?? null,
         // Same currency on both sides. What the customer paid, and what the
@@ -324,7 +338,7 @@ export async function recordCash(
 export async function unpriced(actor: Actor, db: DbClient = prisma) {
   const rows = await db.transaction.findMany({
     where: {
-      type: 'REMITTANCE_OUT',
+      type: { in: ['REMITTANCE_OUT', 'PAYPAL_OUT'] },
       pricePending: true,
       status: { not: 'REVERSED' },
       ...(actor.permissions.includes('exchange.transaction.viewAll')
@@ -367,7 +381,7 @@ export async function addPrice(id: string, cost: bigint, actor: Actor, db: DbCli
   return withTransaction(async (tx) => {
     const deal = await tx.transaction.findUnique({ where: { id } });
     if (!deal) throw errors.notFound('Transaction', id);
-    if (!deal.pricePending || deal.type !== 'REMITTANCE_OUT' || deal.status === 'REVERSED') {
+    if (!deal.pricePending || !isSentRemittance(deal.type) || deal.status === 'REVERSED') {
       throw errors.conflict('This remittance already has its price', 'errors.remittanceHasPrice');
     }
     if (cost <= 0n) {
@@ -391,7 +405,8 @@ export async function addPrice(id: string, cost: bigint, actor: Actor, db: DbCli
         [
           {
             currency: deal.toCurrency,
-            kind: 'CORRESPONDENT',
+            // Whichever held it: the correspondent, or the PayPal account.
+            kind: deal.type === 'PAYPAL_OUT' ? 'PAYPAL' : 'CORRESPONDENT',
             direction: 'IN',
             amount: margin,
             reason: 'TRANSACTION',
@@ -433,6 +448,8 @@ function readProof_(base64: string) {
 const PHOTOS_BY_TYPE: Record<string, { kinds: ProofKind[]; permission: string }> = {
   REMITTANCE_OUT: { kinds: ['PAYMENT', 'BENEFICIARY'], permission: 'exchange.remittance.use' },
   REMITTANCE_IN: { kinds: ['NOTICE'], permission: 'exchange.remittance.use' },
+  PAYPAL_OUT: { kinds: ['PAYMENT', 'BENEFICIARY'], permission: 'exchange.remittance.use' },
+  PAYPAL_IN: { kinds: ['NOTICE'], permission: 'exchange.remittance.use' },
   USDT_SALE: { kinds: ['PAYMENT', 'ADDRESS'], permission: 'usdt.withdrawal.use' },
 };
 
@@ -559,7 +576,7 @@ export async function receive(input: ReceiveInput, actor: Actor, db: DbClient = 
   return withTransaction(async (tx) => {
     const posted = await transactions.record(
       {
-        type: 'REMITTANCE_IN',
+        type: input.paypal ? 'PAYPAL_IN' : 'REMITTANCE_IN',
         branchId: input.branchId,
         customerId: input.customerId ?? null,
         fromCurrency: input.currency,

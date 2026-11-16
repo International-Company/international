@@ -6,7 +6,7 @@ import type { Locale } from '@/i18n/config';
 import * as settings from '@/modules/settings/settings.service';
 import * as audit from '@/modules/audit/audit.service';
 import type { Actor } from './transaction.service';
-import { MACHINE_TYPES } from './transaction-types';
+import { isReceivedRemittance, isSentRemittance, MACHINE_TYPES } from './transaction-types';
 import { PERCENT_CURRENCY, percentOfRate } from '@/modules/usdt/sale-sums';
 
 /**
@@ -263,7 +263,7 @@ function composeLines(
    * their own money, and what is owed here — the two sums labelled, since they
    * are in different money and either could be read as the other.
    */
-  if (transaction.type === 'REMITTANCE_IN' && !bankOnly) {
+  if (isReceivedRemittance(transaction.type) && !bankOnly) {
     const ar = locale === 'ar';
     const from = transaction.notes?.split(' — ')[0]?.trim() || null;
     const sent = transaction.deliveredAmount
@@ -285,11 +285,16 @@ function composeLines(
     ].filter((line): line is string => Boolean(line?.trim()));
   }
 
-  if (transaction.type === 'REMITTANCE_OUT') {
+  if (isSentRemittance(transaction.type)) {
     const sum = transaction.deliveredAmount
       ? `${toDecimalString(transaction.deliveredAmount, 2).replace(/\.00$/, '')} ${transaction.deliveredUnit ?? ''}`
       : `${wholeAmount(transaction.fromAmount)} ${unit}`;
-    return [phone, sum.trim()].filter((line): line is string => Boolean(line?.trim()));
+    // Through PayPal, said first: whoever sends it does so from the PayPal account.
+    return [
+      transaction.type === 'PAYPAL_OUT' ? (locale === 'ar' ? 'باي بال' : 'PayPal') : null,
+      phone,
+      sum.trim(),
+    ].filter((line): line is string => Boolean(line?.trim()));
   }
 
   /*
@@ -356,7 +361,7 @@ function composeLines(
       : null;
 
   // A received remittance is paid to who collects it, not to who sent it.
-  const incoming = transaction.type === 'REMITTANCE_IN';
+  const incoming = isReceivedRemittance(transaction.type);
   return [
     transaction.payoutAccount?.trim() || (incoming ? transaction.recipientPhone : phone),
     incoming ? transaction.recipientName : who,
@@ -410,7 +415,7 @@ export async function shareable(
     text: lines.join('\n\n'),
     phone: transaction.customer?.phone ?? transaction.counterpartyPhone ?? null,
     cashNote:
-      transaction.type === 'REMITTANCE_OUT' && !transaction.intakeBrokerAmount
+      isSentRemittance(transaction.type) && !transaction.intakeBrokerAmount
         ? locale === 'ar'
           ? `استلمت ${wholeAmount(transaction.fromAmount)} ${units.get(transaction.toCurrency)} نقدي`
           : `Received ${wholeAmount(transaction.fromAmount)} ${units.get(transaction.toCurrency)} in cash`
@@ -425,7 +430,7 @@ export async function shareable(
             .join(' ')
         : null,
     copyText:
-      transaction.type === 'REMITTANCE_OUT'
+      isSentRemittance(transaction.type)
         ? lines.join('\n\n')
         : transaction.type === 'USDT_SALE'
           ? [
@@ -549,7 +554,7 @@ function detailedDeal(transaction: ShareRow, locale: Locale, company: string): s
 }
 
 /** The kinds whose transfer alone also goes to the group the office keeps for transfers. */
-const BANK_COPIED = ['EXCHANGE', 'WALLET_CASHOUT', 'USDT_RECEIVE', 'REMITTANCE_IN'];
+const BANK_COPIED = ['EXCHANGE', 'WALLET_CASHOUT', 'USDT_RECEIVE', 'REMITTANCE_IN', 'PAYPAL_IN'];
 
 /** Between two transfers in one message: a line WhatsApp shows as a divider. */
 const DIVIDER = '\n\n———\n\n';

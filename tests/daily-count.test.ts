@@ -117,7 +117,17 @@ describe('the daily count', () => {
 
     assert.deepEqual(
       count.groups.map((group) => group.kind),
-      ['USDT_RECEIVE', 'USDT_SEND', 'BUY', 'SELL', 'WALLET_TOPUP', 'REMITTANCE_OUT', 'REMITTANCE_IN'],
+      [
+        'USDT_RECEIVE',
+        'USDT_SEND',
+        'BUY',
+        'SELL',
+        'WALLET_TOPUP',
+        'REMITTANCE_OUT',
+        'REMITTANCE_IN',
+        'PAYPAL_OUT',
+        'PAYPAL_IN',
+      ],
     );
     assert.equal(by.USDT_RECEIVE?.count, 2);
     assert.deepEqual(by.USDT_RECEIVE?.received, [{ currency: 'USDT', amount: 150n * UNIT }]);

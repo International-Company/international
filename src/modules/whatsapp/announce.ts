@@ -161,6 +161,8 @@ const KIND_LABEL: Record<string, string> = {
   USDT_SALE: 'بيع يواس',
   REMITTANCE_OUT: 'حوالة صادرة',
   REMITTANCE_IN: 'حوالة واردة',
+  PAYPAL_OUT: 'باي بال صادرة',
+  PAYPAL_IN: 'باي بال واردة',
 };
 
 export function kindLabel(type: string): string {
@@ -239,7 +241,7 @@ export interface AnnounceDeps {
 export type AnnounceOutcome = 'SKIPPED' | 'NOT_FOUND' | 'SEND_FAILED' | 'NO_REPLY' | 'SENT';
 
 /** These go out as the office writes them: their photos and words, and no label beside. */
-const BARE: string[] = ['REMITTANCE_OUT', 'USDT_SALE'];
+const BARE: string[] = ['REMITTANCE_OUT', 'PAYPAL_OUT', 'USDT_SALE'];
 
 /**
  * One deal to the group: its message, then the kind as a reply to it.

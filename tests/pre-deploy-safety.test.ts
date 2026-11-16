@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
 import {
+  balancesFor,
   TRANSACTION_STATUSES,
   TRANSACTION_TYPES,
 } from '../src/modules/exchange/transaction-types.ts';
@@ -57,6 +58,39 @@ describe('the deploy’s removal of retired transactions', () => {
     const doomed = listed(sql, 'status', false);
     for (const status of TRANSACTION_STATUSES) {
       assert.ok(!doomed.includes(status), `${status} is live and would be deleted on every deploy`);
+    }
+  });
+});
+
+/*
+ * Two steps restate a deal with no legs as all cash, on every deploy. A type whose
+ * side is pinned to the correspondent or the PayPal account has no legs there on
+ * purpose, so each such type has to be excluded or it is rewritten as cash.
+ */
+describe('the deploy’s cash backfill of old deals', () => {
+  const step = (name: string) => {
+    const start = script.indexOf(`name: '${name}'`);
+    assert.ok(start >= 0, `the step "${name}" is where it was`);
+    return script.slice(start, script.indexOf('`,', start));
+  };
+
+  it('leaves alone every payout that is not the till’s or the broker’s', () => {
+    const excluded = listed(step('Record that every existing payout was cash'), 'type', true);
+    for (const type of TRANSACTION_TYPES) {
+      const side = balancesFor(type).payout;
+      if (side === 'CORRESPONDENT' || side === 'PAYPAL') {
+        assert.ok(excluded.includes(type), `${type} would be restated as a cash payout`);
+      }
+    }
+  });
+
+  it('leaves alone every intake that is not the till’s or the broker’s', () => {
+    const excluded = listed(step('Record that every existing intake was cash'), 'type', true);
+    for (const type of TRANSACTION_TYPES) {
+      const side = balancesFor(type).intake;
+      if (side === 'CORRESPONDENT' || side === 'PAYPAL') {
+        assert.ok(excluded.includes(type), `${type} would be restated as a cash intake`);
+      }
     }
   });
 });

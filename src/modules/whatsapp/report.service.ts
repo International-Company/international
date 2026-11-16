@@ -180,8 +180,9 @@ export async function tellerDay(teller: TellerCandidate): Promise<TellerDay> {
         count: group.count,
         // A correspondent's price or credit is owed between offices: it never
         // crossed the counter, so the totals leave it out. The lists still say it.
-        received: group.kind === 'REMITTANCE_IN' ? [] : group.received,
-        paid: group.kind === 'REMITTANCE_OUT' ? [] : group.paid,
+        received:
+          group.kind === 'REMITTANCE_IN' || group.kind === 'PAYPAL_IN' ? [] : group.received,
+        paid: group.kind === 'REMITTANCE_OUT' || group.kind === 'PAYPAL_OUT' ? [] : group.paid,
         receivedBank: sumAmounts(
           standing(group.entries).map((entry) => ({
             currency: entry.fromCurrency,
@@ -219,6 +220,8 @@ const REPORT_ORDER = [
   'WALLET_TOPUP',
   'REMITTANCE_OUT',
   'REMITTANCE_IN',
+  'PAYPAL_OUT',
+  'PAYPAL_IN',
 ];
 
 const standing = (entries: CountEntry[]) => entries.filter((entry) => !entry.reversed);

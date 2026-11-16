@@ -27,7 +27,9 @@ export type CountKind =
   | 'SELL'
   | 'WALLET_TOPUP'
   | 'REMITTANCE_OUT'
-  | 'REMITTANCE_IN';
+  | 'REMITTANCE_IN'
+  | 'PAYPAL_OUT'
+  | 'PAYPAL_IN';
 
 export const COUNT_KINDS: CountKind[] = [
   'USDT_RECEIVE',
@@ -37,10 +39,12 @@ export const COUNT_KINDS: CountKind[] = [
   'WALLET_TOPUP',
   'REMITTANCE_OUT',
   'REMITTANCE_IN',
+  'PAYPAL_OUT',
+  'PAYPAL_IN',
 ];
 
 /** Written down by a note alone, so the note stands in for a name in the lists. */
-const REMITTANCES = ['REMITTANCE_OUT', 'REMITTANCE_IN'];
+const REMITTANCES = ['REMITTANCE_OUT', 'REMITTANCE_IN', 'PAYPAL_OUT', 'PAYPAL_IN'];
 
 export interface CountAmount {
   currency: string;
@@ -91,7 +95,9 @@ export function kindOf(type: string, fromCurrency: string): CountKind | null {
     type === 'USDT_SEND' ||
     type === 'WALLET_TOPUP' ||
     type === 'REMITTANCE_OUT' ||
-    type === 'REMITTANCE_IN'
+    type === 'REMITTANCE_IN' ||
+    type === 'PAYPAL_OUT' ||
+    type === 'PAYPAL_IN'
   ) {
     return type;
   }

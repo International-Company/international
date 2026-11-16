@@ -40,7 +40,10 @@ export default async function TransactionPage({ params }: { params: Promise<{ id
     : [];
 
   // The accounts a payment can be put right to, on a remittance sent.
-  const channels = transaction.type === 'REMITTANCE_OUT' ? await transferChannels() : [];
+  const channels =
+    transaction.type === 'REMITTANCE_OUT' || transaction.type === 'PAYPAL_OUT'
+      ? await transferChannels()
+      : [];
 
   return (
     <div className="space-y-4">

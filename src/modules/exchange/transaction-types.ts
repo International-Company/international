@@ -28,8 +28,33 @@ export const TRANSACTION_TYPES = [
   'USDT_SALE',
   'REMITTANCE_OUT',
   'REMITTANCE_IN',
+  'PAYPAL_OUT',
+  'PAYPAL_IN',
 ] as const;
 export type TransactionType = (typeof TRANSACTION_TYPES)[number];
+
+/*
+ * A PayPal remittance is a remittance in every way the counter sees — the same
+ * screen, the same two figures, the same recipient and notice — but its money is
+ * the office's PayPal account rather than the correspondent's, so it is a type of
+ * its own: the balance it moves, the day's count and the group it goes to all
+ * follow from the type. These say "a remittance sent" or "received" of either.
+ */
+export const SENT_REMITTANCES = ['REMITTANCE_OUT', 'PAYPAL_OUT'] as const;
+export const RECEIVED_REMITTANCES = ['REMITTANCE_IN', 'PAYPAL_IN'] as const;
+
+export function isSentRemittance(type: string): boolean {
+  return type === 'REMITTANCE_OUT' || type === 'PAYPAL_OUT';
+}
+export function isReceivedRemittance(type: string): boolean {
+  return type === 'REMITTANCE_IN' || type === 'PAYPAL_IN';
+}
+export function isRemittanceType(type: string): boolean {
+  return isSentRemittance(type) || isReceivedRemittance(type);
+}
+export function isPaypalType(type: string): boolean {
+  return type === 'PAYPAL_OUT' || type === 'PAYPAL_IN';
+}
 
 /**
  * Everything the exchange machine records: a conversion, and the two same-
@@ -66,6 +91,8 @@ export const TRANSACTION_TYPE_META: Record<TransactionType, TransactionTypeMeta>
   WALLET_TOPUP: { type: 'WALLET_TOPUP', nameEn: 'Wallet top-up', nameAr: 'إيداع في محفظة' },
   REMITTANCE_OUT: { type: 'REMITTANCE_OUT', nameEn: 'Remittance Sent', nameAr: 'حوالة صادرة' },
   REMITTANCE_IN: { type: 'REMITTANCE_IN', nameEn: 'Remittance Received', nameAr: 'حوالة واردة' },
+  PAYPAL_OUT: { type: 'PAYPAL_OUT', nameEn: 'PayPal Sent', nameAr: 'باي بال صادرة' },
+  PAYPAL_IN: { type: 'PAYPAL_IN', nameEn: 'PayPal Received', nameAr: 'باي بال واردة' },
   USDT_RECEIVE: { type: 'USDT_RECEIVE', nameEn: 'USDT Received', nameAr: 'استلام USDT' },
   USDT_SEND: { type: 'USDT_SEND', nameEn: 'USDT Sent', nameAr: 'سحب USDT' },
   USDT_SALE: { type: 'USDT_SALE', nameEn: 'USDT Sold', nameAr: 'بيع USDT' },
@@ -88,7 +115,7 @@ export const TRANSACTION_TYPE_META: Record<TransactionType, TransactionTypeMeta>
  * the broker — the branch pays out that way on the machine, and takes money in
  * that way when a customer buys USDT.
  */
-export type BalanceSide = 'CASH' | 'CORRESPONDENT' | 'NONE' | null;
+export type BalanceSide = 'CASH' | 'CORRESPONDENT' | 'PAYPAL' | 'NONE' | null;
 
 export function balancesFor(type: TransactionType): {
   intake: BalanceSide;
@@ -98,6 +125,9 @@ export function balancesFor(type: TransactionType): {
   if (type === 'REMITTANCE_OUT') return { intake: null, payout: 'CORRESPONDENT' };
   // Paid out in notes, by transfer to a bank or a wallet, or part of each.
   if (type === 'REMITTANCE_IN') return { intake: 'CORRESPONDENT', payout: null };
+  // The same through the office's PayPal account: sending draws on it, receiving fills it.
+  if (type === 'PAYPAL_OUT') return { intake: null, payout: 'PAYPAL' };
+  if (type === 'PAYPAL_IN') return { intake: 'PAYPAL', payout: null };
   // A withdrawal is the machine reversed: the customer pays through the till or
   // the broker, and what they take away is USDT out of the one wallet balance.
   if (type === 'USDT_SEND') return { intake: null, payout: 'CASH' };
@@ -125,7 +155,7 @@ export function balancesFor(type: TransactionType): {
  */
 export const CATEGORIES = {
   EXCHANGE: ['EXCHANGE', 'WALLET_CASHOUT', 'WALLET_TOPUP'],
-  REMITTANCE: ['REMITTANCE_OUT', 'REMITTANCE_IN'],
+  REMITTANCE: ['REMITTANCE_OUT', 'REMITTANCE_IN', 'PAYPAL_OUT', 'PAYPAL_IN'],
   USDT: ['USDT_RECEIVE', 'USDT_SEND', 'USDT_SALE'],
 } as const satisfies Record<string, readonly TransactionType[]>;
 

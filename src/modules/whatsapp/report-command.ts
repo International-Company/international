@@ -159,7 +159,9 @@ export type CountKind =
   | 'USDT_SEND'
   | 'WALLET_TOPUP'
   | 'REMITTANCE_OUT'
-  | 'REMITTANCE_IN';
+  | 'REMITTANCE_IN'
+  | 'PAYPAL_OUT'
+  | 'PAYPAL_IN';
 
 export const KIND_WORDS: Record<CountKind, string> = {
   BUY: 'شراء (صرافة)',
@@ -169,6 +171,8 @@ export const KIND_WORDS: Record<CountKind, string> = {
   WALLET_TOPUP: 'إيداع في محفظة',
   REMITTANCE_OUT: 'حوالات صادرة',
   REMITTANCE_IN: 'حوالات واردة',
+  PAYPAL_OUT: 'باي بال صادرة',
+  PAYPAL_IN: 'باي بال واردة',
 };
 
 /** The heading of each kind's own list of deals. */
@@ -180,6 +184,8 @@ export const MOVE_WORDS: Record<CountKind, string> = {
   WALLET_TOPUP: 'الإيداع في محفظة',
   REMITTANCE_OUT: 'الحوالات الصادرة',
   REMITTANCE_IN: 'الحوالات الواردة',
+  PAYPAL_OUT: 'حوالات باي بال الصادرة',
+  PAYPAL_IN: 'حوالات باي بال الواردة',
 };
 
 /** Said in place of a correspondent's price still to be written. */
@@ -228,7 +234,10 @@ export function moveOf(
 ): Move {
   const from = { currency: deal.fromCurrency, amount: deal.fromAmount };
   const to = { currency: deal.toCurrency, amount: deal.toAmount };
-  const goodsFirst = kind === 'BUY' || kind === 'USDT_RECEIVE' || kind === 'REMITTANCE_OUT';
+  const goodsFirst = kind === 'BUY' ||
+    kind === 'USDT_RECEIVE' ||
+    kind === 'REMITTANCE_OUT' ||
+    kind === 'PAYPAL_OUT';
   const goods = goodsFirst ? from : to;
   const counter = goodsFirst ? to : from;
   return {

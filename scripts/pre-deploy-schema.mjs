@@ -445,7 +445,8 @@ const STEPS = [
         UPDATE "transactions"
         SET "payoutCashAmount" = "toAmount"
         WHERE "payoutCashAmount" = 0 AND "payoutBankAmount" = 0 AND "toAmount" <> 0
-          AND "type" <> 'REMITTANCE_OUT';
+          -- PayPal sent the same: its payout leaves the PayPal balance.
+          AND "type" NOT IN ('REMITTANCE_OUT', 'PAYPAL_OUT');
 
         -- Where a transfer was sent. Nothing to backfill: no transfer has ever
         -- been recorded without one, because the column arrives with the field.
@@ -557,7 +558,8 @@ const STEPS = [
         -- A remittance received is excluded for the mirror reason: what came in
         -- was drawn on the correspondent, not counted into the till.
         WHERE "intakeCashAmount" = 0 AND "intakeBrokerAmount" = 0 AND "fromAmount" <> 0
-          AND "type" <> 'REMITTANCE_IN';
+          -- PayPal received the same: what came in was the PayPal balance.
+          AND "type" NOT IN ('REMITTANCE_IN', 'PAYPAL_IN');
 
         -- Where USDT was sent. Nothing to backfill: no withdrawal has ever been
         -- recorded, because the column arrives with the screen that records one.
