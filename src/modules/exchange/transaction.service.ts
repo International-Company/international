@@ -1029,7 +1029,7 @@ export async function updateDetails(
 
   log.info('Transaction details edited', { reference: original.reference });
 
-  // What the group was told changed with it; a note alone is the office's own.
+  // Any change marks the deal's messages; what the group was told is rewritten too.
   const said = [
     'counterpartyName',
     'counterpartyPhone',
@@ -1037,8 +1037,9 @@ export async function updateDetails(
     'payoutAccount',
     'payoutBankChannel',
   ] as const;
-  if (said.some((field) => original[field] !== updated[field])) {
-    emitAsync('transaction.edited', { transactionId: id, actorId: actor.id });
+  const told = said.some((field) => original[field] !== updated[field]);
+  if (told || original.notes !== updated.notes) {
+    emitAsync('transaction.edited', { transactionId: id, actorId: actor.id, told });
   }
 
   return { id: updated.id, reference: updated.reference };

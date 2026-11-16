@@ -460,14 +460,21 @@ export function composeCopyCancelled(deal: {
     .join('\n\n');
 }
 
-/** The ❌ on the messages a cancelled deal went out as. One failing does not stop the other. */
-async function markCancelled(deal: {
+/** The ❌ on the messages a cancelled deal went out as. */
+function markCancelled(deal: MarkedDeal): Promise<void> {
+  return markMessages(deal, CANCELLED_MARK);
+}
+
+interface MarkedDeal {
   reference: string;
   announcedChat: string | null;
   announcedMessageId: string | null;
   copyChat: string | null;
   copyMessageId: string | null;
-}): Promise<void> {
+}
+
+/** A reaction on the messages a deal went out as. One failing does not stop the other. */
+async function markMessages(deal: MarkedDeal, emoji: string): Promise<void> {
   if (!isLinked()) return;
   const marks = [
     [deal.announcedChat, deal.announcedMessageId],
@@ -475,8 +482,8 @@ async function markCancelled(deal: {
   ] as const;
   for (const [chat, messageId] of marks) {
     if (!chat || !messageId) continue;
-    await reactTo(chat, messageId, CANCELLED_MARK).catch((error) =>
-      log.warn('Could not mark a cancelled deal', { reference: deal.reference, error }),
+    await reactTo(chat, messageId, emoji).catch((error) =>
+      log.warn('Could not mark a deal’s message', { reference: deal.reference, emoji, error }),
     );
   }
 }
@@ -484,11 +491,14 @@ async function markCancelled(deal: {
 /** What the bot puts on a deal's message once the deal is cancelled. */
 export const CANCELLED_MARK = '❌';
 
+/** What the bot puts on a deal's message once any of its details were changed. */
+export const EDITED_MARK = '✍️';
+
 /** How long WhatsApp lets a message be edited, less a margin for the clock and the send. */
 export const EDIT_WINDOW_MS = 13 * 60 * 1000;
 
 /** Heads the reply that corrects a deal's message once it can no longer be edited. */
-export const CORRECTION_HEAD = '✏️ تصحيح';
+export const CORRECTION_HEAD = `${EDITED_MARK} تصحيح`;
 
 export interface EditedDeal {
   reference: string;
@@ -703,9 +713,8 @@ export function registerWhatsappSubscribers(): void {
     }
   });
 
-  on('transaction.edited', 'whatsapp-announce-edit', async ({ transactionId }) => {
-    if (!(await settings.getBoolean('whatsapp.enabled'))) return;
-    if (!(await settings.getBoolean('whatsapp.editMessages')) || !isLinked()) return;
+  on('transaction.edited', 'whatsapp-announce-edit', async ({ transactionId, told }) => {
+    if (!(await settings.getBoolean('whatsapp.enabled')) || !isLinked()) return;
     const deal = await prisma.transaction.findUnique({
       where: { id: transactionId },
       select: {
@@ -720,6 +729,9 @@ export function registerWhatsappSubscribers(): void {
       },
     });
     if (!deal) return;
+    // A cancelled deal keeps its ❌; any other is marked as changed, whatever changed.
+    if (deal.status !== 'REVERSED') await markMessages(deal, EDITED_MARK);
+    if (!told || !(await settings.getBoolean('whatsapp.editMessages'))) return;
     await reannounceEdited(transactionId, deal, {
       load: (id) => shareable(id, 'ar').catch(() => null),
       hasPhotos: async (id) =>

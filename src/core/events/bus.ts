@@ -31,8 +31,11 @@ export interface DomainEvents {
   'tiktok.recorded': { withdrawalId: string };
   'tiktok.deleted': { withdrawalId: string; by: string };
   'transaction.reversed': { transactionId: string; reversalId: string; actorId: string };
-  /** Its name, number, wallet or account changed: nothing that moved money. */
-  'transaction.edited': { transactionId: string; actorId: string };
+  /**
+   * Its details were changed: nothing that moved money. `told` when what changed
+   * is in the group's message (name, number, wallet or account), not a note alone.
+   */
+  'transaction.edited': { transactionId: string; actorId: string; told: boolean };
 
   'rate.changed': { baseCode: string; quoteCode: string; rateId: string; actorId: string };
 
