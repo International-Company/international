@@ -594,7 +594,7 @@ export function RemittanceView({
               className="h-11 w-24 shrink-0 rounded-xl bg-surface-sunken px-3 text-center text-sm font-semibold text-content outline-none ring-1 ring-transparent focus:ring-primary"
             />
             <datalist id="remittance-units">
-              {['جنيه', 'دولار', 'دينار', 'شيكل', 'ليرة', 'درهم', 'ريال'].map((unit) => (
+              {['جنيه', 'شيكل', 'دولار', 'دينار', 'يورو', 'ليرة', 'درهم', 'ريال'].map((unit) => (
                 <option key={unit} value={unit} />
               ))}
             </datalist>
@@ -614,6 +614,25 @@ export function RemittanceView({
               }}
               className="min-w-0 flex-1 bg-transparent text-end text-2xl font-semibold tabular-nums tracking-tight text-content outline-none placeholder:text-content-tertiary sm:text-3xl"
             />
+          </div>
+          {/* The usual money in one tap; anything else is typed in the small box. */}
+          <div className="mt-3 flex flex-wrap gap-1.5">
+            {['جنيه', 'شيكل', 'دولار', 'دينار', 'يورو', 'ليرة', 'درهم', 'ريال'].map((unit) => (
+              <button
+                key={unit}
+                type="button"
+                aria-pressed={deliveredUnit === unit}
+                onClick={() => setDeliveredUnit(unit)}
+                className={cn(
+                  'h-8 rounded-full px-3 text-xs font-semibold transition-colors',
+                  deliveredUnit === unit
+                    ? 'bg-primary text-white'
+                    : 'bg-surface-sunken text-content-secondary hover:text-content',
+                )}
+              >
+                {unit}
+              </button>
+            ))}
           </div>
         </div>
       )}
