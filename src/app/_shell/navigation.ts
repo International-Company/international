@@ -37,6 +37,7 @@ export interface NavSection {
 }
 
 export type IconName =
+  | 'bank'
   | 'bot'
   | 'inbox'
   | 'machine'
@@ -62,6 +63,13 @@ export const NAVIGATION: NavSection[] = [
     id: 'counter',
     labelKey: 'nav.counter',
     items: [
+      {
+        // The bank desk: whoever the settings name, and the manager.
+        href: '/bank',
+        labelKey: 'nav.bank',
+        icon: 'bank',
+        permissions: ['bank.execute', 'exchange.transfer.confirm'],
+      },
       {
         href: '/treasury/handovers',
         labelKey: 'nav.handovers',

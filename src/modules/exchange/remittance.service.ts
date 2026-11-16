@@ -464,6 +464,7 @@ const PHOTO_SUMMARIES: Record<ProofKind, { en: string; ar: string }> = {
   BENEFICIARY: { en: 'beneficiary', ar: 'بيانات المستفيد' },
   ADDRESS: { en: 'address', ar: 'عنوان التحويل' },
   NOTICE: { en: 'transfer notice', ar: 'إشعار التحويل' },
+  TRANSFER: { en: 'bank transfer receipt', ar: 'إيصال التحويل البنكي' },
 };
 
 /**

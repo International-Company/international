@@ -1,5 +1,6 @@
 import 'server-only';
 import { prisma, type DbClient } from '@/core/db/prisma';
+import { BANK_EXECUTE, isBankExecutor } from '@/modules/bank/bank-desk';
 import { env } from '@/core/config/env';
 import { randomToken, sha256 } from '@/core/security/crypto';
 import { createLogger } from '@/core/logger/logger';
@@ -144,6 +145,9 @@ export async function resolveSession(
     if (override.effect === 'DENY') denied.add(override.permission.key);
     else granted.add(override.permission.key);
   }
+
+  // The bank desk is whoever the settings name, not a role: being named is the grant.
+  if (await isBankExecutor(session.user.id, db)) granted.add(BANK_EXECUTE);
 
   const permissions = [...granted].filter((key) => !denied.has(key)).sort();
 

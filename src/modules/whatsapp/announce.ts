@@ -22,6 +22,7 @@ import {
   replyToSent,
   sendImage,
   sendText,
+  sentStub,
   type SentMessage,
 } from './whatsapp.service';
 
@@ -493,6 +494,9 @@ async function markMessages(deal: MarkedDeal, emoji: string): Promise<void> {
 /** What the bot puts on a deal's message once the deal is cancelled. */
 export const CANCELLED_MARK = '❌';
 
+/** What the bot puts on a deal's message once its transfer was sent from the bank. */
+export const SENT_MARK = '✅';
+
 /** What the bot puts on a deal's message once any of its details were changed. */
 export const EDITED_MARK = '🤳';
 
@@ -762,6 +766,39 @@ export function registerWhatsappSubscribers(): void {
       edit: editSent,
       reply: replyToSent,
     });
+  });
+
+  /*
+   * A transfer sent from the bank desk. Its messages are marked, and the bank's
+   * receipt goes as a reply to the one that asked for the transfer: the copy in
+   * the transfers group when there is one, else the deal itself.
+   */
+  on('transaction.transferSent', 'whatsapp-announce-sent', async ({ transactionId, proofId }) => {
+    if (!(await settings.getBoolean('whatsapp.enabled')) || !isLinked()) return;
+    const deal = await prisma.transaction.findUnique({
+      where: { id: transactionId },
+      select: {
+        reference: true,
+        announcedChat: true,
+        announcedMessageId: true,
+        copyChat: true,
+        copyMessageId: true,
+      },
+    });
+    if (!deal) return;
+    await markMessages(deal, SENT_MARK);
+    if (!proofId) return;
+    const chat = deal.copyChat ?? deal.announcedChat;
+    const messageId = deal.copyChat ? deal.copyMessageId : deal.announcedMessageId;
+    if (!chat || !messageId) return;
+    const proof = await prisma.transactionProof.findUnique({
+      where: { id: proofId },
+      select: { data: true, mimeType: true },
+    });
+    if (!proof) return;
+    await sendImage(chat, Buffer.from(proof.data), `${SENT_MARK} تم التحويل`, sentStub(chat, messageId), proof.mimeType).catch(
+      (error) => log.warn('Could not send a transfer receipt', { reference: deal.reference, error }),
+    );
   });
 
   /*

@@ -873,6 +873,14 @@ export async function editSent(jid: string, messageId: string, text: string): Pr
   await sock.sendMessage(jid, { text, edit: { remoteJid: jid, fromMe: true, id: messageId } });
 }
 
+/** A message this office's number sent, known only by its id, to answer by quoting it. */
+export function sentStub(jid: string, messageId: string): WAMessage {
+  return {
+    key: { remoteJid: jid, fromMe: true, id: messageId },
+    message: { conversation: '' },
+  } as WAMessage;
+}
+
 /** Writes to a chat as a reply to a message this office's number sent there, known by its id. */
 export async function replyToSent(
   jid: string,

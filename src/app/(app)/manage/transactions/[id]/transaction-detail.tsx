@@ -677,6 +677,32 @@ export function TransactionDetail({
               );
             })}
 
+          {/* --- The bank's receipt, from the bank desk ------------------- */}
+          {proofs.some((proof) => proof.kind === 'TRANSFER') && (
+            <Card>
+              <CardHeader title={t('bank.receipt')} />
+              <CardBody className="grid grid-cols-3 gap-2">
+                {proofs
+                  .filter((proof) => proof.kind === 'TRANSFER')
+                  .map((proof) => (
+                    <a
+                      key={proof.id}
+                      href={`/api/manage/transactions/${transaction.id}/proofs/${proof.id}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={`/api/manage/transactions/${transaction.id}/proofs/${proof.id}`}
+                        alt={t('bank.receipt')}
+                        className="aspect-square w-full rounded-lg object-cover ring-1 ring-border-subtle"
+                      />
+                    </a>
+                  ))}
+              </CardBody>
+            </Card>
+          )}
+
           {/* --- What it did to the drawers ------------------------------ */}
           <Card>
             <CardHeader title={t('drawers.movements')} />

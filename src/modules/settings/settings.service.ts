@@ -136,6 +136,8 @@ function validate(definition: SettingDefinition, value: unknown): unknown {
 
     case 'select': {
       const allowed = definition.options?.map((o) => o.value) ?? [];
+      // A list drawn when the page is (the staff, say) has nothing fixed to check against.
+      if (allowed.length === 0) return String(value ?? '');
       if (!allowed.includes(String(value))) {
         throw errors.validation([
           { path: definition.key, message: `Must be one of: ${allowed.join(', ')}` },

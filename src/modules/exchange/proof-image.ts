@@ -16,7 +16,7 @@ export const MAX_PROOFS = 5;
  * What a photo shows: what the customer paid, who a remittance is for, where
  * coins go, or the notice of a transfer that came in from abroad.
  */
-export const PROOF_KINDS = ['PAYMENT', 'BENEFICIARY', 'ADDRESS', 'NOTICE'] as const;
+export const PROOF_KINDS = ['PAYMENT', 'BENEFICIARY', 'ADDRESS', 'NOTICE', 'TRANSFER'] as const;
 export type ProofKind = (typeof PROOF_KINDS)[number];
 
 export type ProofRefusal = 'errors.proofImageInvalid' | 'errors.proofImageTooLarge';

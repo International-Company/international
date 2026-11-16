@@ -118,6 +118,19 @@ export const SETTINGS: SettingDefinition[] = [
   },
 
   {
+    // Whoever sends the office's transfers from its bank accounts. Named here
+    // rather than given a role: the «بنك» menu is theirs and the manager's alone.
+    key: 'bank.executorId', category: 'operations', type: 'select', defaultValue: '',
+    labelEn: 'Bank desk', labelAr: 'موظف التنفيذ البنكي',
+    descriptionEn:
+      'The one person who sees the «Bank» menu and sends the transfers deals promised from the office\'s accounts. The manager sees it too.',
+    descriptionAr:
+      'الشخص الوحيد الذي تظهر له قائمة «بنك» وينفّذ منها التحويلات البنكية للحركات. المدير يراها أيضاً.',
+    // Filled with the staff when the page is drawn.
+    options: [],
+  },
+
+  {
     // The office's WhatsApp, for the receipt's QR. Set, the QR opens a chat with
     // it, the receipt's number already typed; empty, the QR says the deal as text.
     key: 'operations.receiptWhatsapp', category: 'operations', type: 'string', defaultValue: '',
