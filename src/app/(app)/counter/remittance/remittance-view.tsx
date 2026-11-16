@@ -61,6 +61,19 @@ interface Config {
   currencies: Currency[];
 }
 
+/** What can keep a remittance from being recorded, each with its own line on the screen. */
+type Missing =
+  | 'destination'
+  | 'gross'
+  | 'net'
+  | 'margin'
+  | 'recipientName'
+  | 'payoutChannel'
+  | 'recipientPhone'
+  | 'payoutSplit'
+  | 'beneficiaryPhone'
+  | 'intakeSplit';
+
 interface RecentRow {
   id: string;
   reference: string;
@@ -209,20 +222,33 @@ export function RemittanceView({
    * the customer is quoted. The server checks all of it again — this is the
    * courteous version, not the trusted one.
    */
-  const blocked =
-    !destination ||
-    grossValue <= 0n ||
-    // Sending, the correspondent's price can follow once it is known.
-    (!outgoing && netValue <= 0n) ||
-    (netValue > 0n && margin < 0n) ||
-    // Received, the money is handed to someone: who, by name. Who sent it is not asked.
-    (!outgoing && !recipientName.trim()) ||
-    // Sent to a bank or a wallet: where, and a number to reach who it is for.
-    (paysByTransfer && (!payoutChannel || !recipientPhone.trim())) ||
-    payoutSplitBad ||
-    // A transfer belongs to someone who can be reached; the server insists too.
-    (byTransfer && !counterpartyPhone.trim()) ||
-    (splitting && !split);
+  // The first thing standing in the way, named under the button: a faded button says nothing.
+  const missing: Missing | null = !destination
+    ? 'destination'
+    : grossValue <= 0n
+      ? 'gross'
+      : // Sending, the correspondent's price can follow once it is known.
+        !outgoing && netValue <= 0n
+        ? 'net'
+        : netValue > 0n && margin < 0n
+          ? 'margin'
+          : // Received, the money is handed to someone: who, by name. Who sent it is not asked.
+            !outgoing && !recipientName.trim()
+            ? 'recipientName'
+            : // Sent to a bank or a wallet: where, and a number to reach who it is for.
+              paysByTransfer && !payoutChannel
+              ? 'payoutChannel'
+              : paysByTransfer && !recipientPhone.trim()
+                ? 'recipientPhone'
+                : payoutSplitBad
+                  ? 'payoutSplit'
+                  : // A transfer belongs to someone who can be reached; the server insists too.
+                    byTransfer && !counterpartyPhone.trim()
+                    ? 'beneficiaryPhone'
+                    : splitting && !split
+                      ? 'intakeSplit'
+                      : null;
+  const blocked = missing !== null;
 
   const submit = async () => {
     if (blocked) return;
@@ -904,6 +930,11 @@ export function RemittanceView({
         {posting ? <Loader2 className="size-5 animate-spin" /> : <Check className="size-5" />}
         {outgoing ? t('remittance.send') : t('remittance.receive')}
       </button>
+      {missing && missing !== 'gross' && !posting && (
+        <p role="status" className="-mt-2 text-center text-sm text-warning-text">
+          {t(`remittance.missing.${missing}`)}
+        </p>
+      )}
 
       <button
         type="button"
