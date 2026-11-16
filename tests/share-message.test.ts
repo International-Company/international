@@ -279,6 +279,29 @@ describe('a remittance received, as the group reads it', () => {
     );
   });
 
+  it('copies a transfer to the transfers group as one: to whom, where, how much', async () => {
+    const { db } = fakeDb([
+      incoming({
+        payoutBankAmount: 100n * UNIT,
+        payoutBankChannel: 'بنك فلسطين',
+        payoutAccount: '123456',
+        recipientName: 'أحمد زيادة',
+        recipientPhone: '0599111222',
+      }),
+    ]);
+    assert.deepEqual(lines((await shareable('t1', 'ar', db)).copyText ?? ''), [
+      '123456',
+      'أحمد زيادة',
+      'بنك فلسطين',
+      '100 شيكل',
+    ]);
+  });
+
+  it('copies nothing of one paid wholly in cash', async () => {
+    const { db } = fakeDb([incoming()]);
+    assert.equal((await shareable('t1', 'ar', db)).copyText, null);
+  });
+
   it('says how much of it went each way when it was split', async () => {
     const { db } = fakeDb([
       incoming({

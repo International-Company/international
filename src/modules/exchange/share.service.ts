@@ -236,7 +236,7 @@ function composeLines(
    * their own money, and what is owed here — the two sums labelled, since they
    * are in different money and either could be read as the other.
    */
-  if (transaction.type === 'REMITTANCE_IN') {
+  if (transaction.type === 'REMITTANCE_IN' && !bankOnly) {
     const ar = locale === 'ar';
     const from = transaction.notes?.split(' — ')[0]?.trim() || null;
     const sent = transaction.deliveredAmount
@@ -328,9 +328,11 @@ function composeLines(
         : `Split: bank ${figureOf(transaction.payoutBankAmount)} + cash ${figureOf(cashPart)}`
       : null;
 
+  // A received remittance is paid to who collects it, not to who sent it.
+  const incoming = transaction.type === 'REMITTANCE_IN';
   return [
-    transaction.payoutAccount?.trim() || phone,
-    who,
+    transaction.payoutAccount?.trim() || (incoming ? transaction.recipientPhone : phone),
+    incoming ? transaction.recipientName : who,
     transaction.payoutBankChannel,
     `${amount} ${unit}`,
     transaction.payoutAddress
@@ -520,7 +522,7 @@ function detailedDeal(transaction: ShareRow, locale: Locale, company: string): s
 }
 
 /** The kinds whose transfer alone also goes to the group the office keeps for transfers. */
-const BANK_COPIED = ['EXCHANGE', 'WALLET_CASHOUT', 'USDT_RECEIVE'];
+const BANK_COPIED = ['EXCHANGE', 'WALLET_CASHOUT', 'USDT_RECEIVE', 'REMITTANCE_IN'];
 
 /** Between two transfers in one message: a line WhatsApp shows as a divider. */
 const DIVIDER = '\n\n———\n\n';
