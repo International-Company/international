@@ -593,6 +593,28 @@ function dealPhotos(transactionId: string) {
   });
 }
 
+/**
+ * Whether a deal went out to the group as a photo, its words a caption that
+ * cannot be edited here. Only a photo recorded with the deal does that: one added
+ * afterwards from the deal's page goes as a message of its own, and leaves the
+ * deal's words a plain message that can still be edited in place.
+ */
+async function wentWithPhoto(
+  transactionId: string,
+  recordedAt: Date,
+  kind?: 'PAYMENT',
+): Promise<boolean> {
+  const count = await prisma.transactionProof.count({
+    where: {
+      transactionId,
+      ...(kind ? { kind } : {}),
+      // Written in the same database transaction as the deal: within moments of it.
+      createdAt: { lte: new Date(recordedAt.getTime() + 60_000) },
+    },
+  });
+  return count > 0;
+}
+
 let registered = false;
 
 export function registerWhatsappSubscribers(): void {
@@ -736,8 +758,7 @@ export function registerWhatsappSubscribers(): void {
     if (!told || !(await settings.getBoolean('whatsapp.editMessages'))) return;
     await reannounceEdited(transactionId, deal, {
       load: (id) => shareable(id, 'ar').catch(() => null),
-      hasPhotos: async (id) =>
-        (await prisma.transactionProof.count({ where: { transactionId: id } })) > 0,
+      hasPhotos: (id) => wentWithPhoto(id, deal.createdAt),
       edit: editSent,
       reply: replyToSent,
     });
@@ -768,8 +789,7 @@ export function registerWhatsappSubscribers(): void {
     const note = await intakeNote(transactionId);
     if (!note) return;
     // The line itself only when it went out as words: a payment photo's caption cannot be edited here.
-    const openedWithPhoto =
-      (await prisma.transactionProof.count({ where: { transactionId, kind: 'PAYMENT' } })) > 0;
+    const openedWithPhoto = await wentWithPhoto(transactionId, deal.createdAt, 'PAYMENT');
     const fresh = Date.now() - deal.createdAt.getTime() < EDIT_WINDOW_MS;
     if (wasCash && !openedWithPhoto && fresh) {
       try {
