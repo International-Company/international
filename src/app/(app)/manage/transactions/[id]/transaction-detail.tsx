@@ -69,6 +69,9 @@ interface TransactionData {
   payoutAddress: string | null;
   deliveredAmount: string | null;
   deliveredUnit: string | null;
+  recipientName?: string | null;
+  recipientPhone?: string | null;
+  recipientIdNumber?: string | null;
   payoutWallet: { id: string; label: string; labelAr: string; network: string } | null;
   reverseReason: string | null;
   customer: { id: string; code: string; fullNameEn: string; fullNameAr: string } | null;
@@ -437,8 +440,23 @@ export function TransactionDetail({
                   {ln(transaction.customer, 'fullName')}
                 </DetailRow>
               )}
+              {transaction.recipientName && (
+                <DetailRow label={t('remittance.recipient')}>
+                  {transaction.recipientName}
+                </DetailRow>
+              )}
+              {transaction.recipientPhone && (
+                <DetailRow label={t('remittance.recipientPhone')}>
+                  <span className="ltr-content tabular-nums">{transaction.recipientPhone}</span>
+                </DetailRow>
+              )}
+              {transaction.recipientIdNumber && (
+                <DetailRow label={t('remittance.recipientIdNumber')}>
+                  <span className="ltr-content tabular-nums">{transaction.recipientIdNumber}</span>
+                </DetailRow>
+              )}
               {transaction.counterpartyName && (
-                <DetailRow label={t('transactions.counterpartyName')}>
+                <DetailRow label={incoming ? t('remittance.sender') : t('transactions.counterpartyName')}>
                   {transaction.counterpartyName}
                 </DetailRow>
               )}

@@ -43,6 +43,10 @@ const bodySchema = z.object({
   beneficiary: z.string().max(6_000_000).nullish(),
   /** Receiving: a photo of the notice of the transfer from abroad, the same way. */
   notice: z.string().max(6_000_000).nullish(),
+  /** Receiving: who collects it here. The counterparty is who sent it. */
+  recipientName: z.string().max(200).nullish(),
+  recipientPhone: z.string().max(40).nullish(),
+  recipientIdNumber: z.string().max(40).nullish(),
 });
 
 export const POST = route<z.infer<typeof bodySchema>>({
@@ -89,6 +93,9 @@ export const POST = route<z.infer<typeof bodySchema>>({
         sentAmount: body.delivered ? parseMoney(body.delivered) : null,
         sentUnit: body.deliveredUnit ?? null,
         notice: body.notice ?? null,
+        recipientName: body.recipientName ?? null,
+        recipientPhone: body.recipientPhone ?? null,
+        recipientIdNumber: body.recipientIdNumber ?? null,
       },
       actor,
     );

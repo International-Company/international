@@ -138,6 +138,10 @@ export interface ReceiveInput extends Common {
   sentUnit?: string | null;
   /** A photo of the notice of the transfer, as base64. */
   notice?: string | null;
+  /** Who collects it here: name, number and identity card. */
+  recipientName?: string | null;
+  recipientPhone?: string | null;
+  recipientIdNumber?: string | null;
 }
 
 async function check(input: Common, amounts: bigint[], db: DbClient): Promise<void> {
@@ -537,6 +541,9 @@ export async function receive(input: ReceiveInput, actor: Actor, db: DbClient = 
         // What the sender paid abroad, shown beside what is paid out here.
         deliveredAmount: sent,
         deliveredUnit: sent ? input.sentUnit?.trim() || null : null,
+        recipientName: input.recipientName ?? null,
+        recipientPhone: input.recipientPhone ?? null,
+        recipientIdNumber: input.recipientIdNumber ?? null,
         counterpartyName: input.counterpartyName ?? null,
         counterpartyPhone: input.counterpartyPhone ?? null,
         notes: [input.destination.trim(), input.notes?.trim()].filter(Boolean).join(' — '),

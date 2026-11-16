@@ -237,8 +237,27 @@ export default async function ReceiptPage({ params }: { params: Promise<{ id: st
               )}
               {!transaction.customer && transaction.counterpartyName && (
                 <Row
-                  label={t('receipt.customer')}
+                  label={
+                    transaction.type === 'REMITTANCE_IN'
+                      ? t('remittance.sender')
+                      : t('receipt.customer')
+                  }
                   value={transaction.counterpartyName}
+                  muted={muted}
+                />
+              )}
+              {/* Who the money was counted out to, and the card they showed. */}
+              {transaction.recipientName && (
+                <Row
+                  label={t('remittance.recipient')}
+                  value={transaction.recipientName}
+                  muted={muted}
+                />
+              )}
+              {transaction.recipientIdNumber && (
+                <Row
+                  label={t('remittance.recipientIdNumber')}
+                  value={transaction.recipientIdNumber}
                   muted={muted}
                 />
               )}

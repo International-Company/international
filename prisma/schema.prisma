@@ -1206,6 +1206,11 @@ model Transaction {
   /// showing only. No balance is kept of it, so the unit is words rather than a currency.
   deliveredAmount BigInt?
   deliveredUnit   String?
+  /// Who collects an incoming remittance here, when not the one who sent it: their
+  /// name, number and identity card, as the teller checked them at the counter.
+  recipientName     String?
+  recipientPhone    String?
+  recipientIdNumber String?
   /// Set when several USDT transfers were settled as this one deal: "100 + 50".
   mergedParts     String?
 

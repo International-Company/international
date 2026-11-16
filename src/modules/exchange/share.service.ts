@@ -112,6 +112,8 @@ const SHARE_SELECT = {
   counterpartyName: true,
   counterpartyPhone: true,
   notes: true,
+  recipientName: true,
+  recipientPhone: true,
   customer: { select: { fullNameAr: true, fullNameEn: true, phone: true } },
   payoutWallet: { select: { network: true } },
   createdAt: true,
@@ -141,6 +143,9 @@ type ShareRow = {
   counterpartyPhone: string | null;
   /** The destination first, then anything the teller noted. */
   notes?: string | null;
+  /** Who collects an incoming remittance here. */
+  recipientName?: string | null;
+  recipientPhone?: string | null;
   customer: { fullNameAr: string; fullNameEn: string; phone: string | null } | null;
   payoutWallet: { network: string } | null;
   createdAt?: Date;
@@ -222,8 +227,13 @@ function composeLines(
       phone,
       who,
       from ? `${ar ? 'من' : 'From'}: ${from}` : null,
-      sent ? `${ar ? 'المرسل' : 'Sent'}: ${sent}` : null,
+      sent ? `${ar ? 'المبلغ المرسل' : 'Sent'}: ${sent}` : null,
       `${ar ? 'المستحق' : 'Due'}: ${due}`,
+      // Who collects it here, when written down: often not the sender, who is abroad.
+      transaction.recipientName
+        ? `${ar ? 'المستلم' : 'Recipient'}: ${transaction.recipientName}`
+        : null,
+      transaction.recipientPhone,
     ].filter((line): line is string => Boolean(line?.trim()));
   }
 

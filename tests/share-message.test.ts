@@ -41,6 +41,8 @@ type Row = {
   counterpartyName: string | null;
   counterpartyPhone: string | null;
   notes?: string | null;
+  recipientName?: string | null;
+  recipientPhone?: string | null;
   customer: { fullNameAr: string; fullNameEn: string; phone: string | null } | null;
   payoutWallet: { network: string } | null;
   branch?: { nameAr: string; nameEn: string } | null;
@@ -245,8 +247,19 @@ describe('a remittance received, as the group reads it', () => {
       '0597768070',
       'هدى مشفق زيادة',
       'من: مصر',
-      'المرسل: 2000 جنيه',
+      'المبلغ المرسل: 2000 جنيه',
       'المستحق: 149 شيكل',
+    ]);
+  });
+
+  it('names who collects it here, and their number', async () => {
+    const { db } = fakeDb([
+      incoming({ recipientName: 'أحمد زيادة', recipientPhone: '0599111222' }),
+    ]);
+    assert.deepEqual(lines((await shareable('t1', 'ar', db)).text).slice(-3), [
+      'المستحق: 149 شيكل',
+      'المستلم: أحمد زيادة',
+      '0599111222',
     ]);
   });
 
@@ -254,7 +267,7 @@ describe('a remittance received, as the group reads it', () => {
     const { db } = fakeDb([incoming({ deliveredAmount: null, deliveredUnit: null })]);
     const text = lines((await shareable('t1', 'ar', db)).text);
     assert.equal(
-      text.some((line) => line.startsWith('المرسل')),
+      text.some((line) => line.startsWith('المبلغ المرسل')),
       false,
     );
     assert.equal(text.at(-1), 'المستحق: 149 شيكل');

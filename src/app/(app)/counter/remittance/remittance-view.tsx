@@ -124,6 +124,10 @@ export function RemittanceView({
 
   const [counterpartyName, setCounterpartyName] = useState('');
   const [counterpartyPhone, setCounterpartyPhone] = useState('');
+  /** Receiving: who collects the money here. */
+  const [recipientName, setRecipientName] = useState('');
+  const [recipientPhone, setRecipientPhone] = useState('');
+  const [recipientIdNumber, setRecipientIdNumber] = useState('');
   const [notes, setNotes] = useState('');
 
   const [posting, setPosting] = useState(false);
@@ -181,6 +185,9 @@ export function RemittanceView({
     setBankPart('');
     setCounterpartyName('');
     setCounterpartyPhone('');
+    setRecipientName('');
+    setRecipientPhone('');
+    setRecipientIdNumber('');
     setNotes('');
     setDone(null);
     grossRef.current?.focus();
@@ -199,6 +206,8 @@ export function RemittanceView({
     (netValue > 0n && margin < 0n) ||
     // A name is asked for where someone answers for the money: a remittance paid out here.
     (nameRequired && !counterpartyName.trim()) ||
+    // Received, the money is handed to someone: who, by name.
+    (!outgoing && !recipientName.trim()) ||
     // A transfer belongs to someone who can be reached; the server insists too.
     (byTransfer && !counterpartyPhone.trim()) ||
     (splitting && !split);
@@ -218,6 +227,9 @@ export function RemittanceView({
         deliveredUnit: delivered ? deliveredUnit.trim() : null,
         counterpartyName: counterpartyName.trim() || null,
         counterpartyPhone: counterpartyPhone.trim() || null,
+        recipientName: outgoing ? null : recipientName.trim() || null,
+        recipientPhone: outgoing ? null : recipientPhone.trim() || null,
+        recipientIdNumber: outgoing ? null : recipientIdNumber.trim() || null,
         notes: notes.trim() || null,
         intakeChannel: byTransfer ? intakeChannel : null,
         intakeTransfer: split ? unscale(split.broker) : null,
@@ -239,6 +251,9 @@ export function RemittanceView({
       setBankPart('');
       setCounterpartyName('');
       setCounterpartyPhone('');
+    setRecipientName('');
+    setRecipientPhone('');
+    setRecipientIdNumber('');
       setNotes('');
       void loadRecent();
       router.refresh();
@@ -697,6 +712,49 @@ export function RemittanceView({
           </Field>
         </div>
       </div>
+
+      {/*
+        Receiving: who the money is counted out to here. Often not the sender,
+        who is abroad; the identity card is the one the teller looked at.
+      */}
+      {!outgoing && (
+        <div className="rounded-2xl bg-surface p-4 ring-1 ring-border-subtle">
+          <p className="mb-3 text-sm font-medium text-content">{t('remittance.recipient')}</p>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field label={t('remittance.name')} required>
+              {(props) => (
+                <Input
+                  {...props}
+                  value={recipientName}
+                  onChange={(event) => setRecipientName(event.target.value)}
+                />
+              )}
+            </Field>
+            <Field label={t('remittance.phone')}>
+              {(props) => (
+                <Input
+                  {...props}
+                  dir="ltr"
+                  inputMode="tel"
+                  value={recipientPhone}
+                  onChange={(event) => setRecipientPhone(event.target.value)}
+                />
+              )}
+            </Field>
+            <Field label={t('remittance.recipientIdNumber')} className="sm:col-span-2">
+              {(props) => (
+                <Input
+                  {...props}
+                  dir="ltr"
+                  inputMode="numeric"
+                  value={recipientIdNumber}
+                  onChange={(event) => setRecipientIdNumber(event.target.value)}
+                />
+              )}
+            </Field>
+          </div>
+        </div>
+      )}
 
       <button
         type="submit"

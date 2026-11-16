@@ -86,6 +86,10 @@ export interface RecordInput {
   /** What reaches a remittance's beneficiary, for showing only. */
   deliveredAmount?: bigint | null;
   deliveredUnit?: string | null;
+  /** Who collects an incoming remittance here. */
+  recipientName?: string | null;
+  recipientPhone?: string | null;
+  recipientIdNumber?: string | null;
   /** Several USDT transfers settled as one deal, as the group reads them: "100 + 50". */
   mergedParts?: string | null;
   notes?: string | null;
@@ -279,6 +283,9 @@ export async function record(
         unannounced: options.unannounced ?? false,
         deliveredAmount: input.deliveredAmount ?? null,
         deliveredUnit: input.deliveredUnit ?? null,
+        recipientName: input.recipientName?.trim() || null,
+        recipientPhone: input.recipientPhone?.trim() || null,
+        recipientIdNumber: input.recipientIdNumber?.trim() || null,
         mergedParts: input.mergedParts ?? null,
         counterpartyName: input.counterpartyName ?? null,
         counterpartyPhone: input.counterpartyPhone ?? null,
