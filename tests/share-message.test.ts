@@ -249,6 +249,7 @@ describe('a remittance received, as the group reads it', () => {
       'من: مصر',
       'المبلغ المرسل: 2000 جنيه',
       'المستحق: 149 شيكل',
+      'الدفع: نقدي',
     ]);
   });
 
@@ -256,11 +257,40 @@ describe('a remittance received, as the group reads it', () => {
     const { db } = fakeDb([
       incoming({ recipientName: 'أحمد زيادة', recipientPhone: '0599111222' }),
     ]);
-    assert.deepEqual(lines((await shareable('t1', 'ar', db)).text).slice(-3), [
+    assert.deepEqual(lines((await shareable('t1', 'ar', db)).text).slice(-4), [
       'المستحق: 149 شيكل',
       'المستلم: أحمد زيادة',
       '0599111222',
+      'الدفع: نقدي',
     ]);
+  });
+
+  it('says it went by transfer, and where', async () => {
+    const { db } = fakeDb([
+      incoming({
+        payoutBankAmount: 149n * UNIT,
+        payoutBankChannel: 'بنك فلسطين',
+        payoutAccount: '123456',
+      }),
+    ]);
+    assert.equal(
+      lines((await shareable('t1', 'ar', db)).text).at(-1),
+      'الدفع: تحويل — بنك فلسطين 123456',
+    );
+  });
+
+  it('says how much of it went each way when it was split', async () => {
+    const { db } = fakeDb([
+      incoming({
+        payoutBankAmount: 100n * UNIT,
+        payoutBankChannel: 'جوال باي',
+        payoutAccount: null,
+      }),
+    ]);
+    assert.equal(
+      lines((await shareable('t1', 'ar', db)).text).at(-1),
+      'الدفع: مزدوج: تحويل 100 شيكل + نقدي 49 شيكل — جوال باي',
+    );
   });
 
   it('leaves out what the sender paid when it was not written down', async () => {
@@ -270,7 +300,7 @@ describe('a remittance received, as the group reads it', () => {
       text.some((line) => line.startsWith('المبلغ المرسل')),
       false,
     );
-    assert.equal(text.at(-1), 'المستحق: 149 شيكل');
+    assert.equal(text.at(-2), 'المستحق: 149 شيكل');
   });
 });
 

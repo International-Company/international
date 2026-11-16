@@ -192,6 +192,26 @@ async function unitsFor(
  * part nobody can correct afterwards, and a customer who reads it back has
  * saved everybody.
  */
+/** How a received remittance is paid out: in notes, by transfer and where, or both. */
+function paidAs(transaction: ShareRow, ar: boolean, unit: string): string {
+  const figure = (value: bigint) => `${toDecimalString(value, 2).replace(/\.00$/, '')} ${unit}`;
+  const bank = transaction.payoutBankAmount;
+  if (bank <= 0n) return ar ? 'الدفع: نقدي' : 'Paid: cash';
+  const where = [transaction.payoutBankChannel, transaction.payoutAccount]
+    .filter(Boolean)
+    .join(' ');
+  const cash = transaction.toAmount - bank;
+  const how =
+    cash > 0n
+      ? ar
+        ? `مزدوج: تحويل ${figure(bank)} + نقدي ${figure(cash)}`
+        : `Split: transfer ${figure(bank)} + cash ${figure(cash)}`
+      : ar
+        ? 'تحويل'
+        : 'Transfer';
+  return `${ar ? 'الدفع' : 'Paid'}: ${how}${where ? ` — ${where}` : ''}`;
+}
+
 function composeLines(
   transaction: ShareRow,
   locale: Locale,
@@ -234,6 +254,7 @@ function composeLines(
         ? `${ar ? 'المستلم' : 'Recipient'}: ${transaction.recipientName}`
         : null,
       transaction.recipientPhone,
+      paidAs(transaction, ar, unit),
     ].filter((line): line is string => Boolean(line?.trim()));
   }
 

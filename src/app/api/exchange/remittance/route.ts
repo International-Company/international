@@ -47,6 +47,10 @@ const bodySchema = z.object({
   recipientName: z.string().max(200).nullish(),
   recipientPhone: z.string().max(40).nullish(),
   recipientIdNumber: z.string().max(40).nullish(),
+  /** Receiving: the part paid by transfer, where to, and the account there. */
+  payoutBank: z.string().nullish(),
+  payoutChannel: z.string().max(80).nullish(),
+  payoutAccount: z.string().max(80).nullish(),
 });
 
 export const POST = route<z.infer<typeof bodySchema>>({
@@ -96,6 +100,9 @@ export const POST = route<z.infer<typeof bodySchema>>({
         recipientName: body.recipientName ?? null,
         recipientPhone: body.recipientPhone ?? null,
         recipientIdNumber: body.recipientIdNumber ?? null,
+        payoutBank: body.payoutBank ? parseMoney(body.payoutBank) : null,
+        payoutChannel: body.payoutChannel ?? null,
+        payoutAccount: body.payoutAccount ?? null,
       },
       actor,
     );

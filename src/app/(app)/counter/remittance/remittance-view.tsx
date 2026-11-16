@@ -114,6 +114,12 @@ export function RemittanceView({
   /** Paid both ways: the part that came by transfer. */
   const [bankPart, setBankPart] = useState('');
   const [intakeChannel, setIntakeChannel] = useState(config.transferChannels[0] ?? '');
+  /** Receiving: how the one collecting it is paid — notes, a transfer, or part of each. */
+  const [payVia, setPayVia] = useState<'CASH' | 'TRANSFER' | 'SPLIT'>('CASH');
+  const [payoutChannel, setPayoutChannel] = useState(config.transferChannels[0] ?? '');
+  const [payoutAccount, setPayoutAccount] = useState('');
+  /** Paid both ways: the part sent by transfer. */
+  const [payoutPart, setPayoutPart] = useState('');
   /** What reaches the beneficiary, and the word for its money. For showing only. */
   const [delivered, setDelivered] = useState('');
   const [deliveredUnit, setDeliveredUnit] = useState('جنيه');
@@ -150,6 +156,12 @@ export function RemittanceView({
   const split = splitting ? intakeShares(grossValue, bankValue) : null;
   const bankTooBig = splitting && bankValue > 0n && bankValue >= grossValue;
   const canSeeMargin = permissions.includes('exchange.margin.view');
+  // Receiving, what goes by transfer: all of it, or the part typed; the rest in notes.
+  const paysByTransfer = !outgoing && payVia !== 'CASH';
+  const payoutPartValue = scaleAmount(payoutPart);
+  const payoutBank = !paysByTransfer ? 0n : payVia === 'TRANSFER' ? netValue : payoutPartValue;
+  const payoutSplitBad =
+    !outgoing && payVia === 'SPLIT' && (payoutPartValue <= 0n || payoutPartValue >= netValue);
 
   // The teller's own last few, in the direction they are working in — a lost
   // receipt is asked for at the counter, with the next customer already waiting.
@@ -205,6 +217,9 @@ export function RemittanceView({
     (netValue > 0n && margin < 0n) ||
     // Received, the money is handed to someone: who, by name. Who sent it is not asked.
     (!outgoing && !recipientName.trim()) ||
+    // Sent to a bank or a wallet: where, and a number to reach who it is for.
+    (paysByTransfer && (!payoutChannel || !recipientPhone.trim())) ||
+    payoutSplitBad ||
     // A transfer belongs to someone who can be reached; the server insists too.
     (byTransfer && !counterpartyPhone.trim()) ||
     (splitting && !split);
@@ -233,6 +248,9 @@ export function RemittanceView({
         proof: outgoing ? proof : null,
         beneficiary: outgoing ? beneficiaryPhoto : null,
         notice: outgoing ? null : proof,
+        payoutBank: payoutBank > 0n ? unscale(payoutBank) : null,
+        payoutChannel: payoutBank > 0n ? payoutChannel : null,
+        payoutAccount: payoutBank > 0n ? payoutAccount.trim() || null : null,
       });
 
       toast.success(t('remittance.recorded'), result.reference);
@@ -246,6 +264,9 @@ export function RemittanceView({
       setBeneficiaryPhoto(null);
       setPaidVia('CASH');
       setBankPart('');
+      setPayVia('CASH');
+      setPayoutPart('');
+      setPayoutAccount('');
       setCounterpartyName('');
       setCounterpartyPhone('');
     setRecipientName('');
@@ -615,6 +636,113 @@ export function RemittanceView({
         </div>
       )}
 
+      {/* ============ Receiving: how the one collecting it is paid ============ */}
+      {!outgoing && (
+        <div className="rounded-2xl bg-surface p-3 ring-1 ring-border-subtle">
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-xs font-medium text-content-secondary">
+              {t('remittance.payoutTitle')}
+            </span>
+            <div dir="ltr" className="flex gap-1 rounded-full bg-surface-sunken p-1">
+              {(['CASH', 'TRANSFER', 'SPLIT'] as const).map((option) => (
+                <button
+                  key={option}
+                  type="button"
+                  aria-pressed={payVia === option}
+                  disabled={option !== 'CASH' && config.transferChannels.length === 0}
+                  onClick={() => {
+                    setPayVia(option);
+                    setDone(null);
+                  }}
+                  className={cn(
+                    'h-9 rounded-full px-3 text-sm font-medium transition-colors disabled:opacity-40 sm:px-4',
+                    payVia === option
+                      ? 'bg-surface text-content shadow-[var(--shadow-sm)]'
+                      : 'text-content-tertiary hover:text-content-secondary',
+                  )}
+                >
+                  {option === 'CASH'
+                    ? t('machine.payoutCash')
+                    : option === 'TRANSFER'
+                      ? t('remittance.payoutTransfer')
+                      : t('machine.payoutSplit')}
+                </button>
+              ))}
+            </div>
+          </div>
+          {paysByTransfer && (
+            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+              <label className="block">
+                <span className="text-xs text-content-tertiary">
+                  {t('remittance.payoutChannel')}
+                </span>
+                <select
+                  value={payoutChannel}
+                  onChange={(event) => setPayoutChannel(event.target.value)}
+                  className="mt-1 h-12 w-full rounded-xl bg-surface-sunken px-3 text-base font-medium text-content outline-none ring-1 ring-transparent focus:ring-primary"
+                >
+                  {config.transferChannels.map((entry) => (
+                    <option key={entry} value={entry}>
+                      {entry}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="block">
+                <span className="text-xs text-content-tertiary">
+                  {t('remittance.payoutAccount')}
+                </span>
+                <input
+                  type="text"
+                  dir="ltr"
+                  autoComplete="off"
+                  data-zoom-safe=""
+                  value={payoutAccount}
+                  onChange={(event) => setPayoutAccount(event.target.value)}
+                  className="mt-1 h-12 w-full rounded-xl bg-surface-sunken px-3 text-base font-medium text-content outline-none ring-1 ring-transparent focus:ring-primary"
+                />
+              </label>
+            </div>
+          )}
+          {!outgoing && payVia === 'SPLIT' && (
+            <div className="mt-3 grid grid-cols-2 gap-3">
+              <label className="block">
+                <span className="text-xs text-content-tertiary">{t('remittance.payoutBankLeg')}</span>
+                <input
+                  type="text"
+                  dir="ltr"
+                  inputMode="decimal"
+                  autoComplete="off"
+                  data-zoom-safe=""
+                  value={payoutPart}
+                  placeholder="0"
+                  onFocus={(event) => event.currentTarget.select()}
+                  onChange={(event) => {
+                    setDone(null);
+                    setPayoutPart(sanitiseAmount(event.target.value, decimals));
+                  }}
+                  className="mt-1 h-12 w-full rounded-xl bg-surface-sunken px-3 text-end text-lg font-semibold tabular-nums text-content outline-none ring-1 ring-transparent focus:ring-primary"
+                />
+              </label>
+              <div>
+                <span className="text-xs text-content-tertiary">{t('machine.payoutCashLeg')}</span>
+                <p className="mt-1 flex h-12 items-center justify-end rounded-xl bg-surface-sunken px-3 text-lg font-semibold tabular-nums text-content ltr-content">
+                  {payoutPartValue > 0n && payoutPartValue < netValue
+                    ? formatScaled((netValue - payoutPartValue).toString(), decimals)
+                    : '—'}{' '}
+                  {currency}
+                </p>
+              </div>
+            </div>
+          )}
+          {paysByTransfer && (
+            <p className="mt-2 text-[0.6875rem] text-content-tertiary">
+              {t('remittance.payoutTransferHint')}
+            </p>
+          )}
+        </div>
+      )}
+
       {/* ============ Receiving: the notice of the transfer, optional ============ */}
       {!outgoing && (
         <PhotoField
@@ -727,7 +855,7 @@ export function RemittanceView({
                 />
               )}
             </Field>
-            <Field label={t('remittance.phone')}>
+            <Field label={t('remittance.phone')} required={paysByTransfer}>
               {(props) => (
                 <Input
                   {...props}

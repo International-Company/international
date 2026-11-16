@@ -96,7 +96,8 @@ export function balancesFor(type: TransactionType): {
 } {
   // The customer pays in notes or by transfer; the correspondent is owed either way.
   if (type === 'REMITTANCE_OUT') return { intake: null, payout: 'CORRESPONDENT' };
-  if (type === 'REMITTANCE_IN') return { intake: 'CORRESPONDENT', payout: 'CASH' };
+  // Paid out in notes, by transfer to a bank or a wallet, or part of each.
+  if (type === 'REMITTANCE_IN') return { intake: 'CORRESPONDENT', payout: null };
   // A withdrawal is the machine reversed: the customer pays through the till or
   // the broker, and what they take away is USDT out of the one wallet balance.
   if (type === 'USDT_SEND') return { intake: null, payout: 'CASH' };

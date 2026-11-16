@@ -220,8 +220,11 @@ export async function record(
     }
 
     if (throughBroker) {
-      const named = input.customerId ?? input.counterpartyName?.trim();
-      const reachable = customerPhone?.trim() || input.counterpartyPhone?.trim();
+      // A remittance received is paid to who collects it, not to who sent it.
+      const named =
+        input.customerId ?? (input.counterpartyName?.trim() || input.recipientName?.trim());
+      const reachable =
+        customerPhone?.trim() || input.counterpartyPhone?.trim() || input.recipientPhone?.trim();
 
       // A customer paying for a remittance by transfer can go without a name:
       // the proof and the number say whose it was. Their number still has to be there.

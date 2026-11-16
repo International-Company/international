@@ -138,6 +138,14 @@ export interface ReceiveInput extends Common {
   sentUnit?: string | null;
   /** A photo of the notice of the transfer, as base64. */
   notice?: string | null;
+  /**
+   * The part of `paid` sent by transfer to a bank or a wallet, the rest in notes.
+   * Nothing here pays it all in notes.
+   */
+  payoutBank?: bigint | null;
+  /** Which bank or wallet, from the counter's list, and the account on it. */
+  payoutChannel?: string | null;
+  payoutAccount?: string | null;
   /** Who collects it here: name, number and identity card. */
   recipientName?: string | null;
   recipientPhone?: string | null;
@@ -521,6 +529,28 @@ export async function receive(input: ReceiveInput, actor: Actor, db: DbClient = 
     );
   }
 
+  // Paid by transfer, all of it or a part: to somewhere the counter offers.
+  const bank = input.payoutBank && input.payoutBank > 0n ? input.payoutBank : 0n;
+  if (bank > input.paid) {
+    throw errors.precondition(
+      'The transfer is more than what is paid out',
+      'errors.payoutDoesNotBalance',
+    );
+  }
+  const channel = bank > 0n ? input.payoutChannel?.trim() || '' : null;
+  if (channel !== null) {
+    if (!channel) {
+      throw errors.precondition('Say where the transfer is going', 'errors.transferChannelRequired');
+    }
+    if (!(await transferChannels(db)).includes(channel)) {
+      throw errors.precondition(
+        `${channel} is not a destination the counter offers`,
+        'errors.transferChannelUnknown',
+        { channel },
+      );
+    }
+  }
+
   // Read before anything is written: a bad photo records no deal.
   const notice = input.notice ? readProof_(input.notice) : null;
   const sent = input.sentAmount && input.sentAmount > 0n ? input.sentAmount : null;
@@ -538,6 +568,9 @@ export async function receive(input: ReceiveInput, actor: Actor, db: DbClient = 
         toAmount: input.paid,
         rate: 100000000n,
         profitAmount: input.credited - input.paid,
+        payout: { cash: input.paid - bank, bank },
+        payoutChannel: channel,
+        payoutAccount: bank > 0n ? input.payoutAccount?.trim() || null : null,
         // What the sender paid abroad, shown beside what is paid out here.
         deliveredAmount: sent,
         deliveredUnit: sent ? input.sentUnit?.trim() || null : null,
