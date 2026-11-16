@@ -146,6 +146,7 @@ export async function dailyCount(
       payoutBankAmount: true,
       payoutBankChannel: true,
       counterpartyName: true,
+      recipientName: true,
       notes: true,
       pricePending: true,
       customer: { select: { fullNameAr: true, fullNameEn: true } },
@@ -176,6 +177,7 @@ export async function dailyCount(
         deal.customer?.fullNameAr ||
         deal.customer?.fullNameEn ||
         deal.counterpartyName ||
+        deal.recipientName ||
         (REMITTANCES.includes(deal.type) ? deal.notes : null) ||
         null,
       fromCurrency: deal.fromCurrency,

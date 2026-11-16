@@ -808,16 +808,21 @@ export async function dayEntries(
       transferConfirmedAt: true,
       counterpartyName: true,
       counterpartyPhone: true,
+      recipientName: true,
+      recipientPhone: true,
       customer: { select: { fullNameEn: true, fullNameAr: true, phone: true } },
     },
   });
 
-  return rows.map(({ counterpartyName, counterpartyPhone, customer, ...row }) => ({
-    ...row,
-    party: {
-      en: customer?.fullNameEn ?? counterpartyName ?? null,
-      ar: customer?.fullNameAr ?? counterpartyName ?? null,
-    },
-    phone: customer?.phone ?? counterpartyPhone ?? null,
-  }));
+  return rows.map(
+    ({ counterpartyName, counterpartyPhone, recipientName, recipientPhone, customer, ...row }) => ({
+      ...row,
+      // An incoming remittance names only who collected it.
+      party: {
+        en: customer?.fullNameEn ?? counterpartyName ?? recipientName ?? null,
+        ar: customer?.fullNameAr ?? counterpartyName ?? recipientName ?? null,
+      },
+      phone: customer?.phone ?? counterpartyPhone ?? recipientPhone ?? null,
+    }),
+  );
 }

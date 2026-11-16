@@ -149,7 +149,6 @@ export function RemittanceView({
   const bankValue = scaleAmount(bankPart);
   const split = splitting ? intakeShares(grossValue, bankValue) : null;
   const bankTooBig = splitting && bankValue > 0n && bankValue >= grossValue;
-  const nameRequired = !outgoing;
   const canSeeMargin = permissions.includes('exchange.margin.view');
 
   // The teller's own last few, in the direction they are working in — a lost
@@ -204,9 +203,7 @@ export function RemittanceView({
     // Sending, the correspondent's price can follow once it is known.
     (!outgoing && netValue <= 0n) ||
     (netValue > 0n && margin < 0n) ||
-    // A name is asked for where someone answers for the money: a remittance paid out here.
-    (nameRequired && !counterpartyName.trim()) ||
-    // Received, the money is handed to someone: who, by name.
+    // Received, the money is handed to someone: who, by name. Who sent it is not asked.
     (!outgoing && !recipientName.trim()) ||
     // A transfer belongs to someone who can be reached; the server insists too.
     (byTransfer && !counterpartyPhone.trim()) ||
@@ -225,8 +222,8 @@ export function RemittanceView({
         // Sending, what reaches the beneficiary; receiving, what the sender paid abroad.
         delivered: delivered || null,
         deliveredUnit: delivered ? deliveredUnit.trim() : null,
-        counterpartyName: counterpartyName.trim() || null,
-        counterpartyPhone: counterpartyPhone.trim() || null,
+        counterpartyName: outgoing ? counterpartyName.trim() || null : null,
+        counterpartyPhone: outgoing ? counterpartyPhone.trim() || null : null,
         recipientName: outgoing ? null : recipientName.trim() || null,
         recipientPhone: outgoing ? null : recipientPhone.trim() || null,
         recipientIdNumber: outgoing ? null : recipientIdNumber.trim() || null,
@@ -668,50 +665,50 @@ export function RemittanceView({
       )}
 
       {/*
-        Who it is for. Required rather than optional: a transfer without a name
-        on it is one nobody can chase when the other end says it never arrived.
+        Sending: who it is for. Received, only the one collecting it is asked
+        for, below; who sent it from abroad is the notice's business.
       */}
-      <div className="rounded-2xl bg-surface p-4 ring-1 ring-border-subtle">
-        <p className="mb-3 text-sm font-medium text-content">
-          {outgoing ? t('remittance.beneficiary') : t('remittance.sender')}
-        </p>
+      {outgoing && (
+        <div className="rounded-2xl bg-surface p-4 ring-1 ring-border-subtle">
+          <p className="mb-3 text-sm font-medium text-content">{t('remittance.beneficiary')}</p>
 
-        <div className="grid gap-3 sm:grid-cols-2">
-          <Field label={t('remittance.name')} required={nameRequired}>
-            {(props) => (
-              <Input
-                {...props}
-                value={counterpartyName}
-                onChange={(event) => setCounterpartyName(event.target.value)}
-              />
-            )}
-          </Field>
-          <Field
-            label={outgoing ? t('remittance.beneficiaryNumber') : t('remittance.phone')}
-            required={byTransfer}
-          >
-            {(props) => (
-              <Input
-                {...props}
-                dir="ltr"
-                inputMode="tel"
-                value={counterpartyPhone}
-                onChange={(event) => setCounterpartyPhone(event.target.value)}
-              />
-            )}
-          </Field>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field label={t('remittance.name')}>
+              {(props) => (
+                <Input
+                  {...props}
+                  value={counterpartyName}
+                  onChange={(event) => setCounterpartyName(event.target.value)}
+                />
+              )}
+            </Field>
+            <Field
+              label={t('remittance.beneficiaryNumber')}
+              required={byTransfer}
+            >
+              {(props) => (
+                <Input
+                  {...props}
+                  dir="ltr"
+                  inputMode="tel"
+                  value={counterpartyPhone}
+                  onChange={(event) => setCounterpartyPhone(event.target.value)}
+                />
+              )}
+            </Field>
 
-          <Field label={t('common.notes')} className="sm:col-span-2">
-            {(props) => (
-              <Input
-                {...props}
-                value={notes}
-                onChange={(event) => setNotes(event.target.value)}
-              />
-            )}
-          </Field>
+            <Field label={t('common.notes')} className="sm:col-span-2">
+              {(props) => (
+                <Input
+                  {...props}
+                  value={notes}
+                  onChange={(event) => setNotes(event.target.value)}
+                />
+              )}
+            </Field>
+          </div>
         </div>
-      </div>
+      )}
 
       {/*
         Receiving: who the money is counted out to here. Often not the sender,
@@ -749,6 +746,15 @@ export function RemittanceView({
                   inputMode="numeric"
                   value={recipientIdNumber}
                   onChange={(event) => setRecipientIdNumber(event.target.value)}
+                />
+              )}
+            </Field>
+            <Field label={t('common.notes')} className="sm:col-span-2">
+              {(props) => (
+                <Input
+                  {...props}
+                  value={notes}
+                  onChange={(event) => setNotes(event.target.value)}
                 />
               )}
             </Field>

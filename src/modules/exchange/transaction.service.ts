@@ -910,6 +910,9 @@ function buildWhere(filter: TransactionFilter, actor: Actor): Prisma.Transaction
       { reference: containsInsensitive(filter.search) },
       { counterpartyName: containsInsensitive(filter.search) },
       { counterpartyPhone: containsInsensitive(filter.search) },
+      // An incoming remittance carries only who collected it.
+      { recipientName: containsInsensitive(filter.search) },
+      { recipientPhone: containsInsensitive(filter.search) },
       { customer: { fullNameEn: containsInsensitive(filter.search) } },
       { customer: { fullNameAr: containsInsensitive(filter.search) } },
       { customer: { code: containsInsensitive(filter.search) } },
