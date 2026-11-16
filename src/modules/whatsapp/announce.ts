@@ -492,7 +492,7 @@ async function markMessages(deal: MarkedDeal, emoji: string): Promise<void> {
 export const CANCELLED_MARK = '❌';
 
 /** What the bot puts on a deal's message once any of its details were changed. */
-export const EDITED_MARK = '✍️';
+export const EDITED_MARK = '🤳';
 
 /** How long WhatsApp lets a message be edited, less a margin for the clock and the send. */
 export const EDIT_WINDOW_MS = 13 * 60 * 1000;
