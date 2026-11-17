@@ -700,15 +700,47 @@ export function registerWhatsappSubscribers(): void {
     if (!row) return;
     const photo = Buffer.from(row.data);
     if (group) {
-      await sendImage(group, photo, composeWithdrawal(row), undefined, row.mimeType).catch(
-        (error) => log.warn('Could not send a TikTok withdrawal', { withdrawalId, error }),
+      const sent = await sendImage(group, photo, composeWithdrawal(row), undefined, row.mimeType).catch(
+        (error) => {
+          log.warn('Could not send a TikTok withdrawal', { withdrawalId, error });
+          return undefined;
+        },
       );
+      // Its further photos as replies to it, so they read as one withdrawal.
+      const extras = await prisma.tiktokPhoto.findMany({
+        where: { withdrawalId },
+        orderBy: { createdAt: 'asc' },
+        select: { data: true, mimeType: true },
+      });
+      for (const extra of extras) {
+        await sendImage(group, Buffer.from(extra.data), 'صورة إضافية', sent, extra.mimeType).catch(
+          (error) => log.warn('Could not send a TikTok withdrawal’s photo', { withdrawalId, error }),
+        );
+      }
     }
     if (nameGroup) {
       await sendImage(nameGroup, photo, composeWithdrawalName(row), undefined, row.mimeType).catch(
         (error) => log.warn('Could not send a TikTok withdrawal’s name', { withdrawalId, error }),
       );
     }
+  });
+
+  // A photo attached afterwards goes to the group with whose withdrawal it is.
+  on('tiktok.photoAdded', 'whatsapp-announce-tiktok-photo', async ({ withdrawalId, photoId }) => {
+    const group = await target(TIKTOK_DEAL_TYPE);
+    if (!group) return;
+    const [row, photo] = await Promise.all([
+      prisma.tiktokWithdrawal.findUnique({ where: { id: withdrawalId } }),
+      prisma.tiktokPhoto.findUnique({ where: { id: photoId }, select: { data: true, mimeType: true } }),
+    ]);
+    if (!row || !photo || row.deletedAt) return;
+    await sendImage(
+      group,
+      Buffer.from(photo.data),
+      `صورة إضافية\n\n${composeWithdrawal(row)}`,
+      undefined,
+      photo.mimeType,
+    ).catch((error) => log.warn('Could not send a TikTok withdrawal’s photo', { withdrawalId, error }));
   });
 
   on('tiktok.deleted', 'whatsapp-announce-tiktok-deletion', async ({ withdrawalId, by }) => {

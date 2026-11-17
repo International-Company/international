@@ -2233,9 +2233,26 @@ model TiktokWithdrawal {
   createdAt   DateTime  @default(now())
   deletedAt   DateTime?
   deletedById String?
+  /// Photos beyond the first: the transfer's receipt, a second screenshot.
+  photos      TiktokPhoto[]
 
   @@index([createdById, createdAt])
   @@map("tiktok_withdrawals")
+}
+
+/// A further photo a TikTok withdrawal carries, attached with it or afterwards.
+model TiktokPhoto {
+  id           String           @id @default(cuid())
+  withdrawalId String
+  withdrawal   TiktokWithdrawal @relation(fields: [withdrawalId], references: [id], onDelete: Cascade)
+  mimeType     String
+  size         Int
+  data         Bytes
+  createdById  String?
+  createdAt    DateTime         @default(now())
+
+  @@index([withdrawalId])
+  @@map("tiktok_photos")
 }
 
 /// A photo a deal carries: PAYMENT, of what the customer paid, BENEFICIARY, of who a

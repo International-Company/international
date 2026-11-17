@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Camera, Check, ImagePlus, Loader2, Printer, Trash2, X } from 'lucide-react';
+import { Camera, Check, ImagePlus, Loader2, Paperclip, Printer, Trash2, X } from 'lucide-react';
 import { useLocale } from '@/i18n/provider';
 import { normalizeDigits, parseMoney } from '@/core/money/money';
 import { api, ApiError } from '@/lib/api-client';
@@ -31,7 +31,12 @@ interface Row {
   channel: string;
   createdAt: string;
   createdBy: { fullNameAr: string; fullNameEn: string };
+  /** Photos beyond the first. */
+  photos?: { id: string }[];
 }
+
+/** Photos a withdrawal may carry beyond its first; the server holds to the same. */
+const MAX_EXTRA = 4;
 
 /** Keeps only what a decimal can be. */
 const decimal = (raw: string) =>
@@ -78,6 +83,9 @@ export function TiktokView({
   const [scan, setScan] = useState<'READING' | 'READ' | 'FAILED' | null>(null);
   const scanId = useRef(0);
   const [posting, setPosting] = useState(false);
+  /** Further photos — the transfer's receipt, say — shrunk and waiting to go with it. */
+  const [extras, setExtras] = useState<string[]>([]);
+  const [attaching, setAttaching] = useState<string | null>(null);
   const [rows, setRows] = useState<Row[]>([]);
   const [deleting, setDeleting] = useState<Row | null>(null);
 
@@ -121,6 +129,32 @@ export function TiktokView({
       setScan(!found.available ? null : found.usd && found.egp ? 'READ' : 'FAILED');
     } catch {
       if (id === scanId.current) setScan('FAILED');
+    }
+  };
+
+  const addExtra = async (file: File | undefined) => {
+    if (!file || extras.length >= MAX_EXTRA) return;
+    try {
+      const shrunk = await shrinkPhoto(file);
+      setExtras((current) => [...current, shrunk].slice(0, MAX_EXTRA));
+    } catch {
+      toast.error(t('errors.title'), t('errors.proofImageInvalid'));
+    }
+  };
+
+  /** A further photo for a withdrawal already recorded: it goes to the group too. */
+  const attachLater = async (id: string, file: File | undefined) => {
+    if (!file) return;
+    setAttaching(id);
+    try {
+      const shrunk = await shrinkPhoto(file);
+      await api.post(`/api/tiktok/${id}/photos`, { photo: shrunk });
+      toast.success(t('tiktok.photoAdded'));
+      void load();
+    } catch (cause) {
+      failure(cause);
+    } finally {
+      setAttaching(null);
     }
   };
 
@@ -170,12 +204,14 @@ export function TiktokView({
         egpAmount: egp.trim() || null,
         payVia,
         transferPart: payVia === 'SPLIT' ? transferPart : null,
+        extraPhotos: extras,
       });
       toast.success(t('tiktok.recorded'));
       printAfterRecording(created.id, permissions, 'tiktok');
       clearPhoto();
       setAccount('');
       setTransferPart('');
+      setExtras([]);
       setBeneficiaryName('');
       setAmount('');
       setEgp('');
@@ -264,6 +300,45 @@ export function TiktokView({
             </div>
           )}
         </div>
+
+        {/* ============ Further photos: the transfer's receipt, a second screenshot ============ */}
+        {photo && (
+          <div className="flex flex-wrap items-center gap-2 rounded-2xl bg-surface p-3 ring-1 ring-border-subtle">
+            {extras.map((extra, index) => (
+              <div key={index} className="relative">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={`data:image/jpeg;base64,${extra}`}
+                  alt={t('tiktok.extraPhoto')}
+                  className="size-16 rounded-lg object-cover ring-1 ring-border-subtle"
+                />
+                <button
+                  type="button"
+                  aria-label={t('common.delete')}
+                  onClick={() => setExtras((current) => current.filter((_, at) => at !== index))}
+                  className="absolute -end-2 -top-2 flex size-6 items-center justify-center rounded-full bg-surface text-content shadow ring-1 ring-border-subtle"
+                >
+                  <X className="size-3.5" />
+                </button>
+              </div>
+            ))}
+            {extras.length < MAX_EXTRA && (
+              <label className="flex h-16 cursor-pointer items-center gap-2 rounded-lg border border-dashed border-border-base px-3 text-sm text-content-secondary transition-colors hover:border-primary hover:text-primary-text">
+                <ImagePlus className="size-5" />
+                {t('tiktok.addExtraPhoto')}
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="sr-only"
+                  onChange={(event) => {
+                    void addExtra(event.target.files?.[0]);
+                    event.target.value = '';
+                  }}
+                />
+              </label>
+            )}
+          </div>
+        )}
 
         {/* ============ Who it is for, how it is sent, and how much ============ */}
         <div className="space-y-3 rounded-2xl bg-surface p-4 ring-1 ring-border-subtle">
@@ -473,6 +548,26 @@ export function TiktokView({
                   <p className="truncate text-sm text-content-secondary">
                     {[row.account, row.channel, row.beneficiaryName].filter(Boolean).join(' · ')}
                   </p>
+                  {(row.photos?.length ?? 0) > 0 && (
+                    <div className="mt-1 flex gap-1">
+                      {row.photos!.map((extra) => (
+                        <a
+                          key={extra.id}
+                          href={`/api/tiktok/${row.id}/photos/${extra.id}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                        >
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={`/api/tiktok/${row.id}/photos/${extra.id}`}
+                            alt={t('tiktok.extraPhoto')}
+                            loading="lazy"
+                            className="size-9 rounded object-cover ring-1 ring-border-subtle"
+                          />
+                        </a>
+                      ))}
+                    </div>
+                  )}
                   <p className="mt-1 text-xs text-content-tertiary">
                     {ln(row.createdBy, 'fullName')} ·{' '}
                     {new Date(row.createdAt).toLocaleString(locale, {
@@ -481,6 +576,29 @@ export function TiktokView({
                     })}
                   </p>
                 </div>
+                {(row.photos?.length ?? 0) < MAX_EXTRA && (
+                  <label
+                    title={t('tiktok.addExtraPhoto')}
+                    aria-label={t('tiktok.addExtraPhoto')}
+                    className="flex size-10 shrink-0 cursor-pointer items-center justify-center rounded-full text-content-tertiary transition-colors hover:bg-surface-sunken hover:text-content"
+                  >
+                    {attaching === row.id ? (
+                      <Loader2 className="size-4 animate-spin" />
+                    ) : (
+                      <Paperclip className="size-4" />
+                    )}
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="sr-only"
+                      disabled={attaching !== null}
+                      onChange={(event) => {
+                        void attachLater(row.id, event.target.files?.[0]);
+                        event.target.value = '';
+                      }}
+                    />
+                  </label>
+                )}
                 {canPrint && (
                   <button
                     type="button"

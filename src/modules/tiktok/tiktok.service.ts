@@ -20,6 +20,22 @@ import { rateText, tiktokPayout, tiktokTotals } from './tiktok-message';
 
 export const MAX_NAME = 200;
 
+/** Photos a withdrawal may carry beyond its first. */
+export const MAX_EXTRA_PHOTOS = 4;
+
+/** Each further photo read and checked before anything is written. */
+function readExtras(photos: string[] | undefined) {
+  const list = (photos ?? []).filter(Boolean);
+  if (list.length > MAX_EXTRA_PHOTOS) {
+    throw errors.precondition('Too many photos', 'errors.proofTooMany', { maximum: MAX_EXTRA_PHOTOS });
+  }
+  return list.map((photo) => {
+    const image = readProofImage(photo);
+    if (typeof image === 'string') throw errors.precondition('That photo cannot be kept', image);
+    return image;
+  });
+}
+
 const seesAll = (actor: Actor) => actor.permissions.includes('exchange.transaction.viewAll');
 
 export async function record(
@@ -36,6 +52,8 @@ export async function record(
     payVia?: 'TRANSFER' | 'CASH' | 'SPLIT';
     /** Split: the part sent by transfer; the rest is notes. */
     transferPart?: bigint | null;
+    /** Photos beyond the first — the transfer's receipt, say — as base64. */
+    extraPhotos?: string[];
   },
   actor: Actor,
 ) {
@@ -80,6 +98,7 @@ export async function record(
   const egpAmount = input.egpAmount && input.egpAmount > 0n ? input.egpAmount : null;
   const image = readProofImage(input.photo);
   if (typeof image === 'string') throw errors.precondition('That photo cannot be kept', image);
+  const extras = readExtras(input.extraPhotos);
 
   const row = await prisma.tiktokWithdrawal.create({
     data: {
@@ -96,6 +115,14 @@ export async function record(
       size: image.bytes.length,
       data: new Uint8Array(image.bytes),
       createdById: actor.id,
+      photos: {
+        create: extras.map((extra) => ({
+          mimeType: extra.mimeType,
+          size: extra.bytes.length,
+          data: new Uint8Array(extra.bytes),
+          createdById: actor.id,
+        })),
+      },
     },
     select: { id: true },
   });
@@ -132,6 +159,7 @@ export async function list(actor: Actor) {
       cashAmount: true,
       createdAt: true,
       createdBy: { select: { fullNameAr: true, fullNameEn: true } },
+      photos: { select: { id: true }, orderBy: { createdAt: 'asc' } },
     },
   });
   return rows.map(({ amount, rate, payoutAmount, egpAmount, cashAmount, ...row }) => ({
@@ -201,6 +229,48 @@ async function reachable(id: string, actor: Actor) {
 }
 
 export const readPhoto = reachable;
+
+/** A further photo of a withdrawal, to whoever may see the withdrawal. */
+export async function readExtraPhoto(id: string, photoId: string, actor: Actor) {
+  await reachable(id, actor);
+  const photo = await prisma.tiktokPhoto.findFirst({
+    where: { id: photoId, withdrawalId: id },
+    select: { mimeType: true, data: true },
+  });
+  if (!photo) throw errors.notFound('TiktokPhoto', photoId);
+  return photo;
+}
+
+/** A further photo attached afterwards: the transfer's receipt, once it went. Told to the group. */
+export async function addPhoto(id: string, photo: string, actor: Actor) {
+  await reachable(id, actor);
+  const count = await prisma.tiktokPhoto.count({ where: { withdrawalId: id } });
+  if (count >= MAX_EXTRA_PHOTOS) {
+    throw errors.precondition('Too many photos', 'errors.proofTooMany', { maximum: MAX_EXTRA_PHOTOS });
+  }
+  const [image] = readExtras([photo]);
+  const row = await prisma.tiktokPhoto.create({
+    data: {
+      withdrawalId: id,
+      mimeType: image!.mimeType,
+      size: image!.bytes.length,
+      data: new Uint8Array(image!.bytes),
+      createdById: actor.id,
+    },
+    select: { id: true },
+  });
+  await audit.record({
+    action: 'UPDATE',
+    module: 'tiktok',
+    entityType: 'TiktokWithdrawal',
+    entityId: id,
+    summaryEn: 'Attached a further photo to a TikTok withdrawal',
+    summaryAr: 'إرفاق صورة إضافية بسحب تيكتوك',
+    actor,
+  });
+  emitAsync('tiktok.photoAdded', { withdrawalId: id, photoId: row.id });
+  return { id: row.id };
+}
 
 /** One withdrawal that stands, for its receipt: to whoever may see it, recorded as printed. */
 export async function forReceipt(id: string, actor: Actor) {

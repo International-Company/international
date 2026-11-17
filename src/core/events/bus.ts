@@ -29,6 +29,8 @@ export interface DomainEvents {
   };
   'transaction.proofAdded': { transactionId: string; proofId: string };
   'tiktok.recorded': { withdrawalId: string };
+  /** A further photo attached to a TikTok withdrawal after it was recorded. */
+  'tiktok.photoAdded': { withdrawalId: string; photoId: string };
   'tiktok.deleted': { withdrawalId: string; by: string };
   'transaction.reversed': { transactionId: string; reversalId: string; actorId: string };
   /**
