@@ -2,8 +2,7 @@ import type { Metadata } from 'next';
 import { requirePageAnyPermission } from '@/modules/auth/context';
 import { getTranslator } from '@/i18n/server';
 import { PageHeader } from '@/ui/primitives';
-import { BankView } from './bank-view';
-import { GroupFeed } from './group-feed';
+import { BankDesk } from './bank-desk';
 
 export const metadata: Metadata = { title: 'Bank' };
 export const dynamic = 'force-dynamic';
@@ -15,11 +14,7 @@ export default async function BankPage() {
   return (
     <div className="space-y-4">
       <PageHeader title={t('bank.title')} description={t('bank.subtitle')} />
-      {/* The transfers to send, and beside them the groups they travel through. */}
-      <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_28rem]">
-        <BankView />
-        <GroupFeed />
-      </div>
+      <BankDesk />
     </div>
   );
 }

@@ -736,6 +736,8 @@ const ar: Dictionary = {
     copied: 'نُسخ',
     noChannel: 'بلا جهة',
     markSent: 'تم التنفيذ',
+    markSentShort: 'تم',
+    waiting: 'التحويلات',
     markSentTitle: 'تأكيد تنفيذ التحويل',
     markSentHint: 'هل حوّلت المبلغ إلى {name} عبر {channel}؟ أرفق إيصال البنك إن وُجد.',
     markSentConfirm: 'نعم، تم التحويل',

@@ -137,138 +137,130 @@ export function BankView() {
   }
 
   return (
-    <div className="space-y-4">
-      {/* --- Each account, and what waits on it --- */}
-      <div className="flex flex-wrap items-center gap-2">
-        <button
-          type="button"
-          aria-pressed={channel === null}
-          onClick={() => setChannel(null)}
-          className={cn(
-            'h-10 rounded-full px-4 text-sm font-semibold transition-colors',
-            channel === null ? 'bg-primary text-white' : 'bg-surface text-content-secondary ring-1 ring-border-subtle',
-          )}
-        >
-          {t('bank.all')} · {desk.waiting.length}
-        </button>
-        {channels.map(([name, entry]) => (
+    <Card className="flex h-[78vh] min-h-[28rem] flex-col overflow-hidden p-0">
+      {/* --- The list's head: how many, and which account to work --- */}
+      <div className="space-y-2 border-b border-border-subtle p-3">
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-sm font-semibold text-content">
+            {t('bank.waiting')} · <span className="tabular-nums">{desk.waiting.length}</span>
+          </p>
           <button
-            key={name}
             type="button"
-            aria-pressed={channel === name}
-            onClick={() => setChannel(channel === name ? null : name)}
-            className={cn(
-              'h-10 rounded-full px-4 text-sm font-semibold transition-colors',
-              channel === name ? 'bg-primary text-white' : 'bg-surface text-content-secondary ring-1 ring-border-subtle',
-            )}
+            onClick={() => void load()}
+            aria-label={t('bank.refresh')}
+            title={t('bank.refresh')}
+            className="inline-flex size-8 items-center justify-center rounded-full text-content-tertiary hover:bg-surface-sunken hover:text-content"
           >
-            {name} · {entry.count}
-            <span className="ms-2 text-xs font-normal opacity-80">
-              {[...entry.sums.entries()].map(([currency, sum]) => (
-                <Money key={currency} value={sum} currency={currency} className="ms-1" />
-              ))}
-            </span>
+            <RefreshCw className="size-4" />
           </button>
-        ))}
-        <Button variant="ghost" size="sm" icon={<RefreshCw />} onClick={() => void load()} className="ms-auto">
-          {t('bank.refresh')}
-        </Button>
-      </div>
-
-      {/* --- What is still to be sent --- */}
-      {shown.length === 0 ? (
-        <EmptyState icon={<CheckCircle2 />} title={t('bank.emptyTitle')} description={t('bank.emptyBody')} />
-      ) : (
-        <div className="grid gap-3 lg:grid-cols-2">
-          {shown.map((line) => (
-            <Card key={line.id} className="space-y-3 p-4">
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="flex items-center gap-1.5 text-sm font-semibold text-primary-text">
-                    <Landmark className="size-4 shrink-0" />
-                    {line.channel ?? t('bank.noChannel')}
-                  </p>
-                  <p className="mt-0.5 text-xs text-content-tertiary">
-                    {line.kind} · <span className="ltr-content font-mono">{line.reference}</span> ·{' '}
-                    <DateText value={line.at} withTime />
-                    {line.by && <> · {line.by}</>}
-                  </p>
-                </div>
-                <div className="text-end">
-                  <Money value={line.amount} currency={line.currency} className="text-2xl font-bold text-content" />
-                  <div>
-                    <CopyValue value={plainFigure(line.amount)} label={t('bank.amount')} />
-                  </div>
-                </div>
-              </div>
-
-              <dl className="grid gap-1 rounded-xl bg-surface-sunken p-2 text-sm">
-                {line.account && (
-                  <div className="flex items-center justify-between gap-2">
-                    <dt className="text-xs text-content-tertiary">{t('bank.account')}</dt>
-                    <dd>
-                      <CopyValue value={line.account} label={t('bank.account')} big />
-                    </dd>
-                  </div>
-                )}
-                {line.name && (
-                  <div className="flex items-center justify-between gap-2">
-                    <dt className="text-xs text-content-tertiary">{t('bank.name')}</dt>
-                    <dd>
-                      <CopyValue value={line.name} label={t('bank.name')} />
-                    </dd>
-                  </div>
-                )}
-                {line.phone && line.phone !== line.account && (
-                  <div className="flex items-center justify-between gap-2">
-                    <dt className="text-xs text-content-tertiary">{t('bank.phone')}</dt>
-                    <dd>
-                      <CopyValue value={line.phone} label={t('bank.phone')} />
-                    </dd>
-                  </div>
-                )}
-              </dl>
-              {line.notes && <p className="text-xs text-content-secondary">{line.notes}</p>}
-
-              <Button
-                variant="primary"
-                fullWidth
-                icon={<Check />}
-                onClick={() => {
-                  setReceipt(null);
-                  setSending(line);
-                }}
-              >
-                {t('bank.markSent')}
-              </Button>
-            </Card>
+        </div>
+        <div className="flex gap-1.5 overflow-x-auto pb-1">
+          {[
+            { key: null as string | null, label: t('bank.all'), count: desk.waiting.length },
+            ...channels.map(([name, entry]) => ({ key: name, label: name, count: entry.count })),
+          ].map((chip) => (
+            <button
+              key={chip.key ?? 'all'}
+              type="button"
+              aria-pressed={channel === chip.key}
+              onClick={() => setChannel(channel === chip.key ? null : chip.key)}
+              className={cn(
+                'h-8 shrink-0 rounded-full px-3 text-xs font-semibold transition-colors',
+                channel === chip.key
+                  ? 'bg-primary text-white'
+                  : 'bg-surface-sunken text-content-secondary hover:text-content',
+              )}
+            >
+              {chip.label} · <span className="tabular-nums">{chip.count}</span>
+            </button>
           ))}
         </div>
-      )}
-
-      {/* --- Sent today --- */}
-      {desk.sent.length > 0 && (
-        <Card className="p-4">
-          <p className="mb-2 text-sm font-semibold text-content">
-            {t('bank.sentToday')} · {desk.sent.length}
+        {channel && (
+          <p className="flex flex-wrap gap-2 text-xs text-content-tertiary">
+            {[...(channels.find(([name]) => name === channel)?.[1].sums.entries() ?? [])].map(
+              ([currency, sum]) => (
+                <Money key={currency} value={sum} currency={currency} className="font-semibold" />
+              ),
+            )}
           </p>
+        )}
+      </div>
+
+      {/* --- What is still to be sent, oldest first, one compact row each --- */}
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        {shown.length === 0 ? (
+          <EmptyState icon={<CheckCircle2 />} title={t('bank.emptyTitle')} description={t('bank.emptyBody')} />
+        ) : (
           <ul className="divide-y divide-border-subtle">
-            {desk.sent.map((line) => (
-              <li key={line.id} className="flex items-center justify-between gap-3 py-2 text-sm">
-                <span className="min-w-0 truncate">
-                  <CheckCircle2 className="me-1 inline size-4 text-success-text" />
-                  {line.name ?? line.account} · {line.channel}
-                  <span className="ms-1 text-xs text-content-tertiary">
-                    {line.sentAt && <DateText value={line.sentAt} withTime />}
-                    {line.sentBy && <> · {line.sentBy}</>}
+            {shown.map((line) => (
+              <li key={line.id} className="space-y-1.5 px-3 py-2.5 transition-colors hover:bg-surface-sunken">
+                <div className="flex items-center gap-2">
+                  <span className="inline-flex min-w-0 items-center gap-1 truncate rounded-full bg-primary-subtle px-2 py-0.5 text-[11px] font-semibold text-primary-text">
+                    <Landmark className="size-3 shrink-0" />
+                    {line.channel ?? t('bank.noChannel')}
                   </span>
-                </span>
-                <Money value={line.amount} currency={line.currency} className="shrink-0 font-semibold" />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      void navigator.clipboard?.writeText(plainFigure(line.amount));
+                      toast.success(t('bank.copied'), t('bank.amount'));
+                    }}
+                    title={t('bank.amount')}
+                    className="ms-auto"
+                  >
+                    <Money value={line.amount} currency={line.currency} className="text-base font-bold text-content" />
+                  </button>
+                  <Button
+                    size="sm"
+                    variant="primary"
+                    icon={<Check />}
+                    onClick={() => {
+                      setReceipt(null);
+                      setSending(line);
+                    }}
+                  >
+                    {t('bank.markSentShort')}
+                  </Button>
+                </div>
+                <div className="flex flex-wrap items-center gap-x-1">
+                  {line.account && <CopyValue value={line.account} label={t('bank.account')} big />}
+                  {line.name && <CopyValue value={line.name} label={t('bank.name')} />}
+                  {line.phone && line.phone !== line.account && (
+                    <CopyValue value={line.phone} label={t('bank.phone')} />
+                  )}
+                </div>
+                <p className="truncate text-[11px] text-content-tertiary">
+                  {line.kind} · <span className="ltr-content font-mono">{line.reference}</span> ·{' '}
+                  <DateText value={line.at} withTime />
+                  {line.by && <> · {line.by}</>}
+                  {line.notes && <> · {line.notes}</>}
+                </p>
               </li>
             ))}
           </ul>
-        </Card>
-      )}
+        )}
+
+        {/* --- Sent today, under the list --- */}
+        {desk.sent.length > 0 && (
+          <details className="border-t border-border-subtle">
+            <summary className="cursor-pointer px-3 py-2 text-xs font-semibold text-content-secondary">
+              {t('bank.sentToday')} · {desk.sent.length}
+            </summary>
+            <ul className="divide-y divide-border-subtle">
+              {desk.sent.map((line) => (
+                <li key={line.id} className="flex items-center justify-between gap-2 px-3 py-2 text-xs">
+                  <span className="min-w-0 truncate">
+                    <CheckCircle2 className="me-1 inline size-3.5 text-success-text" />
+                    {line.name ?? line.account} · {line.channel}
+                    {line.sentBy && <span className="text-content-tertiary"> · {line.sentBy}</span>}
+                  </span>
+                  <Money value={line.amount} currency={line.currency} className="shrink-0 font-semibold" />
+                </li>
+              ))}
+            </ul>
+          </details>
+        )}
+      </div>
 
       {/* --- Sent: with the bank's receipt, when there is one --- */}
       <Dialog
@@ -308,7 +300,7 @@ export function BankView() {
           </div>
         )}
       </Dialog>
-    </div>
+    </Card>
   );
 }
 

@@ -734,6 +734,8 @@ const en = {
     copied: 'Copied',
     noChannel: 'No account',
     markSent: 'Sent',
+    markSentShort: 'Sent',
+    waiting: 'Transfers',
     markSentTitle: 'Confirm the transfer was sent',
     markSentHint: 'Did you send it to {name} through {channel}? Attach the bank\'s receipt if there is one.',
     markSentConfirm: 'Yes, it was sent',
