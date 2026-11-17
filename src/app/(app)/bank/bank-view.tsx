@@ -18,6 +18,7 @@ import {
 import { clockOf, dayKey, dayLabel } from './days';
 import { ANY_DAY, DateRangePicker, inRange, type DayRange } from '@/ui/date-range-picker';
 import { PillSelect } from '@/ui/pill-select';
+import { TransferDetail } from './transfer-detail';
 import { useLocale } from '@/i18n/provider';
 import { api, ApiError } from '@/lib/api-client';
 import { say } from '@/lib/failure';
@@ -56,7 +57,8 @@ function CopyValue({ value, label, big }: { value: string; label: string; big?: 
   return (
     <button
       type="button"
-      onClick={() => {
+      onClick={(event) => {
+        event.stopPropagation();
         void navigator.clipboard?.writeText(value);
         toast.success(t('bank.copied'), label);
       }}
@@ -93,6 +95,8 @@ export function BankView() {
   const [maxAmount, setMaxAmount] = useState('');
   /** Which days, chosen on the calendar. */
   const [days, setDays] = useState<DayRange>(ANY_DAY);
+  /** The transfer open in full beside the list. */
+  const [opened, setOpened] = useState<string | null>(null);
   const [sending, setSending] = useState<Line | null>(null);
   const [receipt, setReceipt] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -189,6 +193,7 @@ export function BankView() {
     try {
       await api.post(`/api/bank/${sending.id}`, { receipt });
       toast.success(t('bank.sentDone'), sending.reference);
+      if (opened === sending.id) setOpened(null);
       setSending(null);
       setReceipt(null);
       await load();
@@ -363,10 +368,15 @@ export function BankView() {
           <section key={day.key}>
             {/* The day's heading stays in sight while its transfers scroll under it. */}
             <header className="sticky top-0 z-10 flex items-center justify-between gap-2 border-y border-border-subtle bg-surface/95 px-3 py-1.5 backdrop-blur">
-              <span className="text-xs font-semibold text-content">
+              <button
+                type="button"
+                onClick={() => setDays({ from: day.key, to: day.key })}
+                title={t('bank.onlyThisDay')}
+                className="rounded-md text-xs font-semibold text-content hover:text-primary-text"
+              >
                 {dayLabel(day.key, locale, { today: t('bank.period.today'), yesterday: t('bank.period.yesterday') })}
                 <span className="ms-1.5 font-normal text-content-tertiary">· {day.lines.length}</span>
-              </span>
+              </button>
               <span className="flex flex-wrap justify-end gap-x-2 text-[11px] text-content-secondary">
                 {[...day.sums.entries()].map(([code, sum]) => (
                   <Money key={code} value={sum} currency={code} />
@@ -375,7 +385,14 @@ export function BankView() {
             </header>
           <ul className="divide-y divide-border-subtle">
             {day.lines.map((line) => (
-              <li key={line.id} className="space-y-1.5 px-3 py-2.5 transition-colors hover:bg-surface-sunken">
+              <li
+                key={line.id}
+                onClick={() => setOpened(line.id)}
+                className={cn(
+                  'cursor-pointer space-y-1.5 px-3 py-2.5 transition-colors hover:bg-surface-sunken',
+                  opened === line.id && 'bg-primary-subtle/60',
+                )}
+              >
                 <div className="flex items-center gap-2">
                   <span className="inline-flex min-w-0 items-center gap-1 truncate rounded-full bg-primary-subtle px-2 py-0.5 text-[11px] font-semibold text-primary-text">
                     <Landmark className="size-3 shrink-0" />
@@ -383,7 +400,8 @@ export function BankView() {
                   </span>
                   <button
                     type="button"
-                    onClick={() => {
+                    onClick={(event) => {
+                      event.stopPropagation();
                       void navigator.clipboard?.writeText(plainFigure(line.amount));
                       toast.success(t('bank.copied'), t('bank.amount'));
                     }}
@@ -396,7 +414,8 @@ export function BankView() {
                     size="sm"
                     variant="primary"
                     icon={<Check />}
-                    onClick={() => {
+                    onClick={(event) => {
+                      event.stopPropagation();
                       setReceipt(null);
                       setSending(line);
                     }}
@@ -450,6 +469,19 @@ export function BankView() {
           </details>
         )}
       </div>
+
+      <TransferDetail
+        id={opened}
+        onClose={() => setOpened(null)}
+        onSend={(id) => {
+          const line = desk.waiting.find((entry) => entry.id === id);
+          if (!line) return;
+          // The confirmation takes the screen; the details step aside for it.
+          setOpened(null);
+          setReceipt(null);
+          setSending(line);
+        }}
+      />
 
       {/* --- Sent: with the bank's receipt, when there is one --- */}
       <Dialog

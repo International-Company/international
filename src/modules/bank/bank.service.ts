@@ -99,6 +99,71 @@ export function deskLine(row: Row) {
   };
 }
 
+/**
+ * One transfer in full, for the desk: the deal behind it — what came in and went
+ * out, at what price and how, for whom and by whom — and the photos it carries.
+ * The desk needs no right to the transactions list to read the one it is sending.
+ */
+export async function deskDetail(id: string, actor: Actor, db: DbClient = prisma) {
+  requireDesk(actor);
+  const row = await db.transaction.findUnique({
+    where: { id },
+    select: {
+      ...SELECT,
+      status: true,
+      fromCurrency: true,
+      fromAmount: true,
+      toAmount: true,
+      rate: true,
+      intakeCashAmount: true,
+      intakeBrokerAmount: true,
+      intakeBankChannel: true,
+      payoutCashAmount: true,
+      recipientIdNumber: true,
+      deliveredAmount: true,
+      deliveredUnit: true,
+      customer: { select: { fullNameAr: true, phone: true, code: true } },
+      branch: { select: { nameAr: true } },
+      proofs: { select: { id: true, kind: true }, orderBy: { createdAt: 'asc' } },
+    },
+  });
+  if (!row) throw errors.notFound('Transaction', id);
+  return {
+    ...deskLine(row),
+    status: row.status,
+    fromCurrency: row.fromCurrency,
+    fromAmount: row.fromAmount,
+    toAmount: row.toAmount,
+    rate: row.rate,
+    intakeCash: row.intakeCashAmount,
+    intakeTransfer: row.intakeBrokerAmount,
+    intakeChannel: row.intakeBankChannel,
+    payoutCash: row.payoutCashAmount,
+    customerCode: row.customer?.code ?? null,
+    counterpartyName: row.counterpartyName,
+    recipientName: row.recipientName,
+    recipientPhone: row.recipientPhone,
+    recipientIdNumber: row.recipientIdNumber,
+    delivered:
+      row.deliveredAmount !== null
+        ? { amount: row.deliveredAmount, unit: row.deliveredUnit ?? '' }
+        : null,
+    branch: row.branch?.nameAr ?? null,
+    proofs: row.proofs,
+  };
+}
+
+/** A photo a transfer's deal carries, to the desk. */
+export async function deskProof(id: string, proofId: string, actor: Actor, db: DbClient = prisma) {
+  requireDesk(actor);
+  const proof = await db.transactionProof.findFirst({
+    where: { id: proofId, transactionId: id },
+    select: { data: true, mimeType: true },
+  });
+  if (!proof) throw errors.notFound('Proof', proofId);
+  return proof;
+}
+
 /** What is still to be sent, oldest first, and what was sent today. */
 export async function desk(actor: Actor, db: DbClient = prisma) {
   requireDesk(actor);
