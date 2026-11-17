@@ -42,8 +42,9 @@ export function useInboxUnread(enabled: boolean): number {
       try {
         const response = await fetch('/api/inbox/unread', { cache: 'no-store' });
         if (!response.ok || stopped) return;
-        const body = (await response.json()) as { data?: { total?: number }; total?: number };
-        const total = body.data?.total ?? body.total ?? 0;
+        // Only the person's own number: the private number's conversations are not on the screen.
+        const body = (await response.json()) as { data?: { mine?: number }; mine?: number };
+        const total = body.data?.mine ?? body.mine ?? 0;
         if (last.current !== null && total > last.current) chime();
         last.current = total;
         setCount(total);

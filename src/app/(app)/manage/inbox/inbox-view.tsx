@@ -786,8 +786,6 @@ function Conversations({
   );
 }
 
-type Source = 'office' | 'mine';
-
 interface Link {
   status: 'OFF' | 'CONNECTING' | 'WAITING_QR' | 'CONNECTED';
   qrImage: string | null;
@@ -796,53 +794,17 @@ interface Link {
   error: string | null;
 }
 
+/**
+ * Each person's own number, answered from here. The office's private number is
+ * the bot's now: its conversations are not offered here.
+ */
 export function InboxView() {
   const { t } = useLocale();
-  const [source, setSource] = useState<Source>('office');
-
-  useEffect(() => {
-    try {
-      if (window.localStorage.getItem('inbox.source') === 'mine') setSource('mine');
-    } catch {
-      // Remembering the tab is a nicety.
-    }
-  }, []);
-
-  const choose = (next: Source) => {
-    setSource(next);
-    try {
-      window.localStorage.setItem('inbox.source', next);
-    } catch {
-      // As above.
-    }
-  };
-
-  const tabs = (
-    <div role="tablist" className="flex gap-1 rounded-xl bg-surface-sunken p-1 text-sm">
-      {(['office', 'mine'] as const).map((id) => (
-        <button
-          key={id}
-          type="button"
-          role="tab"
-          aria-selected={source === id}
-          onClick={() => choose(id)}
-          className={`min-h-9 rounded-lg px-3 py-1.5 font-medium ${
-            source === id ? 'bg-surface text-content shadow-sm' : 'text-content-secondary'
-          }`}
-        >
-          {id === 'office' ? t('inbox.sourceOffice') : t('inbox.sourceMine')}
-        </button>
-      ))}
-    </div>
-  );
-
-  return source === 'office' ? (
-    <Conversations key="office" base="/api/inbox" tabs={tabs} hint={t('inbox.hint')} />
-  ) : (
+  return (
     <Conversations
       key="mine"
       base="/api/inbox/mine"
-      tabs={tabs}
+      tabs={null}
       listTop={<MyNumber />}
       hint={t('inbox.hintMine')}
     />

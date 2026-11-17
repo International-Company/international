@@ -720,7 +720,7 @@ const en = {
   },
   inbox: {
     title: 'Customer WhatsApp',
-    subtitle: 'What customers write to the private number, answered from here.',
+    subtitle: 'Customers’ conversations on your number, answered from here.',
     search: 'Search by number or word',
     all: 'All',
     waiting: 'Awaiting reply ({count})',
