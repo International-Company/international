@@ -72,6 +72,9 @@ export function BankView() {
   const [currency, setCurrency] = useState<string | null>(null);
   const [kind, setKind] = useState<string | null>(null);
   const [newestFirst, setNewestFirst] = useState(false);
+  /** A range of sums, in the transfer's own money: either end may be left open. */
+  const [minAmount, setMinAmount] = useState('');
+  const [maxAmount, setMaxAmount] = useState('');
   const [sending, setSending] = useState<Line | null>(null);
   const [receipt, setReceipt] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -136,9 +139,15 @@ export function BankView() {
     .filter((line) => !channel || (line.channel ?? '—') === channel)
     .filter((line) => !currency || line.currency === currency)
     .filter((line) => !kind || line.kind === kind)
+    .filter((line) => {
+      const sum = Number(line.amount) / 1e8;
+      const low = Number(digitsOnly(minAmount));
+      const high = Number(digitsOnly(maxAmount));
+      return (!minAmount || sum >= low) && (!maxAmount || sum <= high);
+    })
     .filter(matches);
   if (newestFirst) shown.reverse();
-  const narrowed = Boolean(needle || currency || kind || channel);
+  const narrowed = Boolean(needle || currency || kind || channel || minAmount || maxAmount);
 
   const markSent = async () => {
     if (!sending) return;
@@ -250,6 +259,29 @@ export function BankView() {
               ))}
             </select>
           )}
+          {/* The sum, from and to. */}
+          <div className="flex items-center gap-1 rounded-full bg-surface-sunken px-2">
+            <span className="text-xs text-content-tertiary">{t('bank.amountRange')}</span>
+            <input
+              inputMode="decimal"
+              dir="ltr"
+              value={minAmount}
+              onChange={(event) => setMinAmount(digitsOnly(event.target.value))}
+              placeholder={t('bank.from')}
+              aria-label={t('bank.from')}
+              className="h-8 w-16 bg-transparent text-center text-xs font-medium tabular-nums text-content outline-none"
+            />
+            <span className="text-xs text-content-tertiary">–</span>
+            <input
+              inputMode="decimal"
+              dir="ltr"
+              value={maxAmount}
+              onChange={(event) => setMaxAmount(digitsOnly(event.target.value))}
+              placeholder={t('bank.to')}
+              aria-label={t('bank.to')}
+              className="h-8 w-16 bg-transparent text-center text-xs font-medium tabular-nums text-content outline-none"
+            />
+          </div>
           <button
             type="button"
             onClick={() => setNewestFirst((value) => !value)}
@@ -266,6 +298,8 @@ export function BankView() {
                 setCurrency(null);
                 setKind(null);
                 setChannel(null);
+                setMinAmount('');
+                setMaxAmount('');
               }}
               className="ms-auto inline-flex h-8 items-center gap-1 rounded-full px-2 text-xs text-content-tertiary hover:text-content"
             >
@@ -401,6 +435,16 @@ export function BankView() {
       </Dialog>
     </Card>
   );
+}
+
+/** A typed sum as digits and one point: Arabic digits read as Western, commas dropped. */
+function digitsOnly(raw: string): string {
+  return raw
+    .replace(/[٠-٩]/g, (digit) => String(digit.charCodeAt(0) - 0x0660))
+    .replace(/[,٬]/g, '')
+    .replace(/٫/g, '.')
+    .replace(/[^\d.]/g, '')
+    .replace(/(\..*)\./g, '$1');
 }
 
 /** A stored amount (scaled by 1e8) as the bank's app takes it: "320", "12.5". */
