@@ -2219,6 +2219,9 @@ model TiktokWithdrawal {
   account     String    @default("")
   rate        BigInt    @default(0)
   payoutAmount BigInt   @default(0)
+  /// The part of the payout handed over in notes: all of it paid in cash, some of it
+  /// split, none of it by transfer — the rest goes to `channel`.
+  cashAmount  BigInt    @default(0)
   /// The Egyptian pounds the photo shows, as the teller read them off it. Empty on
   /// one recorded before it was asked for, or left blank.
   egpAmount   BigInt?

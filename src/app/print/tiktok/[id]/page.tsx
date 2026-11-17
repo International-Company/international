@@ -163,10 +163,16 @@ export default async function TiktokReceiptPage({ params }: { params: Promise<{ 
                       </td>
                     </tr>
                   )}
-                  {withdrawal.channel && (
+                  {(withdrawal.channel || withdrawal.cashAmount > 0n) && (
                     <tr className={`border-t ${rule}`}>
                       <td className="py-1">{t('receipt.payoutChannel')}</td>
-                      <td className="py-1 text-end font-semibold">{withdrawal.channel}</td>
+                      <td className="py-1 text-end font-semibold">
+                        {withdrawal.cashAmount >= withdrawal.payoutAmount
+                          ? 'نقدي'
+                          : withdrawal.cashAmount > 0n
+                            ? `${withdrawal.channel} + نقدي ${toDecimalString(withdrawal.cashAmount, 0)}`
+                            : withdrawal.channel}
+                      </td>
                     </tr>
                   )}
                   {withdrawal.account && (

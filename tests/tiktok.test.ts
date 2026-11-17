@@ -69,6 +69,29 @@ describe('a TikTok withdrawal', () => {
     );
   });
 
+  it('says cash where the bank would be when it was handed over in notes', () => {
+    assert.equal(
+      composeWithdrawal({ ...withdrawal, channel: '', cashAmount: withdrawal.payoutAmount }),
+      '0592117818\n\nنقدي\n\nليندا الفقعاوي\n\n198 ش',
+    );
+    assert.equal(
+      composeWithdrawal({
+        ...withdrawal,
+        account: '',
+        channel: '',
+        cashAmount: withdrawal.payoutAmount,
+      }),
+      'نقدي\n\nليندا الفقعاوي\n\n198 ش',
+    );
+  });
+
+  it('says how a split was paid', () => {
+    assert.equal(
+      composeWithdrawal({ ...withdrawal, cashAmount: 98n * UNIT }),
+      '0592117818\n\nجوال باي\n\nليندا الفقعاوي\n\n198 ش (تحويل 100 ش + نقدي 98 ش)',
+    );
+  });
+
   it('gives the second group the name alone, and its deletion the name alone', () => {
     assert.equal(composeWithdrawalName(withdrawal), 'ليندا الفقعاوي');
     assert.equal(composeWithdrawalNameDeleted(withdrawal), '🔴 *سحب ملغى*\n\nليندا الفقعاوي');

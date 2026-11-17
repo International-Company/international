@@ -66,6 +66,10 @@ export function TiktokView({
   const [account, setAccount] = useState('');
   const [beneficiaryName, setBeneficiaryName] = useState('');
   const [channel, setChannel] = useState(channels[0] ?? '');
+  /** How it is handed over: by transfer, in notes, or part of each. */
+  const [payVia, setPayVia] = useState<'TRANSFER' | 'CASH' | 'SPLIT'>('TRANSFER');
+  /** Split: the part sent by transfer, in shekels. */
+  const [transferPart, setTransferPart] = useState('');
   const [amount, setAmount] = useState('');
   const [rate, setRate] = useState(defaultRate);
   // The pounds the photo shows, for the group's reconciliation.
@@ -141,12 +145,15 @@ export function TiktokView({
   };
 
   const payout = tiktokPayout(scaled(amount), scaled(rate));
+  const cash = payVia === 'CASH';
+  const sentPart = scaled(transferPart);
   const ready =
     Boolean(photo) &&
-    account.trim().length > 0 &&
+    (cash || account.trim().length > 0) &&
     beneficiaryName.trim().length > 0 &&
-    Boolean(channel) &&
+    (cash || Boolean(channel)) &&
     payout > 0n &&
+    (payVia !== 'SPLIT' || (sentPart > 0n && sentPart < payout)) &&
     scan !== 'READING';
 
   const submit = async () => {
@@ -158,14 +165,17 @@ export function TiktokView({
         rate,
         account,
         beneficiaryName,
-        channel,
+        channel: cash ? '' : channel,
         photo,
         egpAmount: egp.trim() || null,
+        payVia,
+        transferPart: payVia === 'SPLIT' ? transferPart : null,
       });
       toast.success(t('tiktok.recorded'));
       printAfterRecording(created.id, permissions, 'tiktok');
       clearPhoto();
       setAccount('');
+      setTransferPart('');
       setBeneficiaryName('');
       setAmount('');
       setEgp('');
@@ -257,7 +267,34 @@ export function TiktokView({
 
         {/* ============ Who it is for, how it is sent, and how much ============ */}
         <div className="space-y-3 rounded-2xl bg-surface p-4 ring-1 ring-border-subtle">
-          <Field label={t('tiktok.account')} required>
+          {/* How it is handed over: the account and the bank only matter for a transfer. */}
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-xs font-medium text-content-secondary">{t('tiktok.payVia')}</span>
+            <div dir="ltr" className="flex gap-1 rounded-full bg-surface-sunken p-1">
+              {(['CASH', 'TRANSFER', 'SPLIT'] as const).map((option) => (
+                <button
+                  key={option}
+                  type="button"
+                  aria-pressed={payVia === option}
+                  disabled={option !== 'CASH' && channels.length === 0}
+                  onClick={() => setPayVia(option)}
+                  className={`h-9 rounded-full px-4 text-sm font-medium transition-colors disabled:opacity-40 ${
+                    payVia === option
+                      ? 'bg-surface text-content shadow-[var(--shadow-sm)]'
+                      : 'text-content-tertiary hover:text-content-secondary'
+                  }`}
+                >
+                  {option === 'CASH'
+                    ? t('machine.payoutCash')
+                    : option === 'TRANSFER'
+                      ? t('tiktok.payTransfer')
+                      : t('machine.payoutSplit')}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <Field label={t('tiktok.account')} required={!cash}>
             {(props) => (
               <Input
                 {...props}
@@ -271,6 +308,7 @@ export function TiktokView({
             )}
           </Field>
 
+          {!cash && (
           <Field label={t('tiktok.channel')} required>
             {(props) =>
               channels.length === 0 ? (
@@ -293,6 +331,22 @@ export function TiktokView({
               )
             }
           </Field>
+          )}
+
+          {payVia === 'SPLIT' && (
+            <Field label={t('tiktok.transferPart')} hint={t('tiktok.transferPartHint')} required>
+              {(props) => (
+                <Input
+                  {...props}
+                  dir="ltr"
+                  inputMode="decimal"
+                  autoComplete="off"
+                  value={transferPart}
+                  onChange={(event) => setTransferPart(event.target.value)}
+                />
+              )}
+            </Field>
+          )}
 
           <Field label={t('tiktok.beneficiaryName')} required>
             {(props) => (

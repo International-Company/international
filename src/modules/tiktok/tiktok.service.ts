@@ -32,9 +32,14 @@ export async function record(
     photo: string;
     /** The pounds the photo shows, when the teller typed them. */
     egpAmount?: bigint | null;
+    /** How it is handed over: by transfer (the default), in notes, or part of each. */
+    payVia?: 'TRANSFER' | 'CASH' | 'SPLIT';
+    /** Split: the part sent by transfer; the rest is notes. */
+    transferPart?: bigint | null;
   },
   actor: Actor,
 ) {
+  const payVia = input.payVia ?? 'TRANSFER';
   if (input.amount <= 0n) {
     throw errors.precondition('Amount must be greater than zero', 'errors.amountNotPositive');
   }
@@ -43,20 +48,34 @@ export async function record(
     throw errors.precondition('Give the price', 'errors.tiktokRateRequired');
   }
   const account = normalizeDigits(input.account).trim();
-  if (!account) {
+  // Paid in notes there is nowhere to send it: the number is kept only if given.
+  if (!account && payVia !== 'CASH') {
     throw errors.precondition('Say where it goes', 'errors.tiktokAccountRequired');
   }
   const beneficiaryName = input.beneficiaryName.trim();
   if (!beneficiaryName) {
     throw errors.precondition('Say who it is for', 'errors.tiktokNameRequired');
   }
-  const channel = input.channel.trim();
-  if (!(await transferChannels()).includes(channel)) {
+  const channel = payVia === 'CASH' ? '' : input.channel.trim();
+  if (payVia !== 'CASH' && !(await transferChannels()).includes(channel)) {
     throw errors.precondition(
       `${channel} is not an account the counter offers`,
       'errors.transferChannelUnknown',
       { channel },
     );
+  }
+  // What goes in notes: all of it, the rest of a split, or nothing.
+  let cashAmount = 0n;
+  if (payVia === 'CASH') cashAmount = payoutAmount;
+  if (payVia === 'SPLIT') {
+    const sent = input.transferPart ?? 0n;
+    if (sent <= 0n || sent >= payoutAmount) {
+      throw errors.precondition(
+        'The part paid by transfer must be above nothing and below the whole sum',
+        'errors.intakeSplitInvalid',
+      );
+    }
+    cashAmount = payoutAmount - sent;
   }
   const egpAmount = input.egpAmount && input.egpAmount > 0n ? input.egpAmount : null;
   const image = readProofImage(input.photo);
@@ -68,6 +87,7 @@ export async function record(
       amount: input.amount,
       rate: input.rate,
       payoutAmount,
+      cashAmount,
       egpAmount,
       account,
       beneficiaryName,
@@ -109,12 +129,20 @@ export async function list(actor: Actor) {
       account: true,
       beneficiaryName: true,
       channel: true,
+      cashAmount: true,
       createdAt: true,
       createdBy: { select: { fullNameAr: true, fullNameEn: true } },
     },
   });
-  return rows.map(({ amount, rate, payoutAmount, egpAmount, ...row }) => ({
+  return rows.map(({ amount, rate, payoutAmount, egpAmount, cashAmount, ...row }) => ({
     ...row,
+    // How it went, where the bank would be: in notes, or split.
+    channel:
+      cashAmount >= payoutAmount && cashAmount > 0n
+        ? 'نقدي'
+        : cashAmount > 0n
+          ? `${row.channel} + نقدي`
+          : row.channel,
     amountText: formatFigure(amount),
     // Nothing for a record from before the shekels.
     rateText: rate > 0n ? rateText(rate) : null,
@@ -184,6 +212,7 @@ export async function forReceipt(id: string, actor: Actor) {
       amount: true,
       rate: true,
       payoutAmount: true,
+      cashAmount: true,
       egpAmount: true,
       account: true,
       channel: true,

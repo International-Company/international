@@ -38,16 +38,32 @@ interface Withdrawal {
   channel: string;
   beneficiaryName: string;
   payoutAmount: bigint;
+  /** Handed over in notes: all of it, part of it, or none. */
+  cashAmount?: bigint;
 }
 
-/** A line each with a blank between, in the order the office writes a transfer. */
+/**
+ * A line each with a blank between, in the order the office writes a transfer.
+ * Paid in notes it says so where the account would be; split, the sum says how.
+ */
 export function composeWithdrawal({
   account,
   channel,
   beneficiaryName,
   payoutAmount,
+  cashAmount = 0n,
 }: Withdrawal): string {
-  return [account, channel, beneficiaryName.trim(), shekels(payoutAmount)].join('\n\n');
+  const cash = cashAmount > 0n ? cashAmount : 0n;
+  if (cash >= payoutAmount) {
+    return [account.trim(), 'نقدي', beneficiaryName.trim(), shekels(payoutAmount)]
+      .filter(Boolean)
+      .join('\n\n');
+  }
+  const sum =
+    cash > 0n
+      ? `${shekels(payoutAmount)} (تحويل ${shekels(payoutAmount - cash)} + نقدي ${shekels(cash)})`
+      : shekels(payoutAmount);
+  return [account, channel, beneficiaryName.trim(), sum].join('\n\n');
 }
 
 /** For the group that only needs to know whose it is: the photo carries the name alone. */

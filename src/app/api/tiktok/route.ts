@@ -16,6 +16,9 @@ const bodySchema = z.object({
   channel: z.string().max(80),
   /** The pounds the photo shows; optional. */
   egpAmount: z.string().max(30).nullish(),
+  /** How it is handed over, and split, the part sent by transfer. */
+  payVia: z.enum(['TRANSFER', 'CASH', 'SPLIT']).optional(),
+  transferPart: z.string().max(30).nullish(),
   /** The photo, shrunk by the screen, as base64. The service checks what it is. */
   photo: z.string().min(1).max(6_000_000),
 });
@@ -33,6 +36,8 @@ export const POST = route<z.infer<typeof bodySchema>>({
         channel: body.channel,
         photo: body.photo,
         egpAmount: body.egpAmount?.trim() ? parseMoney(body.egpAmount) : null,
+        payVia: body.payVia ?? 'TRANSFER',
+        transferPart: body.transferPart?.trim() ? parseMoney(body.transferPart) : null,
       },
       actor,
     ),
