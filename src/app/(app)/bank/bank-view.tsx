@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Check, CheckCircle2, Copy, Landmark, RefreshCw } from 'lucide-react';
+import { ArrowDownUp, Check, CheckCircle2, Copy, Landmark, RefreshCw, Search, X } from 'lucide-react';
 import { useLocale } from '@/i18n/provider';
 import { api, ApiError } from '@/lib/api-client';
 import { say } from '@/lib/failure';
@@ -67,6 +67,11 @@ export function BankView() {
   const toast = useToast();
   const [desk, setDesk] = useState<Desk | null>(null);
   const [channel, setChannel] = useState<string | null>(null);
+  /** Narrowing the list: words, the money it is in, the kind of deal, and which end first. */
+  const [query, setQuery] = useState('');
+  const [currency, setCurrency] = useState<string | null>(null);
+  const [kind, setKind] = useState<string | null>(null);
+  const [newestFirst, setNewestFirst] = useState(false);
   const [sending, setSending] = useState<Line | null>(null);
   const [receipt, setReceipt] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -105,7 +110,35 @@ export function BankView() {
     return [...totals.entries()].sort((a, b) => b[1].count - a[1].count);
   }, [desk]);
 
-  const shown = (desk?.waiting ?? []).filter((line) => !channel || (line.channel ?? '—') === channel);
+  // What the list can be narrowed by: the money and the kinds actually waiting.
+  const currencies = [...new Set((desk?.waiting ?? []).map((line) => line.currency))];
+  const kinds = [...new Set((desk?.waiting ?? []).map((line) => line.kind))];
+  /*
+   * Searched by anything the desk might have in hand: the account or the phone
+   * (digits only, so "059 211" finds "0592117818"), the name, the deal's number,
+   * or the sum as it is read ("1740" finds 1,740.00).
+   */
+  const needle = query.trim().toLowerCase();
+  const digits = needle.replace(/\D/g, '');
+  const matches = (line: Line) => {
+    if (!needle) return true;
+    const words = [line.name, line.reference, line.channel, line.notes, line.kind]
+      .filter(Boolean)
+      .join(' ')
+      .toLowerCase();
+    if (words.includes(needle)) return true;
+    if (!digits) return false;
+    return [line.account, line.phone, plainFigure(line.amount)].some((value) =>
+      (value ?? '').replace(/\D/g, '').includes(digits),
+    );
+  };
+  const shown = (desk?.waiting ?? [])
+    .filter((line) => !channel || (line.channel ?? '—') === channel)
+    .filter((line) => !currency || line.currency === currency)
+    .filter((line) => !kind || line.kind === kind)
+    .filter(matches);
+  if (newestFirst) shown.reverse();
+  const narrowed = Boolean(needle || currency || kind || channel);
 
   const markSent = async () => {
     if (!sending) return;
@@ -174,6 +207,72 @@ export function BankView() {
               {chip.label} · <span className="tabular-nums">{chip.count}</span>
             </button>
           ))}
+        </div>
+        {/* Search, then the money and the kind, and which end of the list first. */}
+        <div className="relative">
+          <Search className="pointer-events-none absolute start-2.5 top-1/2 size-4 -translate-y-1/2 text-content-tertiary" />
+          <input
+            type="search"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder={t('bank.search')}
+            className="h-9 w-full rounded-full bg-surface-sunken ps-8 pe-3 text-sm text-content outline-none ring-1 ring-transparent focus:ring-primary"
+          />
+        </div>
+        <div className="flex flex-wrap items-center gap-1.5">
+          {currencies.length > 1 && (
+            <select
+              value={currency ?? ''}
+              onChange={(event) => setCurrency(event.target.value || null)}
+              aria-label={t('bank.currency')}
+              className="h-8 rounded-full bg-surface-sunken px-2 text-xs font-medium text-content outline-none"
+            >
+              <option value="">{t('bank.anyCurrency')}</option>
+              {currencies.map((code) => (
+                <option key={code} value={code}>
+                  {code}
+                </option>
+              ))}
+            </select>
+          )}
+          {kinds.length > 1 && (
+            <select
+              value={kind ?? ''}
+              onChange={(event) => setKind(event.target.value || null)}
+              aria-label={t('bank.kind')}
+              className="h-8 max-w-[11rem] rounded-full bg-surface-sunken px-2 text-xs font-medium text-content outline-none"
+            >
+              <option value="">{t('bank.anyKind')}</option>
+              {kinds.map((name) => (
+                <option key={name} value={name}>
+                  {name}
+                </option>
+              ))}
+            </select>
+          )}
+          <button
+            type="button"
+            onClick={() => setNewestFirst((value) => !value)}
+            className="inline-flex h-8 items-center gap-1 rounded-full bg-surface-sunken px-2.5 text-xs font-medium text-content-secondary hover:text-content"
+          >
+            <ArrowDownUp className="size-3.5" />
+            {newestFirst ? t('bank.newestFirst') : t('bank.oldestFirst')}
+          </button>
+          {narrowed && (
+            <button
+              type="button"
+              onClick={() => {
+                setQuery('');
+                setCurrency(null);
+                setKind(null);
+                setChannel(null);
+              }}
+              className="ms-auto inline-flex h-8 items-center gap-1 rounded-full px-2 text-xs text-content-tertiary hover:text-content"
+            >
+              <X className="size-3.5" />
+              {t('bank.clearFilters')} · <span className="tabular-nums">{shown.length}</span>
+            </button>
+          )}
         </div>
         {channel && (
           <p className="flex flex-wrap gap-2 text-xs text-content-tertiary">

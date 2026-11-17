@@ -1,6 +1,7 @@
 import 'server-only';
 import { prisma } from '@/core/db/prisma';
 import { errors } from '@/core/errors/app-error';
+import { containsInsensitive } from '@/core/db/search';
 import { createLogger } from '@/core/logger/logger';
 import * as settings from '@/modules/settings/settings.service';
 import { keepMedia } from '@/modules/whatsapp/chat-images';
@@ -201,14 +202,26 @@ export async function allGroups(actor: Actor) {
  * A watched group's latest messages, oldest first, each with the deal it is the
  * message of and where it was passed on to or from.
  */
-export async function feed(chat: string, actor: Actor) {
+export async function feed(chat: string, actor: Actor, search?: string | null) {
   requireDesk(actor);
   const groups = await watched();
   if (!groups.some((group) => group.id === chat)) throw errors.notFound('Group', chat);
 
   const rows = (
     await prisma.groupMessage.findMany({
-      where: { chat },
+      // Searched across everything kept, not only the latest shown.
+      where: {
+        chat,
+        ...(search?.trim()
+          ? {
+              OR: [
+                { text: containsInsensitive(search.trim()) },
+                { senderName: containsInsensitive(search.trim()) },
+                { senderPhone: { contains: search.trim().replace(/\D/g, '') || search.trim() } },
+              ],
+            }
+          : {}),
+      },
       orderBy: { createdAt: 'desc' },
       take: 150,
     })

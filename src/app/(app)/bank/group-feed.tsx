@@ -2,7 +2,16 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import { CheckCircle2, Clock, CornerUpLeft, CornerUpRight, FileText, Settings2, Share2 } from 'lucide-react';
+import {
+  CheckCircle2,
+  Clock,
+  CornerUpLeft,
+  CornerUpRight,
+  FileText,
+  Search,
+  Settings2,
+  Share2,
+} from 'lucide-react';
 import { useLocale } from '@/i18n/provider';
 import { api, ApiError } from '@/lib/api-client';
 import { say } from '@/lib/failure';
@@ -51,6 +60,17 @@ export function GroupFeed() {
   const [forwarding, setForwarding] = useState<{ message: FeedMessage; targets: Group[]; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const scroller = useRef<HTMLDivElement>(null);
+  /** Searching the group (on the server, across all kept), and showing only some kinds. */
+  const [query, setQuery] = useState('');
+  const [searched, setSearched] = useState('');
+  const [show, setShow] = useState<'all' | 'waiting' | 'sent' | 'outside' | 'forwarded' | 'photos'>(
+    'all',
+  );
+  // Asked of the server once typing pauses, not on every key.
+  useEffect(() => {
+    const timer = setTimeout(() => setSearched(query.trim()), 350);
+    return () => clearTimeout(timer);
+  }, [query]);
 
   const failure = useCallback(
     (cause: unknown) =>
@@ -82,11 +102,32 @@ export function GroupFeed() {
   const loadFeed = useCallback(async () => {
     if (!chat) return;
     try {
-      setMessages(await api.get<FeedMessage[]>(`/api/bank/groups/feed?chat=${encodeURIComponent(chat)}`));
+      setMessages(
+        await api.get<FeedMessage[]>(
+          `/api/bank/groups/feed?chat=${encodeURIComponent(chat)}${searched ? `&q=${encodeURIComponent(searched)}` : ''}`,
+        ),
+      );
     } catch {
       setMessages((current) => current ?? []);
     }
-  }, [chat]);
+  }, [chat, searched]);
+
+  const visible = (messages ?? []).filter((message) => {
+    switch (show) {
+      case 'waiting':
+        return message.deal?.status === 'PENDING_TRANSFER';
+      case 'sent':
+        return Boolean(message.deal && message.deal.status !== 'PENDING_TRANSFER');
+      case 'outside':
+        return !message.fromMe && !message.deal;
+      case 'forwarded':
+        return message.forwardedTo.length > 0 || Boolean(message.forwardedFrom);
+      case 'photos':
+        return Boolean(message.mediaId);
+      default:
+        return true;
+    }
+  });
 
   useEffect(() => {
     setMessages(null);
@@ -212,6 +253,40 @@ export function GroupFeed() {
         )}
       </div>
 
+      {/* --- Search the group, and show only what matters now --- */}
+      {groups && groups.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2 border-b border-border-subtle px-2 py-2">
+          <div className="relative min-w-[12rem] flex-1">
+            <Search className="pointer-events-none absolute start-2.5 top-1/2 size-4 -translate-y-1/2 text-content-tertiary" />
+            <input
+              type="search"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder={t('bankFeed.search')}
+              className="h-9 w-full rounded-full bg-surface-sunken ps-8 pe-3 text-sm text-content outline-none ring-1 ring-transparent focus:ring-primary"
+            />
+          </div>
+          <div className="flex gap-1 overflow-x-auto">
+            {(['all', 'waiting', 'sent', 'outside', 'forwarded', 'photos'] as const).map((option) => (
+              <button
+                key={option}
+                type="button"
+                aria-pressed={show === option}
+                onClick={() => setShow(option)}
+                className={cn(
+                  'h-8 shrink-0 rounded-full px-3 text-xs font-semibold transition-colors',
+                  show === option
+                    ? 'bg-primary text-white'
+                    : 'bg-surface-sunken text-content-secondary hover:text-content',
+                )}
+              >
+                {t(`bankFeed.show.${option}`)}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* --- The conversation --- */}
       <div ref={scroller} className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto bg-surface-sunken p-3">
         {groups !== null && groups.length === 0 ? (
@@ -221,10 +296,14 @@ export function GroupFeed() {
           />
         ) : messages === null ? (
           <Skeleton className="h-40" />
-        ) : messages.length === 0 ? (
-          <EmptyState title={t('bankFeed.emptyTitle')} description={t('bankFeed.emptyBody')} />
+        ) : visible.length === 0 ? (
+          searched || show !== 'all' ? (
+            <EmptyState title={t('bankFeed.noMatch')} />
+          ) : (
+            <EmptyState title={t('bankFeed.emptyTitle')} description={t('bankFeed.emptyBody')} />
+          )
         ) : (
-          messages.map((message) => (
+          visible.map((message) => (
             <div
               key={message.id}
               className={cn(
