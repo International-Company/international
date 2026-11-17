@@ -28,6 +28,8 @@ const bodySchema = z.discriminatedUnion('action', [
     maxFromAmount: z.string(),
     requestedRate: z.string(),
     reason: z.string().max(300).nullish(),
+    /** Typed into the dollar's price on the exchange screen. */
+    direct: z.boolean().optional(),
   }),
   z.object({
     action: z.literal('decide'),
@@ -200,6 +202,7 @@ export const POST = route<z.infer<typeof bodySchema>>({
           maxFromAmount: parseMoney(body.maxFromAmount),
           requestedRate: exceptions.fromPrice(parseMoney(body.requestedRate), inverted),
           reason: body.reason,
+          direct: body.direct ?? false,
         },
         actor,
       );

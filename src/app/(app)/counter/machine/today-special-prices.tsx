@@ -71,12 +71,22 @@ export function TodaySpecialPrices({ refreshKey }: { refreshKey?: string }) {
                   {rate(deal.givenRate)}
                 </span>
               </span>
-              {deal.conceded && (
-                <span className="text-danger-text">
-                  {t('activity.specialCost')}{' '}
-                  <Money value={deal.conceded.amount} currency={deal.conceded.currency} />
-                </span>
-              )}
+              {deal.conceded &&
+                (BigInt(deal.conceded.amount) < 0n ? (
+                  // A price typed in the office's favour: nothing given away.
+                  <span className="text-success-text">
+                    {t('activity.specialGained')}{' '}
+                    <Money
+                      value={(-BigInt(deal.conceded.amount)).toString()}
+                      currency={deal.conceded.currency}
+                    />
+                  </span>
+                ) : (
+                  <span className="text-danger-text">
+                    {t('activity.specialCost')}{' '}
+                    <Money value={deal.conceded.amount} currency={deal.conceded.currency} />
+                  </span>
+                ))}
               <span className="font-mono text-content-tertiary ltr-content">{deal.reference}</span>
             </p>
           </li>
@@ -85,9 +95,15 @@ export function TodaySpecialPrices({ refreshKey }: { refreshKey?: string }) {
       {conceded.length > 0 && (
         <footer className="flex flex-wrap items-center justify-between gap-2 border-t border-border-subtle bg-surface-sunken px-4 py-2 text-xs font-semibold">
           <span>{t('activity.specialTotal')}</span>
-          <span className="flex flex-wrap gap-3 text-danger-text">
+          <span className="flex flex-wrap gap-3">
             {conceded.map((entry) => (
-              <Money key={entry.currency} value={entry.amount} currency={entry.currency} />
+              <Money
+                key={entry.currency}
+                value={entry.amount}
+                currency={entry.currency}
+                // Below zero, the day's typed prices came out in the office's favour.
+                className={BigInt(entry.amount) < 0n ? 'text-success-text' : 'text-danger-text'}
+              />
             ))}
           </span>
         </footer>

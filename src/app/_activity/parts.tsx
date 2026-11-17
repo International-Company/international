@@ -278,8 +278,23 @@ export function SpecialPrices({
                     <td className="px-3 py-2 text-end font-semibold tabular-nums ltr-content">
                       {rateText(deal.givenRate)}
                     </td>
-                    <td className="px-3 py-2 text-end tabular-nums text-danger-text">
-                      {deal.conceded ? (
+                    <td
+                      className={cn(
+                        'px-3 py-2 text-end tabular-nums',
+                        deal.conceded && BigInt(deal.conceded.amount) < 0n
+                          ? 'text-success-text'
+                          : 'text-danger-text',
+                      )}
+                    >
+                      {deal.conceded && BigInt(deal.conceded.amount) < 0n ? (
+                        <>
+                          {t('activity.specialGained')}{' '}
+                          <Money
+                            value={(-BigInt(deal.conceded.amount)).toString()}
+                            currency={deal.conceded.currency}
+                          />
+                        </>
+                      ) : deal.conceded ? (
                         <Money value={deal.conceded.amount} currency={deal.conceded.currency} />
                       ) : (
                         '—'

@@ -213,6 +213,27 @@ export interface RequestInput {
   /** The price the teller wants, as `toCurrency` per one `fromCurrency`. */
   requestedRate: bigint;
   reason?: string | null;
+  /**
+   * Typed into the dollar's price on the exchange screen rather than asked for.
+   * It may then also go the office's way, within the same percentage.
+   */
+  direct?: boolean;
+}
+
+/**
+ * Whether a price in the office's favour stays within the teller's room: no
+ * further below the board than the office's percentage. Unlimited, any.
+ */
+export function withinOwnRoomBelow(input: {
+  requestedRate: bigint;
+  boardRate: bigint;
+  selfPercent: number;
+  unlimited?: boolean;
+}): boolean {
+  if (input.unlimited) return true;
+  if (!(input.selfPercent > 0)) return false;
+  const basisPoints = BigInt(Math.round(input.selfPercent * 100));
+  return input.requestedRate * 10_000n >= input.boardRate * (10_000n - basisPoints);
 }
 
 /**
@@ -270,11 +291,16 @@ export async function request(input: RequestInput, actor: Actor, db: DbClient = 
    * through here would fill the manager's screen with requests that are not
    * requests — which is how a queue that matters becomes one that is skimmed.
    */
-  if (input.requestedRate <= board.rate) {
+  // Typed on the screen in the office's favour: no concession, so nobody need be asked.
+  const inOurFavour = input.requestedRate <= board.rate;
+  if (inOurFavour && !input.direct) {
     throw errors.precondition(
       'That is at or better than the board — no approval is needed',
       'errors.exceptionNotAConcession',
     );
+  }
+  if (input.requestedRate === board.rate) {
+    throw errors.precondition('That is the board’s own price', 'errors.exceptionSameAsBoard');
   }
 
   const [reference, day, selfPercent, cost, minutes, unlimited] = await Promise.all([
@@ -301,13 +327,23 @@ export async function request(input: RequestInput, actor: Actor, db: DbClient = 
    * special price himself, in which case it always applies at once and the
    * manager is told, loudly when it is at or past cost.
    */
-  const selfGranted = mayGrantOwn({
-    requestedRate: input.requestedRate,
-    boardRate: board.rate,
-    costRate: cost,
-    selfPercent,
-    unlimited,
-  });
+  const selfGranted = inOurFavour
+    ? withinOwnRoomBelow({ requestedRate: input.requestedRate, boardRate: board.rate, selfPercent, unlimited })
+    : mayGrantOwn({
+        requestedRate: input.requestedRate,
+        boardRate: board.rate,
+        costRate: cost,
+        selfPercent,
+        unlimited,
+      });
+  // In the office's favour beyond the room: refused, there is nobody to ask for it.
+  if (inOurFavour && !selfGranted) {
+    throw errors.precondition(
+      'That price is further from the board than a teller may go',
+      'errors.tellerPriceTooFar',
+      { limit: selfPercent },
+    );
+  }
   const belowCost = cost !== null && input.requestedRate >= cost;
   const grantedBy = unlimited ? 'the teller, as the office allows' : `the teller's own ${selfPercent}%`;
 

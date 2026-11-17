@@ -19,6 +19,7 @@ import {
   ChevronLeft,
   History,
   Loader2,
+  Pencil,
   Printer,
   RotateCcw,
   Star,
@@ -190,6 +191,12 @@ export function MachineView({
   const [posting, setPosting] = useState(false);
   /** An approval to break the board, once the manager has granted one. */
   const [approval, setApproval] = useState<Approval | null>(null);
+  /** The dollar's price as the teller types it, and whether the box is open. */
+  const [editingPrice, setEditingPrice] = useState(false);
+  const [priceDraft, setPriceDraft] = useState('');
+  const [priceBusy, setPriceBusy] = useState(false);
+  /** Asks the special-price strip to look again, after a price was typed here. */
+  const [priceKey, setPriceKey] = useState(0);
   const [done, setDone] = useState<{ id: string; reference: string } | null>(null);
   const [counterpartyName, setCounterpartyName] = useState('');
   const [counterpartyPhone, setCounterpartyPhone] = useState('');
@@ -253,6 +260,53 @@ export function MachineView({
   const fromCurrency = byCode.get(from);
   const toCurrency = byCode.get(to);
   const canSeeSpread = permissions.includes('exchange.margin.view');
+  // The dollar only, at one price: not a split, not paid by transfer, not already special.
+  const canEditPrice =
+    permissions.includes('exchange.priceException.request') &&
+    (from === 'USD' || to === 'USD') &&
+    !paidByTransfer &&
+    channel !== 'SPLIT' &&
+    !approval;
+
+  /*
+   * A price typed for the dollar. Within the office's room it applies at once,
+   * through the same one-use special price the manager would grant, so the deal
+   * carries it and the manager sees it; past the room, a concession goes to the
+   * manager as any request does.
+   */
+  const savePrice = async () => {
+    const price = normalizeDigits(priceDraft).replace(/[^\d.]/g, '');
+    if (!price || Number(price) <= 0) return;
+    setPriceBusy(true);
+    try {
+      const result = await api.post<{ status: string }>('/api/exchange/price-exceptions', {
+        action: 'request',
+        fromCurrency: from,
+        toCurrency: to,
+        channel: channel === 'BROKER' ? 'BROKER' : 'CASH',
+        maxFromAmount: side === 'pay' ? amount.trim() || '0' : '0',
+        requestedRate: price,
+        direct: true,
+      });
+      if (result.status === 'APPROVED') {
+        const data = await api.get<{ mine?: Approval[]; anyAmount?: boolean }>(
+          '/api/exchange/price-exceptions',
+        );
+        const live = (data.mine ?? []).find((row) => row.status === 'APPROVED');
+        if (live) setApproval({ ...live, anyAmount: data.anyAmount ?? false });
+        toast.success(t('machine.priceApplied'));
+      } else {
+        toast.success(t('exception.asked2'));
+      }
+      setPriceKey((key) => key + 1);
+      setEditingPrice(false);
+    } catch (cause) {
+      const failure = describeFailure(cause, t as never);
+      toast.error(failure.title, failure.body);
+    } finally {
+      setPriceBusy(false);
+    }
+  };
 
   const clearEntry = () => {
     setHandedOver('');
@@ -1058,6 +1112,24 @@ export function MachineView({
                     )}{' '}
                     {counter}
                   </span>
+                  {/* The dollar's price, put right by the teller within the office's room. */}
+                  {canEditPrice && (
+                    <button
+                      type="button"
+                      aria-label={t('machine.editPrice')}
+                      title={t('machine.editPrice')}
+                      onClick={() => {
+                        const current = publishedFor(pricedAs === 'BROKER' ? 'BROKER' : 'CASH') ??
+                          (shownRate ? inBase(shownRate) : boardPrice) ??
+                          '0';
+                        setPriceDraft(rateText(current).replace(/,/g, ''));
+                        setEditingPrice(true);
+                      }}
+                      className="inline-flex size-8 items-center justify-center rounded-full text-primary-text hover:bg-primary-subtle"
+                    >
+                      <Pencil className="size-4" />
+                    </button>
+                  )}
                 </span>
               ) : (
                 <span className="text-danger-text">{t('rates.noRateForPair')}</span>
@@ -1443,6 +1515,46 @@ export function MachineView({
               zero had no way to know the office had simply never published a
               price for paying that way.
             */}
+            {/* The dollar's price, typed by the teller. */}
+            {editingPrice && canEditPrice && (
+              <div className="space-y-2 rounded-2xl bg-surface p-3 ring-1 ring-primary">
+                <p className="text-xs text-content-secondary">
+                  {t(selling ? 'machine.sellPrice' : 'machine.buyPrice')} — {t('machine.editPriceHint')}
+                </p>
+                <div className="flex items-center gap-2">
+                  <span className="ltr-content shrink-0 text-sm font-medium text-content-secondary">
+                    1 {base} =
+                  </span>
+                  <input
+                    autoFocus
+                    dir="ltr"
+                    inputMode="decimal"
+                    autoComplete="off"
+                    data-zoom-safe=""
+                    value={priceDraft}
+                    onChange={(event) => setPriceDraft(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') {
+                        event.preventDefault();
+                        void savePrice();
+                      }
+                      if (event.key === 'Escape') setEditingPrice(false);
+                    }}
+                    className="h-11 min-w-0 flex-1 rounded-xl bg-surface-sunken px-3 text-end text-lg font-semibold tabular-nums text-content outline-none ring-1 ring-transparent focus:ring-primary"
+                  />
+                  <span className="ltr-content shrink-0 text-sm font-medium text-content-secondary">
+                    {counter}
+                  </span>
+                  <Button size="sm" variant="primary" loading={priceBusy} onClick={() => void savePrice()}>
+                    {t('common.save')}
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={() => setEditingPrice(false)}>
+                    {t('common.cancel')}
+                  </Button>
+                </div>
+              </div>
+            )}
+
             {noPrice && (
               <Blocker tone="danger" title={t('machine.noPriceTitle')}>
                 {t('machine.noPriceBody', { channel: unpriced.join('، '), pair: `${from}/${to}` })}
@@ -1508,6 +1620,7 @@ export function MachineView({
             )}
 
             <PriceException
+              key={priceKey}
               from={from}
               to={to}
               base={base}

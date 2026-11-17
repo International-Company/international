@@ -3,7 +3,7 @@ import './support/test-env.ts';
 
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { mayGrantOwn } from '../src/modules/exchange/price-exception.service.ts';
+import { mayGrantOwn, withinOwnRoomBelow } from '../src/modules/exchange/price-exception.service.ts';
 
 /**
  * A special price the teller gives himself.
@@ -92,6 +92,24 @@ describe('who may give a special price', () => {
         selfPercent: 0,
         unlimited: true,
       }),
+      true,
+    );
+  });
+});
+
+describe('a dollar price typed in the office’s favour', () => {
+  it('applies within the teller’s room below the board', () => {
+    assert.equal(withinOwnRoomBelow({ requestedRate: R(2.88), boardRate: R(2.9), selfPercent: 1 }), true);
+  });
+
+  it('is refused further below the board than the room', () => {
+    assert.equal(withinOwnRoomBelow({ requestedRate: R(2.8), boardRate: R(2.9), selfPercent: 1 }), false);
+  });
+
+  it('has no room at all at zero, and any when the office lets the teller set it', () => {
+    assert.equal(withinOwnRoomBelow({ requestedRate: R(2.89), boardRate: R(2.9), selfPercent: 0 }), false);
+    assert.equal(
+      withinOwnRoomBelow({ requestedRate: R(2.5), boardRate: R(2.9), selfPercent: 1, unlimited: true }),
       true,
     );
   });
