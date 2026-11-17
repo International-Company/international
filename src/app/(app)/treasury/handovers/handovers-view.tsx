@@ -53,6 +53,9 @@ interface Handover {
   teller: { id: string; fullNameEn: string; fullNameAr: string };
   createdBy: { fullNameEn: string; fullNameAr: string };
   confirmedBy: { fullNameEn: string; fullNameAr: string } | null;
+  /** The tellers' supervisor it was handed to, instead of the treasury. */
+  receiverId?: string | null;
+  receiver?: { fullNameEn: string; fullNameAr: string } | null;
 }
 
 interface Currency {
@@ -68,11 +71,14 @@ export function HandoversView({
   currencies,
   permissions,
   userId,
+  supervisor = null,
 }: {
   tellers: { id: string; fullNameEn: string; fullNameAr: string }[];
   currencies: Currency[];
   permissions: string[];
   userId: string;
+  /** The tellers' supervisor a teller's drawer goes to tonight, when it is not this person. */
+  supervisor?: { fullNameEn: string; fullNameAr: string } | null;
 }) {
   const { t, ln } = useLocale();
   const router = useRouter();
@@ -124,6 +130,27 @@ export function HandoversView({
       .then((data) => setOwed(data.days[0]?.owedAtEnd ?? []))
       .catch(() => setOwed([]));
   }, [isTreasury, declaring]);
+
+  /*
+   * Handing the drawer over at close starts from what the books say is in it:
+   * the teller corrects a currency where the count differs, rather than typing
+   * every figure into an empty form with the supervisor waiting.
+   */
+  useEffect(() => {
+    if (!declaring || isTreasury) return;
+    setAmounts((current) =>
+      Object.keys(current).length > 0
+        ? current
+        : Object.fromEntries(
+            currencies
+              .filter((currency) => holdings[currency.code] && BigInt(holdings[currency.code]!) > 0n)
+              .map((currency) => [
+                currency.code,
+                plain(holdings[currency.code]!, currency.decimals).replace(/,/g, ''),
+              ]),
+          ),
+    );
+  }, [declaring, isTreasury, holdings, currencies]);
 
   const load = useCallback(async () => {
     try {
@@ -270,8 +297,16 @@ export function HandoversView({
 
       {/* ============ Declare one ============ */}
       <div className="flex justify-end">
-        <Button variant="secondary" icon={<Plus />} onClick={() => setDeclaring(true)}>
-          {isTreasury ? t('handover.declareToTeller') : t('handover.declareToTreasury')}
+        <Button
+          variant={isTreasury ? 'secondary' : 'primary'}
+          icon={<Plus />}
+          onClick={() => setDeclaring(true)}
+        >
+          {isTreasury
+            ? t('handover.declareToTeller')
+            : supervisor
+              ? t('handover.declareToSupervisor', { who: ln(supervisor, 'fullName') })
+              : t('handover.declareToTreasury')}
         </Button>
       </div>
 
@@ -296,7 +331,12 @@ export function HandoversView({
                   <span className="text-sm text-content">
                     {handover.direction === 'TO_TELLER'
                       ? t('handover.toTeller', { who: ln(handover.teller, 'fullName') })
-                      : t('handover.toTreasury', { who: ln(handover.teller, 'fullName') })}
+                      : handover.receiver
+                        ? t('handover.toSupervisor', {
+                            who: ln(handover.teller, 'fullName'),
+                            supervisor: ln(handover.receiver, 'fullName'),
+                          })
+                        : t('handover.toTreasury', { who: ln(handover.teller, 'fullName') })}
                   </span>
                   <span className="text-xs text-content-tertiary">
                     {handover.lines
@@ -317,7 +357,8 @@ export function HandoversView({
                         {t('handover.record')}
                       </Button>
                     )}
-                    {isTreasury && (handover.status === 'PENDING' || handover.status === 'DISPUTED') && (
+                    {(isTreasury || handover.receiverId === userId) &&
+                      (handover.status === 'PENDING' || handover.status === 'DISPUTED') && (
                       <Button size="sm" variant="ghost" icon={<X />} onClick={() => setCancelling(handover)}>
                         {t('common.cancel')}
                       </Button>
@@ -334,7 +375,13 @@ export function HandoversView({
       <Dialog
         open={declaring}
         onClose={() => setDeclaring(false)}
-        title={isTreasury ? t('handover.declareToTeller') : t('handover.declareToTreasury')}
+        title={
+          isTreasury
+            ? t('handover.declareToTeller')
+            : supervisor
+              ? t('handover.declareToSupervisor', { who: ln(supervisor, 'fullName') })
+              : t('handover.declareToTreasury')
+        }
         description={t('handover.declareHint')}
         footer={
           <>

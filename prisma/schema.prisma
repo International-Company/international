@@ -126,6 +126,7 @@ model User {
   openingBoxes    TellerOpening[]
   handoversMade   Handover[]              @relation("HandoverCreatedBy")
   handoversTaken  Handover[]              @relation("HandoverConfirmedBy")
+  handoversReceived Handover[]            @relation("HandoverReceiver")
   passwordHistory PasswordHistory[]
   drafts          Draft[]
   notifications   NotificationRecipient[]
@@ -559,6 +560,11 @@ model Handover {
 
   businessDayId String?
   businessDay   BusinessDay? @relation(fields: [businessDayId], references: [id], onDelete: SetNull)
+
+  /// A return handed to the tellers' supervisor rather than the treasury: the
+  /// money goes into their drawer, and only they count it. Empty, the treasury.
+  receiverId String?
+  receiver   User?   @relation("HandoverReceiver", fields: [receiverId], references: [id], onDelete: SetNull)
 
   /// Whoever declared it — the treasury for a float, the teller for a return.
   createdById String

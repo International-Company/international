@@ -20,7 +20,7 @@ export default async function SettingsPage() {
     select: { id: true, fullNameAr: true, fullNameEn: true },
   });
   const settings = (await describeAll()).map((setting) =>
-    setting.key === 'bank.executorId'
+    setting.key === 'bank.executorId' || setting.key === 'treasury.supervisorId'
       ? {
           ...setting,
           options: [

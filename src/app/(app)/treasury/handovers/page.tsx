@@ -3,6 +3,7 @@ import { prisma } from '@/core/db/prisma';
 import { requirePageAnyPermission } from '@/modules/auth/context';
 import { getTranslator } from '@/i18n/server';
 import { PageHeader } from '@/ui/primitives';
+import { supervisorId } from '@/modules/bank/bank-desk';
 import { HandoversView } from './handovers-view';
 
 export const metadata: Metadata = { title: 'Handovers' };
@@ -49,6 +50,16 @@ export default async function HandoversPage() {
     }),
   ]);
 
+  // Tonight's drawer goes to the tellers' supervisor, when one is named and it is not this person.
+  const named = await supervisorId();
+  const supervisor =
+    named && named !== session.user.id
+      ? await prisma.user.findUnique({
+          where: { id: named },
+          select: { fullNameEn: true, fullNameAr: true },
+        })
+      : null;
+
   return (
     <div className="space-y-4">
       <PageHeader title={t('handover.title')} description={t('handover.subtitle')} />
@@ -58,6 +69,7 @@ export default async function HandoversPage() {
         currencies={currencies}
         permissions={session.user.permissions}
         userId={session.user.id}
+        supervisor={supervisor}
       />
     </div>
   );

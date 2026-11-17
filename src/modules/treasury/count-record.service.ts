@@ -99,9 +99,11 @@ export async function countRecord(id: string, actor: Actor, db: DbClient = prism
   });
   if (!handover) throw errors.notFound('Handover', id);
 
-  // The teller it is about, or someone who counts handovers.
+  // The teller it is about, the supervisor it was handed to, or someone who counts handovers.
   const mayRead =
-    handover.tellerId === actor.id || actor.permissions.includes('treasury.handover.manage');
+    handover.tellerId === actor.id ||
+    handover.receiverId === actor.id ||
+    actor.permissions.includes('treasury.handover.manage');
   if (!mayRead) throw errors.forbidden('treasury.handover.manage');
 
   const confirmed = handover.status === 'CONFIRMED';

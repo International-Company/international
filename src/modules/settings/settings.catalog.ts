@@ -118,6 +118,18 @@ export const SETTINGS: SettingDefinition[] = [
   },
 
   {
+    // The tellers' supervisor: at the end of the day the tellers hand their
+    // drawers to them rather than to the treasury, and they hand the lot on.
+    key: 'treasury.supervisorId', category: 'operations', type: 'select', defaultValue: '',
+    labelEn: 'Tellers\' supervisor', labelAr: 'مشرف التلر',
+    descriptionEn:
+      'At the end of the day each teller hands their closing drawer to this person, who counts it into their own drawer and hands everything to the treasury in one handover. Nobody: tellers hand back to the treasury as before.',
+    descriptionAr:
+      'في نهاية اليوم يرحّل كل تلر صندوقه الختامي إلى هذا الشخص، فيعدّه ويدخل صندوقه، ثم يرحّل المشرف المجموع للخزينة بتسليم واحد. «لا أحد»: يسلّم التلرات للخزينة كما كان.',
+    options: [],
+  },
+
+  {
     // Whoever sends the office's transfers from its bank accounts. Named here
     // rather than given a role: the «بنك» menu is theirs and the manager's alone.
     key: 'bank.executorId', category: 'operations', type: 'select', defaultValue: '',

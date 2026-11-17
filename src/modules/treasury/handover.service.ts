@@ -8,6 +8,7 @@ import { currentOpenDay } from '@/modules/exchange/business-day.service';
 import * as drawers from '@/modules/drawers/drawer.service';
 import * as audit from '@/modules/audit/audit.service';
 import * as shifts from './shift.service';
+import { supervisorId } from '@/modules/bank/bank-desk';
 
 /**
  * التسليم — money crossing between the treasury and a teller.
@@ -102,6 +103,14 @@ export async function create(
     throw errors.forbidden('treasury.handover.manage');
   }
 
+  /*
+   * A teller's closing drawer goes to the tellers' supervisor when the office
+   * has named one — their own drawer, counted by them. The supervisor's own goes
+   * to the treasury, carrying everyone's, so it waits until they have taken all.
+   */
+  const supervisor = input.direction === 'TO_TREASURY' ? await supervisorId(db) : null;
+  const receiverId = supervisor && supervisor !== actor.id ? supervisor : null;
+
   if (input.lines.length === 0) {
     throw errors.precondition('A handover needs at least one line', 'errors.handoverEmpty');
   }
@@ -177,6 +186,32 @@ export async function create(
       }
     }
 
+    if (receiverId) {
+      // Into a drawer, so the supervisor has to be at work to take it.
+      const working = await tx.shift.findFirst({
+        where: { tellerId: receiverId, status: 'OPEN' },
+        select: { id: true },
+      });
+      if (!working) {
+        throw errors.precondition(
+          'The tellers\' supervisor has no open shift to take it into',
+          'errors.supervisorNotWorking',
+        );
+      }
+    }
+    if (supervisor && supervisor === actor.id && input.direction === 'TO_TREASURY') {
+      const waiting = await tx.handover.count({
+        where: { receiverId: actor.id, status: { in: ['PENDING', 'DISPUTED'] } },
+      });
+      if (waiting > 0) {
+        throw errors.precondition(
+          'Tellers\' drawers are still waiting for the supervisor',
+          'errors.supervisorHasWaiting',
+          { count: waiting },
+        );
+      }
+    }
+
     const day = await currentOpenDay(branchId, tx, actor);
     const reference = await nextReference('HND', tx);
 
@@ -189,6 +224,7 @@ export async function create(
         branchId,
         businessDayId: day.id,
         createdById: actor.id,
+        receiverId,
         note: input.note ?? null,
         lines: {
           create: input.lines.map((line) => ({
@@ -212,6 +248,8 @@ export async function create(
      */
     for (const line of handover.lines) {
       await ensureTellerDrawer(input.tellerId, line.currencyCode, line.kind, actor, tx);
+      // The supervisor's too, for the same reason: confirming should only move money.
+      if (receiverId) await ensureTellerDrawer(receiverId, line.currencyCode, line.kind, actor, tx);
     }
 
     await audit.record(
@@ -282,8 +320,22 @@ export async function confirm(
       throw errors.conflict('This handover is not awaiting a count', 'errors.handoverNotPending');
     }
 
-    // The receiver is the other side from the declarer.
-    requireSide(actor, handover.direction === 'TO_TELLER' ? 'TELLER' : 'TREASURY');
+    // The receiver is the other side from the declarer: the supervisor alone, for theirs.
+    if (handover.receiverId) {
+      if (handover.receiverId !== actor.id) throw errors.forbidden('treasury.handover.manage');
+      const working = await tx.shift.findFirst({
+        where: { tellerId: actor.id, status: 'OPEN' },
+        select: { id: true },
+      });
+      if (!working) {
+        throw errors.precondition(
+          'The tellers\' supervisor has no open shift to take it into',
+          'errors.supervisorNotWorking',
+        );
+      }
+    } else {
+      requireSide(actor, handover.direction === 'TO_TELLER' ? 'TELLER' : 'TREASURY');
+    }
 
     if (handover.direction === 'TO_TELLER' && handover.tellerId !== actor.id) {
       throw errors.forbidden('treasury.handover.receive');
@@ -382,7 +434,10 @@ export async function confirm(
      * Every line moves both balances, and all of them in this one transaction —
      * so the money is in exactly one place whatever happens next.
      */
-    const treasury = drawers.TREASURY;
+    // The supervisor's drawer, when it was handed to them; otherwise the treasury.
+    const treasury = handover.receiverId
+      ? drawers.tellerOwner(handover.receiverId)
+      : drawers.TREASURY;
     const teller = drawers.tellerOwner(handover.tellerId);
     const [from, to] = handover.direction === 'TO_TELLER' ? [treasury, teller] : [teller, treasury];
 
@@ -463,8 +518,6 @@ export async function confirm(
  * move none until both sides agree.
  */
 export async function cancel(id: string, reason: string, actor: Actor, db: DbClient = prisma) {
-  requireSide(actor, 'TREASURY');
-
   if (reason.trim().length < 3) {
     throw errors.validation([{ path: 'reason', message: 'Say why' }]);
   }
@@ -472,6 +525,8 @@ export async function cancel(id: string, reason: string, actor: Actor, db: DbCli
   return withTransaction(async (tx) => {
     const handover = await tx.handover.findUnique({ where: { id } });
     if (!handover) throw errors.notFound('Handover', id);
+    // The treasury, or the supervisor a drawer was handed to: either hands the bag back.
+    if (handover.receiverId !== actor.id) requireSide(actor, 'TREASURY');
 
     if (handover.status === 'CONFIRMED') {
       throw errors.conflict(
@@ -514,6 +569,7 @@ const WITH_PEOPLE = {
   teller: { select: { id: true, fullNameEn: true, fullNameAr: true } },
   createdBy: { select: { fullNameEn: true, fullNameAr: true } },
   confirmedBy: { select: { fullNameEn: true, fullNameAr: true } },
+  receiver: { select: { fullNameEn: true, fullNameAr: true } },
 } as const;
 
 /** Everything still waiting on somebody, plus a little settled history. */
@@ -523,7 +579,10 @@ export async function list(
 ) {
   return db.handover.findMany({
     where: {
-      ...(filter.tellerId ? { tellerId: filter.tellerId } : {}),
+      // A person's own, and the drawers handed to them as the tellers' supervisor.
+      ...(filter.tellerId
+        ? { OR: [{ tellerId: filter.tellerId }, { receiverId: filter.tellerId }] }
+        : {}),
       ...(filter.status ? { status: { in: filter.status } } : {}),
     },
     orderBy: { createdAt: 'desc' },
@@ -539,12 +598,16 @@ export async function awaiting(actor: Actor, db: DbClient = prisma) {
   return db.handover.findMany({
     where: {
       status: 'PENDING',
-      // The treasury counts returns; a teller counts their own float.
-      ...(isTreasury
-        ? { direction: 'TO_TREASURY' }
-        : { direction: 'TO_TELLER', tellerId: actor.id }),
       // Never your own declaration: you cannot count what you handed over.
       createdById: { not: actor.id },
+      OR: [
+        // The treasury counts the returns handed to it; a teller counts their own float.
+        isTreasury
+          ? { direction: 'TO_TREASURY', receiverId: null }
+          : { direction: 'TO_TELLER', tellerId: actor.id },
+        // The tellers' supervisor counts the drawers handed to them.
+        { receiverId: actor.id },
+      ],
     },
     orderBy: { createdAt: 'asc' },
     include: WITH_PEOPLE,
