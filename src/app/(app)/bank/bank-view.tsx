@@ -1,7 +1,19 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ArrowDownUp, Check, CheckCircle2, Copy, Landmark, RefreshCw, Search, X } from 'lucide-react';
+import {
+  ArrowDownUp,
+  CalendarDays,
+  Check,
+  CheckCircle2,
+  Clock,
+  Copy,
+  Landmark,
+  RefreshCw,
+  Search,
+  X,
+} from 'lucide-react';
+import { clockOf, dayKey, dayLabel, daysAgo } from './days';
 import { useLocale } from '@/i18n/provider';
 import { api, ApiError } from '@/lib/api-client';
 import { say } from '@/lib/failure';
@@ -63,7 +75,7 @@ function CopyValue({ value, label, big }: { value: string; label: string; big?: 
  * Sent, it is marked with the bank's receipt, and the group is told.
  */
 export function BankView() {
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
   const toast = useToast();
   const [desk, setDesk] = useState<Desk | null>(null);
   const [channel, setChannel] = useState<string | null>(null);
@@ -75,6 +87,10 @@ export function BankView() {
   /** A range of sums, in the transfer's own money: either end may be left open. */
   const [minAmount, setMinAmount] = useState('');
   const [maxAmount, setMaxAmount] = useState('');
+  /** Which days: a quick choice, or a range of dates typed in. */
+  const [period, setPeriod] = useState<'all' | 'today' | 'yesterday' | 'week' | 'range'>('all');
+  const [fromDay, setFromDay] = useState('');
+  const [toDay, setToDay] = useState('');
   const [sending, setSending] = useState<Line | null>(null);
   const [receipt, setReceipt] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -145,9 +161,39 @@ export function BankView() {
       const high = Number(digitsOnly(maxAmount));
       return (!minAmount || sum >= low) && (!maxAmount || sum <= high);
     })
+    .filter((line) => {
+      const key = dayKey(line.at);
+      switch (period) {
+        case 'today':
+          return key === daysAgo(0);
+        case 'yesterday':
+          return key === daysAgo(1);
+        case 'week':
+          return key >= daysAgo(6);
+        case 'range':
+          return (!fromDay || key >= fromDay) && (!toDay || key <= toDay);
+        default:
+          return true;
+      }
+    })
     .filter(matches);
   if (newestFirst) shown.reverse();
-  const narrowed = Boolean(needle || currency || kind || channel || minAmount || maxAmount);
+
+  // The list under a heading per day, each with its count and what it comes to.
+  const byDay: { key: string; lines: Line[]; sums: Map<string, bigint> }[] = [];
+  for (const line of shown) {
+    const key = dayKey(line.at);
+    let day = byDay.at(-1);
+    if (!day || day.key !== key) {
+      day = { key, lines: [], sums: new Map() };
+      byDay.push(day);
+    }
+    day.lines.push(line);
+    day.sums.set(line.currency, (day.sums.get(line.currency) ?? 0n) + BigInt(line.amount));
+  }
+  const narrowed = Boolean(
+    needle || currency || kind || channel || minAmount || maxAmount || period !== 'all',
+  );
 
   const markSent = async () => {
     if (!sending) return;
@@ -228,6 +274,50 @@ export function BankView() {
             className="h-9 w-full rounded-full bg-surface-sunken ps-8 pe-3 text-sm text-content outline-none ring-1 ring-transparent focus:ring-primary"
           />
         </div>
+        {/* Which days. */}
+        <div className="flex flex-wrap items-center gap-1.5">
+          <CalendarDays className="size-4 text-content-tertiary" />
+          {(['all', 'today', 'yesterday', 'week', 'range'] as const).map((option) => (
+            <button
+              key={option}
+              type="button"
+              aria-pressed={period === option}
+              onClick={() => setPeriod(option)}
+              className={cn(
+                'h-7 rounded-full px-2.5 text-xs font-medium transition-colors',
+                period === option
+                  ? 'bg-content text-surface'
+                  : 'bg-surface-sunken text-content-secondary hover:text-content',
+              )}
+            >
+              {t(`bank.period.${option}`)}
+            </button>
+          ))}
+        </div>
+        {period === 'range' && (
+          <div className="flex items-center gap-1.5 rounded-xl bg-surface-sunken px-2 py-1">
+            <label className="flex flex-1 items-center gap-1 text-xs text-content-tertiary">
+              {t('bank.from')}
+              <input
+                type="date"
+                value={fromDay}
+                max={toDay || undefined}
+                onChange={(event) => setFromDay(event.target.value)}
+                className="h-7 min-w-0 flex-1 rounded-md bg-surface px-1 text-xs text-content outline-none"
+              />
+            </label>
+            <label className="flex flex-1 items-center gap-1 text-xs text-content-tertiary">
+              {t('bank.to')}
+              <input
+                type="date"
+                value={toDay}
+                min={fromDay || undefined}
+                onChange={(event) => setToDay(event.target.value)}
+                className="h-7 min-w-0 flex-1 rounded-md bg-surface px-1 text-xs text-content outline-none"
+              />
+            </label>
+          </div>
+        )}
         <div className="flex flex-wrap items-center gap-1.5">
           {currencies.length > 1 && (
             <select
@@ -300,6 +390,9 @@ export function BankView() {
                 setChannel(null);
                 setMinAmount('');
                 setMaxAmount('');
+                setPeriod('all');
+                setFromDay('');
+                setToDay('');
               }}
               className="ms-auto inline-flex h-8 items-center gap-1 rounded-full px-2 text-xs text-content-tertiary hover:text-content"
             >
@@ -324,8 +417,22 @@ export function BankView() {
         {shown.length === 0 ? (
           <EmptyState icon={<CheckCircle2 />} title={t('bank.emptyTitle')} description={t('bank.emptyBody')} />
         ) : (
+          byDay.map((day) => (
+          <section key={day.key}>
+            {/* The day's heading stays in sight while its transfers scroll under it. */}
+            <header className="sticky top-0 z-10 flex items-center justify-between gap-2 border-y border-border-subtle bg-surface/95 px-3 py-1.5 backdrop-blur">
+              <span className="text-xs font-semibold text-content">
+                {dayLabel(day.key, locale, { today: t('bank.period.today'), yesterday: t('bank.period.yesterday') })}
+                <span className="ms-1.5 font-normal text-content-tertiary">· {day.lines.length}</span>
+              </span>
+              <span className="flex flex-wrap justify-end gap-x-2 text-[11px] text-content-secondary">
+                {[...day.sums.entries()].map(([code, sum]) => (
+                  <Money key={code} value={sum} currency={code} />
+                ))}
+              </span>
+            </header>
           <ul className="divide-y divide-border-subtle">
-            {shown.map((line) => (
+            {day.lines.map((line) => (
               <li key={line.id} className="space-y-1.5 px-3 py-2.5 transition-colors hover:bg-surface-sunken">
                 <div className="flex items-center gap-2">
                   <span className="inline-flex min-w-0 items-center gap-1 truncate rounded-full bg-primary-subtle px-2 py-0.5 text-[11px] font-semibold text-primary-text">
@@ -362,15 +469,22 @@ export function BankView() {
                     <CopyValue value={line.phone} label={t('bank.phone')} />
                   )}
                 </div>
-                <p className="truncate text-[11px] text-content-tertiary">
-                  {line.kind} · <span className="ltr-content font-mono">{line.reference}</span> ·{' '}
-                  <DateText value={line.at} withTime />
-                  {line.by && <> · {line.by}</>}
-                  {line.notes && <> · {line.notes}</>}
+                <p className="flex items-center gap-1 truncate text-[11px] text-content-tertiary">
+                  <span className="inline-flex shrink-0 items-center gap-0.5 rounded bg-surface-sunken px-1 font-medium tabular-nums text-content-secondary ltr-content">
+                    <Clock className="size-3" />
+                    {clockOf(line.at)}
+                  </span>
+                  <span className="truncate">
+                    {line.kind} · <span className="ltr-content font-mono">{line.reference}</span>
+                    {line.by && <> · {line.by}</>}
+                    {line.notes && <> · {line.notes}</>}
+                  </span>
                 </p>
               </li>
             ))}
           </ul>
+          </section>
+          ))
         )}
 
         {/* --- Sent today, under the list --- */}

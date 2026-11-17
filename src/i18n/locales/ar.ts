@@ -725,6 +725,7 @@ const ar: Dictionary = {
     forwarded: 'وُجّهت الرسالة',
     search: 'ابحث في رسائل القروب: نص أو اسم أو رقم',
     noMatch: 'لا رسائل تطابق البحث',
+    period: 'الأيام',
     show: {
       all: 'الكل',
       waiting: 'بانتظار التنفيذ',
@@ -756,6 +757,13 @@ const ar: Dictionary = {
     newestFirst: 'الأحدث أولاً',
     clearFilters: 'مسح',
     amountRange: 'المبلغ',
+    period: {
+      all: 'كل الأيام',
+      today: 'اليوم',
+      yesterday: 'أمس',
+      week: 'آخر 7 أيام',
+      range: 'من تاريخ إلى تاريخ',
+    },
     from: 'من',
     to: 'إلى',
     waiting: 'التحويلات',

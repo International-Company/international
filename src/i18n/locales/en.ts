@@ -723,6 +723,7 @@ const en = {
     forwarded: 'Message forwarded',
     search: 'Search the group: words, a name or a number',
     noMatch: 'No messages match',
+    period: 'Days',
     show: {
       all: 'All',
       waiting: 'Awaiting transfer',
@@ -754,6 +755,13 @@ const en = {
     newestFirst: 'Newest first',
     clearFilters: 'Clear',
     amountRange: 'Amount',
+    period: {
+      all: 'All days',
+      today: 'Today',
+      yesterday: 'Yesterday',
+      week: 'Last 7 days',
+      range: 'Date range',
+    },
     from: 'From',
     to: 'To',
     waiting: 'Transfers',

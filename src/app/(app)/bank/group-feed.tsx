@@ -19,6 +19,7 @@ import { Button, Card, EmptyState, Skeleton } from '@/ui/primitives';
 import { Dialog, useToast } from '@/ui/overlay';
 import { Field, Textarea } from '@/ui/form';
 import { cn } from '@/ui/utils';
+import { clockOf, dayKey, dayLabel, daysAgo } from './days';
 
 interface Group {
   id: string;
@@ -39,8 +40,6 @@ interface FeedMessage {
   forwardedFrom: { group: string; auto: boolean; by: string | null } | null;
 }
 
-const time = (at: string) =>
-  new Date(at).toLocaleString('en-GB', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' });
 
 /**
  * The groups the bank desk follows, live: every message as WhatsApp shows it,
@@ -49,9 +48,11 @@ const time = (at: string) =>
  * on from here, by the bot, to the groups chosen.
  */
 export function GroupFeed() {
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
   const toast = useToast();
   const [groups, setGroups] = useState<Group[] | null>(null);
+  /** Which days of the group to show. */
+  const [period, setPeriod] = useState<'all' | 'today' | 'yesterday' | 'week'>('all');
   const [canChoose, setCanChoose] = useState(false);
   const [chat, setChat] = useState<string | null>(null);
   const [messages, setMessages] = useState<FeedMessage[] | null>(null);
@@ -113,6 +114,10 @@ export function GroupFeed() {
   }, [chat, searched]);
 
   const visible = (messages ?? []).filter((message) => {
+    const key = dayKey(message.at);
+    if (period === 'today' && key !== daysAgo(0)) return false;
+    if (period === 'yesterday' && key !== daysAgo(1)) return false;
+    if (period === 'week' && key < daysAgo(6)) return false;
     switch (show) {
       case 'waiting':
         return message.deal?.status === 'PENDING_TRANSFER';
@@ -266,6 +271,18 @@ export function GroupFeed() {
               className="h-9 w-full rounded-full bg-surface-sunken ps-8 pe-3 text-sm text-content outline-none ring-1 ring-transparent focus:ring-primary"
             />
           </div>
+          <select
+            value={period}
+            onChange={(event) => setPeriod(event.target.value as typeof period)}
+            aria-label={t('bankFeed.period')}
+            className="h-8 rounded-full bg-surface-sunken px-2 text-xs font-medium text-content outline-none"
+          >
+            {(['all', 'today', 'yesterday', 'week'] as const).map((option) => (
+              <option key={option} value={option}>
+                {t(`bank.period.${option}`)}
+              </option>
+            ))}
+          </select>
           <div className="flex gap-1 overflow-x-auto">
             {(['all', 'waiting', 'sent', 'outside', 'forwarded', 'photos'] as const).map((option) => (
               <button
@@ -297,15 +314,24 @@ export function GroupFeed() {
         ) : messages === null ? (
           <Skeleton className="h-40" />
         ) : visible.length === 0 ? (
-          searched || show !== 'all' ? (
+          searched || show !== 'all' || period !== 'all' ? (
             <EmptyState title={t('bankFeed.noMatch')} />
           ) : (
             <EmptyState title={t('bankFeed.emptyTitle')} description={t('bankFeed.emptyBody')} />
           )
         ) : (
-          visible.map((message) => (
+          visible.map((message, index) => (
+            <div key={message.id} className="contents">
+            {/* A new day, as WhatsApp marks it. */}
+            {dayKey(message.at) !== (index > 0 ? dayKey(visible[index - 1]!.at) : '') && (
+              <div className="sticky top-0 z-10 my-1 self-center rounded-full bg-surface/95 px-3 py-0.5 text-[11px] font-medium text-content-secondary shadow-[var(--shadow-sm)] ring-1 ring-border-subtle backdrop-blur">
+                {dayLabel(dayKey(message.at), locale, {
+                  today: t('bank.period.today'),
+                  yesterday: t('bank.period.yesterday'),
+                })}
+              </div>
+            )}
             <div
-              key={message.id}
               className={cn(
                 'group max-w-[92%] rounded-2xl px-3 py-2 text-sm',
                 message.fromMe
@@ -387,7 +413,7 @@ export function GroupFeed() {
               ))}
 
               <div className="mt-1 flex items-center justify-between gap-2">
-                <span className="text-[11px] tabular-nums text-content-tertiary">{time(message.at)}</span>
+                <span className="text-[11px] tabular-nums text-content-tertiary ltr-content">{clockOf(message.at)}</span>
                 <button
                   type="button"
                   onClick={() => {
@@ -400,6 +426,7 @@ export function GroupFeed() {
                   {t('bankFeed.forward')}
                 </button>
               </div>
+            </div>
             </div>
           ))
         )}
