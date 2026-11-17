@@ -7,14 +7,17 @@ import {
   Check,
   CheckCircle2,
   Clock,
+  Coins,
   Copy,
   Landmark,
+  Layers,
   RefreshCw,
   Search,
   X,
 } from 'lucide-react';
 import { clockOf, dayKey, dayLabel } from './days';
 import { ANY_DAY, DateRangePicker, inRange, type DayRange } from '@/ui/date-range-picker';
+import { PillSelect } from '@/ui/pill-select';
 import { useLocale } from '@/i18n/provider';
 import { api, ApiError } from '@/lib/api-client';
 import { say } from '@/lib/failure';
@@ -263,34 +266,32 @@ export function BankView() {
         <DateRangePicker value={days} onChange={setDays} />
         <div className="flex flex-wrap items-center gap-1.5">
           {currencies.length > 1 && (
-            <select
-              value={currency ?? ''}
-              onChange={(event) => setCurrency(event.target.value || null)}
-              aria-label={t('bank.currency')}
-              className="h-8 rounded-full bg-surface-sunken px-2 text-xs font-medium text-content outline-none"
-            >
-              <option value="">{t('bank.anyCurrency')}</option>
-              {currencies.map((code) => (
-                <option key={code} value={code}>
-                  {code}
-                </option>
-              ))}
-            </select>
+            <PillSelect
+              label={t('bank.currency')}
+              placeholder={t('bank.anyCurrency')}
+              icon={<Coins className="size-3.5 shrink-0" />}
+              value={currency}
+              onChange={setCurrency}
+              options={currencies.map((code) => ({
+                value: code,
+                label: code,
+                hint: (desk?.waiting ?? []).filter((line) => line.currency === code).length,
+              }))}
+            />
           )}
           {kinds.length > 1 && (
-            <select
-              value={kind ?? ''}
-              onChange={(event) => setKind(event.target.value || null)}
-              aria-label={t('bank.kind')}
-              className="h-8 max-w-[11rem] rounded-full bg-surface-sunken px-2 text-xs font-medium text-content outline-none"
-            >
-              <option value="">{t('bank.anyKind')}</option>
-              {kinds.map((name) => (
-                <option key={name} value={name}>
-                  {name}
-                </option>
-              ))}
-            </select>
+            <PillSelect
+              label={t('bank.kind')}
+              placeholder={t('bank.anyKind')}
+              icon={<Layers className="size-3.5 shrink-0" />}
+              value={kind}
+              onChange={setKind}
+              options={kinds.map((name) => ({
+                value: name,
+                label: name,
+                hint: (desk?.waiting ?? []).filter((line) => line.kind === name).length,
+              }))}
+            />
           )}
           {/* The sum, from and to. */}
           <div className="flex items-center gap-1 rounded-full bg-surface-sunken px-2">
