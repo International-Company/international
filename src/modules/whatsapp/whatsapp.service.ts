@@ -119,6 +119,8 @@ type Listener = (incoming: IncomingText) => Promise<void> | void;
 /** Words this office's own number put in a group: sent by the app, or typed on its phone. */
 export interface OwnGroupMessage {
   chat: string;
+  /** WhatsApp's id for it, when known: what the forwarding log points back to. */
+  id?: string | null;
   text: string;
   /** Whether the words are under a photo or video rather than on their own. */
   caption: boolean;
@@ -128,6 +130,27 @@ export interface OwnGroupMessage {
 
 type OwnListener = (message: OwnGroupMessage) => Promise<void> | void;
 
+/**
+ * Anything seen in a group — written there by anyone, the office's numbers
+ * included, with or without words — for the bank desk's view of its groups.
+ * Told once per message; whoever listens decides which groups it keeps.
+ */
+export interface GroupSighting {
+  chat: string;
+  waId: string;
+  fromMe: boolean;
+  /** Who wrote it: their name on WhatsApp, and their number when WhatsApp gives it. */
+  name: string | null;
+  phone: string | null;
+  text: string;
+  mediaKind: 'image' | 'video' | 'audio' | 'document' | null;
+  at: Date;
+  /** The file itself, fetched only by a listener that keeps it. */
+  download?: () => Promise<{ bytes: Buffer; mimeType: string; fileName: string | null } | null>;
+}
+
+type GroupListener = (sighting: GroupSighting) => Promise<void> | void;
+
 interface Shared {
   sessions: Record<Account, Session>;
   /** Who is told of a message arriving — kept here so a reconnect keeps them. */
@@ -135,6 +158,9 @@ interface Shared {
   staffListeners: StaffListener[];
   /** Who is told of what the office's numbers write in groups. */
   ownListeners: OwnListener[];
+  /** Who is told of everything seen in a group. */
+  groupListeners: GroupListener[];
+  groupSeen: string[];
   /** Messages already handled, when both numbers are in the chat they came to. */
   seen: string[];
   /** What the app sent itself, so its echo from the phone is not told of twice. */
@@ -159,9 +185,13 @@ const shared: Shared = (globalForWhatsapp.__ifmsWhatsappNumbers ??= {
   listeners: [],
   staffListeners: [],
   ownListeners: [],
+  groupListeners: [],
+  groupSeen: [],
   seen: [],
   ownSeen: [],
 });
+shared.groupListeners ??= [];
+shared.groupSeen ??= [];
 shared.staffListeners ??= [];
 shared.ownListeners ??= [];
 shared.ownSeen ??= [];
@@ -306,6 +336,62 @@ async function open(account: Account): Promise<void> {
               .catch((error) => log.error('A WhatsApp staff handler failed', { error }));
           }
           continue;
+        }
+      }
+      // Everything in a group, for the bank desk's view of it: words, files, the office's own.
+      if (account !== 'private' && message.key.remoteJid.endsWith('@g.us') && message.key.id) {
+        const seen = normalizeMessageContent(message.message);
+        const file =
+          seen?.imageMessage ?? seen?.videoMessage ?? seen?.audioMessage ?? seen?.documentMessage;
+        const kind = seen?.imageMessage
+          ? 'image'
+          : seen?.videoMessage
+            ? 'video'
+            : seen?.audioMessage
+              ? 'audio'
+              : seen?.documentMessage
+                ? 'document'
+                : null;
+        const words =
+          seen?.conversation ??
+          seen?.extendedTextMessage?.text ??
+          seen?.imageMessage?.caption ??
+          seen?.videoMessage?.caption ??
+          seen?.documentMessage?.caption ??
+          '';
+        if ((words || kind) && !seen?.protocolMessage && !seen?.reactionMessage) {
+          const author = message.key.participant ?? null;
+          tellGroup({
+            chat: message.key.remoteJid,
+            waId: message.key.id,
+            fromMe: Boolean(message.key.fromMe),
+            name: message.pushName ?? null,
+            phone:
+              [message.key.participantAlt, author].find((jid) =>
+                jid?.endsWith('@s.whatsapp.net'),
+              ) ?? null,
+            text: words,
+            mediaKind: kind,
+            at: sentAt > 0 ? new Date(sentAt) : new Date(),
+            download:
+              file && Number(file.fileLength ?? 0) <= 16 * 1024 * 1024
+                ? async () => {
+                    const data = (await downloadMediaMessage(
+                      message,
+                      'buffer',
+                      {},
+                      { logger: quiet as never, reuploadRequest: sock.updateMediaMessage },
+                    ).catch(() => null)) as Buffer | null;
+                    return data
+                      ? {
+                          bytes: data,
+                          mimeType: file.mimetype ?? 'application/octet-stream',
+                          fileName: seen?.documentMessage?.fileName ?? null,
+                        }
+                      : null;
+                  }
+                : undefined,
+          });
         }
       }
       // Typed on the linked phone into a group: the forwarding rules may pass it on.
@@ -627,6 +713,19 @@ export async function sendImage(
     { image, caption, mimetype },
     quoted ? { quoted } : undefined,
   );
+  if (sent?.key.id && jid.endsWith('@g.us')) {
+    tellGroup({
+      chat: jid,
+      waId: sent.key.id,
+      fromMe: true,
+      name: null,
+      phone: null,
+      text: caption,
+      mediaKind: 'image',
+      at: new Date(),
+      download: async () => ({ bytes: image, mimeType: mimetype, fileName: null }),
+    });
+  }
   tellOwn(jid, sent?.key.id, caption, true, sock.user?.id);
   return sent;
 }
@@ -654,11 +753,37 @@ function tellOwn(
   if (id && !firstSighting(shared.ownSeen, `${chat}:${id}`)) return;
   // A linked JID carries the device after a colon: the number is what is before it.
   const phone = from ? `${from.split('@')[0]!.split(':')[0]}@s.whatsapp.net` : null;
-  const message: OwnGroupMessage = { chat, text, caption, phone };
+  if (id) {
+    tellGroup({
+      chat,
+      waId: id,
+      fromMe: true,
+      name: null,
+      phone,
+      text,
+      mediaKind: caption ? 'image' : null,
+      at: new Date(),
+    });
+  }
+  const message: OwnGroupMessage = { chat, id: id ?? null, text, caption, phone };
   for (const listener of shared.ownListeners) {
     void Promise.resolve()
       .then(() => listener(message))
       .catch((error) => log.error('A WhatsApp group message handler failed', { error }));
+  }
+}
+
+/** Tells `listener` of everything seen in a group, once each. */
+export function onGroupSighting(listener: GroupListener): void {
+  shared.groupListeners.push(listener);
+}
+
+function tellGroup(sighting: GroupSighting): void {
+  if (!firstSighting(shared.groupSeen, `${sighting.chat}:${sighting.waId}`)) return;
+  for (const listener of shared.groupListeners) {
+    void Promise.resolve()
+      .then(() => listener(sighting))
+      .catch((error) => log.error('A WhatsApp group sighting handler failed', { error }));
   }
 }
 
@@ -863,7 +988,44 @@ export async function sendText(
 export async function sendPassedOn(jid: string, text: string): Promise<SentMessage> {
   const sent = await (await socketFor(jid)).sendMessage(jid, { text });
   // Its echo from the phone is known already, and is not passed on either.
-  if (sent?.key.id) firstSighting(shared.ownSeen, `${jid}:${sent.key.id}`);
+  if (sent?.key.id) {
+    firstSighting(shared.ownSeen, `${jid}:${sent.key.id}`);
+    tellGroup({
+      chat: jid,
+      waId: sent.key.id,
+      fromMe: true,
+      name: null,
+      phone: null,
+      text,
+      mediaKind: null,
+      at: new Date(),
+    });
+  }
+  return sent;
+}
+
+/** A photo passed on from another group, by hand or by a rule: never passed on again. */
+export async function sendPassedOnImage(
+  jid: string,
+  image: Buffer,
+  mimetype: string,
+  caption: string,
+): Promise<SentMessage> {
+  const sent = await (await socketFor(jid)).sendMessage(jid, { image, caption, mimetype });
+  if (sent?.key.id) {
+    firstSighting(shared.ownSeen, `${jid}:${sent.key.id}`);
+    tellGroup({
+      chat: jid,
+      waId: sent.key.id,
+      fromMe: true,
+      name: null,
+      phone: null,
+      text: caption,
+      mediaKind: 'image',
+      at: new Date(),
+      download: async () => ({ bytes: image, mimeType: mimetype, fileName: null }),
+    });
+  }
   return sent;
 }
 

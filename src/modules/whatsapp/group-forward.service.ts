@@ -1,5 +1,6 @@
 import 'server-only';
 import * as settings from '@/modules/settings/settings.service';
+import { recordForward } from '@/modules/bank/group-feed.service';
 import { createBotLogger } from './bot-issues';
 import { forwardTargets, needsSender, parseForwardRules, type ForwardRule } from './group-forward';
 import {
@@ -114,7 +115,25 @@ export function registerGroupForward(): void {
     if (!(await settings.getBoolean('whatsapp.enabled'))) return [];
     return parseForwardRules(await settings.getString('whatsapp.forwardRules'));
   };
-  const send = (group: string, text: string) => sendPassedOn(group, text);
+  /*
+   * Passed on, and written down where it came from and went: the bank desk shows
+   * each message's way through the groups. A log that fails costs nothing sent.
+   */
+  const sendFrom =
+    (sourceChat: string, sourceWaId: string | null | undefined) =>
+    async (group: string, text: string) => {
+      const sent = await sendPassedOn(group, text);
+      const named = (await rules()).find((rule) => rule.to.id === group)?.to.name ?? null;
+      await recordForward({
+        sourceChat,
+        sourceWaId,
+        targetChat: group,
+        targetName: named,
+        targetWaId: sent?.key?.id ?? null,
+        auto: true,
+      }).catch((error) => log.warn('Could not log a forwarded message', { error }));
+      return sent;
+    };
 
   onIncomingText(async (incoming) => {
     await forwardGroupMessage(incoming, {
@@ -124,10 +143,10 @@ export function registerGroupForward(): void {
           ? await memberPhone(message.chat, message.sender, message.account).catch(() => null)
           : null,
       ownNumber: isOwnNumber,
-      send,
+      send: sendFrom(incoming.chat, incoming.message.key.id),
     });
   });
   onOwnGroupMessage(async (message) => {
-    await forwardOwnMessage(message, { rules, send });
+    await forwardOwnMessage(message, { rules, send: sendFrom(message.chat, message.id) });
   });
 }

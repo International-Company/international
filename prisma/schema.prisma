@@ -2429,3 +2429,47 @@ model BotIssue {
   @@index([lastAt])
   @@map("bot_issues")
 }
+
+/// A message seen in a group the bank desk watches: kept for a fortnight or so,
+/// so the desk can follow its groups and pass messages on from the system.
+model GroupMessage {
+  id          String   @id @default(cuid())
+  chat        String
+  /// WhatsApp's id for it: what a deal's message and a forward are matched by.
+  waId        String
+  /// Written by one of the office's own numbers, the bot included.
+  fromMe      Boolean  @default(false)
+  senderName  String?
+  senderPhone String?
+  text        String   @default("")
+  /// A file it carried, kept in chat_images, and what kind.
+  mediaId     String?
+  mediaKind   String?
+  createdAt   DateTime @default(now())
+
+  @@unique([chat, waId])
+  @@index([chat, createdAt])
+  @@index([createdAt])
+  @@map("group_messages")
+}
+
+/// A group message passed on to another group: by a forwarding rule, or by hand from the bank desk.
+model GroupForward {
+  id         String   @id @default(cuid())
+  sourceChat String
+  sourceWaId String
+  targetChat String
+  targetName String?
+  /// The copy in the target group, when WhatsApp gave its id.
+  targetWaId String?
+  /// A rule passed it on; otherwise a person did, named here.
+  auto       Boolean  @default(true)
+  byUserId   String?
+  byName     String?
+  createdAt  DateTime @default(now())
+
+  @@index([sourceChat, sourceWaId])
+  @@index([targetChat, targetWaId])
+  @@index([createdAt])
+  @@map("group_forwards")
+}

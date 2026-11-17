@@ -130,6 +130,24 @@ export const SETTINGS: SettingDefinition[] = [
   },
 
   {
+    // The groups the bank desk follows: chosen on the «بنك» page itself.
+    key: 'bank.watchedGroups', category: 'operations', type: 'json', defaultValue: [],
+    labelEn: 'Groups the bank desk follows', labelAr: 'القروبات التي يتابعها البنك',
+    descriptionEn: 'Chosen on the Bank page.', descriptionAr: 'تُختار من صفحة «بنك».',
+    hidden: true,
+  },
+  {
+    key: 'bank.groupRetentionDays', category: 'operations', type: 'number', defaultValue: 14,
+    min: 1, max: 90,
+    labelEn: 'Days the bank desk keeps group messages',
+    labelAr: 'مدة حفظ رسائل القروبات في «بنك» (أيام)',
+    descriptionEn:
+      'Messages of the followed groups older than this are cleared, with their photos. A transfer receipt kept on a deal stays with the deal.',
+    descriptionAr:
+      'تُحذف رسائل القروبات المتابَعة الأقدم من هذه المدة مع صورها. إيصال التحويل المحفوظ على حركة يبقى معها.',
+  },
+
+  {
     // Whoever sends the office's transfers from its bank accounts. Named here
     // rather than given a role: the «بنك» menu is theirs and the manager's alone.
     key: 'bank.executorId', category: 'operations', type: 'select', defaultValue: '',
