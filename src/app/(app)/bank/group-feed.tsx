@@ -19,7 +19,8 @@ import { Button, Card, EmptyState, Skeleton } from '@/ui/primitives';
 import { Dialog, useToast } from '@/ui/overlay';
 import { Field, Textarea } from '@/ui/form';
 import { cn } from '@/ui/utils';
-import { clockOf, dayKey, dayLabel, daysAgo } from './days';
+import { clockOf, dayKey, dayLabel } from './days';
+import { ANY_DAY, DateRangePicker, inRange, type DayRange } from '@/ui/date-range-picker';
 
 interface Group {
   id: string;
@@ -52,7 +53,7 @@ export function GroupFeed() {
   const toast = useToast();
   const [groups, setGroups] = useState<Group[] | null>(null);
   /** Which days of the group to show. */
-  const [period, setPeriod] = useState<'all' | 'today' | 'yesterday' | 'week'>('all');
+  const [days, setDays] = useState<DayRange>(ANY_DAY);
   const [canChoose, setCanChoose] = useState(false);
   const [chat, setChat] = useState<string | null>(null);
   const [messages, setMessages] = useState<FeedMessage[] | null>(null);
@@ -114,10 +115,7 @@ export function GroupFeed() {
   }, [chat, searched]);
 
   const visible = (messages ?? []).filter((message) => {
-    const key = dayKey(message.at);
-    if (period === 'today' && key !== daysAgo(0)) return false;
-    if (period === 'yesterday' && key !== daysAgo(1)) return false;
-    if (period === 'week' && key < daysAgo(6)) return false;
+    if (!inRange(dayKey(message.at), days)) return false;
     switch (show) {
       case 'waiting':
         return message.deal?.status === 'PENDING_TRANSFER';
@@ -271,18 +269,7 @@ export function GroupFeed() {
               className="h-9 w-full rounded-full bg-surface-sunken ps-8 pe-3 text-sm text-content outline-none ring-1 ring-transparent focus:ring-primary"
             />
           </div>
-          <select
-            value={period}
-            onChange={(event) => setPeriod(event.target.value as typeof period)}
-            aria-label={t('bankFeed.period')}
-            className="h-8 rounded-full bg-surface-sunken px-2 text-xs font-medium text-content outline-none"
-          >
-            {(['all', 'today', 'yesterday', 'week'] as const).map((option) => (
-              <option key={option} value={option}>
-                {t(`bank.period.${option}`)}
-              </option>
-            ))}
-          </select>
+          <DateRangePicker value={days} onChange={setDays} />
           <div className="flex gap-1 overflow-x-auto">
             {(['all', 'waiting', 'sent', 'outside', 'forwarded', 'photos'] as const).map((option) => (
               <button
@@ -314,7 +301,7 @@ export function GroupFeed() {
         ) : messages === null ? (
           <Skeleton className="h-40" />
         ) : visible.length === 0 ? (
-          searched || show !== 'all' || period !== 'all' ? (
+          searched || show !== 'all' || days.from || days.to ? (
             <EmptyState title={t('bankFeed.noMatch')} />
           ) : (
             <EmptyState title={t('bankFeed.emptyTitle')} description={t('bankFeed.emptyBody')} />

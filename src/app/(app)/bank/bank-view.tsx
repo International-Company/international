@@ -13,7 +13,8 @@ import {
   Search,
   X,
 } from 'lucide-react';
-import { clockOf, dayKey, dayLabel, daysAgo } from './days';
+import { clockOf, dayKey, dayLabel } from './days';
+import { ANY_DAY, DateRangePicker, inRange, type DayRange } from '@/ui/date-range-picker';
 import { useLocale } from '@/i18n/provider';
 import { api, ApiError } from '@/lib/api-client';
 import { say } from '@/lib/failure';
@@ -87,10 +88,8 @@ export function BankView() {
   /** A range of sums, in the transfer's own money: either end may be left open. */
   const [minAmount, setMinAmount] = useState('');
   const [maxAmount, setMaxAmount] = useState('');
-  /** Which days: a quick choice, or a range of dates typed in. */
-  const [period, setPeriod] = useState<'all' | 'today' | 'yesterday' | 'week' | 'range'>('all');
-  const [fromDay, setFromDay] = useState('');
-  const [toDay, setToDay] = useState('');
+  /** Which days, chosen on the calendar. */
+  const [days, setDays] = useState<DayRange>(ANY_DAY);
   const [sending, setSending] = useState<Line | null>(null);
   const [receipt, setReceipt] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -161,21 +160,7 @@ export function BankView() {
       const high = Number(digitsOnly(maxAmount));
       return (!minAmount || sum >= low) && (!maxAmount || sum <= high);
     })
-    .filter((line) => {
-      const key = dayKey(line.at);
-      switch (period) {
-        case 'today':
-          return key === daysAgo(0);
-        case 'yesterday':
-          return key === daysAgo(1);
-        case 'week':
-          return key >= daysAgo(6);
-        case 'range':
-          return (!fromDay || key >= fromDay) && (!toDay || key <= toDay);
-        default:
-          return true;
-      }
-    })
+    .filter((line) => inRange(dayKey(line.at), days))
     .filter(matches);
   if (newestFirst) shown.reverse();
 
@@ -192,7 +177,7 @@ export function BankView() {
     day.sums.set(line.currency, (day.sums.get(line.currency) ?? 0n) + BigInt(line.amount));
   }
   const narrowed = Boolean(
-    needle || currency || kind || channel || minAmount || maxAmount || period !== 'all',
+    needle || currency || kind || channel || minAmount || maxAmount || days.from || days.to,
   );
 
   const markSent = async () => {
@@ -274,50 +259,8 @@ export function BankView() {
             className="h-9 w-full rounded-full bg-surface-sunken ps-8 pe-3 text-sm text-content outline-none ring-1 ring-transparent focus:ring-primary"
           />
         </div>
-        {/* Which days. */}
-        <div className="flex flex-wrap items-center gap-1.5">
-          <CalendarDays className="size-4 text-content-tertiary" />
-          {(['all', 'today', 'yesterday', 'week', 'range'] as const).map((option) => (
-            <button
-              key={option}
-              type="button"
-              aria-pressed={period === option}
-              onClick={() => setPeriod(option)}
-              className={cn(
-                'h-7 rounded-full px-2.5 text-xs font-medium transition-colors',
-                period === option
-                  ? 'bg-content text-surface'
-                  : 'bg-surface-sunken text-content-secondary hover:text-content',
-              )}
-            >
-              {t(`bank.period.${option}`)}
-            </button>
-          ))}
-        </div>
-        {period === 'range' && (
-          <div className="flex items-center gap-1.5 rounded-xl bg-surface-sunken px-2 py-1">
-            <label className="flex flex-1 items-center gap-1 text-xs text-content-tertiary">
-              {t('bank.from')}
-              <input
-                type="date"
-                value={fromDay}
-                max={toDay || undefined}
-                onChange={(event) => setFromDay(event.target.value)}
-                className="h-7 min-w-0 flex-1 rounded-md bg-surface px-1 text-xs text-content outline-none"
-              />
-            </label>
-            <label className="flex flex-1 items-center gap-1 text-xs text-content-tertiary">
-              {t('bank.to')}
-              <input
-                type="date"
-                value={toDay}
-                min={fromDay || undefined}
-                onChange={(event) => setToDay(event.target.value)}
-                className="h-7 min-w-0 flex-1 rounded-md bg-surface px-1 text-xs text-content outline-none"
-              />
-            </label>
-          </div>
-        )}
+        {/* Which days, on a calendar. */}
+        <DateRangePicker value={days} onChange={setDays} />
         <div className="flex flex-wrap items-center gap-1.5">
           {currencies.length > 1 && (
             <select
@@ -390,9 +333,7 @@ export function BankView() {
                 setChannel(null);
                 setMinAmount('');
                 setMaxAmount('');
-                setPeriod('all');
-                setFromDay('');
-                setToDay('');
+                setDays(ANY_DAY);
               }}
               className="ms-auto inline-flex h-8 items-center gap-1 rounded-full px-2 text-xs text-content-tertiary hover:text-content"
             >

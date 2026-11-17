@@ -696,6 +696,22 @@ const en = {
     drawersHint: 'The machine pays out of these, and refuses what they cannot cover.',
   },
 
+  dateRange: {
+    title: 'Choose days',
+    all: 'All days',
+    today: 'Today',
+    yesterday: 'Yesterday',
+    week: 'Last 7 days',
+    month30: 'Last 30 days',
+    thisMonth: 'This month',
+    lastMonth: 'Last month',
+    pickStart: 'Pick the first day',
+    pickEnd: 'From {day} — pick the last day',
+    apply: 'Apply',
+    clear: 'All days',
+    previous: 'Previous month',
+    next: 'Next month',
+  },
   bankFeed: {
     choose: 'Groups',
     chooseHint: 'Choose the groups the Bank page follows (up to 10). Their messages are kept from now on, not before.',
