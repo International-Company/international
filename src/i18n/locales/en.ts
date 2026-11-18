@@ -826,6 +826,8 @@ const en = {
     originRecordedBy: 'Recorded by:',
     originSender: 'Sender:',
     originIn: 'in {group}',
+    searchShort: 'Search: account, name, sum…',
+    filters: 'Filters',
     noMessage: 'This transfer has no saved message in the group',
     ofTheDays: 'Transfers of the days chosen',
     customer: 'Customer code',

@@ -828,6 +828,8 @@ const ar: Dictionary = {
     originRecordedBy: 'سجّلها:',
     originSender: 'المرسل:',
     originIn: 'في {group}',
+    searchShort: 'بحث: حساب، اسم، مبلغ…',
+    filters: 'فلترة',
     noMessage: 'رسالة هذا التحويل غير محفوظة في القروب',
     ofTheDays: 'تحويلات الأيام المختارة',
     customer: 'رقم العميل',
