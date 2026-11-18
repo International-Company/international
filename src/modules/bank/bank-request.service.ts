@@ -220,6 +220,38 @@ export async function markRequestSent(id: string, receipt: string | null, actor:
   return { id };
 }
 
+/**
+ * What the bot read, corrected by hand: the account, the name, the bank or the
+ * sum it got wrong. Only while it waits: one sent is what was sent.
+ */
+export async function editRequest(
+  id: string,
+  input: { account: string; name: string | null; channel: string | null; amount: bigint; currency: string },
+  actor: Actor,
+) {
+  requireDesk(actor);
+  const row = await prisma.bankRequest.findUnique({ where: { id } });
+  if (!row) throw errors.notFound('BankRequest', id);
+  if (row.status !== 'PENDING') {
+    throw errors.conflict('This request is not waiting on a transfer', 'errors.notPendingTransfer');
+  }
+  if (!input.account.trim()) throw errors.validation([{ path: 'account', message: 'Say where it goes' }]);
+  if (input.amount <= 0n) {
+    throw errors.precondition('Amount must be greater than zero', 'errors.amountNotPositive');
+  }
+  await prisma.bankRequest.update({
+    where: { id },
+    data: {
+      account: input.account.trim(),
+      name: input.name?.trim() || null,
+      channel: input.channel?.trim() || null,
+      amount: input.amount,
+      currency: input.currency,
+    },
+  });
+  return { id };
+}
+
 /** Not the desk's: taken off the list, the group told nothing. */
 export async function dismiss(id: string, actor: Actor) {
   requireDesk(actor);

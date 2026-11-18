@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Check } from 'lucide-react';
+import { Check, ClipboardPaste } from 'lucide-react';
 import { useLocale } from '@/i18n/provider';
 import { api, ApiError } from '@/lib/api-client';
 import { say } from '@/lib/failure';
@@ -9,6 +9,7 @@ import { Button } from '@/ui/primitives';
 import { Dialog, useToast } from '@/ui/overlay';
 import { Money } from '@/ui/display';
 import { PhotoField } from '@/ui/photo-field';
+import { shrinkPhoto } from '@/ui/proof-photo';
 import type { Line } from './desk-types';
 
 /**
@@ -32,6 +33,26 @@ export function MarkSentDialog({
   useEffect(() => {
     if (line) setReceipt(null);
   }, [line]);
+
+  // A screenshot of the bank's receipt pasted with Ctrl+V lands here, without choosing a file.
+  useEffect(() => {
+    if (!line) return;
+    const paste = (event: ClipboardEvent) => {
+      const file = [...(event.clipboardData?.items ?? [])]
+        .find((item) => item.kind === 'file' && item.type.startsWith('image/'))
+        ?.getAsFile();
+      if (!file) return;
+      event.preventDefault();
+      shrinkPhoto(file)
+        .then((photo) => {
+          setReceipt(photo);
+          toast.success(t('bankDesk.pasted'));
+        })
+        .catch(() => toast.error(t('errors.title'), t('errors.proofImageInvalid')));
+    };
+    document.addEventListener('paste', paste);
+    return () => document.removeEventListener('paste', paste);
+  }, [line, toast, t]);
 
   const send = async () => {
     if (!line) return;
@@ -78,6 +99,12 @@ export function MarkSentDialog({
             <Money value={line.amount} currency={line.currency} className="text-2xl font-bold" />
           </p>
           <PhotoField label={t('bank.receipt')} attach={t('bank.receiptAttach')} value={receipt} onChange={setReceipt} />
+          {!receipt && (
+            <p className="flex items-center justify-center gap-1.5 text-center text-xs text-content-tertiary">
+              <ClipboardPaste className="size-3.5" />
+              {t('bankDesk.pasteHint')}
+            </p>
+          )}
         </div>
       )}
     </Dialog>

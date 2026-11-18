@@ -53,6 +53,10 @@ function sumOf(text: string): bigint | null {
   return value > 0n ? value : null;
 }
 
+/** A line that is a bank or a wallet by its words, known to the counter or not. */
+const BANKISH =
+  /^(ال)?(محفظ[ةه]|محافظ|wallet|بنك|البنك|مصرف|bank|pal\s*pay|palpay|jawwal\s*pay|jawwalpay|bop|iban|ايبان)(\s|$)|^(بال|جوال)\s*(باي|بي|بى)$/i;
+
 const letters = (line: string) => (line.match(/[\p{L}]/gu) ?? []).length;
 const digitsIn = (line: string) => (line.match(/\d/g) ?? []).length;
 
@@ -105,9 +109,22 @@ export function readTransferRequest(text: string, channels: string[]): ReadReque
   }
   if (!amount) return null;
 
-  // The bank: a line naming one the counter knows.
+  /*
+   * The bank: a line naming one the counter knows, however it is spelt — "جوال
+   * بي" is "جوال باي", "الاسلامي" the "الإسلامي". Failing that, a line that is
+   * plainly a bank or a wallet — "محفظة", "بنك …", "pal pay" — is the bank as
+   * written, and never mistaken for the name beside it.
+   */
   let channel: string | null = null;
-  const fold = (value: string) => value.replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/\s+/g, ' ').trim().toLowerCase();
+  const fold = (value: string) =>
+    value
+      .replace(/[أإآ]/g, 'ا')
+      .replace(/ة/g, 'ه')
+      .replace(/ى/g, 'ي')
+      .replace(/باي|بى/g, 'بي')
+      .replace(/\s+/g, '')
+      .trim()
+      .toLowerCase();
   for (const [index, line] of lines.entries()) {
     if (used.has(index)) continue;
     const known = channels.find(
@@ -117,6 +134,16 @@ export function readTransferRequest(text: string, channels: string[]): ReadReque
       channel = known;
       used.add(index);
       break;
+    }
+  }
+  if (!channel) {
+    for (const [index, line] of lines.entries()) {
+      if (used.has(index)) continue;
+      if (BANKISH.test(line) && digitsIn(line) === 0 && line.length <= 40) {
+        channel = line;
+        used.add(index);
+        break;
+      }
     }
   }
 

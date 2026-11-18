@@ -14,9 +14,9 @@ const bodySchema = z.object({
     .max(20),
 });
 
-/** The manager chooses them. */
+/** Whoever works the desk pins them, or the manager. */
 export const PUT = route<z.infer<typeof bodySchema>>({
-  permissions: ['settings.manage'],
+  anyPermission: ['bank.execute', 'exchange.transfer.confirm', 'settings.manage'],
   bodySchema,
   handler: async ({ body, actor }) => setExecutors(body.groups, actor),
 });

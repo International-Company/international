@@ -45,4 +45,19 @@ describe('a transfer request, read off a group message', () => {
     assert.equal(readTransferRequest('0599111222', CHANNELS), null);
     assert.equal(readTransferRequest('0599111222\n500', CHANNELS), null);
   });
+
+  it('never takes a wallet or a bank the counter does not list for the name', () => {
+    // As it came in the group: the wallet above the name.
+    const read = readTransferRequest('0597198493\n\nمحفظة\n\nهديل الاستاذ\n\n350  شيكل', CHANNELS);
+    assert.equal(read?.channel, 'محفظة');
+    assert.equal(read?.name, 'هديل الاستاذ');
+    assert.equal(read?.amount, 350n * UNIT);
+    assert.equal(readTransferRequest('0597000000\nبنك الاردن\nسامر\n100', CHANNELS)?.name, 'سامر');
+  });
+
+  it('knows a listed bank spelt the short way', () => {
+    const read = readTransferRequest('0599732007\n\nجوال بي\n\n200 شيكل\n\nاحمد ابو جراد', CHANNELS);
+    assert.equal(read?.channel, 'جوال باي');
+    assert.equal(read?.name, 'احمد ابو جراد');
+  });
 });

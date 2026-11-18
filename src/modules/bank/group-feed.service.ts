@@ -233,13 +233,14 @@ export async function executorsFor(actor: Actor) {
   requireDesk(actor);
   return {
     groups: await executorGroups(),
-    canChoose: actor.permissions.includes('settings.manage'),
+    // Whoever works the desk pins them: the person sending transfers knows where they go.
+    canChoose: true,
   };
 }
 
-/** The manager chooses the groups transfers are passed on to. */
+/** The desk, or the manager, pins the groups transfers are passed on to. */
 export async function setExecutors(groups: WatchedGroup[], actor: Actor & { name: string }) {
-  if (!actor.permissions.includes('settings.manage')) throw errors.forbidden('settings.manage');
+  requireDesk(actor);
   const clean = parseWatched(groups).slice(0, 20);
   await settings.set(EXECUTORS_SETTING, clean, actor);
   return clean;

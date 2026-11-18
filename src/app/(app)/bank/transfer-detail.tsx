@@ -13,6 +13,7 @@ import {
   CornerUpRight,
   ExternalLink,
   Globe,
+  Pencil,
   Inbox,
   Landmark,
   MessageSquare,
@@ -31,6 +32,7 @@ import { cn } from '@/ui/utils';
 import { clockOf, dayKey, dayLabel } from './days';
 import { keyOf, stateOf, type Line, type LineState } from './desk-types';
 import { MessageTrace } from './message-trace';
+import type { Group } from './forward-panel';
 
 /** What the trace says of the transfer's message: where it was written, by whom, and where it went. */
 interface TraceView {
@@ -127,6 +129,8 @@ export function TransferDetail({
   onChanged,
   onAdded,
   onBack,
+  executors = [],
+  onForward,
   className,
 }: {
   line: Line | null;
@@ -140,6 +144,10 @@ export function TransferDetail({
   onAdded?: (key: string) => void;
   /** On a phone: back to the list. */
   onBack?: () => void;
+  /** The pinned executing groups, offered as quick buttons. */
+  executors?: Group[];
+  /** Opens the forward sheet, with these groups ticked when a quick button was pressed. */
+  onForward?: (preset?: Group[]) => void;
   className?: string;
 }) {
   const { t, locale } = useLocale();
@@ -152,6 +160,8 @@ export function TransferDetail({
   const [adding, setAdding] = useState<{ account: string; name: string; channel: string; amount: string; currency: string } | null>(null);
   const [channels, setChannels] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
+  /** What the bot read, being corrected by hand. */
+  const [editing, setEditing] = useState<{ account: string; name: string; channel: string; amount: string; currency: string } | null>(null);
   const key = line ? keyOf(line) : null;
 
   const failure = useCallback(
@@ -225,7 +235,7 @@ export function TransferDetail({
 
   // The banks a request added by hand may name.
   useEffect(() => {
-    if (line?.source !== 'message' || channels.length) return;
+    if ((line?.source !== 'message' && line?.source !== 'group') || channels.length) return;
     api
       .get<{ channels: string[] }>('/api/bank/groups')
       .then((result) => setChannels(result.channels))
@@ -255,6 +265,27 @@ export function TransferDetail({
       toast.success(t('bankFeed.added'));
       setAdding(null);
       onAdded?.(keyOf({ id: result.id, source: 'group' }));
+      onChanged?.();
+    } catch (cause) {
+      failure(cause);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const saveEdit = async () => {
+    if (!editing) return;
+    setBusy(true);
+    try {
+      await api.patch(`/api/bank/requests/${line.id}`, {
+        account: editing.account.trim(),
+        name: editing.name.trim() || null,
+        channel: editing.channel || null,
+        amount: editing.amount.trim(),
+        currency: editing.currency,
+      });
+      toast.success(t('bankDesk.edited'));
+      setEditing(null);
       onChanged?.();
     } catch (cause) {
       failure(cause);
@@ -293,9 +324,12 @@ export function TransferDetail({
     </div>
   );
 
-  const Section = ({ title, children }: { title: string; children: ReactNode }) => (
+  const Section = ({ title, children, action }: { title: string; children: ReactNode; action?: ReactNode }) => (
     <section className="rounded-2xl bg-surface p-3 ring-1 ring-border-subtle">
-      <h3 className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-content-tertiary">{title}</h3>
+      <h3 className="mb-1 flex items-center justify-between text-[11px] font-semibold uppercase tracking-wide text-content-tertiary">
+        {title}
+        {action}
+      </h3>
       <dl className="divide-y divide-border-subtle">{children}</dl>
     </section>
   );
@@ -343,7 +377,7 @@ export function TransferDetail({
                   {detail.channel ?? t('bank.noChannel')}
                 </span>
                 {(line.forwardedTo?.length ?? 0) > 0 && (
-                  <span className="inline-flex items-center gap-1 rounded-full bg-info-subtle px-2 py-0.5 font-semibold text-info-text">
+                  <span className="inline-flex items-center gap-1 rounded-full bg-primary-subtle px-2 py-0.5 font-semibold text-primary-text">
                     <CornerUpRight className="size-3.5" />
                     {line.forwardedTo!.map((entry) => entry.group).join('، ')}
                   </span>
@@ -364,6 +398,78 @@ export function TransferDetail({
             </>
           ) : (
             <>
+              {/* --- How far it got: arrived, forwarded, sent --- */}
+              {line.messageId && (
+                <section className="rounded-2xl bg-surface p-3 shadow-[var(--shadow-sm)] ring-1 ring-border-subtle">
+                  <div className="mb-2.5 flex items-center justify-between">
+                    <h3 className="text-[11px] font-semibold uppercase tracking-wide text-content-tertiary">
+                      {t('bankDesk.progress')}
+                    </h3>
+                    <button
+                      type="button"
+                      onClick={() => setTracing(line.messageId!)}
+                      className="inline-flex items-center gap-1 text-[11px] font-semibold text-primary-text hover:underline"
+                    >
+                      <Route className="size-3.5" />
+                      {t('bankDesk.fullPath')}
+                    </button>
+                  </div>
+                  {(() => {
+                    const steps = [
+                      { done: true, icon: <MessageSquare className="size-3.5" />, label: t('bankDesk.stepWritten'), at: sender?.at ?? line.at },
+                      ...(line.source === 'message'
+                        ? []
+                        : [
+                            {
+                              done: (trace?.forwards.length ?? 0) > 0,
+                              icon: <CornerUpRight className="size-3.5" />,
+                              label: t('bankDesk.stepForwarded'),
+                              at: trace?.forwards.at(-1)?.at ?? null,
+                            },
+                            {
+                              done: state === 'done',
+                              icon: <CheckCircle2 className="size-3.5" />,
+                              label: t('bankDesk.stepDone'),
+                              at: detail.sentAt,
+                            },
+                          ]),
+                    ];
+                    return (
+                      <ol className="flex items-start">
+                        {steps.map((step, index) => (
+                          <li key={step.label} className="relative flex flex-1 flex-col items-center text-center">
+                            {index > 0 && (
+                              <span
+                                className={cn(
+                                  'absolute end-1/2 top-3.5 h-0.5 w-full -translate-y-1/2',
+                                  step.done ? 'bg-success' : 'bg-border-subtle',
+                                )}
+                                aria-hidden
+                              />
+                            )}
+                            <span
+                              className={cn(
+                                'relative z-[1] flex size-7 items-center justify-center rounded-full ring-4 ring-surface',
+                                step.done ? 'bg-success text-white' : 'bg-surface-sunken text-content-tertiary',
+                              )}
+                            >
+                              {step.icon}
+                            </span>
+                            <span className={cn('mt-1.5 text-[11px] font-semibold', step.done ? 'text-content' : 'text-content-tertiary')}>
+                              {step.label}
+                            </span>
+                            <span className="text-[10px] tabular-nums text-content-tertiary ltr-content">
+                              {step.done && step.at ? clockOf(step.at) : '—'}
+                            </span>
+                          </li>
+                        ))}
+                      </ol>
+                    );
+                  })()}
+                </section>
+              )}
+
+
               {/* --- Where it came from: the system, or a number outside the office --- */}
               {detail.origin && (
                 <div
@@ -554,9 +660,111 @@ export function TransferDetail({
                 </div>
               </div>
 
-              {/* --- Where it goes --- */}
-              {detail.source !== 'message' && (
-              <Section title={t('bank.detailTo')}>
+              {/* --- Where it goes: corrected by hand while a request waits --- */}
+              {detail.source === 'group' && editing && (
+                <section className="space-y-2.5 rounded-2xl bg-surface p-3 ring-2 ring-primary/40">
+                  <h3 className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-primary-text">
+                    <Pencil className="size-3" />
+                    {t('bankDesk.editTitle')}
+                  </h3>
+                  <div className="grid gap-2.5 sm:grid-cols-2">
+                        <Field label={t('bank.account')} required>
+                          {(props) => (
+                            <Input
+                              {...props}
+                              dir="ltr"
+                              value={editing.account}
+                              onChange={(event) => setEditing({ ...editing, account: event.target.value })}
+                            />
+                          )}
+                        </Field>
+                        <Field label={t('bank.name')}>
+                          {(props) => (
+                            <Input
+                              {...props}
+                              value={editing.name}
+                              onChange={(event) => setEditing({ ...editing, name: event.target.value })}
+                            />
+                          )}
+                        </Field>
+                    <Field label={t('bankFeed.channel')}>
+                      {(props) => (
+                        <Select
+                          {...props}
+                          options={[
+                            { value: '', label: '—' },
+                            ...[...new Set([...(editing.channel ? [editing.channel] : []), ...channels])].map((entry) => ({ value: entry, label: entry })),
+                          ]}
+                          value={editing.channel}
+                          onChange={(event) => setEditing({ ...editing, channel: event.target.value })}
+                        />
+                      )}
+                    </Field>
+                    <div className="grid grid-cols-[1fr_5.5rem] gap-2">
+                        <Field label={t('bank.amount')} required>
+                          {(props) => (
+                            <Input
+                              {...props}
+                              dir="ltr"
+                              inputMode="decimal"
+                              value={editing.amount}
+                              onChange={(event) => setEditing({ ...editing, amount: event.target.value })}
+                            />
+                          )}
+                        </Field>
+                      <Field label={t('bank.currency')}>
+                        {(props) => (
+                          <Select
+                            {...props}
+                            options={['ILS', 'USD', 'JOD', 'EUR'].map((code) => ({ value: code, label: code }))}
+                            value={editing.currency}
+                            onChange={(event) => setEditing({ ...editing, currency: event.target.value })}
+                          />
+                        )}
+                      </Field>
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      loading={busy}
+                      icon={<Check />}
+                      disabled={!editing.account.trim() || !(Number(editing.amount) > 0)}
+                      onClick={() => void saveEdit()}
+                    >
+                      {t('common.save')}
+                    </Button>
+                    <Button variant="secondary" size="sm" onClick={() => setEditing(null)} disabled={busy}>
+                      {t('common.cancel')}
+                    </Button>
+                  </div>
+                </section>
+              )}
+              {detail.source !== 'message' && !(detail.source === 'group' && editing) && (
+              <Section
+                title={t('bank.detailTo')}
+                action={
+                  detail.source === 'group' && pending ? (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setEditing({
+                          account: detail.account ?? '',
+                          name: detail.name ?? '',
+                          channel: detail.channel ?? '',
+                          amount: plain(detail.amount),
+                          currency: detail.currency,
+                        })
+                      }
+                      className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-semibold normal-case text-primary-text hover:bg-primary-subtle"
+                    >
+                      <Pencil className="size-3" />
+                      {t('bankDesk.edit')}
+                    </button>
+                  ) : null
+                }
+              >
                 {detail.account && (
                   <Row label={t('bank.account')} copyable={detail.account}>
                     <span className="font-mono text-base tabular-nums ltr-content">{detail.account}</span>
@@ -687,76 +895,6 @@ export function TransferDetail({
                 </section>
               )}
 
-              {line.messageId && (
-                <section className="rounded-2xl bg-surface p-3 ring-1 ring-border-subtle">
-                  <div className="mb-2.5 flex items-center justify-between">
-                    <h3 className="text-[11px] font-semibold uppercase tracking-wide text-content-tertiary">
-                      {t('bankDesk.progress')}
-                    </h3>
-                    <button
-                      type="button"
-                      onClick={() => setTracing(line.messageId!)}
-                      className="inline-flex items-center gap-1 text-[11px] font-semibold text-primary-text hover:underline"
-                    >
-                      <Route className="size-3.5" />
-                      {t('bankDesk.fullPath')}
-                    </button>
-                  </div>
-                  {(() => {
-                    const steps = [
-                      { done: true, icon: <MessageSquare className="size-3.5" />, label: t('bankDesk.stepWritten'), at: sender?.at ?? line.at },
-                      ...(line.source === 'message'
-                        ? []
-                        : [
-                            {
-                              done: (trace?.forwards.length ?? 0) > 0,
-                              icon: <CornerUpRight className="size-3.5" />,
-                              label: t('bankDesk.stepForwarded'),
-                              at: trace?.forwards.at(-1)?.at ?? null,
-                            },
-                            {
-                              done: state === 'done',
-                              icon: <CheckCircle2 className="size-3.5" />,
-                              label: t('bankDesk.stepDone'),
-                              at: detail.sentAt,
-                            },
-                          ]),
-                    ];
-                    return (
-                      <ol className="flex items-start">
-                        {steps.map((step, index) => (
-                          <li key={step.label} className="relative flex flex-1 flex-col items-center text-center">
-                            {index > 0 && (
-                              <span
-                                className={cn(
-                                  'absolute end-1/2 top-3.5 h-0.5 w-full -translate-y-1/2',
-                                  step.done ? 'bg-success' : 'bg-border-subtle',
-                                )}
-                                aria-hidden
-                              />
-                            )}
-                            <span
-                              className={cn(
-                                'relative z-[1] flex size-7 items-center justify-center rounded-full ring-4 ring-surface',
-                                step.done ? 'bg-success text-white' : 'bg-surface-sunken text-content-tertiary',
-                              )}
-                            >
-                              {step.icon}
-                            </span>
-                            <span className={cn('mt-1.5 text-[11px] font-semibold', step.done ? 'text-content' : 'text-content-tertiary')}>
-                              {step.label}
-                            </span>
-                            <span className="text-[10px] tabular-nums text-content-tertiary ltr-content">
-                              {step.done && step.at ? clockOf(step.at) : '—'}
-                            </span>
-                          </li>
-                        ))}
-                      </ol>
-                    );
-                  })()}
-                </section>
-              )}
-
               {detail.sentAt && (
                 <p className="text-center text-xs text-success-text">
                   ✅ {t('bank.detailSentAt', { day: dayKey(detail.sentAt), time: clockOf(detail.sentAt) })}
@@ -767,9 +905,46 @@ export function TransferDetail({
           )}
         </div>
 
-        {/* --- Doing it --- */}
-        {detail && detail.source !== 'message' && (
-          <footer className="flex gap-2 border-t border-border-subtle bg-surface p-3">
+        {/* --- Doing it: passed on with a tap to a pinned group, or sent --- */}
+        {detail && (
+          <footer className="space-y-2 border-t border-border-subtle bg-surface p-3">
+            {line.messageId && state !== 'done' && state !== 'reversed' && onForward && (
+              <div className="flex items-center gap-1.5 overflow-x-auto [scrollbar-width:none]">
+                <span className="shrink-0 text-[11px] font-semibold text-content-tertiary">{t('bankDesk.forwardTo')}</span>
+                {executors.slice(0, 4).map((group) => {
+                  const already = line.forwardedTo?.some((entry) => entry.group === group.name);
+                  return (
+                    <button
+                      key={group.id}
+                      type="button"
+                      onClick={() => onForward([group])}
+                      className={cn(
+                        'inline-flex h-7 shrink-0 items-center gap-1 rounded-full px-2.5 text-[11px] font-semibold ring-1 transition-colors',
+                        already
+                          ? 'bg-primary-subtle text-primary-text ring-primary/30'
+                          : 'bg-surface text-content-secondary ring-border-subtle hover:bg-primary-subtle hover:text-primary-text',
+                      )}
+                    >
+                      {already ? <Check className="size-3" /> : <CornerUpRight className="size-3" />}
+                      {group.name}
+                    </button>
+                  );
+                })}
+                <button
+                  type="button"
+                  onClick={() => onForward()}
+                  className="inline-flex h-7 shrink-0 items-center rounded-full px-2.5 text-[11px] font-semibold text-primary-text ring-1 ring-dashed ring-primary/40 hover:bg-primary-subtle"
+                >
+                  {executors.length ? t('bankDesk.otherGroupsShort') : t('bankDesk.chooseGroup')}
+                </button>
+              </div>
+            )}
+            <div className="flex gap-2">
+            {line.messageId && state !== 'done' && state !== 'reversed' && onForward && (
+              <Button variant="secondary" icon={<CornerUpRight />} onClick={() => onForward()} className="shrink-0">
+                {t('bankDesk.forwardTab')}
+              </Button>
+            )}
             {pending && (
               <Button variant="primary" fullWidth icon={<Check />} onClick={() => onSend(line)}>
                 {t('bank.markSent')}
@@ -788,21 +963,24 @@ export function TransferDetail({
                       })
                       .catch(() => toast.error(t('errors.title'), t('errors.generic')));
                   }}
+                  title={t('bank.dismiss')}
                   className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-[var(--radius-control)] px-3 text-sm font-medium text-danger-text ring-1 ring-border-subtle hover:bg-danger-subtle"
                 >
                   <X className="size-4" />
-                  {t('bank.dismiss')}
+                  <span className="hidden sm:inline">{t('bank.dismiss')}</span>
                 </button>
               )
-            ) : (
+            ) : detail.source === 'deal' ? (
             <Link
               href={`/manage/transactions/${detail.id}`}
+              title={t('bank.detailOpen')}
               className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-[var(--radius-control)] px-3 text-sm font-medium text-primary-text ring-1 ring-border-subtle hover:bg-surface-sunken"
             >
               <ExternalLink className="size-4" />
-              {t('bank.detailOpen')}
+              <span className="hidden sm:inline">{t('bank.detailOpen')}</span>
             </Link>
-            )}
+            ) : null}
+            </div>
           </footer>
         )}
       <MessageTrace id={tracing} onClose={() => setTracing(null)} onOpen={setTracing} />
