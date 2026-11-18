@@ -772,6 +772,7 @@ const en = {
     clearFilters: 'Clear',
     amountRange: 'Amount',
     onlyThisDay: 'Show this day only',
+    ofTheDays: 'Transfers of the days chosen',
     customer: 'Customer code',
     detailTitle: 'Transfer details',
     detailTo: 'To',

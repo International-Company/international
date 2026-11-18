@@ -774,6 +774,7 @@ const ar: Dictionary = {
     clearFilters: 'مسح',
     amountRange: 'المبلغ',
     onlyThisDay: 'عرض هذا اليوم فقط',
+    ofTheDays: 'تحويلات الأيام المختارة',
     customer: 'رقم العميل',
     detailTitle: 'تفاصيل التحويل',
     detailTo: 'إلى',

@@ -34,6 +34,7 @@ function requireDesk(actor: Actor) {
 const SELECT = {
   id: true,
   reference: true,
+  status: true,
   type: true,
   createdAt: true,
   toCurrency: true,
@@ -54,6 +55,7 @@ const SELECT = {
 type Row = {
   id: string;
   reference: string;
+  status: string;
   type: string;
   createdAt: Date;
   toCurrency: string;
@@ -83,6 +85,7 @@ export function deskLine(row: Row) {
   return {
     id: row.id,
     reference: row.reference,
+    status: row.status,
     kind: TRANSACTION_TYPE_META[row.type as TransactionType]?.nameAr ?? row.type,
     at: row.createdAt,
     channel: row.payoutBankChannel,
@@ -165,7 +168,12 @@ export async function deskProof(id: string, proofId: string, actor: Actor, db: D
 }
 
 /** What is still to be sent, oldest first, and what was sent today. */
-export async function desk(actor: Actor, db: DbClient = prisma) {
+export async function desk(
+  actor: Actor,
+  db: DbClient = prisma,
+  /** Days asked for: every transfer promised in them, sent or not, not only what waits. */
+  range?: { from: Date; to: Date } | null,
+) {
   requireDesk(actor);
   const since = new Date();
   since.setHours(0, 0, 0, 0);
@@ -189,7 +197,23 @@ export async function desk(actor: Actor, db: DbClient = prisma) {
       select: SELECT,
     }),
   ]);
-  return { waiting: waiting.map(deskLine), sent: sent.map(deskLine) };
+  const inRange = range
+    ? await db.transaction.findMany({
+        where: {
+          createdAt: { gte: range.from, lte: range.to },
+          payoutBankAmount: { gt: 0n },
+          reversalOfId: null,
+        },
+        orderBy: { createdAt: 'asc' },
+        take: 1000,
+        select: SELECT,
+      })
+    : null;
+  return {
+    waiting: waiting.map(deskLine),
+    sent: sent.map(deskLine),
+    range: inRange ? inRange.map(deskLine) : null,
+  };
 }
 
 /**

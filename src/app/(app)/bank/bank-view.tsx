@@ -31,6 +31,8 @@ import { cn } from '@/ui/utils';
 interface Line {
   id: string;
   reference: string;
+  /** PENDING_TRANSFER while it waits; POSTED once sent; REVERSED when the deal was cancelled. */
+  status: string;
   kind: string;
   at: string;
   channel: string | null;
@@ -48,6 +50,8 @@ interface Line {
 interface Desk {
   waiting: Line[];
   sent: Line[];
+  /** Every transfer of the days asked for, sent or not. */
+  range?: Line[] | null;
 }
 
 /** A value with a button that puts it on the clipboard, for pasting into the bank's app. */
@@ -93,17 +97,30 @@ export function BankView() {
   /** A range of sums, in the transfer's own money: either end may be left open. */
   const [minAmount, setMinAmount] = useState('');
   const [maxAmount, setMaxAmount] = useState('');
-  /** Which days, chosen on the calendar. */
-  const [days, setDays] = useState<DayRange>(ANY_DAY);
   /** The transfer open in full beside the list. */
   const [opened, setOpened] = useState<string | null>(null);
   const [sending, setSending] = useState<Line | null>(null);
   const [receipt, setReceipt] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  /** Which days, chosen on the calendar. */
+  const [days, setDays] = useState<DayRange>(ANY_DAY);
+
   const load = useCallback(async () => {
     try {
-      setDesk(await api.get<Desk>('/api/bank'));
+      // A day's bounds in the browser's clock, the day the teller lived through.
+      const edge = (key: string, end: boolean) => {
+        const [year, month, day] = key.split('-').map(Number) as [number, number, number];
+        return (end ? new Date(year, month - 1, day, 23, 59, 59, 999) : new Date(year, month - 1, day)).toISOString();
+      };
+      const asked =
+        days.from || days.to
+          ? `?${new URLSearchParams({
+              ...(days.from ? { from: edge(days.from, false) } : {}),
+              ...(days.to ? { to: edge(days.to, true) } : {}),
+            }).toString()}`
+          : '';
+      setDesk(await api.get<Desk>(`/api/bank${asked}`));
     } catch (cause) {
       toast.error(
         t('errors.title'),
@@ -111,7 +128,7 @@ export function BankView() {
       );
       setDesk((current) => current ?? { waiting: [], sent: [] });
     }
-  }, [toast, t]);
+  }, [toast, t, days]);
 
   useEffect(() => {
     void load();
@@ -122,10 +139,13 @@ export function BankView() {
     return () => clearInterval(timer);
   }, [load]);
 
+  // The days chosen bring every transfer in them, sent or not; otherwise what still waits.
+  const source = (desk?.range ?? desk?.waiting ?? []) as Line[];
+
   // What is waiting on each account, so the desk can work one bank at a time.
   const channels = useMemo(() => {
     const totals = new Map<string, { count: number; sums: Map<string, bigint> }>();
-    for (const line of desk?.waiting ?? []) {
+    for (const line of source) {
       const key = line.channel ?? '—';
       const entry = totals.get(key) ?? { count: 0, sums: new Map() };
       entry.count += 1;
@@ -136,8 +156,8 @@ export function BankView() {
   }, [desk]);
 
   // What the list can be narrowed by: the money and the kinds actually waiting.
-  const currencies = [...new Set((desk?.waiting ?? []).map((line) => line.currency))];
-  const kinds = [...new Set((desk?.waiting ?? []).map((line) => line.kind))];
+  const currencies = [...new Set((source).map((line) => line.currency))];
+  const kinds = [...new Set((source).map((line) => line.kind))];
   /*
    * Searched by anything the desk might have in hand: the account or the phone
    * (digits only, so "059 211" finds "0592117818"), the name, the deal's number,
@@ -157,7 +177,7 @@ export function BankView() {
       (value ?? '').replace(/\D/g, '').includes(digits),
     );
   };
-  const shown = (desk?.waiting ?? [])
+  const shown = (source)
     .filter((line) => !channel || (line.channel ?? '—') === channel)
     .filter((line) => !currency || line.currency === currency)
     .filter((line) => !kind || line.kind === kind)
@@ -223,7 +243,8 @@ export function BankView() {
       <div className="space-y-2 border-b border-border-subtle p-3">
         <div className="flex items-center justify-between gap-2">
           <p className="text-sm font-semibold text-content">
-            {t('bank.waiting')} · <span className="tabular-nums">{desk.waiting.length}</span>
+            {desk.range ? t('bank.ofTheDays') : t('bank.waiting')} ·{' '}
+            <span className="tabular-nums">{source.length}</span>
           </p>
           <button
             type="button"
@@ -237,7 +258,7 @@ export function BankView() {
         </div>
         <div className="flex gap-1.5 overflow-x-auto pb-1">
           {[
-            { key: null as string | null, label: t('bank.all'), count: desk.waiting.length },
+            { key: null as string | null, label: t('bank.all'), count: source.length },
             ...channels.map(([name, entry]) => ({ key: name, label: name, count: entry.count })),
           ].map((chip) => (
             <button
@@ -280,7 +301,7 @@ export function BankView() {
               options={currencies.map((code) => ({
                 value: code,
                 label: code,
-                hint: (desk?.waiting ?? []).filter((line) => line.currency === code).length,
+                hint: (source).filter((line) => line.currency === code).length,
               }))}
             />
           )}
@@ -294,7 +315,7 @@ export function BankView() {
               options={kinds.map((name) => ({
                 value: name,
                 label: name,
-                hint: (desk?.waiting ?? []).filter((line) => line.kind === name).length,
+                hint: (source).filter((line) => line.kind === name).length,
               }))}
             />
           )}
@@ -410,18 +431,38 @@ export function BankView() {
                   >
                     <Money value={line.amount} currency={line.currency} className="text-base font-bold text-content" />
                   </button>
-                  <Button
-                    size="sm"
-                    variant="primary"
-                    icon={<Check />}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      setReceipt(null);
-                      setSending(line);
-                    }}
-                  >
-                    {t('bank.markSentShort')}
-                  </Button>
+                  {line.status === 'PENDING_TRANSFER' ? (
+                    <Button
+                      size="sm"
+                      variant="primary"
+                      icon={<Check />}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setReceipt(null);
+                        setSending(line);
+                      }}
+                    >
+                      {t('bank.markSentShort')}
+                    </Button>
+                  ) : (
+                    <span
+                      className={cn(
+                        'inline-flex h-8 items-center gap-1 rounded-full px-2.5 text-xs font-semibold',
+                        line.status === 'REVERSED'
+                          ? 'bg-danger-subtle text-danger-text'
+                          : 'bg-success-subtle text-success-text',
+                      )}
+                    >
+                      {line.status === 'REVERSED' ? (
+                        t('bankFeed.reversed')
+                      ) : (
+                        <>
+                          <CheckCircle2 className="size-3.5" />
+                          {t('bankFeed.sent')}
+                        </>
+                      )}
+                    </span>
+                  )}
                 </div>
                 <div className="flex flex-wrap items-center gap-x-1">
                   {line.account && <CopyValue value={line.account} label={t('bank.account')} big />}
@@ -474,7 +515,7 @@ export function BankView() {
         id={opened}
         onClose={() => setOpened(null)}
         onSend={(id) => {
-          const line = desk.waiting.find((entry) => entry.id === id);
+          const line = source.find((entry) => entry.id === id);
           if (!line) return;
           // The confirmation takes the screen; the details step aside for it.
           setOpened(null);
