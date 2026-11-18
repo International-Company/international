@@ -77,10 +77,13 @@ export function DateRangePicker({
   value,
   onChange,
   className,
+  bare = false,
 }: {
   value: DayRange;
   onChange: (next: DayRange) => void;
   className?: string;
+  /** Without its own pill: for sitting inside a toolbar that draws the edge. */
+  bare?: boolean;
 }) {
   const { t, locale } = useLocale();
   // Western digits in either language: the rest of the screen writes numbers that way.
@@ -231,10 +234,18 @@ export function DateRangePicker({
           aria-haspopup="dialog"
           aria-expanded={open}
           className={cn(
-            'inline-flex h-8 items-center gap-1.5 rounded-full px-3 text-xs font-semibold transition-colors',
-            set
-              ? 'bg-primary text-white shadow-[var(--shadow-sm)]'
-              : 'bg-surface-sunken text-content-secondary hover:text-content',
+            'inline-flex items-center gap-1.5 text-xs font-semibold transition-colors',
+            bare
+              ? cn(
+                  'h-full rounded-lg px-2.5 hover:bg-surface-sunken',
+                  set ? 'text-primary-text' : 'text-content-secondary hover:text-content',
+                )
+              : cn(
+                  'h-8 rounded-full px-3',
+                  set
+                    ? 'bg-primary text-white shadow-[var(--shadow-sm)]'
+                    : 'bg-surface-sunken text-content-secondary hover:text-content',
+                ),
           )}
         >
           <CalendarDays className="size-3.5" />
@@ -246,7 +257,10 @@ export function DateRangePicker({
             onClick={() => onChange(ANY_DAY)}
             aria-label={t('dateRange.clear')}
             title={t('dateRange.clear')}
-            className="ms-0.5 inline-flex size-7 items-center justify-center rounded-full text-content-tertiary hover:bg-surface-sunken hover:text-content"
+            className={cn(
+              'inline-flex items-center justify-center rounded-full text-content-tertiary hover:bg-surface-sunken hover:text-content',
+              bare ? 'size-6' : 'ms-0.5 size-7',
+            )}
           >
             <X className="size-3.5" />
           </button>

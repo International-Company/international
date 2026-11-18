@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   ArrowDownWideNarrow,
   ArrowUpWideNarrow,
@@ -98,6 +98,24 @@ interface Desk {
   range?: Line[] | null;
 }
 
+/** A filter that is on, shown under the search bar with its own way off. */
+function FilterChip({ icon, label, onClear }: { icon?: ReactNode; label: string; onClear: () => void }) {
+  return (
+    <span className="inline-flex h-6 items-center gap-1 rounded-full bg-primary-subtle ps-2 pe-0.5 text-[11px] font-semibold text-primary-text">
+      {icon}
+      <span className="ltr-content tabular-nums">{label}</span>
+      <button
+        type="button"
+        onClick={onClear}
+        aria-label={label}
+        className="inline-flex size-5 items-center justify-center rounded-full hover:bg-primary/15"
+      >
+        <X className="size-3" />
+      </button>
+    </span>
+  );
+}
+
 /** A value with a button that puts it on the clipboard, for pasting into the bank's app. */
 function CopyValue({ value, label, big }: { value: string; label: string; big?: boolean }) {
   const { t } = useLocale();
@@ -151,6 +169,8 @@ export function BankView() {
   /** A transfer's message followed through the groups, or being passed on to those that carry it out. */
   const [tracing, setTracing] = useState<string | null>(null);
   const [forwarding, setForwarding] = useState<string | null>(null);
+
+  const searchBox = useRef<HTMLInputElement>(null);
 
   /** Which days, chosen on the calendar. */
   const [days, setDays] = useState<DayRange>(ANY_DAY);
@@ -252,6 +272,12 @@ export function BankView() {
     day.lines.push(line);
     day.sums.set(line.currency, (day.sums.get(line.currency) ?? 0n) + BigInt(line.amount));
   }
+  // What the shown transfers come to, in each money: the biggest first.
+  const totals = (() => {
+    const sums = new Map<string, bigint>();
+    for (const line of shown) sums.set(line.currency, (sums.get(line.currency) ?? 0n) + BigInt(line.amount));
+    return [...sums.entries()].sort((a, b) => (a[1] > b[1] ? -1 : 1));
+  })();
   // How many of the folded filters are on, shown on the button that unfolds them.
   const extraFilters = [currency, kind, minAmount || maxAmount].filter(Boolean).length;
   const narrowed = Boolean(
@@ -293,160 +319,231 @@ export function BankView() {
 
   return (
     <Card className="flex h-[calc(100dvh-15rem)] min-h-[26rem] flex-col overflow-hidden p-0 xl:h-[78vh] xl:min-h-[28rem]">
-      {/* --- The list's head: how many, a search, and the rest folded away until asked for --- */}
-      <div className="space-y-2 border-b border-border-subtle px-3 pb-2 pt-3">
-        <div className="flex items-center gap-2">
-          <p className="flex min-w-0 items-baseline gap-1.5 text-sm font-semibold text-content">
-            <span className="shrink-0">{desk.range ? t('bank.ofTheDays') : t('bank.waiting')}</span>
-            <span className="rounded-full bg-primary-subtle px-1.5 text-xs tabular-nums text-primary-text">
-              {narrowed ? `${shown.length}/${source.length}` : source.length}
-            </span>
-          </p>
-          {desk.group && (
-            <span
-              title={t('bank.fromBankGroup', { group: desk.group.name })}
-              className="inline-flex min-w-0 items-center gap-1 truncate text-[11px] text-content-tertiary"
-            >
-              <MessagesSquare className="size-3 shrink-0" />
-              <span className="truncate">{desk.group.name}</span>
-            </span>
-          )}
-          <button
-            type="button"
-            onClick={() => void load()}
-            aria-label={t('bank.refresh')}
-            title={t('bank.refresh')}
-            className="ms-auto inline-flex size-7 shrink-0 items-center justify-center rounded-full text-content-tertiary hover:bg-surface-sunken hover:text-content"
-          >
-            <RefreshCw className="size-3.5" />
-          </button>
-        </div>
-
-        {/* Search, with the day, the other filters and the order beside it. */}
-        <div className="flex items-center gap-1.5">
-          <div className="relative min-w-0 flex-1">
-            <Search className="pointer-events-none absolute start-2.5 top-1/2 size-3.5 -translate-y-1/2 text-content-tertiary" />
-            <input
-              type="search"
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder={t('bank.searchShort')}
-              title={t('bank.search')}
-              className="h-8 w-full rounded-full bg-surface-sunken ps-8 pe-3 text-xs text-content outline-none ring-1 ring-transparent transition focus:bg-surface focus:ring-primary"
-            />
-          </div>
-          <DateRangePicker value={days} onChange={setDays} />
-          <button
-            type="button"
-            onClick={() => setFiltersOpen((open) => !open)}
-            aria-expanded={filtersOpen}
-            title={t('bank.filters')}
-            className={cn(
-              'relative inline-flex h-8 shrink-0 items-center gap-1 rounded-full px-2.5 text-xs font-semibold transition-colors',
-              filtersOpen || extraFilters > 0
-                ? 'bg-primary-subtle text-primary-text'
-                : 'bg-surface-sunken text-content-secondary hover:text-content',
-            )}
-          >
-            <SlidersHorizontal className="size-3.5" />
-            <span className="hidden sm:inline">{t('bank.filters')}</span>
-            {extraFilters > 0 && (
-              <span className="inline-flex size-4 items-center justify-center rounded-full bg-primary text-[10px] text-white tabular-nums">
-                {extraFilters}
-              </span>
-            )}
-          </button>
-          <button
-            type="button"
-            onClick={() => setNewestFirst((value) => !value)}
-            title={newestFirst ? t('bank.newestFirst') : t('bank.oldestFirst')}
-            aria-label={newestFirst ? t('bank.newestFirst') : t('bank.oldestFirst')}
-            className="inline-flex size-8 shrink-0 items-center justify-center rounded-full bg-surface-sunken text-content-secondary hover:text-content"
-          >
-            {newestFirst ? <ArrowUpWideNarrow className="size-3.5" /> : <ArrowDownWideNarrow className="size-3.5" />}
-          </button>
-        </div>
-
-        {/* The rest, folded: the money, the kind, and a range of sums. */}
-        {filtersOpen && (
-          <div className="flex flex-wrap items-center gap-1.5 rounded-xl bg-surface-sunken/60 p-1.5 ring-1 ring-border-subtle">
-            {currencies.length > 1 && (
-              <PillSelect
-                label={t('bank.currency')}
-                placeholder={t('bank.anyCurrency')}
-                icon={<Coins className="size-3.5 shrink-0" />}
-                value={currency}
-                onChange={setCurrency}
-                options={currencies.map((code) => ({
-                  value: code,
-                  label: code,
-                  hint: source.filter((line) => line.currency === code).length,
-                }))}
-              />
-            )}
-            {kinds.length > 1 && (
-              <PillSelect
-                label={t('bank.kind')}
-                placeholder={t('bank.anyKind')}
-                icon={<Layers className="size-3.5 shrink-0" />}
-                value={kind}
-                onChange={setKind}
-                options={kinds.map((name) => ({
-                  value: name,
-                  label: name,
-                  hint: source.filter((line) => line.kind === name).length,
-                }))}
-              />
-            )}
-            <div className="flex items-center gap-1 rounded-full bg-surface px-2 ring-1 ring-border-subtle">
-              <span className="text-[11px] text-content-tertiary">{t('bank.amountRange')}</span>
-              <input
-                inputMode="decimal"
-                dir="ltr"
-                value={minAmount}
-                onChange={(event) => setMinAmount(digitsOnly(event.target.value))}
-                placeholder={t('bank.from')}
-                aria-label={t('bank.from')}
-                className="h-7 w-14 bg-transparent text-center text-xs font-medium tabular-nums text-content outline-none"
-              />
-              <span className="text-xs text-content-tertiary">–</span>
-              <input
-                inputMode="decimal"
-                dir="ltr"
-                value={maxAmount}
-                onChange={(event) => setMaxAmount(digitsOnly(event.target.value))}
-                placeholder={t('bank.to')}
-                aria-label={t('bank.to')}
-                className="h-7 w-14 bg-transparent text-center text-xs font-medium tabular-nums text-content outline-none"
-              />
+      {/* --- The list's head: what it holds, one search bar, and the banks as tabs --- */}
+      <div className="border-b border-border-subtle">
+        <div className="space-y-2.5 px-3 pt-3">
+          {/* What the list holds: how many, and what they come to in each money. */}
+          <div className="flex items-start gap-2">
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2">
+                <h2 className="text-[15px] font-bold tracking-tight text-content">
+                  {desk.range ? t('bank.ofTheDays') : t('bank.waiting')}
+                </h2>
+                <span className="inline-flex h-5 items-center rounded-md bg-primary px-1.5 text-[11px] font-bold tabular-nums text-white">
+                  {narrowed ? `${shown.length} / ${source.length}` : source.length}
+                </span>
+              </div>
+              <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-content-tertiary">
+                {desk.group && (
+                  <span
+                    title={t('bank.fromBankGroup', { group: desk.group.name })}
+                    className="inline-flex min-w-0 items-center gap-1"
+                  >
+                    <MessagesSquare className="size-3 shrink-0" />
+                    <span className="truncate">{desk.group.name}</span>
+                  </span>
+                )}
+                {totals.length > 0 && (
+                  <span className="inline-flex flex-wrap items-center gap-x-1.5 font-medium text-content-secondary">
+                    {totals.map(([code, sum], index) => (
+                      <span key={code} className="inline-flex items-center gap-1.5">
+                        {index > 0 && <span className="text-content-tertiary">·</span>}
+                        <Money value={sum} currency={code} className="tabular-nums" />
+                      </span>
+                    ))}
+                  </span>
+                )}
+              </div>
             </div>
-          </div>
-        )}
-
-        {/* One account at a time: each with how many wait on it. */}
-        <div className="-mx-3 flex items-center gap-1 overflow-x-auto px-3 [scrollbar-width:none]">
-          {[
-            { key: null as string | null, label: t('bank.all'), count: source.length },
-            ...channels.map(([name, entry]) => ({ key: name, label: name, count: entry.count })),
-          ].map((chip) => (
             <button
-              key={chip.key ?? 'all'}
               type="button"
-              aria-pressed={channel === chip.key}
-              onClick={() => setChannel(channel === chip.key ? null : chip.key)}
+              onClick={() => void load()}
+              aria-label={t('bank.refresh')}
+              title={t('bank.refresh')}
+              className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg text-content-tertiary ring-1 ring-border-subtle transition-colors hover:bg-surface-sunken hover:text-content"
+            >
+              <RefreshCw className="size-3.5" />
+            </button>
+          </div>
+
+          {/* One bar: the search, then the day, the other filters and the order, set apart by thin lines. */}
+          <div className="flex h-10 items-stretch rounded-xl bg-surface shadow-[var(--shadow-sm)] ring-1 ring-border-subtle transition-shadow focus-within:ring-2 focus-within:ring-primary/50">
+            <label className="relative flex min-w-0 flex-1 items-center">
+              <Search className="pointer-events-none absolute start-3 size-4 text-content-tertiary" />
+              <input
+                ref={searchBox}
+                type="search"
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Escape') {
+                    setQuery('');
+                    event.currentTarget.blur();
+                  }
+                }}
+                placeholder={t('bank.searchShort')}
+                title={t('bank.search')}
+                aria-label={t('bank.search')}
+                className="h-full w-full min-w-0 bg-transparent ps-9 pe-2 text-[13px] text-content outline-none placeholder:text-content-tertiary [&::-webkit-search-cancel-button]:hidden"
+              />
+              {query && (
+                <button
+                  type="button"
+                  onClick={() => setQuery('')}
+                  aria-label={t('bank.clearFilters')}
+                  className="me-1 inline-flex size-6 shrink-0 items-center justify-center rounded-full text-content-tertiary hover:bg-surface-sunken hover:text-content"
+                >
+                  <X className="size-3.5" />
+                </button>
+              )}
+            </label>
+            <span className="my-2 w-px shrink-0 bg-border-subtle" aria-hidden />
+            <div className="flex shrink-0 items-center px-1">
+              <DateRangePicker value={days} onChange={setDays} bare className="h-8" />
+            </div>
+            <span className="my-2 w-px shrink-0 bg-border-subtle" aria-hidden />
+            <button
+              type="button"
+              onClick={() => setFiltersOpen((open) => !open)}
+              aria-expanded={filtersOpen}
+              title={t('bank.filters')}
               className={cn(
-                'inline-flex h-7 shrink-0 items-center gap-1 rounded-full px-2.5 text-[11px] font-semibold transition-colors',
-                channel === chip.key
-                  ? 'bg-content text-surface'
-                  : 'text-content-secondary ring-1 ring-border-subtle hover:bg-surface-sunken hover:text-content',
+                'm-1 inline-flex shrink-0 items-center gap-1.5 rounded-lg px-2.5 text-xs font-semibold transition-colors',
+                filtersOpen || extraFilters > 0
+                  ? 'bg-primary-subtle text-primary-text'
+                  : 'text-content-secondary hover:bg-surface-sunken hover:text-content',
               )}
             >
-              {chip.label}
-              <span className={cn('tabular-nums', channel === chip.key ? 'opacity-70' : 'text-content-tertiary')}>
-                {chip.count}
-              </span>
+              <SlidersHorizontal className="size-3.5" />
+              <span className="hidden sm:inline">{t('bank.filters')}</span>
+              {extraFilters > 0 && (
+                <span className="inline-flex size-4 items-center justify-center rounded-full bg-primary text-[10px] font-bold text-white tabular-nums">
+                  {extraFilters}
+                </span>
+              )}
             </button>
-          ))}
+            <button
+              type="button"
+              onClick={() => setNewestFirst((value) => !value)}
+              title={newestFirst ? t('bank.newestFirst') : t('bank.oldestFirst')}
+              aria-label={newestFirst ? t('bank.newestFirst') : t('bank.oldestFirst')}
+              className="my-1 me-1 inline-flex w-8 shrink-0 items-center justify-center rounded-lg text-content-secondary transition-colors hover:bg-surface-sunken hover:text-content"
+            >
+              {newestFirst ? <ArrowUpWideNarrow className="size-4" /> : <ArrowDownWideNarrow className="size-4" />}
+            </button>
+          </div>
+
+          {/* The rest, folded: the money, the kind, and a range of sums. */}
+          {filtersOpen && (
+            <div className="grid grid-cols-1 gap-2 rounded-xl bg-surface-sunken/70 p-2 ring-1 ring-border-subtle sm:grid-cols-[auto_auto_1fr]">
+              {currencies.length > 1 && (
+                <PillSelect
+                  label={t('bank.currency')}
+                  placeholder={t('bank.anyCurrency')}
+                  icon={<Coins className="size-3.5 shrink-0" />}
+                  value={currency}
+                  onChange={setCurrency}
+                  options={currencies.map((code) => ({
+                    value: code,
+                    label: code,
+                    hint: source.filter((line) => line.currency === code).length,
+                  }))}
+                />
+              )}
+              {kinds.length > 1 && (
+                <PillSelect
+                  label={t('bank.kind')}
+                  placeholder={t('bank.anyKind')}
+                  icon={<Layers className="size-3.5 shrink-0" />}
+                  value={kind}
+                  onChange={setKind}
+                  options={kinds.map((name) => ({
+                    value: name,
+                    label: name,
+                    hint: source.filter((line) => line.kind === name).length,
+                  }))}
+                />
+              )}
+              <div className="flex h-8 items-center gap-1 rounded-full bg-surface px-3 ring-1 ring-border-subtle">
+                <span className="shrink-0 text-[11px] font-medium text-content-tertiary">{t('bank.amountRange')}</span>
+                <input
+                  inputMode="decimal"
+                  dir="ltr"
+                  value={minAmount}
+                  onChange={(event) => setMinAmount(digitsOnly(event.target.value))}
+                  placeholder={t('bank.from')}
+                  aria-label={t('bank.from')}
+                  className="h-full min-w-0 flex-1 bg-transparent text-center text-xs font-semibold tabular-nums text-content outline-none"
+                />
+                <span className="text-xs text-content-tertiary">–</span>
+                <input
+                  inputMode="decimal"
+                  dir="ltr"
+                  value={maxAmount}
+                  onChange={(event) => setMaxAmount(digitsOnly(event.target.value))}
+                  placeholder={t('bank.to')}
+                  aria-label={t('bank.to')}
+                  className="h-full min-w-0 flex-1 bg-transparent text-center text-xs font-semibold tabular-nums text-content outline-none"
+                />
+              </div>
+            </div>
+          )}
+
+          {/* What is on, each taken off by itself. */}
+          {(currency || kind || minAmount || maxAmount) && !filtersOpen && (
+            <div className="flex flex-wrap items-center gap-1.5">
+              {currency && (
+                <FilterChip icon={<Coins className="size-3" />} label={currency} onClear={() => setCurrency(null)} />
+              )}
+              {kind && <FilterChip icon={<Layers className="size-3" />} label={kind} onClear={() => setKind(null)} />}
+              {(minAmount || maxAmount) && (
+                <FilterChip
+                  label={`${minAmount || '0'} – ${maxAmount || '∞'}`}
+                  onClear={() => {
+                    setMinAmount('');
+                    setMaxAmount('');
+                  }}
+                />
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* The banks as tabs, each with how many wait on it. */}
+        <div className="mt-2 flex items-end gap-0.5 overflow-x-auto px-2 [scrollbar-width:none]">
+          {[
+            { key: null as string | null, label: t('bank.all'), count: source.length },
+            ...channels.map(([name, entry]) => ({
+              key: name,
+              label: name === '—' ? t('bank.noChannel') : name,
+              count: entry.count,
+            })),
+          ].map((chip) => {
+            const on = channel === chip.key;
+            return (
+              <button
+                key={chip.key ?? 'all'}
+                type="button"
+                aria-pressed={on}
+                onClick={() => setChannel(on ? null : chip.key)}
+                className={cn(
+                  'relative inline-flex h-9 shrink-0 items-center gap-1.5 rounded-t-lg px-2.5 text-xs font-semibold transition-colors',
+                  on ? 'text-content' : 'text-content-tertiary hover:bg-surface-sunken/70 hover:text-content-secondary',
+                )}
+              >
+                {chip.label}
+                <span
+                  className={cn(
+                    'inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full px-1 text-[10px] font-bold tabular-nums',
+                    on ? 'bg-primary text-white' : 'bg-surface-sunken text-content-tertiary',
+                  )}
+                >
+                  {chip.count}
+                </span>
+                {on && <span className="absolute inset-x-2 bottom-0 h-0.5 rounded-full bg-primary" aria-hidden />}
+              </button>
+            );
+          })}
           {narrowed && (
             <button
               type="button"
@@ -459,22 +556,13 @@ export function BankView() {
                 setMaxAmount('');
                 setDays(ANY_DAY);
               }}
-              className="ms-auto inline-flex h-7 shrink-0 items-center gap-1 rounded-full px-2 text-[11px] font-medium text-content-tertiary hover:text-danger-text"
+              className="sticky end-0 ms-auto inline-flex h-9 shrink-0 items-center gap-1 bg-surface ps-2 pe-1 text-[11px] font-semibold text-content-tertiary hover:text-danger-text"
             >
               <X className="size-3" />
               {t('bank.clearFilters')}
             </button>
           )}
         </div>
-        {channel && (
-          <p className="flex flex-wrap gap-2 text-[11px] text-content-tertiary">
-            {[...(channels.find(([name]) => name === channel)?.[1].sums.entries() ?? [])].map(
-              ([currency, sum]) => (
-                <Money key={currency} value={sum} currency={currency} className="font-semibold" />
-              ),
-            )}
-          </p>
-        )}
       </div>
 
       {/* --- What is still to be sent, oldest first, one compact row each --- */}
