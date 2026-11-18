@@ -149,9 +149,16 @@ export function MessageTrace({
   );
 
   return createPortal(
-    <div className="fixed inset-0 z-[55] flex" role="dialog" aria-modal="true" aria-label={t('bankFeed.traceTitle')}>
-      <button type="button" aria-label={t('common.close')} onClick={onClose} className="flex-1 bg-black/30 backdrop-blur-[1px]" />
-      <aside className="flex h-full w-full max-w-md flex-col bg-surface-sunken shadow-[0_0_60px_-10px_rgb(0_0_0/0.4)]">
+    // From the top, over the middle of the page: the list and the groups stay in sight beneath it.
+    <div className="fixed inset-0 z-[55] flex flex-col items-center" role="dialog" aria-modal="true" aria-label={t('bankFeed.traceTitle')}>
+      <button
+        type="button"
+        aria-label={t('common.close')}
+        onClick={onClose}
+        className="absolute inset-0 bg-black/30 backdrop-blur-[1px]"
+      />
+      <aside className="relative mt-2 flex max-h-[80vh] w-[calc(100%-1rem)] max-w-2xl animate-[trace-in_180ms_ease-out] flex-col overflow-hidden rounded-2xl bg-surface-sunken shadow-[0_24px_60px_-12px_rgb(0_0_0/0.45)] ring-1 ring-border-subtle sm:mt-4">
+        <style>{'@keyframes trace-in{from{opacity:0;transform:translateY(-16px)}to{opacity:1;transform:none}}'}</style>
         <header className="flex items-center justify-between gap-2 border-b border-border-subtle bg-surface p-4">
           <div>
             <p className="text-base font-semibold text-content">{t('bankFeed.traceTitle')}</p>
