@@ -57,12 +57,28 @@ export type IconName =
   | 'staff'
   | 'settings';
 
+/** Whether the supervisor hid the page at this address from this person. */
+export function hiddenFor(pathname: string, permissions: string[]): boolean {
+  return permissions.some(
+    (permission) =>
+      permission.startsWith('nav.hidden:') &&
+      (pathname === permission.slice(11) || pathname.startsWith(`${permission.slice(11)}/`)),
+  );
+}
+
 export const NAVIGATION: NavSection[] = [
   // --- The counter ---------------------------------------------------------
   {
     id: 'counter',
     labelKey: 'nav.counter',
     items: [
+      {
+        // The menus the tellers see: the supervisor hides some, and the manager.
+        href: '/counter/menus',
+        labelKey: 'nav.tellerMenus',
+        icon: 'staff',
+        permissions: ['treasury.supervise', 'settings.manage'],
+      },
       {
         // The bank desk: whoever the settings name, and the manager.
         href: '/bank',
@@ -334,7 +350,9 @@ export function visibleNavigation(permissions: string[]): NavSection[] {
     items: section.items.filter(
       (item) =>
         (!item.permissions || item.permissions.some((p) => granted.has(p))) &&
-        !item.hiddenWith?.some((p) => granted.has(p)),
+        !item.hiddenWith?.some((p) => granted.has(p)) &&
+        // Hidden from this teller by their supervisor.
+        !granted.has(`nav.hidden:${item.href}`),
     ),
   })).filter((section) => section.items.length > 0);
 }

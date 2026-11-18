@@ -1,6 +1,13 @@
 import 'server-only';
 import { prisma, type DbClient } from '@/core/db/prisma';
-import { BANK_EXECUTE, isBankExecutor } from '@/modules/bank/bank-desk';
+import {
+  BANK_EXECUTE,
+  hiddenMark,
+  hiddenMenus,
+  isBankExecutor,
+  SUPERVISE,
+  supervisorId,
+} from '@/modules/bank/bank-desk';
 import { env } from '@/core/config/env';
 import { randomToken, sha256 } from '@/core/security/crypto';
 import { createLogger } from '@/core/logger/logger';
@@ -148,6 +155,17 @@ export async function resolveSession(
 
   // The bank desk is whoever the settings name, not a role: being named is the grant.
   if (await isBankExecutor(session.user.id, db)) granted.add(BANK_EXECUTE);
+
+  /*
+   * The tellers' supervisor is named on the settings page, and hides menus from
+   * the tellers. Hidden is carried as a mark among the teller's permissions; the
+   * supervisor and anyone who manages the settings keep every menu.
+   */
+  const supervisor = await supervisorId(db);
+  if (supervisor && supervisor === session.user.id) granted.add(SUPERVISE);
+  if (!granted.has(SUPERVISE) && !granted.has('settings.manage')) {
+    for (const href of await hiddenMenus(db)) granted.add(hiddenMark(href));
+  }
 
   const permissions = [...granted].filter((key) => !denied.has(key)).sort();
 

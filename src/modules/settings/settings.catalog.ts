@@ -130,6 +130,13 @@ export const SETTINGS: SettingDefinition[] = [
   },
 
   {
+    // The menus the tellers' supervisor hid from the tellers: chosen on its own page.
+    key: 'nav.hiddenForTellers', category: 'operations', type: 'json', defaultValue: [],
+    labelEn: 'Menus hidden from the tellers', labelAr: 'القوائم المخفية عن التلرات',
+    descriptionEn: 'Chosen on the Tellers\' menus page.', descriptionAr: 'تُختار من صفحة «قوائم التلرات».',
+    hidden: true,
+  },
+  {
     // The groups the bank desk follows: chosen on the «بنك» page itself.
     key: 'bank.watchedGroups', category: 'operations', type: 'json', defaultValue: [],
     labelEn: 'Groups the bank desk follows', labelAr: 'القروبات التي يتابعها البنك',

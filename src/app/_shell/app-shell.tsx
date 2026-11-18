@@ -24,7 +24,7 @@ import { DropdownMenu, MenuItem, MenuLabel, MenuSeparator } from '@/ui/overlay';
 import { cn, initials } from '@/ui/utils';
 import { BRAND } from './brand';
 import { DayChip } from './day-chip';
-import { isActiveRoute, visibleNavigation, type NavItem } from './navigation';
+import { hiddenFor, isActiveRoute, visibleNavigation, type NavItem } from './navigation';
 import { NAV_ICONS } from './icons';
 import { CommandPalette } from './command-palette';
 import { ShortcutHelp, useShortcuts } from './shortcuts';
@@ -399,7 +399,17 @@ export function AppShell({
         </header>
 
         <main className="flex-1 px-3 py-4 sm:px-5 sm:py-6">
-          <div className="mx-auto w-full max-w-[100rem]">{children}</div>
+          <div className="mx-auto w-full max-w-[100rem]">
+            {/* A page the supervisor hid from this teller: reached by its address, it is still not theirs. */}
+            {hiddenFor(pathname, user.permissions) ? (
+              <div className="mx-auto mt-16 max-w-md rounded-2xl bg-surface p-8 text-center ring-1 ring-border-subtle">
+                <p className="text-lg font-semibold text-content">{t('nav.hiddenTitle')}</p>
+                <p className="mt-2 text-sm text-content-secondary">{t('nav.hiddenBody')}</p>
+              </div>
+            ) : (
+              children
+            )}
+          </div>
         </main>
       </div>
 
