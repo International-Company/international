@@ -16,7 +16,7 @@ export function BankDesk() {
   const [tab, setTab] = useState<'transfers' | 'groups'>('transfers');
   return (
     <div className="space-y-3">
-      <div className="grid grid-cols-2 gap-1 rounded-full bg-surface-sunken p-1 lg:hidden">
+      <div className="grid grid-cols-2 gap-1 rounded-full bg-surface-sunken p-1 xl:hidden">
         {(['transfers', 'groups'] as const).map((option) => (
           <button
             key={option}
@@ -34,11 +34,11 @@ export function BankDesk() {
           </button>
         ))}
       </div>
-      <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-[minmax(20rem,26rem)_minmax(0,1fr)]">
-        <div className={cn(tab === 'transfers' ? 'block' : 'hidden', 'min-w-0 lg:block')}>
+      <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-[minmax(22rem,28rem)_minmax(0,1fr)]">
+        <div className={cn(tab === 'transfers' ? 'block' : 'hidden', 'min-w-0 xl:block')}>
           <BankView />
         </div>
-        <div className={cn(tab === 'groups' ? 'block' : 'hidden', 'min-w-0 lg:block')}>
+        <div className={cn(tab === 'groups' ? 'block' : 'hidden', 'min-w-0 xl:block')}>
           <GroupFeed />
         </div>
       </div>

@@ -272,7 +272,7 @@ export function GroupFeed() {
   );
 
   return (
-    <Card className="flex h-[78vh] min-h-[28rem] flex-col overflow-hidden p-0">
+    <Card className="flex h-[calc(100dvh-15rem)] min-h-[26rem] flex-col overflow-hidden p-0 xl:h-[78vh] xl:min-h-[28rem]">
       {/* --- One tab per followed group --- */}
       <div className="flex items-center gap-1 overflow-x-auto border-b border-border-subtle p-2">
         {(groups ?? []).map((group) => (

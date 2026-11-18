@@ -76,7 +76,7 @@ export function OriginBadge({ origin }: { origin?: Origin }) {
   return (
     <span
       className={cn(
-        'inline-flex min-w-0 items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold',
+        'inline-flex min-w-0 max-w-full items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold',
         external ? 'bg-warning-subtle text-warning-text' : 'bg-success-subtle text-success-text',
       )}
       title={external ? t('bank.originExternalHint') : t('bank.originSystemHint')}
@@ -292,7 +292,7 @@ export function BankView() {
   }
 
   return (
-    <Card className="flex h-[78vh] min-h-[28rem] flex-col overflow-hidden p-0">
+    <Card className="flex h-[calc(100dvh-15rem)] min-h-[26rem] flex-col overflow-hidden p-0 xl:h-[78vh] xl:min-h-[28rem]">
       {/* --- The list's head: how many, a search, and the rest folded away until asked for --- */}
       <div className="space-y-2 border-b border-border-subtle px-3 pb-2 pt-3">
         <div className="flex items-center gap-2">
@@ -511,12 +511,16 @@ export function BankView() {
                   opened === line.id && 'bg-primary-subtle/60',
                 )}
               >
-                <div className="flex items-center gap-2">
-                  <span className="inline-flex min-w-0 items-center gap-1 truncate rounded-full bg-primary-subtle px-2 py-0.5 text-[11px] font-semibold text-primary-text">
-                    <Landmark className="size-3 shrink-0" />
-                    {line.channel ?? t('bank.noChannel')}
-                  </span>
-                  <OriginBadge origin={line.origin} />
+                {/* Where and from whom, then the sum and its button: on a narrow screen the sum drops under them. */}
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
+                  <div className="flex min-w-0 flex-1 basis-[11rem] flex-wrap items-center gap-1">
+                    <span className="inline-flex max-w-full items-center gap-1 truncate rounded-full bg-primary-subtle px-2 py-0.5 text-[11px] font-semibold text-primary-text">
+                      <Landmark className="size-3 shrink-0" />
+                      <span className="truncate">{line.channel ?? t('bank.noChannel')}</span>
+                    </span>
+                    <OriginBadge origin={line.origin} />
+                  </div>
+                  <div className="ms-auto flex shrink-0 items-center gap-2">
                   <button
                     type="button"
                     onClick={(event) => {
@@ -525,7 +529,6 @@ export function BankView() {
                       toast.success(t('bank.copied'), t('bank.amount'));
                     }}
                     title={t('bank.amount')}
-                    className="ms-auto"
                   >
                     <Money value={line.amount} currency={line.currency} className="text-base font-bold text-content" />
                   </button>
@@ -561,6 +564,7 @@ export function BankView() {
                       )}
                     </span>
                   )}
+                  </div>
                 </div>
                 <div className="flex flex-wrap items-center gap-x-1">
                   {line.account && <CopyValue value={line.account} label={t('bank.account')} big />}
