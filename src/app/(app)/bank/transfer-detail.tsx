@@ -43,7 +43,14 @@ interface Detail {
   recipientIdNumber: string | null;
   delivered: { amount: string; unit: string } | null;
   branch: string | null;
-  proofs: { id: string; kind: string }[];
+  proofs?: { id: string; kind: string }[];
+  /** A request from a group: the message it was read from, and how it was added. */
+  source?: 'deal' | 'group';
+  message?: string;
+  senderPhone?: string | null;
+  auto?: boolean;
+  addedByName?: string | null;
+  receiptId?: string | null;
 }
 
 /** A 1e8-scaled rate as the counter reads it: "3.65", "0.2740". */
@@ -65,13 +72,19 @@ function plain(scaled: string): string {
  */
 export function TransferDetail({
   id,
+  fromGroup = false,
   onClose,
   onSend,
+  onChanged,
 }: {
   id: string | null;
+  /** A request asked for in a followed group, not a deal's transfer. */
+  fromGroup?: boolean;
   onClose: () => void;
   /** Opens the list's own "sent" confirmation for this transfer. */
   onSend: (id: string) => void;
+  /** The list should ask again: a request was taken off it. */
+  onChanged?: () => void;
 }) {
   const { t, locale } = useLocale();
   const toast = useToast();
@@ -83,10 +96,10 @@ export function TransferDetail({
     setDetail(null);
     setFailed(false);
     api
-      .get<Detail>(`/api/bank/${id}`)
+      .get<Detail>(fromGroup ? `/api/bank/requests/${id}` : `/api/bank/${id}`)
       .then(setDetail)
       .catch(() => setFailed(true));
-  }, [id]);
+  }, [id, fromGroup]);
 
   useEffect(() => {
     if (!id) return;
@@ -238,7 +251,36 @@ export function TransferDetail({
                 {detail.customerCode && <Row label={t('bank.customer')}>{detail.customerCode}</Row>}
               </Section>
 
+              {/* --- A group's request: the message it came as, and who sent it --- */}
+              {detail.source === 'group' && (
+                <section className="rounded-2xl bg-surface p-3 ring-1 ring-border-subtle">
+                  <h3 className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-content-tertiary">
+                    {t('bank.detailMessage')} · {detail.reference}
+                  </h3>
+                  <p className="mb-2 text-xs text-content-secondary">
+                    {detail.by}
+                    {detail.senderPhone && <span className="ms-1 ltr-content">+{detail.senderPhone}</span>}
+                    {' · '}
+                    {detail.auto ? t('bank.readByBot') : t('bank.addedBy', { name: detail.addedByName ?? '' })}
+                  </p>
+                  <p className="whitespace-pre-wrap rounded-xl bg-surface-sunken p-3 text-sm text-content">
+                    {detail.message}
+                  </p>
+                  {detail.receiptId && (
+                    <a href={`/api/bank/requests/${detail.id}/receipt`} target="_blank" rel="noopener noreferrer">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={`/api/bank/requests/${detail.id}/receipt`}
+                        alt=""
+                        className="mt-2 max-h-40 rounded-lg object-contain ring-1 ring-border-subtle"
+                      />
+                    </a>
+                  )}
+                </section>
+              )}
+
               {/* --- The deal behind it --- */}
+              {detail.source !== 'group' && (
               <Section title={t('bank.detailDeal')}>
                 <Row label={t('bank.detailPaid')}>
                   <Money value={detail.fromAmount} currency={detail.fromCurrency} />
@@ -278,15 +320,16 @@ export function TransferDetail({
                 )}
                 {detail.notes && <Row label={t('common.notes')}>{detail.notes}</Row>}
               </Section>
+              )}
 
               {/* --- Its photos --- */}
-              {detail.proofs.length > 0 && (
+              {(detail.proofs?.length ?? 0) > 0 && (
                 <section className="rounded-2xl bg-surface p-3 ring-1 ring-border-subtle">
                   <h3 className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-content-tertiary">
                     {t('bank.detailPhotos')}
                   </h3>
                   <div className="grid grid-cols-3 gap-2">
-                    {detail.proofs.map((proof) => (
+                    {detail.proofs!.map((proof) => (
                       <a key={proof.id} href={`/api/bank/${detail.id}/proofs/${proof.id}`} target="_blank" rel="noopener noreferrer">
                         {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img
@@ -318,6 +361,27 @@ export function TransferDetail({
                 {t('bank.markSent')}
               </Button>
             )}
+            {detail.source === 'group' ? (
+              pending && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    void api
+                      .delete(`/api/bank/requests/${detail.id}`)
+                      .then(() => {
+                        toast.success(t('bank.dismissed'));
+                        onChanged?.();
+                        onClose();
+                      })
+                      .catch(() => toast.error(t('errors.title'), t('errors.generic')));
+                  }}
+                  className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-[var(--radius-control)] px-3 text-sm font-medium text-danger-text ring-1 ring-border-subtle hover:bg-danger-subtle"
+                >
+                  <X className="size-4" />
+                  {t('bank.dismiss')}
+                </button>
+              )
+            ) : (
             <Link
               href={`/manage/transactions/${detail.id}`}
               className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-[var(--radius-control)] px-3 text-sm font-medium text-primary-text ring-1 ring-border-subtle hover:bg-surface-sunken"
@@ -325,6 +389,7 @@ export function TransferDetail({
               <ExternalLink className="size-4" />
               {t('bank.detailOpen')}
             </Link>
+            )}
           </footer>
         )}
       </aside>

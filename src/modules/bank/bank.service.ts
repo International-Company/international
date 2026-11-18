@@ -4,6 +4,8 @@ import { errors } from '@/core/errors/app-error';
 import { emitAsync } from '@/core/events/bus';
 import { createLogger } from '@/core/logger/logger';
 import { BANK_EXECUTE } from './bank-desk';
+import { forDesk } from './bank-request.service';
+import { watched } from './group-feed.service';
 import { readProofImage } from '@/modules/exchange/proof-image';
 import { confirmTransfer, type Actor } from '@/modules/exchange/transaction.service';
 import { TRANSACTION_TYPE_META, type TransactionType } from '@/modules/exchange/transaction-types';
@@ -84,6 +86,7 @@ export function deskLine(row: Row) {
     null;
   return {
     id: row.id,
+    source: 'deal' as const,
     reference: row.reference,
     status: row.status,
     kind: TRANSACTION_TYPE_META[row.type as TransactionType]?.nameAr ?? row.type,
@@ -209,10 +212,16 @@ export async function desk(
         select: SELECT,
       })
     : null;
+  // The groups' requests beside the deals, each list in the order things happened.
+  const groups = await watched();
+  const groupName = (chat: string) => groups.find((group) => group.id === chat)?.name ?? null;
+  const requests = await forDesk(groupName, range ?? null, db);
+  const byTime = <T extends { at: Date }>(list: T[]) =>
+    list.sort((a, b) => a.at.getTime() - b.at.getTime());
   return {
-    waiting: waiting.map(deskLine),
-    sent: sent.map(deskLine),
-    range: inRange ? inRange.map(deskLine) : null,
+    waiting: byTime([...waiting.map(deskLine), ...requests.waiting]),
+    sent: [...sent.map(deskLine), ...requests.sent],
+    range: inRange ? byTime([...inRange.map(deskLine), ...(requests.range ?? [])]) : null,
   };
 }
 

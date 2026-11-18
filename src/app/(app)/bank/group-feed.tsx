@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import {
   CheckCircle2,
+  ClipboardList,
   Clock,
   CornerUpLeft,
   CornerUpRight,
@@ -17,7 +18,7 @@ import { api, ApiError } from '@/lib/api-client';
 import { say } from '@/lib/failure';
 import { Button, Card, EmptyState, Skeleton } from '@/ui/primitives';
 import { Dialog, useToast } from '@/ui/overlay';
-import { Field, Textarea } from '@/ui/form';
+import { Field, Input, Select, Textarea } from '@/ui/form';
 import { cn } from '@/ui/utils';
 import { clockOf, dayKey, dayLabel } from './days';
 import { ANY_DAY, DateRangePicker, inRange, type DayRange } from '@/ui/date-range-picker';
@@ -39,6 +40,16 @@ interface FeedMessage {
   deal: { id: string; reference: string; status: string; sent: boolean } | null;
   forwardedTo: { group: string; auto: boolean; by: string | null; at: string }[];
   forwardedFrom: { group: string; auto: boolean; by: string | null } | null;
+  /** In the desk's list as a transfer to send, and how far it got. */
+  request: { id: string; status: string } | null;
+  /** What the bot read off it, for adding it to the list by hand. */
+  suggested: {
+    account: string;
+    name: string | null;
+    channel: string | null;
+    amount: string;
+    currency: string;
+  } | null;
 }
 
 
@@ -62,6 +73,16 @@ export function GroupFeed() {
   const [forwarding, setForwarding] = useState<{ message: FeedMessage; targets: Group[]; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const scroller = useRef<HTMLDivElement>(null);
+  /** The banks a request may name, and a message being added to the desk's list. */
+  const [channels, setChannels] = useState<string[]>([]);
+  const [adding, setAdding] = useState<{
+    message: FeedMessage;
+    account: string;
+    name: string;
+    channel: string;
+    amount: string;
+    currency: string;
+  } | null>(null);
   /** Searching the group (on the server, across all kept), and showing only some kinds. */
   const [query, setQuery] = useState('');
   const [searched, setSearched] = useState('');
@@ -85,7 +106,10 @@ export function GroupFeed() {
 
   const loadGroups = useCallback(async () => {
     try {
-      const result = await api.get<{ groups: Group[]; canChoose: boolean }>('/api/bank/groups');
+      const result = await api.get<{ groups: Group[]; canChoose: boolean; channels?: string[] }>(
+        '/api/bank/groups',
+      );
+      setChannels(result.channels ?? []);
       setGroups(result.groups);
       setCanChoose(result.canChoose);
       setChat((current) =>
@@ -185,6 +209,28 @@ export function GroupFeed() {
       );
       toast.success(t('bankFeed.forwarded'), result.sent.join('، '));
       setForwarding(null);
+      void loadFeed();
+    } catch (cause) {
+      failure(cause);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const addToList = async () => {
+    if (!adding) return;
+    setBusy(true);
+    try {
+      await api.post('/api/bank/requests', {
+        messageId: adding.message.id,
+        account: adding.account.trim(),
+        name: adding.name.trim() || null,
+        channel: adding.channel || null,
+        amount: adding.amount.trim(),
+        currency: adding.currency,
+      });
+      toast.success(t('bankFeed.added'));
+      setAdding(null);
       void loadFeed();
     } catch (cause) {
       failure(cause);
@@ -390,6 +436,25 @@ export function GroupFeed() {
                 </Link>
               )}
 
+              {/* In the desk's list: waiting, or sent. */}
+              {message.request && message.request.status !== 'DISMISSED' && (
+                <span
+                  className={cn(
+                    'mt-1 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium',
+                    message.request.status === 'SENT'
+                      ? 'bg-success-subtle text-success-text'
+                      : 'bg-warning-subtle text-warning-text',
+                  )}
+                >
+                  {message.request.status === 'SENT' ? (
+                    <CheckCircle2 className="size-3" />
+                  ) : (
+                    <ClipboardList className="size-3" />
+                  )}
+                  {message.request.status === 'SENT' ? t('bankFeed.requestSent') : t('bankFeed.inList')}
+                </span>
+              )}
+
               {/* Where it went from here. */}
               {message.forwardedTo.map((entry, index) => (
                 <p key={index} className="mt-1 flex items-center gap-1 text-[11px] text-content-tertiary">
@@ -401,6 +466,29 @@ export function GroupFeed() {
 
               <div className="mt-1 flex items-center justify-between gap-2">
                 <span className="text-[11px] tabular-nums text-content-tertiary ltr-content">{clockOf(message.at)}</span>
+                <span className="flex items-center gap-1">
+                {/* Someone else's message, not yet in the list: added by hand, from what the bot read. */}
+                {!message.fromMe && (!message.request || message.request.status === 'DISMISSED') && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setAdding({
+                        message,
+                        account: message.suggested?.account ?? '',
+                        name: message.suggested?.name ?? '',
+                        channel: message.suggested?.channel ?? channels[0] ?? '',
+                        amount: message.suggested
+                          ? String(Number(message.suggested.amount) / 1e8)
+                          : '',
+                        currency: message.suggested?.currency ?? 'ILS',
+                      })
+                    }
+                    className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium text-warning-text hover:bg-warning-subtle"
+                  >
+                    <ClipboardList className="size-3" />
+                    {t('bankFeed.addToList')}
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => {
@@ -412,6 +500,7 @@ export function GroupFeed() {
                   <Share2 className="size-3" />
                   {t('bankFeed.forward')}
                 </button>
+                </span>
               </div>
             </div>
             </div>
@@ -437,6 +526,94 @@ export function GroupFeed() {
         }
       >
         {choosing && groupPicker(choosing, (next) => setChoosing(next.slice(0, 10)))}
+      </Dialog>
+
+      {/* --- A message added to the desk's list by hand --- */}
+      <Dialog
+        open={adding !== null}
+        onClose={() => setAdding(null)}
+        title={t('bankFeed.addTitle')}
+        description={t('bankFeed.addHint')}
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setAdding(null)} disabled={busy}>
+              {t('common.cancel')}
+            </Button>
+            <Button
+              variant="primary"
+              loading={busy}
+              disabled={!adding?.account.trim() || !(Number(adding?.amount) > 0)}
+              onClick={() => void addToList()}
+            >
+              {t('bankFeed.addToList')}
+            </Button>
+          </>
+        }
+      >
+        {adding && (
+          <div className="space-y-3">
+            <p className="whitespace-pre-wrap rounded-xl bg-surface-sunken p-3 text-xs text-content-secondary">
+              {adding.message.text || '📎'}
+            </p>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Field label={t('bank.account')} required>
+                {(props) => (
+                  <Input
+                    {...props}
+                    dir="ltr"
+                    value={adding.account}
+                    onChange={(event) => setAdding({ ...adding, account: event.target.value })}
+                  />
+                )}
+              </Field>
+              <Field label={t('bank.name')}>
+                {(props) => (
+                  <Input
+                    {...props}
+                    value={adding.name}
+                    onChange={(event) => setAdding({ ...adding, name: event.target.value })}
+                  />
+                )}
+              </Field>
+              <Field label={t('bankFeed.channel')}>
+                {(props) => (
+                  <Select
+                    {...props}
+                    options={[
+                      { value: '', label: '—' },
+                      ...channels.map((entry) => ({ value: entry, label: entry })),
+                    ]}
+                    value={adding.channel}
+                    onChange={(event) => setAdding({ ...adding, channel: event.target.value })}
+                  />
+                )}
+              </Field>
+              <div className="grid grid-cols-[1fr_6rem] gap-2">
+                <Field label={t('bank.amount')} required>
+                  {(props) => (
+                    <Input
+                      {...props}
+                      dir="ltr"
+                      inputMode="decimal"
+                      value={adding.amount}
+                      onChange={(event) => setAdding({ ...adding, amount: event.target.value })}
+                    />
+                  )}
+                </Field>
+                <Field label={t('bank.currency')}>
+                  {(props) => (
+                    <Select
+                      {...props}
+                      options={['ILS', 'USD', 'JOD', 'EUR'].map((code) => ({ value: code, label: code }))}
+                      value={adding.currency}
+                      onChange={(event) => setAdding({ ...adding, currency: event.target.value })}
+                    />
+                  )}
+                </Field>
+              </div>
+            </div>
+          </div>
+        )}
       </Dialog>
 
       {/* --- Passing a message on, by the bot --- */}

@@ -11,6 +11,7 @@ import {
   Copy,
   Landmark,
   Layers,
+  MessagesSquare,
   RefreshCw,
   Search,
   X,
@@ -30,6 +31,8 @@ import { cn } from '@/ui/utils';
 
 interface Line {
   id: string;
+  /** A deal's transfer, or one asked for in a followed group. */
+  source?: 'deal' | 'group';
   reference: string;
   /** PENDING_TRANSFER while it waits; POSTED once sent; REVERSED when the deal was cancelled. */
   status: string;
@@ -211,7 +214,10 @@ export function BankView() {
     if (!sending) return;
     setBusy(true);
     try {
-      await api.post(`/api/bank/${sending.id}`, { receipt });
+      await api.post(
+        sending.source === 'group' ? `/api/bank/requests/${sending.id}` : `/api/bank/${sending.id}`,
+        { receipt },
+      );
       toast.success(t('bank.sentDone'), sending.reference);
       if (opened === sending.id) setOpened(null);
       setSending(null);
@@ -419,6 +425,12 @@ export function BankView() {
                     <Landmark className="size-3 shrink-0" />
                     {line.channel ?? t('bank.noChannel')}
                   </span>
+                  {line.source === 'group' && (
+                    <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-warning-subtle px-2 py-0.5 text-[11px] font-semibold text-warning-text">
+                      <MessagesSquare className="size-3" />
+                      {t('bank.fromGroup')}
+                    </span>
+                  )}
                   <button
                     type="button"
                     onClick={(event) => {
@@ -513,6 +525,8 @@ export function BankView() {
 
       <TransferDetail
         id={opened}
+        fromGroup={source.find((entry) => entry.id === opened)?.source === 'group'}
+        onChanged={() => void load()}
         onClose={() => setOpened(null)}
         onSend={(id) => {
           const line = source.find((entry) => entry.id === id);

@@ -13,6 +13,9 @@ import {
   type GroupSighting,
 } from '@/modules/whatsapp/whatsapp.service';
 import type { Actor } from '@/modules/exchange/transaction.service';
+import { transferChannels } from '@/modules/exchange/machine.service';
+import { fromGroup } from './bank-request.service';
+import { readTransferRequest } from './transfer-request';
 
 const log = createLogger('bank:groups');
 
@@ -91,6 +94,7 @@ async function keep(sighting: GroupSighting): Promise<void> {
         fromMe: sighting.fromMe,
         senderName: sighting.name?.slice(0, 120) ?? null,
         senderPhone: sighting.phone?.split('@')[0] ?? null,
+        senderJid: sighting.author ?? null,
         text: sighting.text.slice(0, 4000),
         mediaId,
         mediaKind: sighting.mediaKind,
@@ -101,6 +105,18 @@ async function keep(sighting: GroupSighting): Promise<void> {
     .catch((error: { code?: string }) => {
       if (error?.code !== 'P2002') throw error;
     });
+
+  // Someone else asking for a transfer: read for the desk's list. The office's own are deals already.
+  if (!sighting.fromMe && sighting.text.trim()) {
+    await fromGroup({
+      chat: sighting.chat,
+      waId: sighting.waId,
+      senderJid: sighting.author ?? null,
+      senderName: sighting.name,
+      senderPhone: sighting.phone?.split('@')[0] ?? null,
+      text: sighting.text,
+    }).catch((error) => log.warn('Could not read a transfer request', { error }));
+  }
 }
 
 /** What was older than the office keeps, with the files only it held. */
@@ -181,6 +197,8 @@ export async function feedGroups(actor: Actor) {
   return {
     groups: await watched(),
     canChoose: actor.permissions.includes('settings.manage'),
+    // The banks a request added by hand may name.
+    channels: await transferChannels(),
   };
 }
 
@@ -228,6 +246,13 @@ export async function feed(chat: string, actor: Actor, search?: string | null) {
   ).reverse();
   const ids = rows.map((row) => row.waId);
 
+  const [requests, channels] = await Promise.all([
+    prisma.bankRequest.findMany({
+      where: { chat, waId: { in: ids } },
+      select: { id: true, waId: true, status: true },
+    }),
+    transferChannels(),
+  ]);
   const [deals, outgoing, incoming] = await Promise.all([
     prisma.transaction.findMany({
       where: {
@@ -290,6 +315,18 @@ export async function feed(chat: string, actor: Actor, search?: string | null) {
           by: entry.byName,
           at: entry.createdAt,
         })),
+      // In the desk's list, or what the bot would put there were it added.
+      request: (() => {
+        const found = requests.find((entry) => entry.waId === row.waId);
+        return found ? { id: found.id, status: found.status } : null;
+      })(),
+      suggested:
+        !row.fromMe && !requests.some((entry) => entry.waId === row.waId)
+          ? (() => {
+              const read = readTransferRequest(row.text, channels);
+              return read ? { ...read, amount: read.amount.toString() } : null;
+            })()
+          : null,
       forwardedFrom: from
         ? {
             group: nameOf(from.sourceChat) ?? from.sourceChat,

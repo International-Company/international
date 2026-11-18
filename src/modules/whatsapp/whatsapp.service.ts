@@ -142,6 +142,8 @@ export interface GroupSighting {
   /** Who wrote it: their name on WhatsApp, and their number when WhatsApp gives it. */
   name: string | null;
   phone: string | null;
+  /** Who wrote it as the group addresses them, when it was not the office. */
+  author?: string | null;
   text: string;
   mediaKind: 'image' | 'video' | 'audio' | 'document' | null;
   at: Date;
@@ -365,6 +367,7 @@ async function open(account: Account): Promise<void> {
             chat: message.key.remoteJid,
             waId: message.key.id,
             fromMe: Boolean(message.key.fromMe),
+            author,
             name: message.pushName ?? null,
             phone:
               [message.key.participantAlt, author].find((jid) =>
@@ -1057,6 +1060,43 @@ export async function replyToSent(
   } as WAMessage;
   const sent = await sock.sendMessage(jid, { text }, { quoted });
   tellOwn(jid, sent?.key.id, text, false, sock.user?.id);
+  return sent;
+}
+
+/**
+ * Answers a message someone else wrote in a group, quoting it — with words, or
+ * with a photo and words under it — and puts a reaction on it.
+ */
+export async function answerInGroup(
+  jid: string,
+  quote: { id: string; author: string | null; text: string },
+  content: { text: string } | { image: Buffer; mimetype: string; caption: string },
+  reaction?: string,
+): Promise<SentMessage> {
+  const sock = await socketFor(jid);
+  const quoted = {
+    key: { remoteJid: jid, fromMe: false, id: quote.id, participant: quote.author ?? undefined },
+    message: { conversation: quote.text },
+  } as WAMessage;
+  const sent = await sock.sendMessage(
+    jid,
+    'text' in content
+      ? { text: content.text }
+      : { image: content.image, caption: content.caption, mimetype: content.mimetype },
+    { quoted },
+  );
+  if (reaction) {
+    await sock
+      .sendMessage(jid, {
+        react: {
+          text: reaction,
+          key: { remoteJid: jid, fromMe: false, id: quote.id, participant: quote.author ?? undefined },
+        },
+      })
+      .catch(() => undefined);
+  }
+  // Never passed on by the rules: it is the office's answer, not a deal.
+  if (sent?.key.id) firstSighting(shared.ownSeen, `${jid}:${sent.key.id}`);
   return sent;
 }
 

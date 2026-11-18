@@ -2441,6 +2441,8 @@ model GroupMessage {
   fromMe      Boolean  @default(false)
   senderName  String?
   senderPhone String?
+  /// Who wrote it, as WhatsApp addresses them in the group: what a reply quoting it names.
+  senderJid   String?
   text        String   @default("")
   /// A file it carried, kept in chat_images, and what kind.
   mediaId     String?
@@ -2472,4 +2474,39 @@ model GroupForward {
   @@index([targetChat, targetWaId])
   @@index([createdAt])
   @@map("group_forwards")
+}
+
+/// A transfer asked for in a followed group by someone outside the system: read off
+/// the message by the bot, or added by hand from the desk. It waits in the bank
+/// desk's list beside the deals' transfers until it is sent.
+model BankRequest {
+  id          String    @id @default(cuid())
+  /// Where it was asked: the group and WhatsApp's id for the message, to answer it.
+  chat        String
+  waId        String
+  senderJid   String?
+  senderName  String?
+  senderPhone String?
+  /// The message's words as they came, to read beside what was taken from them.
+  text        String    @default("")
+  account     String
+  name        String?
+  channel     String?
+  amount      BigInt
+  currency    String    @default("ILS")
+  /// PENDING | SENT | DISMISSED
+  status      String    @default("PENDING")
+  /// Read by the bot, or added by a person (named).
+  auto        Boolean   @default(true)
+  addedByName String?
+  sentAt      DateTime?
+  sentByName  String?
+  /// The bank's receipt, kept in chat_images.
+  receiptId   String?
+  createdAt   DateTime  @default(now())
+
+  @@unique([chat, waId])
+  @@index([status, createdAt])
+  @@index([createdAt])
+  @@map("bank_requests")
 }
