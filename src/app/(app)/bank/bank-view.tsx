@@ -10,11 +10,13 @@ import {
   Coins,
   Copy,
   CornerUpRight,
+  Globe,
   Landmark,
   Layers,
   MessagesSquare,
   RefreshCw,
   Search,
+  Server,
   ShieldCheck,
   X,
 } from 'lucide-react';
@@ -54,6 +56,35 @@ interface Line {
   sentBy: string | null;
   /** Its message in the bank group, as the groups' panel kept it: to check and pass on. */
   messageId?: string | null;
+  /** Recorded in the system, or asked in the group from outside the office — and by whom. */
+  origin?: Origin;
+}
+
+interface Origin {
+  kind: 'system' | 'external';
+  name: string | null;
+  phone: string | null;
+}
+
+/** Where a transfer came from: a system deal and its teller, or a number outside the office. */
+export function OriginBadge({ origin }: { origin?: Origin }) {
+  const { t } = useLocale();
+  if (!origin) return null;
+  const external = origin.kind === 'external';
+  return (
+    <span
+      className={cn(
+        'inline-flex min-w-0 items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold',
+        external ? 'bg-warning-subtle text-warning-text' : 'bg-success-subtle text-success-text',
+      )}
+      title={external ? t('bank.originExternalHint') : t('bank.originSystemHint')}
+    >
+      {external ? <Globe className="size-3 shrink-0" /> : <Server className="size-3 shrink-0" />}
+      <span className="shrink-0">{external ? t('bank.originExternal') : t('bank.originSystem')}</span>
+      {origin.name && <span className="truncate font-medium">· {origin.name}</span>}
+      {origin.phone && <span className="shrink-0 font-medium ltr-content">+{origin.phone}</span>}
+    </span>
+  );
 }
 
 interface Desk {
@@ -442,12 +473,7 @@ export function BankView() {
                     <Landmark className="size-3 shrink-0" />
                     {line.channel ?? t('bank.noChannel')}
                   </span>
-                  {line.source === 'group' && (
-                    <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-warning-subtle px-2 py-0.5 text-[11px] font-semibold text-warning-text">
-                      <MessagesSquare className="size-3" />
-                      {t('bank.fromGroup')}
-                    </span>
-                  )}
+                  <OriginBadge origin={line.origin} />
                   <button
                     type="button"
                     onClick={(event) => {
@@ -507,7 +533,7 @@ export function BankView() {
                   </span>
                   <span className="truncate">
                     {line.kind} · <span className="ltr-content font-mono">{line.reference}</span>
-                    {line.by && <> · {line.by}</>}
+                    {line.by && line.source !== 'group' && line.by !== line.origin?.name && <> · {line.by}</>}
                     {line.notes && <> · {line.notes}</>}
                   </span>
                 </p>

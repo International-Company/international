@@ -9,8 +9,10 @@ import {
   CheckCircle2,
   ClipboardList,
   CornerUpRight,
+  Globe,
   MessageSquare,
   Receipt,
+  Server,
   User,
   X,
 } from 'lucide-react';
@@ -184,6 +186,59 @@ export function MessageTrace({
               <Skeleton className="h-16" />
             </div>
           ) : (
+            <>
+            {(() => {
+              /*
+               * Who began it: the first message it was passed on from, when that was
+               * kept; otherwise this one. A deal's message is the system's; one from
+               * a number outside the office is from outside, with its name and number.
+               */
+              const first = trace.origins.find((origin) => origin.id) ?? trace.message;
+              const system = Boolean(trace.deal) || first.fromMe;
+              return (
+                <div
+                  className={cn(
+                    'mb-4 flex items-center gap-3 rounded-2xl p-3 ring-1',
+                    system ? 'bg-success-subtle/60 ring-success/30' : 'bg-warning-subtle/60 ring-warning/30',
+                  )}
+                >
+                  <span
+                    className={cn(
+                      'flex size-10 shrink-0 items-center justify-center rounded-xl text-white',
+                      system ? 'bg-success' : 'bg-warning',
+                    )}
+                  >
+                    {system ? <Server className="size-5" /> : <Globe className="size-5" />}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-semibold text-content">
+                      {trace.deal
+                        ? t('bank.originSystemLong')
+                        : first.fromMe
+                          ? t('bank.originOffice')
+                          : t('bank.originExternalLong')}
+                    </p>
+                    <p className="text-xs text-content-secondary">
+                      {trace.deal ? (
+                        <>
+                          {t('bank.originRecordedBy')}{' '}
+                          <span className="font-semibold text-content">{trace.deal.by ?? '—'}</span>
+                        </>
+                      ) : (
+                        <>
+                          {t('bank.originSender')} <span className="font-semibold text-content">{who(first)}</span>
+                          {first.senderPhone && (
+                            <span className="ms-1.5 font-semibold text-content ltr-content">+{first.senderPhone}</span>
+                          )}
+                        </>
+                      )}
+                      {' · '}
+                      {t('bank.originIn', { group: first.group })}
+                    </p>
+                  </div>
+                </div>
+              );
+            })()}
             <ol>
               {/* --- Where it began, and each time it was passed on before reaching here --- */}
               {trace.origins.map((origin, index) => (
@@ -313,6 +368,7 @@ export function MessageTrace({
                 </Step>
               )}
             </ol>
+            </>
           )}
         </div>
       </aside>

@@ -110,6 +110,12 @@ export function deskLine(row: Row) {
     by: row.createdBy?.fullNameAr ?? null,
     sentAt: row.transferConfirmedAt,
     sentBy: row.transferConfirmedBy?.fullNameAr ?? null,
+    // Recorded at the counter: the system's own, by the teller who recorded it.
+    origin: {
+      kind: 'system' as 'system' | 'external',
+      name: row.createdBy?.fullNameAr ?? null,
+      phone: null as string | null,
+    },
     // Its message in the groups: the transfers group's copy first, else its own announcement.
     messageRef: (row.copyChat && row.copyMessageId
       ? { chat: row.copyChat, waId: row.copyMessageId }

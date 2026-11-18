@@ -3,7 +3,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import Link from 'next/link';
-import { CalendarDays, Check, Clock, Copy, ExternalLink, Landmark, X } from 'lucide-react';
+import { CalendarDays, Check, Clock, Copy, ExternalLink, Globe, Landmark, Server, X } from 'lucide-react';
 import { useLocale } from '@/i18n/provider';
 import { api } from '@/lib/api-client';
 import { Button, Skeleton } from '@/ui/primitives';
@@ -51,6 +51,7 @@ interface Detail {
   auto?: boolean;
   addedByName?: string | null;
   receiptId?: string | null;
+  origin?: { kind: 'system' | 'external'; name: string | null; phone: string | null };
 }
 
 /** A 1e8-scaled rate as the counter reads it: "3.65", "0.2740". */
@@ -204,6 +205,46 @@ export function TransferDetail({
             </>
           ) : (
             <>
+              {/* --- Where it came from: the system, or a number outside the office --- */}
+              {detail.origin && (
+                <div
+                  className={cn(
+                    'flex items-center gap-3 rounded-2xl p-3 ring-1',
+                    detail.origin.kind === 'external'
+                      ? 'bg-warning-subtle/60 ring-warning/30'
+                      : 'bg-success-subtle/60 ring-success/30',
+                  )}
+                >
+                  <span
+                    className={cn(
+                      'flex size-10 shrink-0 items-center justify-center rounded-xl text-white',
+                      detail.origin.kind === 'external' ? 'bg-warning' : 'bg-success',
+                    )}
+                  >
+                    {detail.origin.kind === 'external' ? <Globe className="size-5" /> : <Server className="size-5" />}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-semibold text-content">
+                      {detail.origin.kind === 'external' ? t('bank.originExternalLong') : t('bank.originSystemLong')}
+                    </p>
+                    <p className="text-xs text-content-secondary">
+                      {detail.origin.kind === 'external' ? t('bank.originSender') : t('bank.originRecordedBy')}{' '}
+                      <span className="font-semibold text-content">{detail.origin.name ?? '—'}</span>
+                      {detail.origin.phone && (
+                        <button
+                          type="button"
+                          onClick={() => copy(detail.origin!.phone!, t('bank.phone'))}
+                          className="ms-1.5 inline-flex items-center gap-1 font-semibold text-content ltr-content hover:text-primary-text"
+                        >
+                          +{detail.origin.phone}
+                          <Copy className="size-3" />
+                        </button>
+                      )}
+                    </p>
+                  </div>
+                </div>
+              )}
+
               {/* --- When --- */}
               <div className="flex items-center gap-3 rounded-2xl bg-surface p-3 ring-1 ring-border-subtle">
                 <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary-subtle text-primary-text">

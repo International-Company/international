@@ -389,6 +389,17 @@ export function GroupFeed() {
   {!message.fromMe && message.senderPhone && message.senderName && (
                   <span className="font-normal text-content-tertiary ltr-content">+{message.senderPhone}</span>
                 )}
+                {message.deal ? (
+                  <span className="rounded-full bg-success-subtle px-1.5 text-[10px] font-semibold text-success-text">
+                    {t('bank.originSystem')}
+                  </span>
+                ) : (
+                  !message.fromMe && (
+                    <span className="rounded-full bg-warning-subtle px-1.5 text-[10px] font-semibold text-warning-text">
+                      {t('bank.originExternal')}
+                    </span>
+                  )
+                )}
               </p>
               {message.forwardedFrom && (
                 <p className="mb-1 flex items-center gap-1 text-[11px] text-content-tertiary">

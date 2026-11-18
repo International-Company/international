@@ -138,6 +138,12 @@ export function requestLine(row: RequestRow, groupName: string | null) {
     by: row.senderName ?? (row.senderPhone ? `+${row.senderPhone}` : null),
     sentAt: row.sentAt,
     sentBy: row.sentByName,
+    // Asked in the group by a number outside the office: whoever wrote it, and their number.
+    origin: {
+      kind: 'external' as 'system' | 'external',
+      name: row.senderName,
+      phone: row.senderPhone,
+    },
     messageRef: { chat: row.chat, waId: row.waId } as { chat: string; waId: string } | null,
   };
 }
