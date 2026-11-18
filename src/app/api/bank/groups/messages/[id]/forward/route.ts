@@ -11,6 +11,8 @@ const bodySchema = z.object({
     .max(10),
   /** The words as the person left them; the photo goes with them when there is one. */
   text: z.string().max(4000).default(''),
+  /** Left out, the photo stays behind and only the words go. */
+  withPhoto: z.boolean().optional(),
 });
 
 /** A followed group's message, passed on by the bot to the groups chosen. */

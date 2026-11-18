@@ -144,6 +144,13 @@ export const SETTINGS: SettingDefinition[] = [
     hidden: true,
   },
   {
+    // The groups that carry the transfers out: chosen on the «بنك» page, offered first when passing one on.
+    key: 'bank.executorGroups', category: 'operations', type: 'json', defaultValue: [],
+    labelEn: 'Groups that carry out bank transfers', labelAr: 'مجموعات التنفيذ البنكي',
+    descriptionEn: 'Chosen on the Bank page.', descriptionAr: 'تُختار من صفحة «بنك».',
+    hidden: true,
+  },
+  {
     key: 'bank.groupRetentionDays', category: 'operations', type: 'number', defaultValue: 14,
     min: 1, max: 90,
     labelEn: 'Days the bank desk keeps group messages',

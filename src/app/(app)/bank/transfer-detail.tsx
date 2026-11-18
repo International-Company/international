@@ -1,16 +1,63 @@
 'use client';
 
-import { useEffect, useState, type ReactNode } from 'react';
-import { createPortal } from 'react-dom';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import Link from 'next/link';
-import { CalendarDays, Check, Clock, Copy, ExternalLink, Globe, Landmark, Server, X } from 'lucide-react';
+import {
+  ArrowRight,
+  CalendarDays,
+  Check,
+  CheckCircle2,
+  ClipboardList,
+  Clock,
+  Copy,
+  CornerUpRight,
+  ExternalLink,
+  Globe,
+  Inbox,
+  Landmark,
+  MessageSquare,
+  Route,
+  Server,
+  X,
+} from 'lucide-react';
 import { useLocale } from '@/i18n/provider';
-import { api } from '@/lib/api-client';
-import { Button, Skeleton } from '@/ui/primitives';
+import { api, ApiError } from '@/lib/api-client';
+import { say } from '@/lib/failure';
+import { Button, Card, EmptyState, Skeleton } from '@/ui/primitives';
+import { Field, Input, Select } from '@/ui/form';
 import { Money } from '@/ui/display';
 import { useToast } from '@/ui/overlay';
 import { cn } from '@/ui/utils';
 import { clockOf, dayKey, dayLabel } from './days';
+import { keyOf, stateOf, type Line, type LineState } from './desk-types';
+import { MessageTrace } from './message-trace';
+
+/** What the trace says of the transfer's message: where it was written, by whom, and where it went. */
+interface TraceView {
+  message: {
+    id: string;
+    group: string;
+    fromMe: boolean;
+    senderName: string | null;
+    senderPhone: string | null;
+    text: string;
+    mediaId: string | null;
+    mediaKind: string | null;
+    at: string;
+  };
+  suggested: { account: string; name: string | null; channel: string | null; amount: string; currency: string } | null;
+  forwards: { group: string; at: string; delivered: boolean }[];
+  deal: { by: string | null } | null;
+}
+
+/** The colours and words of where a transfer stands. */
+export const STATE_STYLE = {
+  waiting: { chip: 'bg-warning-subtle text-warning-text', key: 'bankDesk.state.waiting' as const },
+  forwarded: { chip: 'bg-primary-subtle text-primary-text', key: 'bankDesk.state.forwarded' as const },
+  done: { chip: 'bg-success-subtle text-success-text', key: 'bankDesk.state.done' as const },
+  reversed: { chip: 'bg-danger-subtle text-danger-text', key: 'bankDesk.state.reversed' as const },
+  message: { chip: 'bg-surface-sunken text-content-secondary', key: 'bankDesk.state.message' as const },
+} satisfies Record<LineState, { chip: string; key: string }>;
 
 interface Detail {
   id: string;
@@ -45,7 +92,7 @@ interface Detail {
   branch: string | null;
   proofs?: { id: string; kind: string }[];
   /** A request from a group: the message it was read from, and how it was added. */
-  source?: 'deal' | 'group';
+  source?: 'deal' | 'group' | 'message';
   message?: string;
   senderPhone?: string | null;
   auto?: boolean;
@@ -67,51 +114,160 @@ function plain(scaled: string): string {
 }
 
 /**
- * One transfer in full, beside the list: the day and the hour it was promised,
- * where it goes and to whom, the deal behind it, who recorded it, its photos —
- * and the button that says it went.
+ * The middle column: one transfer in full. Where it came from first — the
+ * system and who recorded it, or a number outside the office — then the day and
+ * the hour, where it goes and to whom, the message it came as, the deal behind
+ * it, its photos, and how far it has got; and the buttons that move it on. A
+ * message of the group the bot did not take can be added to the list from here.
  */
 export function TransferDetail({
-  id,
-  fromGroup = false,
-  onClose,
+  line,
+  version = 0,
   onSend,
   onChanged,
+  onAdded,
+  onBack,
+  className,
 }: {
-  id: string | null;
-  /** A request asked for in a followed group, not a deal's transfer. */
-  fromGroup?: boolean;
-  onClose: () => void;
-  /** Opens the list's own "sent" confirmation for this transfer. */
-  onSend: (id: string) => void;
-  /** The list should ask again: a request was taken off it. */
+  line: Line | null;
+  /** Bumped when the list was asked again: the column asks again too. */
+  version?: number;
+  /** Opens the "sent" confirmation for this transfer. */
+  onSend: (line: Line) => void;
+  /** Something changed that the list should show. */
   onChanged?: () => void;
+  /** A message was added to the list as a request: the list should choose it. */
+  onAdded?: (key: string) => void;
+  /** On a phone: back to the list. */
+  onBack?: () => void;
+  className?: string;
 }) {
   const { t, locale } = useLocale();
   const toast = useToast();
   const [detail, setDetail] = useState<Detail | null>(null);
+  const [trace, setTrace] = useState<TraceView | null>(null);
   const [failed, setFailed] = useState(false);
+  const [tracing, setTracing] = useState<string | null>(null);
+  /** A bare message being added to the list, from what the bot read off it. */
+  const [adding, setAdding] = useState<{ account: string; name: string; channel: string; amount: string; currency: string } | null>(null);
+  const [channels, setChannels] = useState<string[]>([]);
+  const [busy, setBusy] = useState(false);
+  const key = line ? keyOf(line) : null;
+
+  const failure = useCallback(
+    (cause: unknown) =>
+      toast.error(
+        t('errors.title'),
+        cause instanceof ApiError ? say(t, cause.messageKey, cause.params) || cause.message : t('errors.generic'),
+      ),
+    [toast, t],
+  );
 
   useEffect(() => {
-    if (!id) return;
-    setDetail(null);
+    if (!line) {
+      setDetail(null);
+      setTrace(null);
+      return;
+    }
+    let gone = false;
     setFailed(false);
-    api
-      .get<Detail>(fromGroup ? `/api/bank/requests/${id}` : `/api/bank/${id}`)
-      .then(setDetail)
-      .catch(() => setFailed(true));
-  }, [id, fromGroup]);
-
-  useEffect(() => {
-    if (!id) return;
-    const escape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose();
+    const firstLook = !detail || keyOf(detail as unknown as Line) !== key;
+    if (firstLook) {
+      setDetail(null);
+      setTrace(null);
+      setAdding(null);
+    }
+    const tracing = line.messageId
+      ? api.get<TraceView>(`/api/bank/groups/messages/${line.messageId}/trace`).catch(() => null)
+      : Promise.resolve(null);
+    const reading =
+      line.source === 'message'
+        ? Promise.resolve(null)
+        : api.get<Detail>(line.source === 'group' ? `/api/bank/requests/${line.id}` : `/api/bank/${line.id}`);
+    Promise.all([reading, tracing])
+      .then(([read, traced]) => {
+        if (gone) return;
+        setTrace(traced);
+        // A bare message has no record of its own: what the list knows, and its words.
+        setDetail(
+          read ? { ...read, origin: read.origin ?? line.origin } : {
+            ...line,
+            status: 'MESSAGE',
+            fromCurrency: '',
+            fromAmount: '0',
+            toAmount: '0',
+            rate: '0',
+            intakeCash: '0',
+            intakeTransfer: '0',
+            intakeChannel: null,
+            payoutCash: '0',
+            customerCode: null,
+            counterpartyName: null,
+            recipientName: null,
+            recipientPhone: null,
+            recipientIdNumber: null,
+            delivered: null,
+            branch: null,
+            source: 'message',
+            message: traced?.message.text ?? line.text ?? '',
+            senderPhone: line.origin?.phone ?? null,
+          },
+        );
+      })
+      .catch(() => {
+        if (!gone) setFailed(true);
+      });
+    return () => {
+      gone = true;
     };
-    document.addEventListener('keydown', escape);
-    return () => document.removeEventListener('keydown', escape);
-  }, [id, onClose]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key, version]);
 
-  if (!id) return null;
+  // The banks a request added by hand may name.
+  useEffect(() => {
+    if (line?.source !== 'message' || channels.length) return;
+    api
+      .get<{ channels: string[] }>('/api/bank/groups')
+      .then((result) => setChannels(result.channels))
+      .catch(() => undefined);
+  }, [line?.source, channels.length]);
+
+  if (!line) {
+    return (
+      <Card className={cn('flex flex-col items-center justify-center p-6', className)}>
+        <EmptyState icon={<Inbox />} title={t('bankDesk.pickTitle')} description={t('bankDesk.pickHint')} />
+      </Card>
+    );
+  }
+
+  const addToList = async () => {
+    if (!adding || !line.messageId) return;
+    setBusy(true);
+    try {
+      const result = await api.post<{ id: string }>('/api/bank/requests', {
+        messageId: line.messageId,
+        account: adding.account.trim(),
+        name: adding.name.trim() || null,
+        channel: adding.channel || null,
+        amount: adding.amount.trim(),
+        currency: adding.currency,
+      });
+      toast.success(t('bankFeed.added'));
+      setAdding(null);
+      onAdded?.(keyOf({ id: result.id, source: 'group' }));
+      onChanged?.();
+    } catch (cause) {
+      failure(cause);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const state = stateOf(line);
+  const when = (at: string) =>
+    `${dayLabel(dayKey(at), locale, { today: t('bank.period.today'), yesterday: t('bank.period.yesterday') })} · ${clockOf(at)}`;
+  // Who began it, where and when: the trace's message, when it was kept.
+  const sender = trace?.message;
 
   const copy = (value: string, what: string) => {
     void navigator.clipboard?.writeText(value);
@@ -146,27 +302,32 @@ export function TransferDetail({
 
   const pending = detail?.status === 'PENDING_TRANSFER';
 
-  return createPortal(
-    <div className="fixed inset-0 z-[55] flex" role="dialog" aria-modal="true" aria-label={t('bank.detailTitle')}>
-      <button type="button" aria-label={t('common.close')} onClick={onClose} className="flex-1 bg-black/30 backdrop-blur-[1px]" />
-      <aside className="flex h-full w-full max-w-md flex-col bg-surface-sunken shadow-[0_0_60px_-10px_rgb(0_0_0/0.4)]">
+  return (
+    <Card className={cn('flex flex-col overflow-hidden bg-surface-sunken p-0', className)}>
         {/* --- The head: what it is, and the sum --- */}
         <header className="border-b border-border-subtle bg-surface p-4">
           <div className="flex items-center justify-between gap-2">
-            <span className="text-xs font-semibold text-content-secondary">
-              {detail?.kind ?? t('bank.detailTitle')}
-              {detail && <span className="ms-1.5 font-mono text-content-tertiary ltr-content">{detail.reference}</span>}
+            <span className="flex min-w-0 items-center gap-1.5 text-xs font-semibold text-content-secondary">
+              {onBack && (
+                <button
+                  type="button"
+                  onClick={onBack}
+                  aria-label={t('common.back')}
+                  className="-ms-1 inline-flex size-8 shrink-0 items-center justify-center rounded-full text-content-tertiary hover:bg-surface-sunken hover:text-content lg:hidden"
+                >
+                  <ArrowRight className="size-4 rtl:rotate-0 ltr:rotate-180" />
+                </button>
+              )}
+              <span className="truncate">{line.kind}</span>
+              {line.source !== 'message' && (
+                <span className="truncate font-mono text-content-tertiary ltr-content">{line.reference}</span>
+              )}
             </span>
-            <button
-              type="button"
-              onClick={onClose}
-              aria-label={t('common.close')}
-              className="inline-flex size-8 items-center justify-center rounded-full text-content-tertiary hover:bg-surface-sunken hover:text-content"
-            >
-              <X className="size-4" />
-            </button>
+            <span className={cn('shrink-0 rounded-full px-2.5 py-0.5 text-[11px] font-bold', STATE_STYLE[state].chip)}>
+              {t(STATE_STYLE[state].key)}
+            </span>
           </div>
-          {detail && (
+          {detail && BigInt(detail.amount || '0') > 0n && (
             <>
               <button
                 type="button"
@@ -181,14 +342,12 @@ export function TransferDetail({
                   <Landmark className="size-3.5" />
                   {detail.channel ?? t('bank.noChannel')}
                 </span>
-                <span
-                  className={cn(
-                    'rounded-full px-2 py-0.5 font-semibold',
-                    pending ? 'bg-warning-subtle text-warning-text' : 'bg-success-subtle text-success-text',
-                  )}
-                >
-                  {pending ? t('bankFeed.waiting') : detail.status === 'REVERSED' ? t('bankFeed.reversed') : t('bankFeed.sent')}
-                </span>
+                {(line.forwardedTo?.length ?? 0) > 0 && (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-info-subtle px-2 py-0.5 font-semibold text-info-text">
+                    <CornerUpRight className="size-3.5" />
+                    {line.forwardedTo!.map((entry) => entry.group).join('، ')}
+                  </span>
+                )}
               </div>
             </>
           )}
@@ -229,7 +388,11 @@ export function TransferDetail({
                     </p>
                     <p className="text-xs text-content-secondary">
                       {detail.origin.kind === 'external' ? t('bank.originSender') : t('bank.originRecordedBy')}{' '}
-                      <span className="font-semibold text-content">{detail.origin.name ?? '—'}</span>
+                      <span className="font-semibold text-content">
+                        {detail.origin.kind === 'external'
+                          ? (sender?.senderName ?? detail.origin.name ?? '—')
+                          : (trace?.deal?.by ?? detail.origin.name ?? '—')}
+                      </span>
                       {detail.origin.phone && (
                         <button
                           type="button"
@@ -241,8 +404,132 @@ export function TransferDetail({
                         </button>
                       )}
                     </p>
+                    {sender && (
+                      <p className="mt-0.5 text-[11px] text-content-tertiary">
+                        {t('bank.originIn', { group: sender.group })} · {when(sender.at)}
+                      </p>
+                    )}
                   </div>
                 </div>
+              )}
+
+              {detail.source === 'message' && (
+                <section className="rounded-2xl bg-surface p-3 ring-1 ring-border-subtle">
+                  <h3 className="mb-2 flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-content-tertiary">
+                    <MessageSquare className="size-3" />
+                    {t('bank.detailMessage')}
+                  </h3>
+                  {sender?.mediaId && sender.mediaKind === 'image' && (
+                    <a href={`/api/bank/groups/media/${sender.mediaId}`} target="_blank" rel="noopener noreferrer">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={`/api/bank/groups/media/${sender.mediaId}`}
+                        alt=""
+                        className="mb-2 max-h-48 rounded-lg object-contain ring-1 ring-border-subtle"
+                      />
+                    </a>
+                  )}
+                  <p className="whitespace-pre-wrap break-words rounded-xl bg-surface-sunken p-3 text-sm text-content">
+                    {detail.message || '📎'}
+                  </p>
+
+                  {/* Not in the list: added by hand, from what the bot read. */}
+                  {!adding ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const read = trace?.suggested;
+                        setAdding({
+                          account: read?.account ?? '',
+                          name: read?.name ?? '',
+                          channel: read?.channel ?? channels[0] ?? '',
+                          amount: read ? String(Number(read.amount) / 1e8) : '',
+                          currency: read?.currency ?? 'ILS',
+                        });
+                      }}
+                      className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-xl border border-dashed border-warning/50 bg-warning-subtle/40 px-3 py-2.5 text-xs font-semibold text-warning-text hover:bg-warning-subtle"
+                    >
+                      <ClipboardList className="size-4" />
+                      {trace?.suggested ? t('bankDesk.addRead') : t('bankFeed.addToList')}
+                    </button>
+                  ) : (
+                    <div className="mt-3 space-y-2.5 rounded-xl bg-surface-sunken/60 p-3 ring-1 ring-border-subtle">
+                      <p className="text-xs font-semibold text-content">{t('bankFeed.addTitle')}</p>
+                      <div className="grid gap-2.5 sm:grid-cols-2">
+                        <Field label={t('bank.account')} required>
+                          {(props) => (
+                            <Input
+                              {...props}
+                              dir="ltr"
+                              value={adding.account}
+                              onChange={(event) => setAdding({ ...adding, account: event.target.value })}
+                            />
+                          )}
+                        </Field>
+                        <Field label={t('bank.name')}>
+                          {(props) => (
+                            <Input
+                              {...props}
+                              value={adding.name}
+                              onChange={(event) => setAdding({ ...adding, name: event.target.value })}
+                            />
+                          )}
+                        </Field>
+                        <Field label={t('bankFeed.channel')}>
+                          {(props) => (
+                            <Select
+                              {...props}
+                              options={[
+                                { value: '', label: '—' },
+                                ...channels.map((entry) => ({ value: entry, label: entry })),
+                              ]}
+                              value={adding.channel}
+                              onChange={(event) => setAdding({ ...adding, channel: event.target.value })}
+                            />
+                          )}
+                        </Field>
+                        <div className="grid grid-cols-[1fr_5.5rem] gap-2">
+                          <Field label={t('bank.amount')} required>
+                            {(props) => (
+                              <Input
+                                {...props}
+                                dir="ltr"
+                                inputMode="decimal"
+                                value={adding.amount}
+                                onChange={(event) => setAdding({ ...adding, amount: event.target.value })}
+                              />
+                            )}
+                          </Field>
+                          <Field label={t('bank.currency')}>
+                            {(props) => (
+                              <Select
+                                {...props}
+                                options={['ILS', 'USD', 'JOD', 'EUR'].map((code) => ({ value: code, label: code }))}
+                                value={adding.currency}
+                                onChange={(event) => setAdding({ ...adding, currency: event.target.value })}
+                              />
+                            )}
+                          </Field>
+                        </div>
+                      </div>
+                      <div className="flex gap-2">
+                        <Button
+                          variant="primary"
+                          size="sm"
+                          loading={busy}
+                          icon={<Check />}
+                          disabled={!adding.account.trim() || !(Number(adding.amount) > 0)}
+                          onClick={() => void addToList()}
+                        >
+                          {t('bankFeed.addToList')}
+                        </Button>
+                        <Button variant="secondary" size="sm" onClick={() => setAdding(null)} disabled={busy}>
+                          {t('common.cancel')}
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </section>
               )}
 
               {/* --- When --- */}
@@ -268,6 +555,7 @@ export function TransferDetail({
               </div>
 
               {/* --- Where it goes --- */}
+              {detail.source !== 'message' && (
               <Section title={t('bank.detailTo')}>
                 {detail.account && (
                   <Row label={t('bank.account')} copyable={detail.account}>
@@ -291,6 +579,21 @@ export function TransferDetail({
                 )}
                 {detail.customerCode && <Row label={t('bank.customer')}>{detail.customerCode}</Row>}
               </Section>
+              )}
+
+              {/* --- A deal's own message in the group, as it went out --- */}
+              {detail.source === 'deal' && sender && (
+                <details className="group rounded-2xl bg-surface p-3 ring-1 ring-border-subtle">
+                  <summary className="flex cursor-pointer list-none items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-content-tertiary">
+                    <MessageSquare className="size-3" />
+                    {t('bank.detailMessage')} · {sender.group}
+                    <span className="ms-auto text-[10px] normal-case group-open:hidden">{t('bankDesk.showMore')}</span>
+                  </summary>
+                  <p className="mt-2 whitespace-pre-wrap break-words rounded-xl bg-surface-sunken p-3 text-sm text-content">
+                    {sender.text || '📎'}
+                  </p>
+                </details>
+              )}
 
               {/* --- A group's request: the message it came as, and who sent it --- */}
               {detail.source === 'group' && (
@@ -321,7 +624,7 @@ export function TransferDetail({
               )}
 
               {/* --- The deal behind it --- */}
-              {detail.source !== 'group' && (
+              {detail.source === 'deal' && (
               <Section title={t('bank.detailDeal')}>
                 <Row label={t('bank.detailPaid')}>
                   <Money value={detail.fromAmount} currency={detail.fromCurrency} />
@@ -384,6 +687,76 @@ export function TransferDetail({
                 </section>
               )}
 
+              {line.messageId && (
+                <section className="rounded-2xl bg-surface p-3 ring-1 ring-border-subtle">
+                  <div className="mb-2.5 flex items-center justify-between">
+                    <h3 className="text-[11px] font-semibold uppercase tracking-wide text-content-tertiary">
+                      {t('bankDesk.progress')}
+                    </h3>
+                    <button
+                      type="button"
+                      onClick={() => setTracing(line.messageId!)}
+                      className="inline-flex items-center gap-1 text-[11px] font-semibold text-primary-text hover:underline"
+                    >
+                      <Route className="size-3.5" />
+                      {t('bankDesk.fullPath')}
+                    </button>
+                  </div>
+                  {(() => {
+                    const steps = [
+                      { done: true, icon: <MessageSquare className="size-3.5" />, label: t('bankDesk.stepWritten'), at: sender?.at ?? line.at },
+                      ...(line.source === 'message'
+                        ? []
+                        : [
+                            {
+                              done: (trace?.forwards.length ?? 0) > 0,
+                              icon: <CornerUpRight className="size-3.5" />,
+                              label: t('bankDesk.stepForwarded'),
+                              at: trace?.forwards.at(-1)?.at ?? null,
+                            },
+                            {
+                              done: state === 'done',
+                              icon: <CheckCircle2 className="size-3.5" />,
+                              label: t('bankDesk.stepDone'),
+                              at: detail.sentAt,
+                            },
+                          ]),
+                    ];
+                    return (
+                      <ol className="flex items-start">
+                        {steps.map((step, index) => (
+                          <li key={step.label} className="relative flex flex-1 flex-col items-center text-center">
+                            {index > 0 && (
+                              <span
+                                className={cn(
+                                  'absolute end-1/2 top-3.5 h-0.5 w-full -translate-y-1/2',
+                                  step.done ? 'bg-success' : 'bg-border-subtle',
+                                )}
+                                aria-hidden
+                              />
+                            )}
+                            <span
+                              className={cn(
+                                'relative z-[1] flex size-7 items-center justify-center rounded-full ring-4 ring-surface',
+                                step.done ? 'bg-success text-white' : 'bg-surface-sunken text-content-tertiary',
+                              )}
+                            >
+                              {step.icon}
+                            </span>
+                            <span className={cn('mt-1.5 text-[11px] font-semibold', step.done ? 'text-content' : 'text-content-tertiary')}>
+                              {step.label}
+                            </span>
+                            <span className="text-[10px] tabular-nums text-content-tertiary ltr-content">
+                              {step.done && step.at ? clockOf(step.at) : '—'}
+                            </span>
+                          </li>
+                        ))}
+                      </ol>
+                    );
+                  })()}
+                </section>
+              )}
+
               {detail.sentAt && (
                 <p className="text-center text-xs text-success-text">
                   ✅ {t('bank.detailSentAt', { day: dayKey(detail.sentAt), time: clockOf(detail.sentAt) })}
@@ -395,10 +768,10 @@ export function TransferDetail({
         </div>
 
         {/* --- Doing it --- */}
-        {detail && (
+        {detail && detail.source !== 'message' && (
           <footer className="flex gap-2 border-t border-border-subtle bg-surface p-3">
             {pending && (
-              <Button variant="primary" fullWidth icon={<Check />} onClick={() => onSend(detail.id)}>
+              <Button variant="primary" fullWidth icon={<Check />} onClick={() => onSend(line)}>
                 {t('bank.markSent')}
               </Button>
             )}
@@ -412,7 +785,6 @@ export function TransferDetail({
                       .then(() => {
                         toast.success(t('bank.dismissed'));
                         onChanged?.();
-                        onClose();
                       })
                       .catch(() => toast.error(t('errors.title'), t('errors.generic')));
                   }}
@@ -433,8 +805,7 @@ export function TransferDetail({
             )}
           </footer>
         )}
-      </aside>
-    </div>,
-    document.body,
+      <MessageTrace id={tracing} onClose={() => setTracing(null)} onOpen={setTracing} />
+    </Card>
   );
 }

@@ -31,6 +31,7 @@ const log = createLogger('bank:groups');
 
 export const WATCHED_SETTING = 'bank.watchedGroups';
 export const RETENTION_SETTING = 'bank.groupRetentionDays';
+export const EXECUTORS_SETTING = 'bank.executorGroups';
 
 export interface WatchedGroup {
   id: string;
@@ -219,6 +220,28 @@ export async function setWatched(groups: WatchedGroup[], actor: Actor & { name: 
   if (!actor.permissions.includes('settings.manage')) throw errors.forbidden('settings.manage');
   const clean = parseWatched(groups).slice(0, 10);
   await settings.set(WATCHED_SETTING, clean, actor);
+  return clean;
+}
+
+/** The groups that carry the transfers out, as the manager chose them. */
+export async function executorGroups(): Promise<WatchedGroup[]> {
+  return parseWatched(await settings.get(EXECUTORS_SETTING));
+}
+
+/** The executing groups for the desk, and whether this person may change them. */
+export async function executorsFor(actor: Actor) {
+  requireDesk(actor);
+  return {
+    groups: await executorGroups(),
+    canChoose: actor.permissions.includes('settings.manage'),
+  };
+}
+
+/** The manager chooses the groups transfers are passed on to. */
+export async function setExecutors(groups: WatchedGroup[], actor: Actor & { name: string }) {
+  if (!actor.permissions.includes('settings.manage')) throw errors.forbidden('settings.manage');
+  const clean = parseWatched(groups).slice(0, 20);
+  await settings.set(EXECUTORS_SETTING, clean, actor);
   return clean;
 }
 
@@ -443,9 +466,19 @@ export async function trace(messageId: string, actor: Actor) {
       select: { id: true, status: true, auto: true, addedByName: true, sentAt: true, sentByName: true, createdAt: true },
     }),
   ]);
+  const channels = await transferChannels();
+
+  const suggested =
+    !message.fromMe && !deal && (!request || request.status === 'DISMISSED')
+      ? (() => {
+          const read = readTransferRequest(message.text, channels);
+          return read ? { ...read, amount: read.amount.toString() } : null;
+        })()
+      : null;
 
   return {
     message: point(message),
+    suggested,
     origins,
     forwards: forwards.map((forward) => ({
       group: forward.targetName ?? nameOf(forward.targetChat),
@@ -490,7 +523,7 @@ export async function media(id: string, actor: Actor) {
  */
 export async function forwardByHand(
   messageId: string,
-  input: { targets: WatchedGroup[]; text: string },
+  input: { targets: WatchedGroup[]; text: string; withPhoto?: boolean },
   actor: Actor & { name: string },
 ) {
   requireDesk(actor);
@@ -502,7 +535,7 @@ export async function forwardByHand(
   }
   const text = input.text.trim().slice(0, 4000);
   const photo =
-    message.mediaId && message.mediaKind === 'image'
+    input.withPhoto !== false && message.mediaId && message.mediaKind === 'image'
       ? await prisma.chatImage.findUnique({ where: { id: message.mediaId } })
       : null;
   if (!text && !photo) throw errors.validation([{ path: 'text', message: 'Nothing to send' }]);

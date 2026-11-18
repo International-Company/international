@@ -14,59 +14,28 @@ import {
   Globe,
   Landmark,
   Layers,
+  MessageSquare,
   MessagesSquare,
+  Paperclip,
   RefreshCw,
   Search,
   Server,
-  ShieldCheck,
   SlidersHorizontal,
   X,
 } from 'lucide-react';
 import { clockOf, dayKey, dayLabel } from './days';
 import { ANY_DAY, DateRangePicker, inRange, type DayRange } from '@/ui/date-range-picker';
 import { PillSelect } from '@/ui/pill-select';
-import { TransferDetail } from './transfer-detail';
-import { MessageTrace } from './message-trace';
-import { ForwardDialog } from './forward-dialog';
+import { STATE_STYLE } from './transfer-detail';
+import { MarkSentDialog } from './mark-sent-dialog';
+import { keyOf, plainFigure, stateOf, type Desk, type Line, type LineState, type Origin } from './desk-types';
 import { useLocale } from '@/i18n/provider';
 import { api, ApiError } from '@/lib/api-client';
 import { say } from '@/lib/failure';
 import { Button, Card, EmptyState, Skeleton } from '@/ui/primitives';
-import { Dialog, useToast } from '@/ui/overlay';
-import { DateText, Money } from '@/ui/display';
-import { PhotoField } from '@/ui/photo-field';
+import { useToast } from '@/ui/overlay';
+import { Money } from '@/ui/display';
 import { cn } from '@/ui/utils';
-
-interface Line {
-  id: string;
-  /** A deal's transfer, or one asked for in a followed group. */
-  source?: 'deal' | 'group';
-  reference: string;
-  /** PENDING_TRANSFER while it waits; POSTED once sent; REVERSED when the deal was cancelled. */
-  status: string;
-  kind: string;
-  at: string;
-  channel: string | null;
-  account: string | null;
-  name: string | null;
-  phone: string | null;
-  amount: string;
-  currency: string;
-  notes: string | null;
-  by: string | null;
-  sentAt: string | null;
-  sentBy: string | null;
-  /** Its message in the bank group, as the groups' panel kept it: to check and pass on. */
-  messageId?: string | null;
-  /** Recorded in the system, or asked in the group from outside the office — and by whom. */
-  origin?: Origin;
-}
-
-interface Origin {
-  kind: 'system' | 'external';
-  name: string | null;
-  phone: string | null;
-}
 
 /** Where a transfer came from: a system deal and its teller, or a number outside the office. */
 export function OriginBadge({ origin }: { origin?: Origin }) {
@@ -87,15 +56,6 @@ export function OriginBadge({ origin }: { origin?: Origin }) {
       {origin.phone && <span className="shrink-0 font-medium ltr-content">+{origin.phone}</span>}
     </span>
   );
-}
-
-interface Desk {
-  /** The bank transfers group the list is drawn from; none set, every transfer. */
-  group?: { id: string; name: string } | null;
-  waiting: Line[];
-  sent: Line[];
-  /** Every transfer of the days asked for, sent or not. */
-  range?: Line[] | null;
 }
 
 /** A filter that is on, shown under the search bar with its own way off. */
@@ -139,14 +99,38 @@ function CopyValue({ value, label, big }: { value: string; label: string; big?: 
   );
 }
 
+/** Which lines the list shows: those still open, handed on, sent, the group's other messages, or all. */
+type Show = 'open' | 'forwarded' | 'done' | 'messages' | 'all';
+const SHOWS: Show[] = ['open', 'forwarded', 'done', 'messages', 'all'];
+const SHOWN_STATES: Record<Show, LineState[]> = {
+  open: ['waiting', 'forwarded'],
+  forwarded: ['forwarded'],
+  done: ['done', 'reversed'],
+  messages: ['message'],
+  all: ['waiting', 'forwarded', 'done', 'reversed', 'message'],
+};
+
 /**
- * The bank desk.
- *
- * Each transfer a deal promised, oldest first, laid out the way the bank's app
- * asks for it: where, the account, the name, the sum — each copied with a tap.
- * Sent, it is marked with the bank's receipt, and the group is told.
+ * The first column of the bank desk: every transfer of the bank group, and its
+ * other messages, oldest first, laid out the way the bank's app asks for it —
+ * where, the account, the name, the sum, each copied with a tap. Choosing one
+ * opens it in full beside the list; sending one is a tap away here too.
  */
-export function BankView() {
+export function BankView({
+  selectedKey,
+  onSelect,
+  version = 0,
+  onChanged,
+  className,
+}: {
+  selectedKey: string | null;
+  /** A line chosen, or the chosen line as the list now has it. */
+  onSelect: (line: Line | null) => void;
+  /** Bumped by the other columns when something changed: the list asks again. */
+  version?: number;
+  onChanged?: () => void;
+  className?: string;
+}) {
   const { t, locale } = useLocale();
   const toast = useToast();
   const [desk, setDesk] = useState<Desk | null>(null);
@@ -161,14 +145,9 @@ export function BankView() {
   const [maxAmount, setMaxAmount] = useState('');
   /** The money, the kind and the sums: folded away until asked for. */
   const [filtersOpen, setFiltersOpen] = useState(false);
-  /** The transfer open in full beside the list. */
-  const [opened, setOpened] = useState<string | null>(null);
   const [sending, setSending] = useState<Line | null>(null);
-  const [receipt, setReceipt] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  /** A transfer's message followed through the groups, or being passed on to those that carry it out. */
-  const [tracing, setTracing] = useState<string | null>(null);
-  const [forwarding, setForwarding] = useState<string | null>(null);
+  /** Open by default: what still needs doing. */
+  const [show, setShow] = useState<Show>('open');
 
   const searchBox = useRef<HTMLInputElement>(null);
 
@@ -197,7 +176,8 @@ export function BankView() {
       );
       setDesk((current) => current ?? { waiting: [], sent: [] });
     }
-  }, [toast, t, days]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [toast, t, days, version]);
 
   useEffect(() => {
     void load();
@@ -208,8 +188,35 @@ export function BankView() {
     return () => clearInterval(timer);
   }, [load]);
 
-  // The days chosen bring every transfer in them, sent or not; otherwise what still waits.
-  const source = (desk?.range ?? desk?.waiting ?? []) as Line[];
+  /*
+   * The days chosen bring every transfer in them, sent or not; otherwise what
+   * waits and what was sent today. The group's other messages beside them; then
+   * only those of the state asked for.
+   */
+  const everything = useMemo(
+    () => [...((desk?.range ?? [...(desk?.waiting ?? []), ...(desk?.sent ?? [])]) as Line[]), ...((desk?.others ?? []) as Line[])],
+    [desk],
+  );
+  const counts = useMemo(() => {
+    const by = Object.fromEntries(SHOWS.map((entry) => [entry, 0])) as Record<Show, number>;
+    for (const line of everything) {
+      const state = stateOf(line);
+      for (const entry of SHOWS) if (SHOWN_STATES[entry].includes(state)) by[entry] += 1;
+    }
+    return by;
+  }, [everything]);
+  const source = useMemo(
+    () => everything.filter((line) => SHOWN_STATES[show].includes(stateOf(line))),
+    [everything, show],
+  );
+
+  // The chosen line, as the list now has it: handed on or sent since, the details follow.
+  useEffect(() => {
+    if (!selectedKey || !desk) return;
+    const fresh = everything.find((line) => keyOf(line) === selectedKey);
+    if (fresh) onSelect(fresh);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [desk]);
 
   // What is waiting on each account, so the desk can work one bank at a time.
   const channels = useMemo(() => {
@@ -222,10 +229,10 @@ export function BankView() {
       totals.set(key, entry);
     }
     return [...totals.entries()].sort((a, b) => b[1].count - a[1].count);
-  }, [desk]);
+  }, [source]);
 
   // What the list can be narrowed by: the money and the kinds actually waiting.
-  const currencies = [...new Set((source).map((line) => line.currency))];
+  const currencies = [...new Set(source.map((line) => line.currency).filter(Boolean))];
   const kinds = [...new Set((source).map((line) => line.kind))];
   /*
    * Searched by anything the desk might have in hand: the account or the phone
@@ -236,7 +243,7 @@ export function BankView() {
   const digits = needle.replace(/\D/g, '');
   const matches = (line: Line) => {
     if (!needle) return true;
-    const words = [line.name, line.reference, line.channel, line.notes, line.kind]
+    const words = [line.name, line.reference, line.channel, line.notes, line.kind, line.text, line.by]
       .filter(Boolean)
       .join(' ')
       .toLowerCase();
@@ -270,12 +277,17 @@ export function BankView() {
       byDay.push(day);
     }
     day.lines.push(line);
-    day.sums.set(line.currency, (day.sums.get(line.currency) ?? 0n) + BigInt(line.amount));
+    if (line.source !== 'message' && line.currency) {
+      day.sums.set(line.currency, (day.sums.get(line.currency) ?? 0n) + BigInt(line.amount));
+    }
   }
   // What the shown transfers come to, in each money: the biggest first.
   const totals = (() => {
     const sums = new Map<string, bigint>();
-    for (const line of shown) sums.set(line.currency, (sums.get(line.currency) ?? 0n) + BigInt(line.amount));
+    for (const line of shown) {
+      if (line.source === 'message' || !line.currency) continue;
+      sums.set(line.currency, (sums.get(line.currency) ?? 0n) + BigInt(line.amount));
+    }
     return [...sums.entries()].sort((a, b) => (a[1] > b[1] ? -1 : 1));
   })();
   // How many of the folded filters are on, shown on the button that unfolds them.
@@ -284,32 +296,9 @@ export function BankView() {
     needle || currency || kind || channel || minAmount || maxAmount || days.from || days.to,
   );
 
-  const markSent = async () => {
-    if (!sending) return;
-    setBusy(true);
-    try {
-      await api.post(
-        sending.source === 'group' ? `/api/bank/requests/${sending.id}` : `/api/bank/${sending.id}`,
-        { receipt },
-      );
-      toast.success(t('bank.sentDone'), sending.reference);
-      if (opened === sending.id) setOpened(null);
-      setSending(null);
-      setReceipt(null);
-      await load();
-    } catch (cause) {
-      toast.error(
-        t('errors.title'),
-        cause instanceof ApiError ? say(t, cause.messageKey, cause.params) || cause.message : t('errors.generic'),
-      );
-    } finally {
-      setBusy(false);
-    }
-  };
-
   if (!desk) {
     return (
-      <div className="space-y-3">
+      <div className={cn('space-y-3', className)}>
         <Skeleton className="h-16" />
         <Skeleton className="h-40" />
         <Skeleton className="h-40" />
@@ -318,7 +307,7 @@ export function BankView() {
   }
 
   return (
-    <Card className="flex h-[calc(100dvh-15rem)] min-h-[26rem] flex-col overflow-hidden p-0 xl:h-[78vh] xl:min-h-[28rem]">
+    <Card className={cn('flex flex-col overflow-hidden p-0', className)}>
       {/* --- The list's head: what it holds, one search bar, and the banks as tabs --- */}
       <div className="border-b border-border-subtle">
         <div className="space-y-2.5 px-3 pt-3">
@@ -431,6 +420,41 @@ export function BankView() {
             >
               {newestFirst ? <ArrowUpWideNarrow className="size-4" /> : <ArrowDownWideNarrow className="size-4" />}
             </button>
+          </div>
+
+          {/* Where they stand: open by default, then handed on, sent, the group's other messages, or all. */}
+          <div className="flex gap-0.5 overflow-x-auto rounded-xl bg-surface-sunken p-0.5 [scrollbar-width:none]" role="tablist">
+            {SHOWS.map((entry) => (
+              <button
+                key={entry}
+                type="button"
+                role="tab"
+                aria-selected={show === entry}
+                onClick={() => setShow(entry)}
+                className={cn(
+                  'inline-flex h-7 flex-1 shrink-0 items-center justify-center gap-1 whitespace-nowrap rounded-[10px] px-2 text-[11px] font-semibold transition-all',
+                  show === entry
+                    ? 'bg-surface text-content shadow-[var(--shadow-sm)]'
+                    : 'text-content-tertiary hover:text-content-secondary',
+                )}
+              >
+                {t(`bankDesk.show.${entry}`)}
+                <span
+                  className={cn(
+                    'tabular-nums',
+                    show === entry
+                      ? entry === 'forwarded'
+                        ? 'text-primary-text'
+                        : entry === 'open'
+                          ? 'text-warning-text'
+                          : 'text-content-secondary'
+                      : 'opacity-70',
+                  )}
+                >
+                  {counts[entry]}
+                </span>
+              </button>
+            ))}
           </div>
 
           {/* The rest, folded: the money, the kind, and a range of sums. */}
@@ -592,23 +616,33 @@ export function BankView() {
           <ul className="divide-y divide-border-subtle">
             {day.lines.map((line) => (
               <li
-                key={line.id}
-                onClick={() => setOpened(line.id)}
+                key={keyOf(line)}
+                onClick={() => onSelect(line)}
+                aria-selected={selectedKey === keyOf(line)}
                 className={cn(
-                  'cursor-pointer space-y-1.5 px-3 py-2.5 transition-colors hover:bg-surface-sunken',
-                  opened === line.id && 'bg-primary-subtle/60',
+                  'relative cursor-pointer space-y-1.5 px-3 py-2.5 transition-colors hover:bg-surface-sunken',
+                  selectedKey === keyOf(line) &&
+                    'bg-primary-subtle/50 before:absolute before:inset-y-0 before:start-0 before:w-[3px] before:bg-primary hover:bg-primary-subtle/60',
                 )}
               >
                 {/* Where and from whom, then the sum and its button: on a narrow screen the sum drops under them. */}
                 <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
                   <div className="flex min-w-0 flex-1 basis-[11rem] flex-wrap items-center gap-1">
-                    <span className="inline-flex max-w-full items-center gap-1 truncate rounded-full bg-primary-subtle px-2 py-0.5 text-[11px] font-semibold text-primary-text">
-                      <Landmark className="size-3 shrink-0" />
-                      <span className="truncate">{line.channel ?? t('bank.noChannel')}</span>
-                    </span>
+                    {line.source === 'message' ? (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-surface-sunken px-2 py-0.5 text-[11px] font-semibold text-content-secondary">
+                        <MessageSquare className="size-3 shrink-0" />
+                        {t('bankDesk.messageItem')}
+                      </span>
+                    ) : (
+                      <span className="inline-flex max-w-full items-center gap-1 truncate rounded-full bg-primary-subtle px-2 py-0.5 text-[11px] font-semibold text-primary-text">
+                        <Landmark className="size-3 shrink-0" />
+                        <span className="truncate">{line.channel ?? t('bank.noChannel')}</span>
+                      </span>
+                    )}
                     <OriginBadge origin={line.origin} />
                   </div>
                   <div className="ms-auto flex shrink-0 items-center gap-2">
+                  {line.source !== 'message' && (
                   <button
                     type="button"
                     onClick={(event) => {
@@ -620,6 +654,7 @@ export function BankView() {
                   >
                     <Money value={line.amount} currency={line.currency} className="text-base font-bold text-content" />
                   </button>
+                  )}
                   {line.status === 'PENDING_TRANSFER' ? (
                     <Button
                       size="sm"
@@ -627,33 +662,30 @@ export function BankView() {
                       icon={<Check />}
                       onClick={(event) => {
                         event.stopPropagation();
-                        setReceipt(null);
                         setSending(line);
                       }}
                     >
                       {t('bank.markSentShort')}
                     </Button>
-                  ) : (
+                  ) : line.source !== 'message' ? (
                     <span
                       className={cn(
                         'inline-flex h-8 items-center gap-1 rounded-full px-2.5 text-xs font-semibold',
-                        line.status === 'REVERSED'
-                          ? 'bg-danger-subtle text-danger-text'
-                          : 'bg-success-subtle text-success-text',
+                        STATE_STYLE[stateOf(line)].chip,
                       )}
                     >
-                      {line.status === 'REVERSED' ? (
-                        t('bankFeed.reversed')
-                      ) : (
-                        <>
-                          <CheckCircle2 className="size-3.5" />
-                          {t('bankFeed.sent')}
-                        </>
-                      )}
+                      {stateOf(line) === 'done' && <CheckCircle2 className="size-3.5" />}
+                      {t(STATE_STYLE[stateOf(line)].key)}
                     </span>
-                  )}
+                  ) : null}
                   </div>
                 </div>
+                {line.source === 'message' && (
+                  <p className="line-clamp-2 whitespace-pre-line break-words rounded-lg bg-surface-sunken px-2.5 py-1.5 text-xs text-content-secondary">
+                    {line.hasMedia && <Paperclip className="me-1 inline size-3" />}
+                    {line.text || '📎'}
+                  </p>
+                )}
                 <div className="flex flex-wrap items-center gap-x-1">
                   {line.account && <CopyValue value={line.account} label={t('bank.account')} big />}
                   {line.name && <CopyValue value={line.name} label={t('bank.name')} />}
@@ -666,41 +698,24 @@ export function BankView() {
                     <Clock className="size-3" />
                     {clockOf(line.at)}
                   </span>
+                  {stateOf(line) === 'forwarded' && (
+                    <span className="inline-flex shrink-0 items-center gap-0.5 rounded bg-primary-subtle px-1 font-semibold text-primary-text">
+                      <CornerUpRight className="size-3" />
+                      {t('bankDesk.state.forwarded')}
+                    </span>
+                  )}
                   <span className="truncate">
-                    {line.kind} · <span className="ltr-content font-mono">{line.reference}</span>
-                    {line.by && line.source !== 'group' && line.by !== line.origin?.name && <> · {line.by}</>}
-                    {line.notes && <> · {line.notes}</>}
+                    {line.source === 'message' ? (
+                      line.readable ? t('bankDesk.addRead') : line.reference
+                    ) : (
+                      <>
+                        {line.kind} · <span className="ltr-content font-mono">{line.reference}</span>
+                        {line.by && line.source !== 'group' && line.by !== line.origin?.name && <> · {line.by}</>}
+                        {line.notes && <> · {line.notes}</>}
+                      </>
+                    )}
                   </span>
                 </p>
-                {/* Its message in the bank group: where it came from, and on to the groups that carry it out. */}
-                <div className="flex items-center gap-1.5">
-                  <button
-                    type="button"
-                    disabled={!line.messageId}
-                    title={line.messageId ? t('bank.verifyHint') : t('bank.noMessage')}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      if (line.messageId) setTracing(line.messageId);
-                    }}
-                    className="inline-flex h-7 items-center gap-1 rounded-full bg-surface-sunken px-2.5 text-[11px] font-semibold text-content-secondary transition-colors hover:bg-primary-subtle hover:text-primary-text disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-surface-sunken disabled:hover:text-content-secondary"
-                  >
-                    <ShieldCheck className="size-3.5" />
-                    {t('bank.verify')}
-                  </button>
-                  <button
-                    type="button"
-                    disabled={!line.messageId}
-                    title={line.messageId ? t('bank.forwardHint') : t('bank.noMessage')}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      if (line.messageId) setForwarding(line.messageId);
-                    }}
-                    className="inline-flex h-7 items-center gap-1 rounded-full bg-surface-sunken px-2.5 text-[11px] font-semibold text-content-secondary transition-colors hover:bg-primary-subtle hover:text-primary-text disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-surface-sunken disabled:hover:text-content-secondary"
-                  >
-                    <CornerUpRight className="size-3.5" />
-                    {t('bank.forward')}
-                  </button>
-                </div>
               </li>
             ))}
           </ul>
@@ -708,84 +723,16 @@ export function BankView() {
           ))
         )}
 
-        {/* --- Sent today, under the list --- */}
-        {desk.sent.length > 0 && (
-          <details className="border-t border-border-subtle">
-            <summary className="cursor-pointer px-3 py-2 text-xs font-semibold text-content-secondary">
-              {t('bank.sentToday')} · {desk.sent.length}
-            </summary>
-            <ul className="divide-y divide-border-subtle">
-              {desk.sent.map((line) => (
-                <li key={line.id} className="flex items-center justify-between gap-2 px-3 py-2 text-xs">
-                  <span className="min-w-0 truncate">
-                    <CheckCircle2 className="me-1 inline size-3.5 text-success-text" />
-                    {line.name ?? line.account} · {line.channel}
-                    {line.sentBy && <span className="text-content-tertiary"> · {line.sentBy}</span>}
-                  </span>
-                  <Money value={line.amount} currency={line.currency} className="shrink-0 font-semibold" />
-                </li>
-              ))}
-            </ul>
-          </details>
-        )}
       </div>
 
-      <MessageTrace id={tracing} onClose={() => setTracing(null)} onOpen={setTracing} />
-      <ForwardDialog messageId={forwarding} onClose={() => setForwarding(null)} />
-
-      <TransferDetail
-        id={opened}
-        fromGroup={source.find((entry) => entry.id === opened)?.source === 'group'}
-        onChanged={() => void load()}
-        onClose={() => setOpened(null)}
-        onSend={(id) => {
-          const line = source.find((entry) => entry.id === id);
-          if (!line) return;
-          // The confirmation takes the screen; the details step aside for it.
-          setOpened(null);
-          setReceipt(null);
-          setSending(line);
+      <MarkSentDialog
+        line={sending}
+        onClose={() => setSending(null)}
+        onDone={() => {
+          void load();
+          onChanged?.();
         }}
       />
-
-      {/* --- Sent: with the bank's receipt, when there is one --- */}
-      <Dialog
-        open={sending !== null}
-        onClose={() => setSending(null)}
-        title={t('bank.markSentTitle')}
-        description={
-          sending
-            ? t('bank.markSentHint', {
-                name: sending.name ?? sending.account ?? '',
-                channel: sending.channel ?? '',
-              })
-            : ''
-        }
-        footer={
-          <>
-            <Button variant="secondary" onClick={() => setSending(null)} disabled={busy}>
-              {t('common.cancel')}
-            </Button>
-            <Button variant="primary" loading={busy} icon={<Check />} onClick={() => void markSent()}>
-              {t('bank.markSentConfirm')}
-            </Button>
-          </>
-        }
-      >
-        {sending && (
-          <div className="space-y-3">
-            <p className="text-center">
-              <Money value={sending.amount} currency={sending.currency} className="text-2xl font-bold" />
-            </p>
-            <PhotoField
-              label={t('bank.receipt')}
-              attach={t('bank.receiptAttach')}
-              value={receipt}
-              onChange={setReceipt}
-            />
-          </div>
-        )}
-      </Dialog>
     </Card>
   );
 }
@@ -798,12 +745,4 @@ function digitsOnly(raw: string): string {
     .replace(/٫/g, '.')
     .replace(/[^\d.]/g, '')
     .replace(/(\..*)\./g, '$1');
-}
-
-/** A stored amount (scaled by 1e8) as the bank's app takes it: "320", "12.5". */
-function plainFigure(scaled: string): string {
-  const digits = scaled.replace(/^-/, '').padStart(9, '0');
-  const whole = digits.slice(0, -8).replace(/^0+(?=\d)/, '');
-  const fraction = digits.slice(-8).replace(/0+$/, '').slice(0, 2);
-  return fraction ? `${whole}.${fraction}` : whole;
 }

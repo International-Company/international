@@ -5,7 +5,9 @@ import { emitAsync } from '@/core/events/bus';
 import { createLogger } from '@/core/logger/logger';
 import { BANK_EXECUTE } from './bank-desk';
 import { forDesk } from './bank-request.service';
-import { bankGroup, watched } from './group-feed.service';
+import { bankGroup, executorGroups, watched } from './group-feed.service';
+import { readTransferRequest } from './transfer-request';
+import { transferChannels } from '@/modules/exchange/machine.service';
 import { readProofImage } from '@/modules/exchange/proof-image';
 import { confirmTransfer, type Actor } from '@/modules/exchange/transaction.service';
 import { TRANSACTION_TYPE_META, type TransactionType } from '@/modules/exchange/transaction-types';
@@ -267,6 +269,30 @@ export async function desk(
         select: { id: true, chat: true, waId: true },
       })
     : [];
+  /*
+   * Where each was passed on to. Passed on by a person, or to one of the groups
+   * that carry transfers out, a transfer still waiting is "forwarded": someone
+   * has it in hand. A rule copying it elsewhere does not count.
+   */
+  const executors = await executorGroups();
+  const forwards = refs.length
+    ? await db.groupForward.findMany({
+        where: { OR: refs.map((ref) => ({ sourceChat: ref.chat, sourceWaId: ref.waId })) },
+        orderBy: { createdAt: 'asc' },
+        select: { sourceChat: true, sourceWaId: true, targetChat: true, targetName: true, auto: true, createdAt: true },
+      })
+    : [];
+  const handedOn = (ref: { chat: string; waId: string } | null) =>
+    ref
+      ? forwards
+          .filter(
+            (entry) =>
+              entry.sourceChat === ref.chat &&
+              entry.sourceWaId === ref.waId &&
+              (!entry.auto || executors.some((group) => group.id === entry.targetChat)),
+          )
+          .map((entry) => ({ group: entry.targetName ?? entry.targetChat, at: entry.createdAt }))
+      : [];
   const withMessage = <T extends { messageRef: { chat: string; waId: string } | null }>(line: T) => {
     const { messageRef, ...rest } = line;
     return {
@@ -275,13 +301,78 @@ export async function desk(
         (messageRef &&
           kept.find((row) => row.chat === messageRef.chat && row.waId === messageRef.waId)?.id) ??
         null,
+      forwardedTo: handedOn(messageRef),
     };
   };
+
+  /*
+   * The bank group's other messages: written there by someone outside the
+   * office, and neither a deal's nor a request the desk already has. The bot
+   * may read a transfer off one it did not take (a hand adds it), or it may be
+   * talk. The days asked for, or the last two.
+   */
+  const others = bank
+    ? await (async () => {
+        const since = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000);
+        const rows = await db.groupMessage.findMany({
+          where: {
+            chat: bank.id,
+            fromMe: false,
+            createdAt: range ? { gte: range.from, lte: range.to } : { gte: since },
+          },
+          orderBy: { createdAt: 'desc' },
+          take: 200,
+        });
+        const taken = new Set(kept.map((row) => row.id));
+        const live = await db.bankRequest.findMany({
+          where: { chat: bank.id, waId: { in: rows.map((row) => row.waId) }, status: { not: 'DISMISSED' } },
+          select: { waId: true },
+        });
+        const asked = new Set(live.map((row) => row.waId));
+        const channels = await transferChannels(db);
+        return rows
+          .filter((row) => !taken.has(row.id) && !asked.has(row.waId))
+          .reverse()
+          .map((row) => {
+            const read = readTransferRequest(row.text, channels);
+            return {
+              id: row.id,
+              source: 'message' as const,
+              reference: bank.name,
+              status: 'MESSAGE',
+              kind: 'رسالة',
+              at: row.createdAt,
+              channel: read?.channel ?? null,
+              account: read?.account ?? null,
+              name: read?.name ?? null,
+              phone: null,
+              amount: read?.amount ?? 0n,
+              currency: read?.currency ?? '',
+              notes: null,
+              by: row.senderName ?? (row.senderPhone ? `+${row.senderPhone}` : null),
+              sentAt: null,
+              sentBy: null,
+              origin: {
+                kind: 'external' as 'system' | 'external',
+                name: row.senderName,
+                phone: row.senderPhone,
+              },
+              messageId: row.id,
+              forwardedTo: [] as { group: string; at: Date }[],
+              text: row.text.slice(0, 200),
+              hasMedia: Boolean(row.mediaId),
+              readable: Boolean(read),
+            };
+          });
+      })()
+    : [];
+
   return {
     group: bank,
     waiting: lists.waiting.map(withMessage),
     sent: lists.sent.map(withMessage),
     range: lists.range?.map(withMessage) ?? null,
+    others,
   };
 }
 
