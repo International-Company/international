@@ -44,7 +44,7 @@ const CATEGORY_OF: Record<string, RouteCategory> = {
 const CATEGORY_WORDS: Record<RouteCategory, string> = {
   EXCHANGE: 'الصرافة',
   USDT: 'USDT',
-  BANK_COPY: 'التحويلات البنكية من الصرافة واستلام USDT والحوالات الواردة',
+  BANK_COPY: 'التحويلات البنكية من الصرافة واستلام USDT والحوالات الواردة والإيداع في المحافظ',
   USDT_SALE: 'بيع USDT',
   USDT_SALE_COPY: 'عنوان الإيداع ومبلغه',
   REMITTANCE: 'الحوالات',
@@ -74,6 +74,8 @@ const COPY_OF: Record<string, RouteCategory> = {
   // What is paid by transfer, and nothing of what was counted out in notes.
   EXCHANGE: 'BANK_COPY',
   WALLET_CASHOUT: 'BANK_COPY',
+  // A wallet top-up is sent to the customer's wallet: a transfer like the rest.
+  WALLET_TOPUP: 'BANK_COPY',
   USDT_RECEIVE: 'BANK_COPY',
   // A remittance received and paid out to a bank or a wallet: the same transfers.
   REMITTANCE_IN: 'BANK_COPY',

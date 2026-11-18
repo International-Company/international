@@ -554,7 +554,7 @@ function detailedDeal(transaction: ShareRow, locale: Locale, company: string): s
 }
 
 /** The kinds whose transfer alone also goes to the group the office keeps for transfers. */
-const BANK_COPIED = ['EXCHANGE', 'WALLET_CASHOUT', 'USDT_RECEIVE', 'REMITTANCE_IN', 'PAYPAL_IN'];
+const BANK_COPIED = ['EXCHANGE', 'WALLET_CASHOUT', 'WALLET_TOPUP', 'USDT_RECEIVE', 'REMITTANCE_IN', 'PAYPAL_IN'];
 
 /** Between two transfers in one message: a line WhatsApp shows as a divider. */
 const DIVIDER = '\n\n———\n\n';

@@ -52,6 +52,7 @@ describe('which group hears of which deals', () => {
     const bank = { ...routes, BANK_COPY: { id: 'bank@g.us', name: 'التحويلات' } };
     assert.equal(copyGroupFor('EXCHANGE', bank, MAIN), 'bank@g.us');
     assert.equal(copyGroupFor('USDT_RECEIVE', bank, MAIN), 'bank@g.us');
+    assert.equal(copyGroupFor('WALLET_TOPUP', bank, MAIN), 'bank@g.us', 'a top-up is a transfer to the wallet');
     assert.equal(copyGroupFor('USDT_SEND', bank, MAIN), '', 'a withdrawal pays no transfer');
     assert.equal(copyGroupFor('REMITTANCE_OUT', bank, MAIN), '');
   });
