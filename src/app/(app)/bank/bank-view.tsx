@@ -9,17 +9,21 @@ import {
   Clock,
   Coins,
   Copy,
+  CornerUpRight,
   Landmark,
   Layers,
   MessagesSquare,
   RefreshCw,
   Search,
+  ShieldCheck,
   X,
 } from 'lucide-react';
 import { clockOf, dayKey, dayLabel } from './days';
 import { ANY_DAY, DateRangePicker, inRange, type DayRange } from '@/ui/date-range-picker';
 import { PillSelect } from '@/ui/pill-select';
 import { TransferDetail } from './transfer-detail';
+import { MessageTrace } from './message-trace';
+import { ForwardDialog } from './forward-dialog';
 import { useLocale } from '@/i18n/provider';
 import { api, ApiError } from '@/lib/api-client';
 import { say } from '@/lib/failure';
@@ -48,9 +52,13 @@ interface Line {
   by: string | null;
   sentAt: string | null;
   sentBy: string | null;
+  /** Its message in the bank group, as the groups' panel kept it: to check and pass on. */
+  messageId?: string | null;
 }
 
 interface Desk {
+  /** The bank transfers group the list is drawn from; none set, every transfer. */
+  group?: { id: string; name: string } | null;
   waiting: Line[];
   sent: Line[];
   /** Every transfer of the days asked for, sent or not. */
@@ -105,6 +113,9 @@ export function BankView() {
   const [sending, setSending] = useState<Line | null>(null);
   const [receipt, setReceipt] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  /** A transfer's message followed through the groups, or being passed on to those that carry it out. */
+  const [tracing, setTracing] = useState<string | null>(null);
+  const [forwarding, setForwarding] = useState<string | null>(null);
 
   /** Which days, chosen on the calendar. */
   const [days, setDays] = useState<DayRange>(ANY_DAY);
@@ -251,6 +262,12 @@ export function BankView() {
           <p className="text-sm font-semibold text-content">
             {desk.range ? t('bank.ofTheDays') : t('bank.waiting')} ·{' '}
             <span className="tabular-nums">{source.length}</span>
+            {desk.group && (
+              <span className="ms-2 inline-flex items-center gap-1 rounded-full bg-surface-sunken px-2 py-0.5 align-middle text-[11px] font-medium text-content-secondary">
+                <MessagesSquare className="size-3" />
+                {t('bank.fromBankGroup', { group: desk.group.name })}
+              </span>
+            )}
           </p>
           <button
             type="button"
@@ -494,6 +511,35 @@ export function BankView() {
                     {line.notes && <> · {line.notes}</>}
                   </span>
                 </p>
+                {/* Its message in the bank group: where it came from, and on to the groups that carry it out. */}
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    disabled={!line.messageId}
+                    title={line.messageId ? t('bank.verifyHint') : t('bank.noMessage')}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      if (line.messageId) setTracing(line.messageId);
+                    }}
+                    className="inline-flex h-7 items-center gap-1 rounded-full bg-surface-sunken px-2.5 text-[11px] font-semibold text-content-secondary transition-colors hover:bg-primary-subtle hover:text-primary-text disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-surface-sunken disabled:hover:text-content-secondary"
+                  >
+                    <ShieldCheck className="size-3.5" />
+                    {t('bank.verify')}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!line.messageId}
+                    title={line.messageId ? t('bank.forwardHint') : t('bank.noMessage')}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      if (line.messageId) setForwarding(line.messageId);
+                    }}
+                    className="inline-flex h-7 items-center gap-1 rounded-full bg-surface-sunken px-2.5 text-[11px] font-semibold text-content-secondary transition-colors hover:bg-primary-subtle hover:text-primary-text disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-surface-sunken disabled:hover:text-content-secondary"
+                  >
+                    <CornerUpRight className="size-3.5" />
+                    {t('bank.forward')}
+                  </button>
+                </div>
               </li>
             ))}
           </ul>
@@ -522,6 +568,9 @@ export function BankView() {
           </details>
         )}
       </div>
+
+      <MessageTrace id={tracing} onClose={() => setTracing(null)} onOpen={setTracing} />
+      <ForwardDialog messageId={forwarding} onClose={() => setForwarding(null)} />
 
       <TransferDetail
         id={opened}

@@ -5,7 +5,7 @@ import { emitAsync } from '@/core/events/bus';
 import { createLogger } from '@/core/logger/logger';
 import { BANK_EXECUTE } from './bank-desk';
 import { forDesk } from './bank-request.service';
-import { watched } from './group-feed.service';
+import { bankGroup, watched } from './group-feed.service';
 import { readProofImage } from '@/modules/exchange/proof-image';
 import { confirmTransfer, type Actor } from '@/modules/exchange/transaction.service';
 import { TRANSACTION_TYPE_META, type TransactionType } from '@/modules/exchange/transaction-types';
@@ -49,6 +49,10 @@ const SELECT = {
   recipientPhone: true,
   notes: true,
   transferConfirmedAt: true,
+  announcedChat: true,
+  announcedMessageId: true,
+  copyChat: true,
+  copyMessageId: true,
   customer: { select: { fullNameAr: true, phone: true } },
   createdBy: { select: { fullNameAr: true } },
   transferConfirmedBy: { select: { fullNameAr: true } },
@@ -70,6 +74,10 @@ type Row = {
   recipientPhone: string | null;
   notes: string | null;
   transferConfirmedAt: Date | null;
+  announcedChat?: string | null;
+  announcedMessageId?: string | null;
+  copyChat?: string | null;
+  copyMessageId?: string | null;
   customer: { fullNameAr: string; phone: string | null } | null;
   createdBy: { fullNameAr: string } | null;
   transferConfirmedBy: { fullNameAr: string } | null;
@@ -102,6 +110,12 @@ export function deskLine(row: Row) {
     by: row.createdBy?.fullNameAr ?? null,
     sentAt: row.transferConfirmedAt,
     sentBy: row.transferConfirmedBy?.fullNameAr ?? null,
+    // Its message in the groups: the transfers group's copy first, else its own announcement.
+    messageRef: (row.copyChat && row.copyMessageId
+      ? { chat: row.copyChat, waId: row.copyMessageId }
+      : row.announcedChat && row.announcedMessageId
+        ? { chat: row.announcedChat, waId: row.announcedMessageId }
+        : null) as { chat: string; waId: string } | null,
   };
 }
 
@@ -180,21 +194,33 @@ export async function desk(
   requireDesk(actor);
   const since = new Date();
   since.setHours(0, 0, 0, 0);
+  /*
+   * The bank transfers group is the desk's list: the deals whose transfer went
+   * there, and the requests written there. With no such group set, every
+   * transfer, as before.
+   */
+  const bank = await bankGroup();
+  const inBankGroup = bank
+    ? { OR: [{ copyChat: bank.id }, { announcedChat: bank.id }] }
+    : {};
   const [waiting, sent] = await Promise.all([
     db.transaction.findMany({
       where: {
         status: 'PENDING_TRANSFER',
         payoutBankAmount: { gt: 0n },
         reversalOfId: null,
-        // A USDT send awaiting the manager's release is not the desk's yet; NULL is no approval asked.
-        OR: [{ approvalState: null }, { approvalState: { not: 'PENDING' } }],
+        AND: [
+          // A USDT send awaiting the manager's release is not the desk's yet; NULL is no approval asked.
+          { OR: [{ approvalState: null }, { approvalState: { not: 'PENDING' } }] },
+          inBankGroup,
+        ],
       },
       orderBy: { createdAt: 'asc' },
       take: 300,
       select: SELECT,
     }),
     db.transaction.findMany({
-      where: { transferConfirmedAt: { gte: since }, payoutBankAmount: { gt: 0n } },
+      where: { transferConfirmedAt: { gte: since }, payoutBankAmount: { gt: 0n }, ...inBankGroup },
       orderBy: { transferConfirmedAt: 'desc' },
       take: 100,
       select: SELECT,
@@ -206,6 +232,7 @@ export async function desk(
           createdAt: { gte: range.from, lte: range.to },
           payoutBankAmount: { gt: 0n },
           reversalOfId: null,
+          ...inBankGroup,
         },
         orderBy: { createdAt: 'asc' },
         take: 1000,
@@ -215,13 +242,40 @@ export async function desk(
   // The groups' requests beside the deals, each list in the order things happened.
   const groups = await watched();
   const groupName = (chat: string) => groups.find((group) => group.id === chat)?.name ?? null;
-  const requests = await forDesk(groupName, range ?? null, db);
+  const requests = await forDesk(groupName, range ?? null, db, bank?.id ?? null);
   const byTime = <T extends { at: Date }>(list: T[]) =>
     list.sort((a, b) => a.at.getTime() - b.at.getTime());
-  return {
+  const lists = {
     waiting: byTime([...waiting.map(deskLine), ...requests.waiting]),
     sent: [...sent.map(deskLine), ...requests.sent],
     range: inRange ? byTime([...inRange.map(deskLine), ...(requests.range ?? [])]) : null,
+  };
+
+  // Each transfer's message as the groups' panel kept it: to check where it came from, and pass it on.
+  const refs = [...lists.waiting, ...lists.sent, ...(lists.range ?? [])]
+    .map((line) => line.messageRef)
+    .filter((ref): ref is { chat: string; waId: string } => Boolean(ref));
+  const kept = refs.length
+    ? await db.groupMessage.findMany({
+        where: { OR: refs.map((ref) => ({ chat: ref.chat, waId: ref.waId })) },
+        select: { id: true, chat: true, waId: true },
+      })
+    : [];
+  const withMessage = <T extends { messageRef: { chat: string; waId: string } | null }>(line: T) => {
+    const { messageRef, ...rest } = line;
+    return {
+      ...rest,
+      messageId:
+        (messageRef &&
+          kept.find((row) => row.chat === messageRef.chat && row.waId === messageRef.waId)?.id) ??
+        null,
+    };
+  };
+  return {
+    group: bank,
+    waiting: lists.waiting.map(withMessage),
+    sent: lists.sent.map(withMessage),
+    range: lists.range?.map(withMessage) ?? null,
   };
 }
 

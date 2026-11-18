@@ -138,6 +138,7 @@ export function requestLine(row: RequestRow, groupName: string | null) {
     by: row.senderName ?? (row.senderPhone ? `+${row.senderPhone}` : null),
     sentAt: row.sentAt,
     sentBy: row.sentByName,
+    messageRef: { chat: row.chat, waId: row.waId } as { chat: string; waId: string } | null,
   };
 }
 
@@ -146,15 +147,18 @@ export async function forDesk(
   groupName: (chat: string) => string | null,
   range: { from: Date; to: Date } | null,
   db: DbClient = prisma,
+  /** Only the requests asked in this group: the bank transfers group. */
+  onlyChat?: string | null,
 ) {
   const since = new Date();
   since.setHours(0, 0, 0, 0);
+  const where = onlyChat ? { chat: onlyChat } : {};
   const [waiting, sent, inRange] = await Promise.all([
-    db.bankRequest.findMany({ where: { status: 'PENDING' }, orderBy: { createdAt: 'asc' }, take: 300 }),
-    db.bankRequest.findMany({ where: { status: 'SENT', sentAt: { gte: since } }, take: 100 }),
+    db.bankRequest.findMany({ where: { ...where, status: 'PENDING' }, orderBy: { createdAt: 'asc' }, take: 300 }),
+    db.bankRequest.findMany({ where: { ...where, status: 'SENT', sentAt: { gte: since } }, take: 100 }),
     range
       ? db.bankRequest.findMany({
-          where: { createdAt: { gte: range.from, lte: range.to }, status: { not: 'DISMISSED' } },
+          where: { ...where, createdAt: { gte: range.from, lte: range.to }, status: { not: 'DISMISSED' } },
           orderBy: { createdAt: 'asc' },
           take: 1000,
         })

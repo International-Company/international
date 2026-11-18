@@ -16,6 +16,7 @@ import type { Actor } from '@/modules/exchange/transaction.service';
 import { transferChannels } from '@/modules/exchange/machine.service';
 import { fromGroup } from './bank-request.service';
 import { readTransferRequest } from './transfer-request';
+import { parseRoutes } from '@/modules/whatsapp/group-routes';
 
 const log = createLogger('bank:groups');
 
@@ -57,8 +58,19 @@ export function parseWatched(raw: unknown): WatchedGroup[] {
     .map((entry) => ({ id: entry.id, name: String(entry.name ?? '').slice(0, 120) }));
 }
 
+/**
+ * The bank transfers group: the one the WhatsApp settings send the deals'
+ * transfers to. The desk's list is the transfers there, so it is always followed.
+ */
+export async function bankGroup(): Promise<WatchedGroup | null> {
+  const route = parseRoutes(await settings.getString('whatsapp.groupRoutes')).BANK_COPY;
+  return route?.id ? { id: route.id, name: route.name || 'تحويلات بنك' } : null;
+}
+
 export async function watched(): Promise<WatchedGroup[]> {
-  return parseWatched(await settings.get(WATCHED_SETTING));
+  const chosen = parseWatched(await settings.get(WATCHED_SETTING));
+  const bank = await bankGroup();
+  return bank && !chosen.some((group) => group.id === bank.id) ? [bank, ...chosen] : chosen;
 }
 
 /** Who may work the desk's view: whoever the settings name, or a manager. */
