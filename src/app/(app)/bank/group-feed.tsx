@@ -21,6 +21,7 @@ import { Dialog, useToast } from '@/ui/overlay';
 import { Field, Input, Select, Textarea } from '@/ui/form';
 import { cn } from '@/ui/utils';
 import { clockOf, dayKey, dayLabel } from './days';
+import { MessageTrace } from './message-trace';
 import { ANY_DAY, DateRangePicker, inRange, type DayRange } from '@/ui/date-range-picker';
 
 interface Group {
@@ -73,6 +74,8 @@ export function GroupFeed() {
   const [forwarding, setForwarding] = useState<{ message: FeedMessage; targets: Group[]; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const scroller = useRef<HTMLDivElement>(null);
+  /** The message being followed through the groups. */
+  const [tracing, setTracing] = useState<string | null>(null);
   /** The banks a request may name, and a message being added to the desk's list. */
   const [channels, setChannels] = useState<string[]>([]);
   const [adding, setAdding] = useState<{
@@ -365,17 +368,27 @@ export function GroupFeed() {
               </div>
             )}
             <div
+              // Pressed anywhere but its buttons, a message opens its way through the groups.
+              onClick={(event) => {
+                if ((event.target as HTMLElement).closest('a,button')) return;
+                setTracing(message.id);
+              }}
+              title={t('bankFeed.traceTitle')}
               className={cn(
-                'group max-w-[92%] rounded-2xl px-3 py-2 text-sm',
+                'group max-w-[92%] cursor-pointer rounded-2xl px-3 py-2 text-sm transition-shadow hover:ring-2 hover:ring-primary/40',
                 message.fromMe
                   ? 'self-end bg-success-subtle text-content'
                   : 'self-start bg-surface text-content ring-1 ring-border-subtle',
+                tracing === message.id && 'ring-2 ring-primary',
               )}
             >
-              <p className="mb-0.5 text-[11px] font-semibold text-primary-text">
-                {message.fromMe
+              <p className="mb-0.5 flex flex-wrap items-center gap-x-1.5 text-[11px] font-semibold text-primary-text">
+                <span>{message.fromMe
                   ? t('bankFeed.office')
-                  : (message.senderName ?? (message.senderPhone ? `+${message.senderPhone}` : t('bankFeed.member')))}
+                  : (message.senderName ?? (message.senderPhone ? `+${message.senderPhone}` : t('bankFeed.member')))}</span>
+  {!message.fromMe && message.senderPhone && message.senderName && (
+                  <span className="font-normal text-content-tertiary ltr-content">+{message.senderPhone}</span>
+                )}
               </p>
               {message.forwardedFrom && (
                 <p className="mb-1 flex items-center gap-1 text-[11px] text-content-tertiary">
@@ -527,6 +540,8 @@ export function GroupFeed() {
       >
         {choosing && groupPicker(choosing, (next) => setChoosing(next.slice(0, 10)))}
       </Dialog>
+
+      <MessageTrace id={tracing} onClose={() => setTracing(null)} onOpen={setTracing} />
 
       {/* --- A message added to the desk's list by hand --- */}
       <Dialog

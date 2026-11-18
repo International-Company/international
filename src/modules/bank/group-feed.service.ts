@@ -338,6 +338,126 @@ export async function feed(chat: string, actor: Actor, search?: string | null) {
   });
 }
 
+/**
+ * A message's way through the groups, for following it: who wrote it where and
+ * when; if it is a copy, the message it was passed on from, and that one's own
+ * origin, back to whoever first wrote it; every group it was passed on to, by a
+ * rule or by whom, and the copy that arrived; the deal it announces; and the
+ * request it became in the desk's list, and how far that got.
+ */
+export async function trace(messageId: string, actor: Actor) {
+  requireDesk(actor);
+  const groups = await watched();
+  const nameOf = (chat: string) => groups.find((group) => group.id === chat)?.name ?? chat;
+  const message = await prisma.groupMessage.findUnique({ where: { id: messageId } });
+  if (!message) throw errors.notFound('GroupMessage', messageId);
+
+  const point = (row: typeof message) => ({
+    id: row.id,
+    group: nameOf(row.chat),
+    fromMe: row.fromMe,
+    senderName: row.senderName,
+    senderPhone: row.senderPhone,
+    text: row.text,
+    mediaId: row.mediaId,
+    mediaKind: row.mediaKind,
+    at: row.createdAt,
+  });
+
+  // Back to where it began: each copy's forward names the message it was passed on from.
+  const origins: (ReturnType<typeof point> & { how: { auto: boolean; by: string | null; at: Date } })[] = [];
+  let current = message;
+  for (let step = 0; step < 6; step += 1) {
+    const forward = await prisma.groupForward.findFirst({
+      where: { targetChat: current.chat, targetWaId: current.waId },
+    });
+    if (!forward) break;
+    const source = await prisma.groupMessage.findUnique({
+      where: { chat_waId: { chat: forward.sourceChat, waId: forward.sourceWaId } },
+    });
+    const how = { auto: forward.auto, by: forward.byName, at: forward.createdAt };
+    if (!source) {
+      origins.unshift({
+        id: '',
+        group: nameOf(forward.sourceChat),
+        fromMe: false,
+        senderName: null,
+        senderPhone: null,
+        text: '',
+        mediaId: null,
+        mediaKind: null,
+        at: forward.createdAt,
+        how,
+      });
+      break;
+    }
+    origins.unshift({ ...point(source), how });
+    current = source;
+  }
+
+  // Where it went from here, and the copy that arrived there when the desk follows that group.
+  const forwards = await prisma.groupForward.findMany({
+    where: { sourceChat: message.chat, sourceWaId: message.waId },
+    orderBy: { createdAt: 'asc' },
+  });
+  const copies = await prisma.groupMessage.findMany({
+    where: {
+      OR: forwards
+        .filter((forward) => forward.targetWaId)
+        .map((forward) => ({ chat: forward.targetChat, waId: forward.targetWaId! })),
+    },
+    select: { id: true, chat: true, waId: true },
+  });
+
+  const [deal, request] = await Promise.all([
+    prisma.transaction.findFirst({
+      where: {
+        OR: [
+          { announcedChat: message.chat, announcedMessageId: message.waId },
+          { copyChat: message.chat, copyMessageId: message.waId },
+        ],
+      },
+      select: {
+        id: true,
+        reference: true,
+        status: true,
+        transferConfirmedAt: true,
+        transferConfirmedBy: { select: { fullNameAr: true } },
+        createdBy: { select: { fullNameAr: true } },
+      },
+    }),
+    prisma.bankRequest.findUnique({
+      where: { chat_waId: { chat: message.chat, waId: message.waId } },
+      select: { id: true, status: true, auto: true, addedByName: true, sentAt: true, sentByName: true, createdAt: true },
+    }),
+  ]);
+
+  return {
+    message: point(message),
+    origins,
+    forwards: forwards.map((forward) => ({
+      group: forward.targetName ?? nameOf(forward.targetChat),
+      auto: forward.auto,
+      by: forward.byName,
+      at: forward.createdAt,
+      copyId:
+        copies.find((copy) => copy.chat === forward.targetChat && copy.waId === forward.targetWaId)?.id ?? null,
+      delivered: Boolean(forward.targetWaId),
+    })),
+    deal: deal
+      ? {
+          id: deal.id,
+          reference: deal.reference,
+          status: deal.status,
+          by: deal.createdBy?.fullNameAr ?? null,
+          sentAt: deal.transferConfirmedAt,
+          sentBy: deal.transferConfirmedBy?.fullNameAr ?? null,
+        }
+      : null,
+    request,
+  };
+}
+
 /** A kept file, to the desk. */
 export async function media(id: string, actor: Actor) {
   requireDesk(actor);
