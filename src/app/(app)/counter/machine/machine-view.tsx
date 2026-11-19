@@ -41,6 +41,7 @@ import { Money } from '@/ui/display';
 import { CustomerPicker, type CustomerHit } from '@/ui/customer-picker';
 import { cn } from '@/ui/utils';
 import Link from 'next/link';
+import { estimate } from './estimate';
 import { TodaySummary } from './today-summary';
 import { TodaySpecialPrices } from './today-special-prices';
 import { MyCashLedger } from './my-cash-ledger';
@@ -413,6 +414,16 @@ export function MachineView({
       ? approval.id
       : null;
 
+  /*
+   * Pairs whose figure from the board the server did not bear out: the board
+   * on this screen is older than the server's, so nothing is worked out for
+   * them until a fresh board arrives.
+   */
+  const distrusted = useRef(new Set<string>());
+  useEffect(() => {
+    distrusted.current.clear();
+  }, [board]);
+
   useEffect(() => {
     const value = amount.trim();
     if (!value || Number(value) <= 0) {
@@ -424,6 +435,53 @@ export function MachineView({
 
     const id = ++requestId.current;
     setQuoting(true);
+    const through = channel === 'BROKER' || paidByTransfer ? 'BROKER' : 'CASH';
+
+    /*
+     * The figure at once, from the board this screen holds, while the server's
+     * answer is on its way — the teller reads it without waiting on the line.
+     * Never with a special price, which only the server knows; and recording
+     * waits for the server either way.
+     */
+    const pair = `${from}/${to}`;
+    const guess =
+      heldException || distrusted.current.has(pair)
+        ? null
+        : estimate({
+            rates: board,
+            from,
+            to,
+            side,
+            amount: value,
+            through,
+            fromDecimals: fromCurrency?.decimals ?? 2,
+            toDecimals: toCurrency?.decimals ?? 2,
+          });
+    if (guess) {
+      setQuote((previous) => ({
+        fromCurrency: from,
+        toCurrency: to,
+        cash: guess.cash,
+        broker: guess.broker,
+        // What the drawers hold does not change with the figure; for another pair it is not known yet.
+        ...(previous && previous.fromCurrency === from && previous.toCurrency === to
+          ? {
+              availableCash: previous.availableCash,
+              availableBroker: previous.availableBroker,
+              overdraw: previous.overdraw,
+              requiresCustomer: previous.requiresCustomer,
+              overLimit: previous.overLimit,
+            }
+          : {
+              availableCash: '0',
+              availableBroker: '0',
+              overdraw: true,
+              requiresCustomer: false,
+              overLimit: false,
+            }),
+      }));
+      setError(null);
+    }
 
     const timer = setTimeout(() => {
       void api
@@ -435,7 +493,7 @@ export function MachineView({
             // A reverse-priced amount is sized against one channel; a split is
             // priced forwards, so the till is the sensible one to size against.
             // Paid by transfer, the whole deal is at the bank rate.
-            through: channel === 'BROKER' || paidByTransfer ? 'BROKER' : 'CASH',
+            through,
             // A special price held for this pair: the customer is told what it comes to.
             exception: heldException ?? undefined,
           })}`,
@@ -444,6 +502,15 @@ export function MachineView({
           if (id !== requestId.current) return;
           setQuote(result);
           setError(null);
+          // The server priced it otherwise: this board is stale. Stop guessing the pair, and fetch a fresh one.
+          if (
+            guess &&
+            (result.cash?.toAmount !== guess.cash?.toAmount ||
+              result.broker?.toAmount !== guess.broker?.toAmount)
+          ) {
+            distrusted.current.add(pair);
+            router.refresh();
+          }
         })
         .catch((cause) => {
           if (id !== requestId.current) return;
@@ -457,10 +524,12 @@ export function MachineView({
         .finally(() => {
           if (id === requestId.current) setQuoting(false);
         });
-    }, 220);
+    }, 150);
 
     return () => clearTimeout(timer);
-  }, [amount, from, to, side, channel, paidByTransfer, heldException, t]);
+    // `board` and the currencies change only with a fresh board from the server; `router` never.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [amount, from, to, side, channel, paidByTransfer, heldException, t, board]);
 
   /**
    * Typed entry, as opposed to the keypad.
@@ -746,7 +815,8 @@ export function MachineView({
     (walletChange && (!changeChannel || !changeAccount.trim()));
 
   const submit = async () => {
-    if (!quote || blocked) return;
+    // Never on a figure the server has not priced yet.
+    if (!quote || blocked || quoting) return;
     setPosting(true);
     try {
       const result = await api.post<{
