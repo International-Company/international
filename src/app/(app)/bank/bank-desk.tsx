@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { ArrowRight, MessagesSquare, Workflow } from 'lucide-react';
+import { Activity, ArrowRight, MessagesSquare, Workflow } from 'lucide-react';
 import { useLocale } from '@/i18n/provider';
 import { api } from '@/lib/api-client';
 import { cn } from '@/ui/utils';
@@ -10,6 +10,7 @@ import { GroupFeed } from './group-feed';
 import { TransferDetail } from './transfer-detail';
 import { ForwardSheet, type Group } from './forward-panel';
 import { MarkSentDialog } from './mark-sent-dialog';
+import { TrackView } from './track-view';
 import { keyOf, type Line } from './desk-types';
 
 /** Both columns the same height: the page's, less its head. */
@@ -25,7 +26,7 @@ const TALL = 'h-[calc(100dvh-17rem)] min-h-[30rem] lg:h-[calc(100dvh-14rem)]';
  */
 export function BankDesk() {
   const { t } = useLocale();
-  const [mode, setMode] = useState<'work' | 'watch'>('work');
+  const [mode, setMode] = useState<'work' | 'track' | 'watch'>('work');
   const [selected, setSelected] = useState<Line | null>(null);
   /** The chosen line's key: set before the list has the line, when a message was just added as a request. */
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
@@ -53,10 +54,11 @@ export function BankDesk() {
   return (
     <div className="space-y-3">
       {/* --- The desk, or the followed groups as they were --- */}
-      <div className="inline-flex rounded-xl bg-surface-sunken p-1" role="tablist">
+      <div className="inline-flex max-w-full overflow-x-auto rounded-xl bg-surface-sunken p-1 [scrollbar-width:none]" role="tablist">
         {(
           [
             { key: 'work', icon: <Workflow className="size-4" />, label: t('bankDesk.workTab') },
+            { key: 'track', icon: <Activity className="size-4" />, label: t('bankTrack.tab') },
             { key: 'watch', icon: <MessagesSquare className="size-4" />, label: t('bankDesk.watchTab') },
           ] as const
         ).map((option) => (
@@ -67,7 +69,7 @@ export function BankDesk() {
             aria-selected={mode === option.key}
             onClick={() => setMode(option.key)}
             className={cn(
-              'inline-flex h-9 items-center gap-2 rounded-lg px-4 text-sm font-semibold transition-all',
+              'inline-flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg px-3 text-sm font-semibold transition-all sm:gap-2 sm:px-4',
               mode === option.key
                 ? 'bg-surface text-content shadow-[var(--shadow-sm)]'
                 : 'text-content-tertiary hover:text-content-secondary',
@@ -81,6 +83,14 @@ export function BankDesk() {
 
       {mode === 'watch' ? (
         <GroupFeed />
+      ) : mode === 'track' ? (
+        // Opened from the watch: the transfer in full, in the desk.
+        <TrackView
+          onOpen={(line) => {
+            choose(line);
+            setMode('work');
+          }}
+        />
       ) : (
         <div className="grid grid-cols-1 items-start gap-3 lg:grid-cols-[minmax(20rem,25rem)_minmax(0,1fr)]">
           {/* The inbox: on a phone, out of the way while one is open. */}
