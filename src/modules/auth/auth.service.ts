@@ -13,6 +13,7 @@ import { checkRateLimit, RATE_LIMITS, resetRateLimit } from '@/core/security/rat
 import { createLogger } from '@/core/logger/logger';
 import { emitAsync } from '@/core/events/bus';
 import * as audit from '@/modules/audit/audit.service';
+import { lockState } from './lockout';
 import {
   createSession,
   markTwoFactorSatisfied,
@@ -56,7 +57,7 @@ export async function login(
   const accountLimit = checkRateLimit(`login:user:${identifier}`, RATE_LIMITS.loginPerAccount);
   if (!accountLimit.allowed) throw errors.rateLimited(accountLimit.retryAfterSeconds);
 
-  const user = await prisma.user.findFirst({
+  let user = await prisma.user.findFirst({
     where: { OR: [{ username: identifier }, { email: identifier }] },
   });
 
@@ -81,9 +82,17 @@ export async function login(
     throw errors.invalidCredentials();
   }
 
-  if (user.lockedUntil && user.lockedUntil > new Date()) {
+  const lock = lockState(user, new Date());
+  if (lock === 'locked') {
     await fail('LOCKED');
-    throw errors.accountLocked(user.lockedUntil);
+    throw errors.accountLocked(user.lockedUntil ?? undefined);
+  }
+  // The lock has run its time: the account opens again, its count of failures cleared.
+  if (lock === 'expired') {
+    user = await prisma.user.update({
+      where: { id: user.id },
+      data: { status: 'ACTIVE', lockedUntil: null, failedLoginCount: 0 },
+    });
   }
 
   if (user.status !== 'ACTIVE') {

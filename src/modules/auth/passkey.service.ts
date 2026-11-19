@@ -12,6 +12,7 @@ import { createLogger } from '@/core/logger/logger';
 import { checkRateLimit, RATE_LIMITS } from '@/core/security/rate-limit';
 import * as audit from '@/modules/audit/audit.service';
 import { issueSession, type LoginContext, type LoginResult } from './auth.service';
+import { lockState } from './lockout';
 
 /**
  * Signing in with a fingerprint.
@@ -293,11 +294,19 @@ export async function verifyAuthentication(
     throw errors.invalidCredentials();
   }
 
-  const { user } = passkey;
+  let { user } = passkey;
 
   // The same gates, in the same order, as a password sign-in.
-  if (user.lockedUntil && user.lockedUntil > new Date()) {
-    throw errors.accountLocked(user.lockedUntil);
+  const lock = lockState(user, new Date());
+  if (lock === 'locked') {
+    throw errors.accountLocked(user.lockedUntil ?? undefined);
+  }
+  // The lock has run its time: the account opens again.
+  if (lock === 'expired') {
+    user = await prisma.user.update({
+      where: { id: user.id },
+      data: { status: 'ACTIVE', lockedUntil: null, failedLoginCount: 0 },
+    });
   }
   if (user.status !== 'ACTIVE') {
     throw errors.invalidCredentials();
