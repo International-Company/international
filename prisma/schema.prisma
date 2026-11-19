@@ -2468,6 +2468,9 @@ model GroupForward {
   auto       Boolean  @default(true)
   byUserId   String?
   byName     String?
+  /// Not sent by the bot: marked passed on by this member's ❤️ on the transfer.
+  /// Their reaction taken off takes the mark back.
+  reactor    String?
   createdAt  DateTime @default(now())
 
   @@index([sourceChat, sourceWaId])

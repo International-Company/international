@@ -11,6 +11,7 @@ import { registerPrivateBot } from '@/modules/whatsapp/private-bot.service';
 import { registerReconcile } from '@/modules/whatsapp/reconcile.service';
 import { registerGroupForward } from '@/modules/whatsapp/group-forward.service';
 import { registerGroupFeed } from '@/modules/bank/group-feed.service';
+import { registerGroupMarks } from '@/modules/bank/group-marks.service';
 import { resumeTellerNumbers } from '@/modules/whatsapp/teller-whatsapp.service';
 import { resume as resumeWhatsapp } from '@/modules/whatsapp/whatsapp.service';
 import * as notifications from '@/modules/notifications/notifications.service';
@@ -46,6 +47,7 @@ export function bootstrap(): void {
   registerReconcile();
   registerGroupForward();
   registerGroupFeed();
+  registerGroupMarks();
   registerPrivateBot();
   registerJobHandlers();
   startWorker();

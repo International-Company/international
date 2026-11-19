@@ -30,6 +30,7 @@ import {
   type Account,
 } from './accounts';
 import { clearSession, databaseAuthState, hasSession } from './auth-state';
+import { quotedStanzaId } from './wa-quote';
 
 /**
  * The office's WhatsApp numbers, linked the way WhatsApp Web is: the manager
@@ -149,9 +150,28 @@ export interface GroupSighting {
   at: Date;
   /** The file itself, fetched only by a listener that keeps it. */
   download?: () => Promise<{ bytes: Buffer; mimeType: string; fileName: string | null } | null>;
+  /** WhatsApp's id of the message this one answers, when it quotes one. */
+  quoted?: string | null;
 }
 
 type GroupListener = (sighting: GroupSighting) => Promise<void> | void;
+
+/**
+ * A reaction put on a message in a group, or taken off it (`emoji` empty): the
+ * bank desk reads ❤️ and 👍 on a transfer as "passed on" and "sent".
+ */
+export interface GroupReaction {
+  chat: string;
+  /** The message reacted to. */
+  waId: string;
+  emoji: string;
+  fromMe: boolean;
+  /** Who reacted, as the group addresses them, and their WhatsApp name. */
+  author: string | null;
+  name: string | null;
+}
+
+type ReactionListener = (reaction: GroupReaction) => Promise<void> | void;
 
 interface Shared {
   sessions: Record<Account, Session>;
@@ -162,6 +182,7 @@ interface Shared {
   ownListeners: OwnListener[];
   /** Who is told of everything seen in a group. */
   groupListeners: GroupListener[];
+  reactionListeners: ReactionListener[];
   groupSeen: string[];
   /** Messages already handled, when both numbers are in the chat they came to. */
   seen: string[];
@@ -188,11 +209,13 @@ const shared: Shared = (globalForWhatsapp.__ifmsWhatsappNumbers ??= {
   staffListeners: [],
   ownListeners: [],
   groupListeners: [],
+  reactionListeners: [],
   groupSeen: [],
   seen: [],
   ownSeen: [],
 });
 shared.groupListeners ??= [];
+shared.reactionListeners ??= [];
 shared.groupSeen ??= [];
 shared.staffListeners ??= [];
 shared.ownListeners ??= [];
@@ -340,6 +363,31 @@ async function open(account: Account): Promise<void> {
           continue;
         }
       }
+      // A reaction in a group: told of once, whichever number saw it, and nothing more to read in it.
+      if (account !== 'private' && message.key.remoteJid.endsWith('@g.us') && message.key.id) {
+        const reacted = normalizeMessageContent(message.message)?.reactionMessage;
+        if (reacted) {
+          if (
+            reacted.key?.id &&
+            firstSighting(shared.groupSeen, `reaction:${message.key.remoteJid}:${message.key.id}`)
+          ) {
+            const reaction: GroupReaction = {
+              chat: message.key.remoteJid,
+              waId: reacted.key.id,
+              emoji: reacted.text ?? '',
+              fromMe: Boolean(message.key.fromMe),
+              author: message.key.participant ?? null,
+              name: message.pushName ?? null,
+            };
+            for (const listener of shared.reactionListeners) {
+              void Promise.resolve()
+                .then(() => listener(reaction))
+                .catch((error) => log.error('A WhatsApp reaction handler failed', { error }));
+            }
+          }
+          continue;
+        }
+      }
       // Everything in a group, for the bank desk's view of it: words, files, the office's own.
       if (account !== 'private' && message.key.remoteJid.endsWith('@g.us') && message.key.id) {
         const seen = normalizeMessageContent(message.message);
@@ -375,6 +423,7 @@ async function open(account: Account): Promise<void> {
               ) ?? null,
             text: words,
             mediaKind: kind,
+            quoted: quotedStanzaId(message),
             at: sentAt > 0 ? new Date(sentAt) : new Date(),
             download:
               file && Number(file.fileLength ?? 0) <= 16 * 1024 * 1024
@@ -779,6 +828,11 @@ function tellOwn(
 /** Tells `listener` of everything seen in a group, once each. */
 export function onGroupSighting(listener: GroupListener): void {
   shared.groupListeners.push(listener);
+}
+
+/** Tells `listener` of each reaction put on, or taken off, a message in a group. */
+export function onGroupReaction(listener: ReactionListener): void {
+  shared.reactionListeners.push(listener);
 }
 
 function tellGroup(sighting: GroupSighting): void {
