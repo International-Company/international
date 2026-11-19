@@ -341,7 +341,7 @@ export function GroupFeed() {
       )}
 
       {/* --- The conversation --- */}
-      <div ref={scroller} className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto bg-surface-sunken p-3">
+      <div ref={scroller} className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto bg-surface-sunken px-2 py-2 sm:px-3">
         {groups !== null && groups.length === 0 ? (
           <EmptyState
             title={t('bankFeed.noGroupsTitle')}
@@ -360,7 +360,8 @@ export function GroupFeed() {
             <div key={message.id} className="contents">
             {/* A new day, as WhatsApp marks it. */}
             {dayKey(message.at) !== (index > 0 ? dayKey(visible[index - 1]!.at) : '') && (
-              <div className="sticky top-0 z-10 my-1 self-center rounded-full bg-surface/95 px-3 py-0.5 text-[11px] font-medium text-content-secondary shadow-[var(--shadow-sm)] ring-1 ring-border-subtle backdrop-blur">
+              // One width and a solid face: the day held at the top hides the one before it whole, as WhatsApp does.
+              <div className="sticky top-0 z-10 my-1 min-w-32 self-center rounded-full bg-surface px-3 py-0.5 text-center text-[11px] font-medium text-content-secondary shadow-[var(--shadow-sm)] ring-1 ring-border-subtle">
                 {dayLabel(dayKey(message.at), locale, {
                   today: t('bank.period.today'),
                   yesterday: t('bank.period.yesterday'),
@@ -375,14 +376,14 @@ export function GroupFeed() {
               }}
               title={t('bankFeed.traceTitle')}
               className={cn(
-                'group max-w-[92%] cursor-pointer rounded-2xl px-3 py-2 text-sm transition-shadow hover:ring-2 hover:ring-primary/40',
+                'group max-w-[min(92%,24rem)] cursor-pointer rounded-xl px-2.5 py-1.5 text-[13px] leading-snug transition-shadow hover:ring-2 hover:ring-primary/40',
                 message.fromMe
                   ? 'self-end bg-success-subtle text-content'
                   : 'self-start bg-surface text-content ring-1 ring-border-subtle',
                 tracing === message.id && 'ring-2 ring-primary',
               )}
             >
-              <p className="mb-0.5 flex flex-wrap items-center gap-x-1.5 text-[11px] font-semibold text-primary-text">
+              <p className="flex flex-wrap items-center gap-x-1.5 text-[11px] font-semibold leading-4 text-primary-text">
                 <span>{message.fromMe
                   ? t('bankFeed.office')
                   : (message.senderName ?? (message.senderPhone ? `+${message.senderPhone}` : t('bankFeed.member')))}</span>
@@ -402,7 +403,7 @@ export function GroupFeed() {
                 )}
               </p>
               {message.forwardedFrom && (
-                <p className="mb-1 flex items-center gap-1 text-[11px] text-content-tertiary">
+                <p className="flex items-center gap-1 text-[10px] text-content-tertiary">
                   <CornerUpLeft className="size-3" />
                   {t('bankFeed.from', { group: message.forwardedFrom.group })}
                   {message.forwardedFrom.by && ` · ${message.forwardedFrom.by}`}
@@ -415,7 +416,7 @@ export function GroupFeed() {
                     src={`/api/bank/groups/media/${message.mediaId}`}
                     alt=""
                     loading="lazy"
-                    className="mb-1 max-h-60 rounded-lg object-contain"
+                    className="my-0.5 max-h-44 rounded-lg object-contain"
                   />
                 </a>
               )}
@@ -431,14 +432,17 @@ export function GroupFeed() {
               {!message.mediaId && message.mediaKind && (
                 <p className="text-xs text-content-tertiary">📎 {t('bankFeed.fileNotKept')}</p>
               )}
-              {message.text && <p className="whitespace-pre-wrap break-words">{message.text}</p>}
+              {/* Blank lines between a transfer's lines are spacing for the phone: dropped here, so more of the talk shows. */}
+              {message.text && (
+                <p className="whitespace-pre-wrap break-words">{message.text.replace(/\n[ \t]*(?:\n[ \t]*)+/g, '\n').trim()}</p>
+              )}
 
               {/* The deal it announces, and whether its transfer went. */}
               {message.deal && (
                 <Link
                   href={`/manage/transactions/${message.deal.id}`}
                   className={cn(
-                    'mt-1 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium',
+                    'me-1 mt-0.5 inline-flex items-center gap-1 rounded-full px-1.5 text-[10px] font-medium leading-4',
                     message.deal.sent || message.deal.status === 'POSTED'
                       ? 'bg-success-subtle text-success-text'
                       : 'bg-warning-subtle text-warning-text',
@@ -464,7 +468,7 @@ export function GroupFeed() {
               {message.request && message.request.status !== 'DISMISSED' && (
                 <span
                   className={cn(
-                    'mt-1 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium',
+                    'me-1 mt-0.5 inline-flex items-center gap-1 rounded-full px-1.5 text-[10px] font-medium leading-4',
                     message.request.status === 'SENT'
                       ? 'bg-success-subtle text-success-text'
                       : 'bg-warning-subtle text-warning-text',
@@ -481,15 +485,15 @@ export function GroupFeed() {
 
               {/* Where it went from here. */}
               {message.forwardedTo.map((entry, index) => (
-                <p key={index} className="mt-1 flex items-center gap-1 text-[11px] text-content-tertiary">
+                <p key={index} className="mt-0.5 flex items-center gap-1 text-[10px] leading-4 text-content-tertiary">
                   <CornerUpRight className="size-3" />
                   {t('bankFeed.to', { group: entry.group })} ·{' '}
                   {entry.auto ? t('bankFeed.auto') : (entry.by ?? '')}
                 </p>
               ))}
 
-              <div className="mt-1 flex items-center justify-between gap-2">
-                <span className="text-[11px] tabular-nums text-content-tertiary ltr-content">{clockOf(message.at)}</span>
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[10px] tabular-nums text-content-tertiary ltr-content">{clockOf(message.at)}</span>
                 <span className="flex items-center gap-1">
                 {/* Someone else's message, not yet in the list: added by hand, from what the bot read. */}
                 {!message.fromMe && (!message.request || message.request.status === 'DISMISSED') && (
@@ -507,7 +511,7 @@ export function GroupFeed() {
                         currency: message.suggested?.currency ?? 'ILS',
                       })
                     }
-                    className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium text-warning-text hover:bg-warning-subtle"
+                    className="inline-flex items-center gap-1 rounded-full px-1.5 text-[10px] font-medium leading-5 text-warning-text hover:bg-warning-subtle"
                   >
                     <ClipboardList className="size-3" />
                     {t('bankFeed.addToList')}
@@ -519,7 +523,7 @@ export function GroupFeed() {
                     setForwarding({ message, targets: [], text: message.text });
                     void loadEveryGroup();
                   }}
-                  className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium text-primary-text hover:bg-primary-subtle"
+                  className="inline-flex items-center gap-1 rounded-full px-1.5 text-[10px] font-medium leading-5 text-primary-text hover:bg-primary-subtle"
                 >
                   <Share2 className="size-3" />
                   {t('bankFeed.forward')}
