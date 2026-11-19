@@ -353,10 +353,16 @@ export interface MachineRecordInput {
   intakeChannel?: string | null;
   /**
    * The customer paid both ways: this much of what they hand over came by
-   * transfer into `intakeChannel`, the rest in notes. Each part is priced at
-   * its own channel and the customer takes the sum in cash.
+   * transfer into `intakeChannel`, the rest in notes. The whole of it is priced
+   * at one rate, and the customer takes the sum in cash.
    */
   intakeTransfer?: bigint;
+  /**
+   * Paid both ways, the one rate the teller set for the whole deal, when it is
+   * one of the board's own: the till's or the bank's. A rate of his own making
+   * comes as an approval instead (`priceExceptionId`), never as a figure.
+   */
+  bothWaysPrice?: RateChannel | null;
   branchId: string;
   /**
    * An approval to break the board, granted for this deal.
@@ -415,7 +421,8 @@ async function post(input: MachineRecordInput, actor: Actor, db: DbClient) {
         'errors.intakeTransferCashOnly',
       );
     }
-    if (input.priceExceptionId) {
+    // Paid wholly by transfer it is the bank's price; paid both ways, a special price may be the one rate.
+    if (input.priceExceptionId && input.intakeTransfer === undefined) {
       throw errors.precondition(
         'A broken price cannot be used on a deal paid by transfer',
         'errors.intakeTransferNoException',
@@ -457,13 +464,20 @@ async function post(input: MachineRecordInput, actor: Actor, db: DbClient) {
         'errors.splitShareOutOfRange',
       );
     }
+    // One rate for all of it, and the teller must have set it: a board's, or one granted.
+    if (!input.priceExceptionId && !input.bothWaysPrice) {
+      throw errors.precondition(
+        'Set one rate for a deal paid both ways',
+        'errors.bothWaysNeedsPrice',
+      );
+    }
   }
 
   const forced = input.priceExceptionId ? await claimForDeal(input, actor, db) : null;
 
   // Paid by transfer: priced through the bank, handed over from the till.
   const legs = shares
-    ? { cash: await paidBothWays(input, shares, db), broker: NO_LEG }
+    ? { cash: await paidBothWays(input, forced, db), broker: NO_LEG }
     : intakeChannel
       ? { cash: (await priceLegs({ ...input, mode: 'BROKER' }, db)).broker, broker: NO_LEG }
       : await priceLegs(input, db, forced);
@@ -857,20 +871,25 @@ async function priceLegs(
  */
 async function paidBothWays(
   input: MachineRecordInput,
-  shares: { cash: bigint; broker: bigint },
+  forced: { channel: RateChannel; rate: bigint } | null,
   db: DbClient,
 ): Promise<Leg> {
-  const [cash, broker] = await Promise.all([
-    quoteExchange(input.fromCurrency, input.toCurrency, shares.cash, 'CASH', db),
-    quoteExchange(input.fromCurrency, input.toCurrency, shares.broker, 'BROKER', db),
-  ]);
-  return {
-    from: shares.cash + shares.broker,
-    to: cash.toAmount + broker.toAmount,
-    profit: cash.profit + broker.profit,
-    // Two prices, so no single published row describes it.
-    quote: null,
-  };
+  /*
+   * One rate for the whole of it, set by the teller: a special price granted
+   * for the deal, else the board's own for the till or the bank. Priced on the
+   * channel the rate belongs to, so the margin given up shows against the
+   * right row.
+   */
+  const channel: RateChannel = forced?.channel ?? input.bothWaysPrice ?? 'CASH';
+  const priced = await quoteExchange(
+    input.fromCurrency,
+    input.toCurrency,
+    input.fromAmount!,
+    channel,
+    db,
+    forced?.rate,
+  );
+  return { from: priced.fromAmount, to: priced.toAmount, profit: priced.profit, quote: priced };
 }
 
 /**

@@ -28,8 +28,8 @@ import {
   X,
 } from 'lucide-react';
 import { useLocale } from '@/i18n/provider';
-import { normalizeDigits } from '@/core/money/money';
-import { changeOf, intakeShares, paidBothWaysPayout } from '@/modules/exchange/intake-split';
+import { convert, normalizeDigits } from '@/core/money/money';
+import { changeOf, intakeShares } from '@/modules/exchange/intake-split';
 import { describeFailure, say } from '@/lib/failure';
 import { api, ApiError, queryString } from '@/lib/api-client';
 import { Button } from '@/ui/primitives';
@@ -238,6 +238,9 @@ export function MachineView({
   const [intakeVia, setIntakeVia] = useState<'CASH' | 'TRANSFER' | 'SPLIT'>('CASH');
   const [intakeChannel, setIntakeChannel] = useState(config.transferChannels[0] ?? '');
   const [intakeShare, setIntakeShare] = useState('');
+  /** Paid both ways: the one rate the teller sets for the whole deal, as it is read — "1 USD = 3.18 ILS". */
+  const [onePrice, setOnePrice] = useState('');
+  const [onePriceBusy, setOnePriceBusy] = useState(false);
   const paidByTransfer = intakeVia === 'TRANSFER';
   const bothWays = intakeVia === 'SPLIT';
   /** Some of the customer's money came through the bank; they take cash. */
@@ -266,6 +269,7 @@ export function MachineView({
     permissions.includes('exchange.priceException.request') &&
     (from === 'USD' || to === 'USD') &&
     !paidByTransfer &&
+    intakeVia !== 'SPLIT' &&
     channel !== 'SPLIT' &&
     !approval;
 
@@ -309,7 +313,47 @@ export function MachineView({
     }
   };
 
+  /*
+   * Paid both ways at a rate that is not on the board: the same one-use special
+   * price the dollar's edit asks for — applied at once within the office's room,
+   * otherwise sent to the manager — on the till's channel, since the customer
+   * takes cash. The deal then carries it, and the manager sees it.
+   */
+  const askOnePrice = async () => {
+    const price = normalizeDigits(onePrice).replace(/[^\d.]/g, '');
+    if (!price || Number(price) <= 0 || !amount.trim()) return;
+    setOnePriceBusy(true);
+    try {
+      const result = await api.post<{ status: string }>('/api/exchange/price-exceptions', {
+        action: 'request',
+        fromCurrency: from,
+        toCurrency: to,
+        channel: 'CASH',
+        maxFromAmount: amount.trim(),
+        requestedRate: price,
+        direct: true,
+      });
+      if (result.status === 'APPROVED') {
+        const data = await api.get<{ mine?: Approval[]; anyAmount?: boolean }>(
+          '/api/exchange/price-exceptions',
+        );
+        const live = (data.mine ?? []).find((row) => row.status === 'APPROVED');
+        if (live) setApproval({ ...live, anyAmount: data.anyAmount ?? false });
+        toast.success(t('machine.priceApplied'));
+      } else {
+        toast.success(t('exception.asked2'));
+      }
+      setPriceKey((key) => key + 1);
+    } catch (cause) {
+      const failure = describeFailure(cause, t as never);
+      toast.error(failure.title, failure.body);
+    } finally {
+      setOnePriceBusy(false);
+    }
+  };
+
   const clearEntry = () => {
+    setOnePrice('');
     setHandedOver('');
     setChangeToWallet(false);
     setChangeAccount('');
@@ -608,29 +652,63 @@ export function MachineView({
    * channel's own per-unit rate, which is exactly what the server will do again
    * before it posts.
    */
+  /*
+   * Paid both ways, all of it at one rate the teller sets. Typed as the board
+   * reads, "1 base = n counter", and matched against the till's and the bank's
+   * own quoted rates: one of those is the board's, and needs nobody. Any other
+   * rate is a special price, granted for the deal; the server prices from the
+   * board or the grant, never from the figure typed here.
+   */
+  const pairBase =
+    to === HOME_CURRENCY
+      ? from
+      : from === HOME_CURRENCY
+        ? to
+        : (board.find(
+            (rate) =>
+              (rate.baseCode === from && rate.quoteCode === to) ||
+              (rate.baseCode === to && rate.quoteCode === from),
+          )?.baseCode ?? from);
+  const typedPrice = Number(normalizeDigits(onePrice).replace(/[^\d.]/g, '')) || 0;
+  const typedRate = typedPrice > 0 ? (pairBase === from ? typedPrice : 1 / typedPrice) : 0;
+  const nearTyped = (scaled: string | undefined) =>
+    scaled !== undefined &&
+    typedRate > 0 &&
+    Math.abs(Number(scaled) / 1e8 - typedRate) <= typedRate * 1e-6;
+  const oneSpecial = bothWays && heldException !== null && approval?.channel === 'CASH';
+  const bothWaysPrice: 'CASH' | 'BROKER' | null =
+    !bothWays || oneSpecial
+      ? null
+      : nearTyped(quote?.cash?.rate)
+        ? 'CASH'
+        : nearTyped(quote?.broker?.rate)
+          ? 'BROKER'
+          : null;
+  /** The from→to rate the whole deal is at, once one is set. */
+  const oneRate = oneSpecial
+    ? quote?.cash?.rate
+    : bothWaysPrice === 'CASH'
+      ? quote?.cash?.rate
+      : bothWaysPrice === 'BROKER'
+        ? quote?.broker?.rate
+        : undefined;
+
   const legs = (() => {
     const none = { cash: 0n, broker: 0n, from: 0n };
     if (!quote) return none;
 
     /*
-     * Paid both ways: the transfer at the bank's price, the notes at the
-     * till's, and the customer takes the sum in cash — the same two figures,
-     * rounded the same way, the server adds before it posts.
+     * Paid both ways: all of it at the one rate the teller set, and the
+     * customer takes it in cash — converted once, rounded once, as the server
+     * prices it before it posts.
      */
     if (bothWays) {
-      if (!quote.cash || !quote.broker) return none;
-      const paid = BigInt(quote.cash.fromAmount);
+      const priced = quote.cash ?? quote.broker;
+      if (!priced) return none;
+      const paid = BigInt(priced.fromAmount);
       const shares = intakeShares(paid, scaleAmount(intakeShare));
-      if (!shares) return { cash: 0n, broker: 0n, from: paid };
-      return {
-        cash: paidBothWaysPayout(
-          shares,
-          { cash: BigInt(quote.cash.rate), broker: BigInt(quote.broker.rate) },
-          toCurrency?.decimals ?? 2,
-        ),
-        broker: 0n,
-        from: paid,
-      };
+      if (!shares || !oneRate) return { cash: 0n, broker: 0n, from: paid };
+      return { cash: convert(paid, BigInt(oneRate), toCurrency?.decimals ?? 2), broker: 0n, from: paid };
     }
 
     // Paid by transfer: the bank's price, handed back in notes.
@@ -805,7 +883,7 @@ export function MachineView({
     !quote ||
     noPrice ||
     received <= 0n ||
-    (bothWays && !intakeSplit) ||
+    (bothWays && (!intakeSplit || !oneRate)) ||
     quote.overLimit ||
     shortLeg !== null ||
     (quote.requiresCustomer && !customer) ||
@@ -852,6 +930,8 @@ export function MachineView({
            * so this screen cannot name one even if it wanted to.
            */
           priceExceptionId: approval?.id ?? null,
+          // Paid both ways at a board's own rate: which board. A rate of his own goes as the approval above.
+          bothWaysPrice: bothWays && !oneSpecial ? bothWaysPrice : null,
           customerId: customer?.id ?? null,
           counterpartyName: counterpartyName.trim() || null,
           counterpartyPhone: counterpartyPhone.trim() || null,
@@ -1334,6 +1414,104 @@ export function MachineView({
                           )}
                         </p>
                       </div>
+                    </div>
+                  )}
+                  {/*
+                    One rate for the whole of it, set by the teller: the till's
+                    or the bank's with a tap, or one of his own — which needs
+                    approving, as any special price does.
+                  */}
+                  {bothWays && (
+                    <div className="mt-3 rounded-xl bg-surface-sunken/60 p-3 ring-1 ring-border-subtle">
+                      <label className="block">
+                        <span className="text-xs font-semibold text-content-secondary">
+                          {t('machine.onePrice')}
+                          <span className="ms-1 font-normal text-content-tertiary ltr-content">
+                            (1 {base} = ? {counter})
+                          </span>
+                        </span>
+                        <input
+                          type="text"
+                          dir="ltr"
+                          inputMode="decimal"
+                          autoComplete="off"
+                          data-zoom-safe=""
+                          readOnly={oneSpecial}
+                          value={
+                            oneSpecial
+                              ? rateText(approval?.approvedPrice ?? approval?.approvedRate ?? '0')
+                              : onePrice
+                          }
+                          placeholder="0.00"
+                          onChange={(event) => {
+                            setDone(null);
+                            setOnePrice(sanitiseAmount(event.target.value, 6));
+                          }}
+                          className={cn(
+                            'mt-1 h-12 w-full rounded-xl bg-surface px-3 text-end text-xl font-bold tabular-nums text-content outline-none ring-1 focus:ring-primary',
+                            oneRate ? 'ring-success/50' : typedPrice > 0 ? 'ring-warning' : 'ring-border-subtle',
+                          )}
+                        />
+                      </label>
+                      {!oneSpecial && (
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          {(
+                            [
+                              ['CASH', t('machine.onePriceCash'), quote?.cash?.rate],
+                              ['BROKER', t('machine.onePriceBank'), quote?.broker?.rate],
+                            ] as const
+                          ).map(([which, label, rate]) =>
+                            rate ? (
+                              <button
+                                key={which}
+                                type="button"
+                                onClick={() => {
+                                  setDone(null);
+                                  setOnePrice(rateText(publishedFor(which) ?? inBase(rate)).replace(/,/g, ''));
+                                }}
+                                className={cn(
+                                  'inline-flex h-8 items-center gap-1.5 rounded-full px-3 text-xs font-semibold ring-1 transition-colors',
+                                  bothWaysPrice === which
+                                    ? 'bg-success-subtle text-success-text ring-success/40'
+                                    : 'bg-surface text-content-secondary ring-border-subtle hover:text-primary-text',
+                                )}
+                              >
+                                {label}
+                                <span className="tabular-nums ltr-content">{rateText(publishedFor(which) ?? inBase(rate))}</span>
+                              </button>
+                            ) : null,
+                          )}
+                        </div>
+                      )}
+                      <p
+                        className={cn(
+                          'mt-2 text-xs',
+                          oneRate ? 'font-semibold text-success-text' : typedPrice > 0 ? 'text-warning-text' : 'text-content-tertiary',
+                        )}
+                      >
+                        {oneSpecial
+                          ? `✓ ${t('machine.onePriceSpecial')}`
+                          : bothWaysPrice === 'CASH'
+                            ? `✓ ${t('machine.onePriceCash')}`
+                            : bothWaysPrice === 'BROKER'
+                              ? `✓ ${t('machine.onePriceBank')}`
+                              : typedPrice > 0
+                                ? t('machine.onePriceOffBoard')
+                                : t('machine.onePriceNeeded')}
+                      </p>
+                      {!oneRate && typedPrice > 0 && (
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          className="mt-2"
+                          icon={<Star />}
+                          loading={onePriceBusy}
+                          disabled={!amount.trim()}
+                          onClick={() => void askOnePrice()}
+                        >
+                          {t('machine.onePriceAsk')}
+                        </Button>
+                      )}
                     </div>
                   )}
                   <p className="mt-2 text-xs text-content-tertiary">

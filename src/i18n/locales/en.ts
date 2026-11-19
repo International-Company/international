@@ -2140,10 +2140,18 @@ const en = {
     intakeTransferHint: 'At the bank rate, and the customer takes cash. Name and phone are required.',
     intakeSplit: 'Both',
     intakeSplitNeedsShare: 'Type the bank amount to work out what the customer receives.',
+    onePrice: 'Deal rate — one rate for the whole amount',
+    onePriceNeeded: 'Set one rate for the whole deal to work out what the customer receives.',
+    onePriceCash: 'Cash rate',
+    onePriceBank: 'Bank rate',
+    onePriceSpecial: 'Approved special rate',
+    onePriceOffBoard: 'This rate is not on the board and needs approval.',
+    onePriceAsk: 'Approve this rate',
+    onePriceUse: 'Use',
     intakeBankLeg: 'By transfer',
     intakeCashLeg: 'In cash',
     intakeSplitHint:
-      'The transfer at the bank rate, the notes at the till rate; the customer takes the total in cash. Name and phone are required.',
+      'All of it at the one rate you set; the customer takes the total in cash. Name and phone are required.',
     intakeSplitTooBig: 'The transfer must be less than the amount paid — otherwise choose “Transfer”.',
     intakeSplitRemittance: 'Type what reached the office account; the rest of what the customer pays counts as cash in your drawer. The beneficiary’s number is required.',
     today: {
@@ -3207,6 +3215,7 @@ const en = {
       'A split is priced from what the customer hands over — put the amount in the "customer pays" field',
     splitOverPay: 'That transfer costs more than the customer is handing over',
     splitShareOutOfRange: 'The transferred share must be part of the amount, not all or none of it',
+    bothWaysNeedsPrice: 'Set one rate for the whole deal paid both ways',
 
     // --- Breaking the board price ---
     exceptionAlreadyUsed: 'That approval has already been used',

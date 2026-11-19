@@ -91,6 +91,8 @@ const bodySchema = z.object({
   intakeChannel: z.string().max(80).nullish(),
   /** Paid both ways: how much of `pay` came by transfer; the rest was notes. */
   intakeTransfer: z.string().optional(),
+  /** Paid both ways: the board whose rate the teller set for the whole deal. */
+  bothWaysPrice: z.enum(['CASH', 'BROKER']).nullish(),
   /**
    * An approval to break the board. The id and nothing else — the price lives
    * on the approval, and the server reads it from there.
@@ -128,6 +130,7 @@ export const POST = route<z.infer<typeof bodySchema>>({
       intakeChannel: body.intakeChannel ?? null,
       intakeTransfer:
         body.intakeTransfer !== undefined ? parseMoney(body.intakeTransfer) : undefined,
+      bothWaysPrice: body.bothWaysPrice ?? null,
       priceExceptionId: body.priceExceptionId ?? null,
       branchId: actor.branchId,
       customerId: body.customerId ?? null,
