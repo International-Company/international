@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { RefreshCw } from 'lucide-react';
+import { usePathname } from 'next/navigation';
 import { useLocale } from '@/i18n/provider';
 
 /**
@@ -15,8 +16,10 @@ import { useLocale } from '@/i18n/provider';
  * **It will not reload over typed work.** A teller mid-way through an amount,
  * an address or a customer's name would lose it, and a system that throws away
  * what someone has typed in order to install an improvement has not improved
- * anything. So when the page holds anything typed, the update waits behind a
- * button and the person decides when.
+ * anything. So when the page holds anything typed, the update waits — and is
+ * taken by itself the moment the work is done, the app is put away, or the
+ * person moves to another screen. Nobody has to press anything; the button is
+ * there only for whoever wants it sooner.
  *
  * There is no version negotiation and no partial update. What arrives is
  * whatever the server is serving, because the pages and the code are fetched
@@ -57,6 +60,23 @@ import { useLocale } from '@/i18n/provider';
 
 const POLL_MS = 60_000;
 
+/** While an update waits on typed work: how often it looks again for the moment the work is done. */
+const SETTLE_MS = 3_000;
+
+/** Fields whose value nobody typed. */
+const NOT_TYPED = new Set([
+  'hidden',
+  'checkbox',
+  'radio',
+  'range',
+  'color',
+  'button',
+  'submit',
+  'reset',
+  'image',
+  'file',
+]);
+
 /**
  * Baked in at build time by `generateBuildId`, which writes the same value into
  * `.next/BUILD_ID` — the file the server reads back. Equal by construction for
@@ -77,6 +97,8 @@ export function useUpdateWatcher() {
   const { t } = useLocale();
   const [available, setAvailable] = useState(false);
   const reloading = useRef(false);
+  /** A newer build the server is serving, not yet taken. */
+  const pending = useRef<string | null>(null);
 
   /** Whether anything on the page looks like work in progress. */
   const hasTypedWork = useCallback(() => {
@@ -84,7 +106,14 @@ export function useUpdateWatcher() {
       'input, textarea',
     );
     for (const field of fields) {
-      if (field.type === 'hidden' || field.disabled || field.readOnly) continue;
+      if (field.disabled || field.readOnly) continue;
+      /*
+       * Only what a person types. A checkbox's value is "on" whether it is
+       * ticked or not, so counting it made every page with a switch look busy,
+       * and the update waited behind the button almost everywhere.
+       */
+      if (NOT_TYPED.has(field.type)) continue;
+      // Hidden fields still count: the machine keeps a half-typed figure behind another tab.
       if (field.value.trim() !== '') return true;
     }
     // A dialog open is a decision half-made, even with nothing typed into it.
@@ -136,33 +165,73 @@ export function useUpdateWatcher() {
           return;
         }
 
+        pending.current = build;
         if (hasTypedWork()) {
           setAvailable(true);
           return;
         }
-
-        window.sessionStorage.setItem(ATTEMPTED_KEY, build);
-        apply();
+        take();
       } catch {
         // Offline, or the server is restarting mid-deploy. Either way the next
         // tick asks again; a failed check is not news worth showing anyone.
       }
     };
 
+    /** The new build, now: once per build, and never over typed work. */
+    const take = () => {
+      const build = pending.current;
+      if (!build || reloading.current || hasTypedWork()) return;
+      window.sessionStorage.setItem(ATTEMPTED_KEY, build);
+      apply();
+    };
+
+    /*
+     * Waiting on typed work: taken by itself the moment the work is done — the
+     * deal recorded, the form sent, the field cleared — so nobody has to press
+     * anything. The button stays for whoever wants it sooner.
+     */
+    const settle = setInterval(() => {
+      if (pending.current && !cancelled) take();
+    }, SETTLE_MS);
+
+    const onVisibility = () => {
+      // Put away with nothing typed: taken while nobody is looking.
+      if (document.visibilityState === 'hidden') take();
+      else void check();
+    };
+
     const timer = setInterval(check, POLL_MS);
     // The moment they come back to the app, which is when a new build is most
     // likely to have landed while it sat in the background.
-    document.addEventListener('visibilitychange', check);
+    document.addEventListener('visibilitychange', onVisibility);
     window.addEventListener('online', check);
     void check();
 
     return () => {
       cancelled = true;
       clearInterval(timer);
-      document.removeEventListener('visibilitychange', check);
+      clearInterval(settle);
+      document.removeEventListener('visibilitychange', onVisibility);
       window.removeEventListener('online', check);
     };
   }, [apply, hasTypedWork]);
+
+  /*
+   * Moving to another screen leaves the last one's fields behind anyway: the
+   * new build is taken on the way, as the screen asked for — loaded whole
+   * rather than drawn by the old code.
+   */
+  const pathname = usePathname();
+  const lastPath = useRef(pathname);
+  useEffect(() => {
+    if (lastPath.current === pathname) return;
+    lastPath.current = pathname;
+    const build = pending.current;
+    if (!build || reloading.current) return;
+    if (window.sessionStorage.getItem(ATTEMPTED_KEY) === build) return;
+    window.sessionStorage.setItem(ATTEMPTED_KEY, build);
+    apply();
+  }, [pathname, apply]);
 
   return { available, apply };
 }

@@ -5,12 +5,66 @@
  * every URL and no browser or launcher can serve the previous one.
  */
 
-export const BRAND_VERSION = '056439d9';
+export const BRAND_VERSION = '5edd2261';
 
 export const BRAND = {
-  logo: '/brand/logo.056439d9.png',
-  logoSmall: '/brand/logo-128.056439d9.png',
-  favicon32: '/brand/favicon-32.056439d9.png',
-  favicon64: '/brand/favicon-64.056439d9.png',
-  appleTouchIcon: '/brand/apple-touch-icon.056439d9.png',
+  logo: '/brand/logo.5edd2261.png',
+  logoSmall: '/brand/logo-128.5edd2261.png',
+  favicon32: '/brand/favicon-32.5edd2261.png',
+  favicon64: '/brand/favicon-64.5edd2261.png',
+  appleTouchIcon: '/brand/apple-touch-icon.5edd2261.png',
+} as const;
+
+/** The opening screen: its colours, the emblem's size on it, and iOS's picture for each iPhone. */
+export const SPLASH = {
+  edge: '#041331',
+  centre: '#0d2f74',
+  emblem: 132,
+  mark: '/brand/splash-mark.5edd2261.webp',
+  images: [
+    {
+      "url": "/brand/splash-1320x2868.5edd2261.png",
+      "media": "(device-width: 440px) and (device-height: 956px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)"
+    },
+    {
+      "url": "/brand/splash-1206x2622.5edd2261.png",
+      "media": "(device-width: 402px) and (device-height: 874px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)"
+    },
+    {
+      "url": "/brand/splash-1290x2796.5edd2261.png",
+      "media": "(device-width: 430px) and (device-height: 932px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)"
+    },
+    {
+      "url": "/brand/splash-1179x2556.5edd2261.png",
+      "media": "(device-width: 393px) and (device-height: 852px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)"
+    },
+    {
+      "url": "/brand/splash-1284x2778.5edd2261.png",
+      "media": "(device-width: 428px) and (device-height: 926px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)"
+    },
+    {
+      "url": "/brand/splash-1170x2532.5edd2261.png",
+      "media": "(device-width: 390px) and (device-height: 844px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)"
+    },
+    {
+      "url": "/brand/splash-1125x2436.5edd2261.png",
+      "media": "(device-width: 375px) and (device-height: 812px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)"
+    },
+    {
+      "url": "/brand/splash-1242x2688.5edd2261.png",
+      "media": "(device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)"
+    },
+    {
+      "url": "/brand/splash-828x1792.5edd2261.png",
+      "media": "(device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)"
+    },
+    {
+      "url": "/brand/splash-1242x2208.5edd2261.png",
+      "media": "(device-width: 414px) and (device-height: 736px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)"
+    },
+    {
+      "url": "/brand/splash-750x1334.5edd2261.png",
+      "media": "(device-width: 375px) and (device-height: 667px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)"
+    }
+  ],
 } as const;

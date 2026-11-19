@@ -36,7 +36,23 @@ try {
   process.exit(1);
 }
 
-const VERSION = createHash('sha256').update(source).digest('hex').slice(0, 8);
+/*
+ * The look the images are drawn in, beside the logo itself: changing either is
+ * a new set of URLs, so a phone that installed the old set picks up the new.
+ */
+const LOOK = 'splash-navy-1';
+
+const VERSION = createHash('sha256').update(source).update(LOOK).digest('hex').slice(0, 8);
+
+/**
+ * The opening screen's colours: a deep navy drawn from the emblem's own ring,
+ * darker at the edges. The page's splash (`app-splash.tsx`) uses the same two.
+ */
+const SPLASH_EDGE = '#041331';
+const SPLASH_CENTRE = '#0d2f74';
+
+/** How large the emblem is drawn on the opening screen, in CSS pixels — the page's splash matches it. */
+const SPLASH_EMBLEM = 132;
 
 /**
  * The emblem alone, square and edge to edge.
@@ -90,10 +106,14 @@ async function icon(size, { coverage = 1, background = PAGE, round = false }) {
 const TRANSPARENT = { r: 0, g: 0, b: 0, alpha: 0 };
 
 const OUTPUTS = [
-  // Launcher icons. White behind, because the emblem's own lettering is dark
-  // blue and would disappear into a coloured tile.
-  { name: `icon-192.${VERSION}.png`, size: 192, coverage: 0.96 },
-  { name: `icon-512.${VERSION}.png`, size: 512, coverage: 0.96 },
+  /*
+   * The plain icons: the round emblem with nothing behind it. Android draws
+   * its opening screen from these, on the manifest's background colour — a
+   * white square on the navy would be the box the emblem came out of.
+   */
+  { name: `icon-192.${VERSION}.png`, size: 192, coverage: 0.96, background: TRANSPARENT, round: true },
+  { name: `icon-512.${VERSION}.png`, size: 512, coverage: 0.96, background: TRANSPARENT, round: true },
+  // The launcher's icons, which it may crop to any shape: white behind, as before.
   { name: `icon-maskable-192.${VERSION}.png`, size: 192, coverage: 0.62 },
   { name: `icon-maskable-512.${VERSION}.png`, size: 512, coverage: 0.62 },
   // iOS reads this from a link tag, applies its own rounding, and composites
@@ -125,6 +145,89 @@ for (const output of OUTPUTS) {
 }
 
 // ---------------------------------------------------------------------------
+// The opening screens iOS shows while an installed app starts
+// ---------------------------------------------------------------------------
+
+/*
+ * iOS ignores the manifest's colours and shows a white page unless it is given
+ * a picture for the exact screen it is on. One per iPhone screen size, in
+ * portrait: the navy, the emblem at the centre — where the page's own splash
+ * draws it, at the same size, so the hand-over is not seen.
+ *
+ *   [CSS width, CSS height, pixel ratio]
+ */
+const SCREENS = [
+  [440, 956, 3], // 16 Pro Max
+  [402, 874, 3], // 16 Pro
+  [430, 932, 3], // 15 Pro Max, 15 Plus, 14 Pro Max
+  [393, 852, 3], // 15, 15 Pro, 14 Pro, 16
+  [428, 926, 3], // 14 Plus, 13 Pro Max, 12 Pro Max
+  [390, 844, 3], // 14, 13, 13 Pro, 12, 12 Pro
+  [375, 812, 3], // 13 mini, 12 mini, 11 Pro, XS, X
+  [414, 896, 3], // 11 Pro Max, XS Max
+  [414, 896, 2], // 11, XR
+  [414, 736, 3], // 8 Plus
+  [375, 667, 2], // SE, 8
+];
+
+const roundEmblem = async (size) =>
+  sharp(
+    await sharp(emblem)
+      .resize(size, size, { fit: 'contain', background: { r: 255, g: 255, b: 255, alpha: 0 } })
+      .toBuffer(),
+  )
+    .composite([{ input: circleMask(size), blend: 'dest-in' }])
+    .png()
+    .toBuffer();
+
+// The emblem for the page's own splash: drawn at three times its size for a phone's screen, and light.
+const markName = `splash-mark.${VERSION}.webp`;
+const markFile = await sharp(await roundEmblem(SPLASH_EMBLEM * 3)).webp({ quality: 88, alphaQuality: 100 }).toBuffer();
+writeFileSync(path.join(outDir, markName), markFile);
+console.log(`  ${markName}  ${(markFile.length / 1024).toFixed(1)} kB`);
+
+const splashes = [];
+for (const [cssWidth, cssHeight, ratio] of SCREENS) {
+  const width = cssWidth * ratio;
+  const height = cssHeight * ratio;
+  const mark = SPLASH_EMBLEM * ratio;
+  const glow = Math.round(mark * 1.9);
+  const backdrop = Buffer.from(
+    `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <radialGradient id="bg" cx="50%" cy="50%" r="75%">
+          <stop offset="0" stop-color="${SPLASH_CENTRE}"/>
+          <stop offset="1" stop-color="${SPLASH_EDGE}"/>
+        </radialGradient>
+        <radialGradient id="glow" cx="50%" cy="50%" r="50%">
+          <stop offset="0" stop-color="#5b8cff" stop-opacity="0.35"/>
+          <stop offset="1" stop-color="#5b8cff" stop-opacity="0"/>
+        </radialGradient>
+      </defs>
+      <rect width="100%" height="100%" fill="url(#bg)"/>
+      <circle cx="${width / 2}" cy="${height / 2}" r="${glow / 2}" fill="url(#glow)"/>
+    </svg>`,
+  );
+  const name = `splash-${width}x${height}.${VERSION}.png`;
+  const png = await sharp(backdrop)
+    .composite([
+      {
+        input: await roundEmblem(mark),
+        top: Math.round((height - mark) / 2),
+        left: Math.round((width - mark) / 2),
+      },
+    ])
+    .png({ compressionLevel: 9, palette: false })
+    .toBuffer();
+  writeFileSync(path.join(outDir, name), png);
+  splashes.push({
+    url: `/brand/${name}`,
+    media: `(device-width: ${cssWidth}px) and (device-height: ${cssHeight}px) and (-webkit-device-pixel-ratio: ${ratio}) and (orientation: portrait)`,
+  });
+  console.log(`  ${name}  ${(png.length / 1024).toFixed(1)} kB`);
+}
+
+// ---------------------------------------------------------------------------
 // The manifest, written here so its icon URLs cannot drift from the files
 // ---------------------------------------------------------------------------
 
@@ -140,7 +243,8 @@ const manifest = {
   display: 'standalone',
   display_override: ['standalone', 'minimal-ui'],
   orientation: 'portrait-primary',
-  background_color: '#ffffff',
+  // The opening screen Android draws: the emblem on the navy, not on white.
+  background_color: SPLASH_EDGE,
   theme_color: '#0b3b8c',
   categories: ['finance', 'business'],
   icons: [
@@ -189,6 +293,15 @@ export const BRAND = {
   favicon32: '/brand/favicon-32.${VERSION}.png',
   favicon64: '/brand/favicon-64.${VERSION}.png',
   appleTouchIcon: '/brand/apple-touch-icon.${VERSION}.png',
+} as const;
+
+/** The opening screen: its colours, the emblem's size on it, and iOS's picture for each iPhone. */
+export const SPLASH = {
+  edge: '${SPLASH_EDGE}',
+  centre: '${SPLASH_CENTRE}',
+  emblem: ${SPLASH_EMBLEM},
+  mark: '/brand/${markName}',
+  images: ${JSON.stringify(splashes, null, 2).replace(/\n/g, '\n  ')},
 } as const;
 `,
 );

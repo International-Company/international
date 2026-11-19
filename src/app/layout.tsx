@@ -3,7 +3,8 @@ import localFont from 'next/font/local';
 import { DEFAULT_LOCALE, LOCALE_META } from '@/i18n/config';
 import { PreferenceScript } from './preference-script';
 import { ServiceWorker } from './service-worker';
-import { BRAND } from './_shell/brand';
+import { BRAND, SPLASH } from './_shell/brand';
+import { AppSplash } from './app-splash';
 import './globals.css';
 
 /**
@@ -120,6 +121,8 @@ export const metadata: Metadata = {
     capable: true,
     title: 'انترنشونال',
     statusBarStyle: 'default',
+    // iOS shows a white page on launch unless given a picture for its exact screen.
+    startupImage: SPLASH.images.map((image) => ({ url: image.url, media: image.media })),
   },
 };
 
@@ -154,6 +157,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <PreferenceScript />
       </head>
       <body className={`${sans.variable} ${mono.variable} antialiased`}>
+        <AppSplash />
         {children}
         <ServiceWorker />
       </body>
