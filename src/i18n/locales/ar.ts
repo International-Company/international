@@ -2708,6 +2708,7 @@ const ar: Dictionary = {
     routesHint: 'ما لم تحدد له مجموعة يذهب إلى الرئيسية. أمر الجرد يعمل في المجموعة الرئيسية فقط.',
     routeSameAsUsdt: 'نفس مجموعة USDT',
     routeSameAsRemittance: 'نفس مجموعة الحوالات',
+    routeSameAsExchange: 'نفس مجموعة الصرافة',
     routeNotSent: 'لا تُرسل',
     forward: {
       title: 'نقل الرسائل من مجموعة إلى أخرى',
@@ -2735,6 +2736,7 @@ const ar: Dictionary = {
     },
     route: {
       EXCHANGE: 'الصرافة',
+      WALLET_CASHOUT: 'سحب من محفظة',
       USDT: 'USDT (استلام وسحب)',
       BANK_COPY: 'الصرافة واستلام USDT والحوالات الواردة والإيداع في محفظة: التحويلات البنكية فقط',
       USDT_SALE: 'بيع USDT: البيانات كاملة',

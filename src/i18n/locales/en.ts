@@ -2709,6 +2709,7 @@ const en = {
     routesHint: 'Whatever has no group of its own goes to the main one. The count command works in the main group only.',
     routeSameAsUsdt: 'Same group as USDT',
     routeSameAsRemittance: 'Same group as remittances',
+    routeSameAsExchange: 'Same group as the exchange',
     routeNotSent: 'Not sent',
     forward: {
       title: 'Messages passed from group to group',
@@ -2736,6 +2737,7 @@ const en = {
     },
     route: {
       EXCHANGE: 'Exchange',
+      WALLET_CASHOUT: 'Wallet cash-outs',
       USDT: 'USDT (receive and send)',
       BANK_COPY: 'Exchange, USDT receipts, incoming remittances and wallet top-ups: bank transfers only',
       USDT_SALE: 'USDT sale: all details',

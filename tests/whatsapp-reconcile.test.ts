@@ -114,6 +114,7 @@ describe('the kinds a group is sent', () => {
     assert.deepEqual(categoriesOf('names@g.us', routes, 'main@g.us'), ['TIKTOK_NAME']);
     assert.deepEqual(categoriesOf('main@g.us', routes, 'main@g.us'), [
       'EXCHANGE',
+      'WALLET_CASHOUT',
       'USDT',
       'USDT_SALE',
     ]);

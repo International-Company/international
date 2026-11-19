@@ -9,6 +9,7 @@ import { foldName } from './report-command';
 
 export const ROUTE_CATEGORIES = [
   'EXCHANGE',
+  'WALLET_CASHOUT',
   'USDT',
   'BANK_COPY',
   'USDT_SALE',
@@ -29,7 +30,7 @@ export type GroupRoutes = Partial<Record<RouteCategory, { id: string; name: stri
 
 const CATEGORY_OF: Record<string, RouteCategory> = {
   EXCHANGE: 'EXCHANGE',
-  WALLET_CASHOUT: 'EXCHANGE',
+  WALLET_CASHOUT: 'WALLET_CASHOUT',
   WALLET_TOPUP: 'EXCHANGE',
   USDT_RECEIVE: 'USDT',
   USDT_SEND: 'USDT',
@@ -43,6 +44,7 @@ const CATEGORY_OF: Record<string, RouteCategory> = {
 
 const CATEGORY_WORDS: Record<RouteCategory, string> = {
   EXCHANGE: 'الصرافة',
+  WALLET_CASHOUT: 'السحب من المحافظ',
   USDT: 'USDT',
   BANK_COPY: 'التحويلات البنكية من الصرافة واستلام USDT والحوالات الواردة والإيداع في المحافظ',
   USDT_SALE: 'بيع USDT',
@@ -129,6 +131,8 @@ export function withRoute(
 
 /** The kind a kind falls back to when it has no group of its own. */
 const FALLS_BACK_TO: Partial<Record<RouteCategory, RouteCategory>> = {
+  // A cash-out from a wallet goes with the exchange until it is given a group of its own.
+  WALLET_CASHOUT: 'EXCHANGE',
   USDT_SALE: 'USDT',
   // Incoming remittances go with the rest until they are given a group of their own.
   REMITTANCE_IN: 'REMITTANCE',

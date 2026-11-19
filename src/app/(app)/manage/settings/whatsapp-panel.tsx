@@ -335,6 +335,8 @@ export function WhatsappPanel({ canManage }: { canManage: boolean }) {
                   ? t('whatsapp.routeSameAsUsdt')
                   : category === 'REMITTANCE_IN' || category === 'PAYPAL'
                     ? t('whatsapp.routeSameAsRemittance')
+                  : category === 'WALLET_CASHOUT'
+                    ? t('whatsapp.routeSameAsExchange')
                   : category === 'REMITTANCE_COPY' ||
                       category === 'BANK_COPY' ||
                       category === 'TIKTOK_NAME' ||

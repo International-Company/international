@@ -47,6 +47,16 @@ describe('which group hears of which deals', () => {
     assert.equal(groupFor('USDT_RECEIVE', own, MAIN), 'coins@g.us');
   });
 
+  it('sends a cash-out from a wallet with the exchange until it has a group of its own', () => {
+    const exchange = { EXCHANGE: { id: 'fx@g.us', name: 'الصرافة' } };
+    assert.equal(groupFor('WALLET_CASHOUT', {}, MAIN), MAIN);
+    assert.equal(groupFor('WALLET_CASHOUT', exchange, MAIN), 'fx@g.us');
+    const own = { ...exchange, WALLET_CASHOUT: { id: 'wallet@g.us', name: 'سحب من محفظة' } };
+    assert.equal(groupFor('WALLET_CASHOUT', own, MAIN), 'wallet@g.us');
+    assert.equal(groupFor('EXCHANGE', own, MAIN), 'fx@g.us', 'the exchange stays put');
+    assert.equal(groupFor('WALLET_TOPUP', own, MAIN), 'fx@g.us', 'a top-up stays with the exchange');
+  });
+
   it('copies the transfers of exchange and USDT receipts only where asked', () => {
     assert.equal(copyGroupFor('EXCHANGE', routes, MAIN), '', 'never by itself');
     const bank = { ...routes, BANK_COPY: { id: 'bank@g.us', name: 'التحويلات' } };
@@ -114,7 +124,7 @@ describe('which group hears of which deals', () => {
 
   it('names each group once, with all it hears', () => {
     assert.deepEqual(groupPlan(routes, MAIN), [
-      { id: MAIN, hears: ['الصرافة', 'تيكتوك'] },
+      { id: MAIN, hears: ['الصرافة', 'السحب من المحافظ', 'تيكتوك'] },
       { id: 'coins@g.us', hears: ['USDT', 'بيع USDT'] },
       { id: 'remit@g.us', hears: ['الحوالات', 'الحوالات الواردة', 'حوالات باي بال'] },
     ]);
@@ -123,6 +133,7 @@ describe('which group hears of which deals', () => {
         id: MAIN,
         hears: [
           'الصرافة',
+          'السحب من المحافظ',
           'USDT',
           'بيع USDT',
           'الحوالات',
