@@ -788,6 +788,7 @@ const ar: Dictionary = {
     },
   },
   bankDesk: {
+    copyAll: 'نسخ الكل',
     workTab: 'مكتب التنفيذ',
     watchTab: 'مراقبة القروبات',
     listTab: 'القائمة',

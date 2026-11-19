@@ -4,7 +4,6 @@ import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import {
   ArrowRight,
-  CalendarDays,
   Check,
   CheckCircle2,
   ClipboardList,
@@ -15,7 +14,6 @@ import {
   Globe,
   Pencil,
   Inbox,
-  Landmark,
   MessageSquare,
   Route,
   Server,
@@ -32,6 +30,7 @@ import { cn } from '@/ui/utils';
 import { clockOf, dayKey, dayLabel } from './days';
 import { keyOf, stateOf, type Line, type LineState } from './desk-types';
 import { MessageTrace } from './message-trace';
+import { BankMark } from './bank-view';
 import type { Group } from './forward-panel';
 
 /** What the trace says of the transfer's message: where it was written, by whom, and where it went. */
@@ -338,52 +337,128 @@ export function TransferDetail({
 
   return (
     <Card className={cn('flex flex-col overflow-hidden bg-surface-sunken p-0', className)}>
-        {/* --- The head: what it is, and the sum --- */}
-        <header className="border-b border-border-subtle bg-surface p-4">
-          <div className="flex items-center justify-between gap-2">
-            <span className="flex min-w-0 items-center gap-1.5 text-xs font-semibold text-content-secondary">
-              {onBack && (
-                <button
-                  type="button"
-                  onClick={onBack}
-                  aria-label={t('common.back')}
-                  className="-ms-1 inline-flex size-8 shrink-0 items-center justify-center rounded-full text-content-tertiary hover:bg-surface-sunken hover:text-content lg:hidden"
-                >
-                  <ArrowRight className="size-4 rtl:rotate-0 ltr:rotate-180" />
-                </button>
+        {/* --- The head: what it is, the sum beside its bank, when and by whom, and how far it got --- */}
+        <header className="border-b border-border-subtle bg-surface px-4 pb-3 pt-3">
+          <div className="flex items-center gap-2">
+            {onBack && (
+              <button
+                type="button"
+                onClick={onBack}
+                aria-label={t('common.back')}
+                className="-ms-1 inline-flex size-8 shrink-0 items-center justify-center rounded-full text-content-tertiary hover:bg-surface-sunken hover:text-content lg:hidden"
+              >
+                <ArrowRight className="size-4 rtl:rotate-0 ltr:rotate-180" />
+              </button>
+            )}
+            <span className="truncate text-xs font-semibold text-content-secondary">{line.kind}</span>
+            {line.source !== 'message' && (
+              <span className="truncate font-mono text-[11px] text-content-tertiary ltr-content">{line.reference}</span>
+            )}
+            <span
+              className={cn(
+                'ms-auto inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-bold',
+                STATE_STYLE[state].chip,
               )}
-              <span className="truncate">{line.kind}</span>
-              {line.source !== 'message' && (
-                <span className="truncate font-mono text-content-tertiary ltr-content">{line.reference}</span>
-              )}
-            </span>
-            <span className={cn('shrink-0 rounded-full px-2.5 py-0.5 text-[11px] font-bold', STATE_STYLE[state].chip)}>
+            >
+              <span className="size-1.5 rounded-full bg-current" aria-hidden />
               {t(STATE_STYLE[state].key)}
             </span>
           </div>
+
           {detail && BigInt(detail.amount || '0') > 0n && (
-            <>
+            <div className="mt-3 flex items-center gap-3">
+              <BankMark line={line} className="size-12 text-sm" />
+              <div className="min-w-0 flex-1">
+                <button
+                  type="button"
+                  onClick={() => copy(plain(detail.amount), t('bank.amount'))}
+                  className="group/amount inline-flex items-center gap-2"
+                  title={t('bank.amount')}
+                >
+                  <Money
+                    value={detail.amount}
+                    currency={detail.currency}
+                    className="text-[28px] font-extrabold leading-none tracking-tight text-content"
+                  />
+                  <Copy className="size-4 text-content-tertiary opacity-0 transition-opacity group-hover/amount:opacity-100" />
+                </button>
+                <p className="mt-1 text-sm font-semibold text-content">{detail.channel ?? t('bank.noChannel')}</p>
+                <p className="mt-0.5 flex items-center gap-1 text-xs text-content-secondary">
+                  <Clock className="size-3.5 shrink-0 text-content-tertiary" />
+                  <span className="truncate">
+                    <span className="tabular-nums">{when(detail.at)}</span>
+                    {detail.by && <> · {detail.by}</>}
+                    {detail.branch && <> · {detail.branch}</>}
+                  </span>
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* How far it got: arrived, passed on, sent. */}
+          {detail && line.messageId && (
+            <div className="mt-3 flex items-center gap-3 border-t border-border-subtle pt-3">
+              {(() => {
+                const steps = [
+                  { done: true, icon: <MessageSquare className="size-3" />, label: t('bankDesk.stepWritten'), at: sender?.at ?? line.at },
+                  ...(line.source === 'message'
+                    ? []
+                    : [
+                        {
+                          done: (trace?.forwards.length ?? 0) > 0 || (line.forwardedTo?.length ?? 0) > 0,
+                          icon: <CornerUpRight className="size-3" />,
+                          label: t('bankDesk.stepForwarded'),
+                          at: trace?.forwards.at(-1)?.at ?? line.forwardedTo?.at(-1)?.at ?? null,
+                        },
+                        {
+                          done: state === 'done',
+                          icon: <CheckCircle2 className="size-3" />,
+                          label: t('bankDesk.stepDone'),
+                          at: detail.sentAt,
+                        },
+                      ]),
+                ];
+                return (
+                  <ol className="flex min-w-0 flex-1 items-center gap-1.5">
+                    {steps.map((step, index) => (
+                      <li key={step.label} className={cn('flex items-center gap-1.5', index > 0 && 'min-w-0 flex-1')}>
+                        {index > 0 && (
+                          <span
+                            className={cn('h-0.5 min-w-2 flex-1 rounded-full', step.done ? 'bg-success' : 'bg-border-subtle')}
+                            aria-hidden
+                          />
+                        )}
+                        <span
+                          className={cn(
+                            'flex size-6 shrink-0 items-center justify-center rounded-full',
+                            step.done ? 'bg-success text-white' : 'bg-surface-sunken text-content-tertiary ring-1 ring-border-subtle',
+                          )}
+                        >
+                          {step.icon}
+                        </span>
+                        <span className="flex min-w-0 flex-col leading-tight">
+                          <span className={cn('whitespace-nowrap text-[11px] font-semibold', step.done ? 'text-content' : 'text-content-tertiary')}>
+                            {step.label}
+                          </span>
+                          <span className="text-[10px] tabular-nums text-content-tertiary ltr-content">
+                            {step.done && step.at ? clockOf(step.at) : '—'}
+                          </span>
+                        </span>
+                      </li>
+                    ))}
+                  </ol>
+                );
+              })()}
               <button
                 type="button"
-                onClick={() => copy(plain(detail.amount), t('bank.amount'))}
-                className="mt-2 block"
-                title={t('bank.amount')}
+                onClick={() => setTracing(line.messageId!)}
+                title={t('bankDesk.fullPath')}
+                className="inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-1 text-[11px] font-semibold text-primary-text hover:bg-primary-subtle"
               >
-                <Money value={detail.amount} currency={detail.currency} className="text-3xl font-bold text-content" />
+                <Route className="size-3.5" />
+                <span className="hidden sm:inline">{t('bankDesk.fullPath')}</span>
               </button>
-              <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs">
-                <span className="inline-flex items-center gap-1 rounded-full bg-primary-subtle px-2 py-0.5 font-semibold text-primary-text">
-                  <Landmark className="size-3.5" />
-                  {detail.channel ?? t('bank.noChannel')}
-                </span>
-                {(line.forwardedTo?.length ?? 0) > 0 && (
-                  <span className="inline-flex items-center gap-1 rounded-full bg-primary-subtle px-2 py-0.5 font-semibold text-primary-text">
-                    <CornerUpRight className="size-3.5" />
-                    {line.forwardedTo!.map((entry) => entry.group).join('، ')}
-                  </span>
-                )}
-              </div>
-            </>
+            </div>
           )}
         </header>
 
@@ -398,124 +473,43 @@ export function TransferDetail({
             </>
           ) : (
             <>
-              {/* --- How far it got: arrived, forwarded, sent --- */}
-              {line.messageId && (
-                <section className="rounded-2xl bg-surface p-3 shadow-[var(--shadow-sm)] ring-1 ring-border-subtle">
-                  <div className="mb-2.5 flex items-center justify-between">
-                    <h3 className="text-[11px] font-semibold uppercase tracking-wide text-content-tertiary">
-                      {t('bankDesk.progress')}
-                    </h3>
-                    <button
-                      type="button"
-                      onClick={() => setTracing(line.messageId!)}
-                      className="inline-flex items-center gap-1 text-[11px] font-semibold text-primary-text hover:underline"
-                    >
-                      <Route className="size-3.5" />
-                      {t('bankDesk.fullPath')}
-                    </button>
-                  </div>
-                  {(() => {
-                    const steps = [
-                      { done: true, icon: <MessageSquare className="size-3.5" />, label: t('bankDesk.stepWritten'), at: sender?.at ?? line.at },
-                      ...(line.source === 'message'
-                        ? []
-                        : [
-                            {
-                              done: (trace?.forwards.length ?? 0) > 0,
-                              icon: <CornerUpRight className="size-3.5" />,
-                              label: t('bankDesk.stepForwarded'),
-                              at: trace?.forwards.at(-1)?.at ?? null,
-                            },
-                            {
-                              done: state === 'done',
-                              icon: <CheckCircle2 className="size-3.5" />,
-                              label: t('bankDesk.stepDone'),
-                              at: detail.sentAt,
-                            },
-                          ]),
-                    ];
-                    return (
-                      <ol className="flex items-start">
-                        {steps.map((step, index) => (
-                          <li key={step.label} className="relative flex flex-1 flex-col items-center text-center">
-                            {index > 0 && (
-                              <span
-                                className={cn(
-                                  'absolute end-1/2 top-3.5 h-0.5 w-full -translate-y-1/2',
-                                  step.done ? 'bg-success' : 'bg-border-subtle',
-                                )}
-                                aria-hidden
-                              />
-                            )}
-                            <span
-                              className={cn(
-                                'relative z-[1] flex size-7 items-center justify-center rounded-full ring-4 ring-surface',
-                                step.done ? 'bg-success text-white' : 'bg-surface-sunken text-content-tertiary',
-                              )}
-                            >
-                              {step.icon}
-                            </span>
-                            <span className={cn('mt-1.5 text-[11px] font-semibold', step.done ? 'text-content' : 'text-content-tertiary')}>
-                              {step.label}
-                            </span>
-                            <span className="text-[10px] tabular-nums text-content-tertiary ltr-content">
-                              {step.done && step.at ? clockOf(step.at) : '—'}
-                            </span>
-                          </li>
-                        ))}
-                      </ol>
-                    );
-                  })()}
-                </section>
-              )}
-
-
               {/* --- Where it came from: the system, or a number outside the office --- */}
               {detail.origin && (
-                <div
-                  className={cn(
-                    'flex items-center gap-3 rounded-2xl p-3 ring-1',
-                    detail.origin.kind === 'external'
-                      ? 'bg-warning-subtle/60 ring-warning/30'
-                      : 'bg-success-subtle/60 ring-success/30',
-                  )}
-                >
+                <div className="flex items-center gap-3 rounded-2xl bg-surface px-3 py-2.5 ring-1 ring-border-subtle">
                   <span
                     className={cn(
-                      'flex size-10 shrink-0 items-center justify-center rounded-xl text-white',
-                      detail.origin.kind === 'external' ? 'bg-warning' : 'bg-success',
+                      'flex size-9 shrink-0 items-center justify-center rounded-xl',
+                      detail.origin.kind === 'external'
+                        ? 'bg-warning-subtle text-warning-text'
+                        : 'bg-success-subtle text-success-text',
                     )}
                   >
-                    {detail.origin.kind === 'external' ? <Globe className="size-5" /> : <Server className="size-5" />}
+                    {detail.origin.kind === 'external' ? <Globe className="size-4" /> : <Server className="size-4" />}
                   </span>
                   <div className="min-w-0 flex-1">
-                    <p className="text-sm font-semibold text-content">
+                    <p className="truncate text-[13px] font-semibold text-content">
                       {detail.origin.kind === 'external' ? t('bank.originExternalLong') : t('bank.originSystemLong')}
                     </p>
-                    <p className="text-xs text-content-secondary">
+                    <p className="truncate text-[11px] text-content-tertiary">
                       {detail.origin.kind === 'external' ? t('bank.originSender') : t('bank.originRecordedBy')}{' '}
-                      <span className="font-semibold text-content">
+                      <span className="font-semibold text-content-secondary">
                         {detail.origin.kind === 'external'
                           ? (sender?.senderName ?? detail.origin.name ?? '—')
                           : (trace?.deal?.by ?? detail.origin.name ?? '—')}
                       </span>
-                      {detail.origin.phone && (
-                        <button
-                          type="button"
-                          onClick={() => copy(detail.origin!.phone!, t('bank.phone'))}
-                          className="ms-1.5 inline-flex items-center gap-1 font-semibold text-content ltr-content hover:text-primary-text"
-                        >
-                          +{detail.origin.phone}
-                          <Copy className="size-3" />
-                        </button>
-                      )}
+                      {sender && <> · {t('bank.originIn', { group: sender.group })}</>}
                     </p>
-                    {sender && (
-                      <p className="mt-0.5 text-[11px] text-content-tertiary">
-                        {t('bank.originIn', { group: sender.group })} · {when(sender.at)}
-                      </p>
-                    )}
                   </div>
+                  {detail.origin.phone && (
+                    <button
+                      type="button"
+                      onClick={() => copy(detail.origin!.phone!, t('bank.phone'))}
+                      className="inline-flex shrink-0 items-center gap-1 rounded-full bg-surface-sunken px-2.5 py-1 text-[11px] font-semibold text-content ltr-content hover:text-primary-text"
+                    >
+                      +{detail.origin.phone}
+                      <Copy className="size-3" />
+                    </button>
+                  )}
                 </div>
               )}
 
@@ -638,28 +632,6 @@ export function TransferDetail({
                 </section>
               )}
 
-              {/* --- When --- */}
-              <div className="flex items-center gap-3 rounded-2xl bg-surface p-3 ring-1 ring-border-subtle">
-                <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary-subtle text-primary-text">
-                  <CalendarDays className="size-5" />
-                </span>
-                <div>
-                  <p className="text-sm font-semibold text-content">
-                    {dayLabel(dayKey(detail.at), locale, {
-                      today: t('bank.period.today'),
-                      yesterday: t('bank.period.yesterday'),
-                    })}
-                    <span className="ms-1.5 font-normal text-content-tertiary ltr-content">{dayKey(detail.at)}</span>
-                  </p>
-                  <p className="flex items-center gap-1 text-xs text-content-secondary">
-                    <Clock className="size-3.5" />
-                    <span className="tabular-nums ltr-content">{clockOf(detail.at)}</span>
-                    {detail.by && <> · {detail.by}</>}
-                    {detail.branch && <> · {detail.branch}</>}
-                  </p>
-                </div>
-              </div>
-
               {/* --- Where it goes: corrected by hand while a request waits --- */}
               {detail.source === 'group' && editing && (
                 <section className="space-y-2.5 rounded-2xl bg-surface p-3 ring-2 ring-primary/40">
@@ -742,51 +714,99 @@ export function TransferDetail({
                 </section>
               )}
               {detail.source !== 'message' && !(detail.source === 'group' && editing) && (
-              <Section
-                title={t('bank.detailTo')}
-                action={
-                  detail.source === 'group' && pending ? (
+              <section className="rounded-2xl bg-surface p-3 ring-1 ring-border-subtle">
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <h3 className="text-[11px] font-semibold uppercase tracking-wide text-content-tertiary">
+                    {t('bank.detailTo')}
+                  </h3>
+                  <span className="flex items-center gap-1">
+                    {detail.source === 'group' && pending && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setEditing({
+                            account: detail.account ?? '',
+                            name: detail.name ?? '',
+                            channel: detail.channel ?? '',
+                            amount: plain(detail.amount),
+                            currency: detail.currency,
+                          })
+                        }
+                        className="inline-flex items-center gap-1 rounded-full px-2 py-1 text-[11px] font-semibold text-primary-text hover:bg-primary-subtle"
+                      >
+                        <Pencil className="size-3" />
+                        {t('bankDesk.edit')}
+                      </button>
+                    )}
+                    {(detail.account || detail.name) && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          copy(
+                            [detail.account, detail.name, plain(detail.amount)].filter(Boolean).join('\n'),
+                            t('bankDesk.copyAll'),
+                          )
+                        }
+                        className="inline-flex items-center gap-1 rounded-full bg-primary-subtle px-2.5 py-1 text-[11px] font-semibold text-primary-text hover:bg-primary/15"
+                      >
+                        <Copy className="size-3" />
+                        {t('bankDesk.copyAll')}
+                      </button>
+                    )}
+                  </span>
+                </div>
+
+                <div className="grid gap-2">
+                  {detail.account && (
                     <button
                       type="button"
-                      onClick={() =>
-                        setEditing({
-                          account: detail.account ?? '',
-                          name: detail.name ?? '',
-                          channel: detail.channel ?? '',
-                          amount: plain(detail.amount),
-                          currency: detail.currency,
-                        })
-                      }
-                      className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-semibold normal-case text-primary-text hover:bg-primary-subtle"
+                      onClick={() => copy(detail.account!, t('bank.account'))}
+                      className="group/tile flex items-center justify-between gap-3 rounded-xl bg-surface-sunken px-3 py-2.5 text-start ring-1 ring-transparent transition hover:ring-primary/30"
                     >
-                      <Pencil className="size-3" />
-                      {t('bankDesk.edit')}
+                      <span className="min-w-0">
+                        <span className="block text-[11px] text-content-tertiary">{t('bank.account')}</span>
+                        <span className="block truncate font-mono text-lg font-bold tabular-nums text-content ltr-content">
+                          {detail.account}
+                        </span>
+                      </span>
+                      <Copy className="size-4 shrink-0 text-content-tertiary group-hover/tile:text-primary-text" />
                     </button>
-                  ) : null
-                }
-              >
-                {detail.account && (
-                  <Row label={t('bank.account')} copyable={detail.account}>
-                    <span className="font-mono text-base tabular-nums ltr-content">{detail.account}</span>
-                  </Row>
+                  )}
+                  {detail.name && (
+                    <button
+                      type="button"
+                      onClick={() => copy(detail.name!, t('bank.name'))}
+                      className="group/tile flex items-center justify-between gap-3 rounded-xl bg-surface-sunken px-3 py-2.5 text-start ring-1 ring-transparent transition hover:ring-primary/30"
+                    >
+                      <span className="min-w-0">
+                        <span className="block text-[11px] text-content-tertiary">{t('bank.name')}</span>
+                        <span className="block truncate text-base font-bold text-content">{detail.name}</span>
+                      </span>
+                      <Copy className="size-4 shrink-0 text-content-tertiary group-hover/tile:text-primary-text" />
+                    </button>
+                  )}
+                </div>
+
+                {((detail.phone && detail.phone !== detail.account) || detail.recipientIdNumber || detail.customerCode) && (
+                  <dl className="mt-1 divide-y divide-border-subtle">
+                    {detail.phone && detail.phone !== detail.account && (
+                      <Row label={t('bank.phone')} copyable={detail.phone}>
+                        <span className="tabular-nums ltr-content">{detail.phone}</span>
+                      </Row>
+                    )}
+                    {detail.recipientIdNumber && (
+                      <Row label={t('remittance.recipientIdNumber')} copyable={detail.recipientIdNumber}>
+                        <span className="tabular-nums ltr-content">{detail.recipientIdNumber}</span>
+                      </Row>
+                    )}
+                    {detail.customerCode && (
+                      <Row label={t('bank.customer')}>
+                        <span className="font-mono text-xs ltr-content">{detail.customerCode}</span>
+                      </Row>
+                    )}
+                  </dl>
                 )}
-                {detail.name && (
-                  <Row label={t('bank.name')} copyable={detail.name}>
-                    {detail.name}
-                  </Row>
-                )}
-                {detail.phone && detail.phone !== detail.account && (
-                  <Row label={t('bank.phone')} copyable={detail.phone}>
-                    <span className="tabular-nums ltr-content">{detail.phone}</span>
-                  </Row>
-                )}
-                {detail.recipientIdNumber && (
-                  <Row label={t('remittance.recipientIdNumber')} copyable={detail.recipientIdNumber}>
-                    <span className="tabular-nums ltr-content">{detail.recipientIdNumber}</span>
-                  </Row>
-                )}
-                {detail.customerCode && <Row label={t('bank.customer')}>{detail.customerCode}</Row>}
-              </Section>
+              </section>
               )}
 
               {/* --- A deal's own message in the group, as it went out --- */}

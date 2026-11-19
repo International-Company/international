@@ -786,6 +786,7 @@ const en = {
     },
   },
   bankDesk: {
+    copyAll: 'Copy all',
     workTab: 'Execution desk',
     watchTab: 'Watch groups',
     listTab: 'List',
