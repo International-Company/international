@@ -3,6 +3,7 @@ import { prisma } from '@/core/db/prisma';
 import { createLogger } from '@/core/logger/logger';
 import { keepMedia } from '@/modules/whatsapp/chat-images';
 import {
+  groups,
   onGroupReaction,
   onGroupSighting,
   type GroupReaction,
@@ -10,7 +11,7 @@ import {
 } from '@/modules/whatsapp/whatsapp.service';
 import { markSent } from './bank.service';
 import { bankGroup, executorGroups } from './group-feed.service';
-import { markedBy, markOf } from './group-marks';
+import { markedBy, markOf, wordsOf } from './group-marks';
 
 const log = createLogger('bank:marks');
 
@@ -178,6 +179,58 @@ async function onReaction(reaction: GroupReaction): Promise<void> {
   log.info('A transfer was marked sent by a reaction', { kind: found.kind });
 }
 
+/**
+ * A transfer forwarded by hand, on WhatsApp, from the bank group to another
+ * group the office's number is in: found by its words, the same as the
+ * original's, and written down as passed on to that group — by whoever
+ * forwarded it. From then on a 👍 or a receipt on the copy reaches the transfer.
+ */
+async function onCopy(sighting: GroupSighting): Promise<void> {
+  if (!sighting.forwarded) return;
+  const words = wordsOf(sighting.text);
+  // Too few words to tell one transfer from another.
+  if (words.length < 8) return;
+  const bank = await bankGroup();
+  if (!bank || bank.id === sighting.chat) return;
+  const known = await prisma.groupForward.findFirst({
+    where: { targetChat: sighting.chat, targetWaId: sighting.waId },
+    select: { id: true },
+  });
+  if (known) return;
+
+  const recent = await prisma.groupMessage.findMany({
+    where: { chat: bank.id, createdAt: { gte: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000) } },
+    orderBy: { createdAt: 'desc' },
+    select: { chat: true, waId: true, text: true },
+    take: 500,
+  });
+  const original = recent.find((row) => wordsOf(row.text) === words);
+  if (!original) return;
+
+  // Written where the desk's line looks: a deal's own message when the bank group's is a copy of it.
+  const found = await transferOf({ chat: original.chat, waId: original.waId });
+  const source = found?.ref ?? { chat: original.chat, waId: original.waId };
+  const name =
+    (await executorGroups()).find((group) => group.id === sighting.chat)?.name ||
+    (await groups().catch(() => [])).find((group) => group.id === sighting.chat)?.name ||
+    null;
+  await prisma.groupForward.create({
+    data: {
+      sourceChat: source.chat,
+      sourceWaId: source.waId,
+      targetChat: sighting.chat,
+      targetName: name,
+      targetWaId: sighting.waId,
+      auto: false,
+      byName:
+        sighting.name?.trim() ||
+        (sighting.phone ? `+${sighting.phone.split('@')[0]}` : null) ||
+        (sighting.fromMe ? 'المكتب' : null),
+    },
+  });
+  log.info('A transfer forwarded by hand on WhatsApp was found', { transfer: Boolean(found) });
+}
+
 /** A photo answering a transfer's message: kept as its receipt. */
 async function onReply(sighting: GroupSighting): Promise<void> {
   if (!sighting.quoted || sighting.mediaKind !== 'image' || !sighting.download) return;
@@ -215,5 +268,8 @@ export function registerGroupMarks(): void {
   );
   onGroupSighting((sighting) =>
     onReply(sighting).catch((error) => log.warn('Could not keep a receipt from a group', { error })),
+  );
+  onGroupSighting((sighting) =>
+    onCopy(sighting).catch((error) => log.warn('Could not trace a forwarded transfer', { error })),
   );
 }

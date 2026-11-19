@@ -152,6 +152,8 @@ export interface GroupSighting {
   download?: () => Promise<{ bytes: Buffer; mimeType: string; fileName: string | null } | null>;
   /** WhatsApp's id of the message this one answers, when it quotes one. */
   quoted?: string | null;
+  /** Forwarded on WhatsApp by a person, from wherever they read it. */
+  forwarded?: boolean;
 }
 
 type GroupListener = (sighting: GroupSighting) => Promise<void> | void;
@@ -424,6 +426,14 @@ async function open(account: Account): Promise<void> {
             text: words,
             mediaKind: kind,
             quoted: quotedStanzaId(message),
+            forwarded: Boolean(
+              (
+                seen?.extendedTextMessage ??
+                seen?.imageMessage ??
+                seen?.videoMessage ??
+                seen?.documentMessage
+              )?.contextInfo?.isForwarded,
+            ),
             at: sentAt > 0 ? new Date(sentAt) : new Date(),
             download:
               file && Number(file.fileLength ?? 0) <= 16 * 1024 * 1024

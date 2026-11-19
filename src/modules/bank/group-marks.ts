@@ -19,6 +19,17 @@ export function markOf(emoji: string): GroupMark | null {
   return null;
 }
 
+/**
+ * A message's words as two copies of it share them: forwarding on WhatsApp keeps
+ * the words, but a phone may add or drop direction marks and trailing spaces.
+ */
+export function wordsOf(text: string): string {
+  return text
+    .replace(/[‎‏‪-‮⁦-⁩]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 /** How a reaction's mark is named on the desk: the heart, and who put it. */
 export function markedBy(name: string | null, phone: string | null): string {
   const who = name?.trim() || (phone ? `+${phone}` : '');
