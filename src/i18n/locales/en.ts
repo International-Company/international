@@ -1306,7 +1306,7 @@ const en = {
 
   tiktok: {
     recipient: 'Send to',
-    recipientHint: 'The withdrawal goes to this person’s WhatsApp group.',
+    recipientHint: 'The photo and name go to this person’s WhatsApp group.',
     title: 'TikTok',
     subtitle: 'TikTok withdrawn in dollars and handed over in shekels. No balance moves.',
     photo: 'Photo of the withdrawal',
@@ -2836,13 +2836,13 @@ const en = {
       title: 'TikTok withdrawal recipients',
       add: 'Add names',
       edit: 'Edit',
-      none: 'No names yet — every withdrawal goes to the TikTok group.',
+      none: 'No names yet — the photo and name go to the “TikTok: photo and name only” group.',
       name: 'The name the teller sees',
       group: 'Their group',
       choose: 'Choose the group',
       remove: 'Remove',
       another: 'Another name',
-      hint: 'The teller chooses one of these names on the TikTok screen, and the withdrawal goes to that name’s group instead of the TikTok group.',
+      hint: 'The teller chooses one of these names on the TikTok screen, and the photo and name go to that name’s group instead of the “TikTok: photo and name only” group. The full details stay in the TikTok group.',
       saved: 'Recipients saved',
     },
     route: {
