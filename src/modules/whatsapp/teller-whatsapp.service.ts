@@ -56,6 +56,8 @@ interface Holder {
   pairingCode: string | null;
   /** The names of the number's groups, read once each. */
   groupNames?: Map<string, string>;
+  /** The groups the teller follows from the inbox: the only ones read. */
+  followed?: Set<string>;
 }
 
 const globalForTellers = globalThis as unknown as { __ifmsTellerNumbers?: Map<string, Holder> };
@@ -263,6 +265,12 @@ async function open(userId: string): Promise<void> {
   const prefix = tellerSessionPrefix(userId);
 
   const { state, saveCreds } = await databaseAuthState(prisma, prefix);
+  // The groups this teller follows, read before the first message can arrive.
+  holder.followed = new Set(
+    (await prisma.tellerFollowedGroup.findMany({ where: { ownerId: userId }, select: { chat: true } })).map(
+      (row) => row.chat,
+    ),
+  );
   const version = await fetchLatestBaileysVersion()
     .then((latest) => latest.version)
     .catch(() => undefined);
@@ -279,10 +287,13 @@ async function open(userId: string): Promise<void> {
      * status, and carries years of history. None of it is a customer writing to
      * them, and decrypting it all, and keeping a key for every member of every
      * group, held up the whole server — twice now: reading every group again on
-     * 2026-11-21 slowed it within the hour. It is acknowledged and dropped unread.
+     * 2026-11-21 slowed it within the hour. It is acknowledged and dropped unread,
+     * but for the few groups the teller chose to follow from the inbox.
      */
     shouldIgnoreJid: (jid) =>
-      Boolean(isJidGroup(jid) || isJidBroadcast(jid) || isJidNewsletter(jid)),
+      Boolean(
+        (isJidGroup(jid) && !holder.followed?.has(jid)) || isJidBroadcast(jid) || isJidNewsletter(jid),
+      ),
     shouldSyncHistoryMessage: () => false,
     defaultQueryTimeoutMs: 15_000,
     ...(version ? { version } : {}),
@@ -572,6 +583,62 @@ export async function watchedNumbers() {
       };
     })
     .sort((a, b) => (b.lastMessageAt?.getTime() ?? 0) - (a.lastMessageAt?.getTime() ?? 0));
+}
+
+/**
+ * Every group the teller's number is in — read from WhatsApp as names alone,
+ * which costs nothing — and which of them the teller follows.
+ */
+export async function numberGroups(userId: string) {
+  const sock = socketOf(userId);
+  const holder = holderOf(userId);
+  const all = await sock.groupFetchAllParticipating().catch((error) => {
+    log.warn('Could not read a teller number’s groups', { error });
+    throw errors.precondition('WhatsApp did not answer', 'errors.tellerSendFailed');
+  });
+  holder.groupNames ??= new Map();
+  const groups = Object.values(all).map((group) => {
+    if (group.subject) holder.groupNames!.set(group.id, group.subject);
+    return {
+      chat: group.id,
+      name: group.subject?.trim() || group.id,
+      size: group.participants?.length ?? 0,
+      followed: holder.followed?.has(group.id) ?? false,
+    };
+  });
+  return groups.sort((a, b) => Number(b.followed) - Number(a.followed) || a.name.localeCompare(b.name, 'ar'));
+}
+
+/**
+ * Follows one of the number's groups, or stops: followed, what is written in it
+ * from now on reaches the inbox and is answered from there. Returns the
+ * group's conversation, made at once so it can be opened before anyone writes.
+ */
+export async function followGroup(userId: string, chat: string, follow: boolean) {
+  if (!chat.endsWith('@g.us')) throw errors.validation([{ path: 'chat', message: 'Not a group' }]);
+  const holder = holderOf(userId);
+  holder.followed ??= new Set();
+  if (!follow) {
+    await prisma.tellerFollowedGroup.deleteMany({ where: { ownerId: userId, chat } });
+    holder.followed.delete(chat);
+    return { id: null };
+  }
+  const sock = socketOf(userId);
+  const name = (await groupNameOf(holder, sock, chat)) ?? null;
+  await prisma.tellerFollowedGroup.upsert({
+    where: { ownerId_chat: { ownerId: userId, chat } },
+    create: { ownerId: userId, chat, name },
+    update: { name },
+  });
+  holder.followed.add(chat);
+  const existing = await prisma.tellerChat.findFirst({ where: { ownerId: userId, chat }, select: { id: true } });
+  const row =
+    existing ??
+    (await prisma.tellerChat.create({
+      data: { ownerId: userId, chat, phone: null, name, unread: 0 },
+      select: { id: true },
+    }));
+  return { id: row.id };
 }
 
 /** How many of their customers' messages the teller has not opened. */

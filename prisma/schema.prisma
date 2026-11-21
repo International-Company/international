@@ -2306,6 +2306,20 @@ model ChatImage {
   @@map("chat_images")
 }
 
+/// A group on a teller's own number that the teller chose to follow from the
+/// inbox. Only these of the number's groups are read: reading every group the
+/// number is in held up the whole server.
+model TellerFollowedGroup {
+  id        String   @id @default(cuid())
+  ownerId   String
+  chat      String
+  name      String?
+  createdAt DateTime @default(now())
+
+  @@unique([ownerId, chat])
+  @@map("teller_followed_groups")
+}
+
 /// A conversation on a teller's own WhatsApp number. Only that teller reads it.
 model TellerChat {
   id            String              @id @default(cuid())

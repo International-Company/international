@@ -170,6 +170,7 @@ function Conversations({
   listTop,
   hint,
   readOnly = false,
+  groupsApi,
 }: {
   base: string;
   tabs: ReactNode;
@@ -178,6 +179,8 @@ function Conversations({
   hint: string;
   /** Watching another number: read, never answered from here. */
   readOnly?: boolean;
+  /** Where the number's groups are listed and followed, when it has any to offer. */
+  groupsApi?: string;
 }) {
   const { t } = useLocale();
   const toast = useToast();
@@ -198,6 +201,51 @@ function Conversations({
   const [editing, setEditing] = useState<{ id: string; text: string } | null>(null);
   const [deleting, setDeleting] = useState<Message | null>(null);
   const [changing, setChanging] = useState(false);
+  /** The number's groups, to follow one and open it: null while the sheet is shut. */
+  const [numberGroups, setNumberGroups] = useState<
+    { chat: string; name: string; size: number; followed: boolean }[] | null | 'loading'
+  >(null);
+  const [groupQuery, setGroupQuery] = useState('');
+  const [following, setFollowing] = useState<string | null>(null);
+
+  const openGroups = async () => {
+    if (!groupsApi) return;
+    setNumberGroups('loading');
+    setGroupQuery('');
+    try {
+      setNumberGroups(await api.get(groupsApi));
+    } catch (cause) {
+      failure(cause);
+      setNumberGroups(null);
+    }
+  };
+
+  /** Followed and opened: what is written in it from now on reaches the inbox. */
+  const follow = async (chat: string, on: boolean) => {
+    if (!groupsApi) return;
+    setFollowing(chat);
+    try {
+      const result = await api.post<{ id: string | null }>(groupsApi, { chat, follow: on });
+      if (on && result.id) {
+        setNumberGroups(null);
+        setListView('all');
+        setThread(null);
+        setSelected(result.id);
+        toast.success(t('inbox.groupFollowed'));
+      } else {
+        setNumberGroups((current) =>
+          Array.isArray(current) ? current.map((group) => (group.chat === chat ? { ...group, followed: false } : group)) : current,
+        );
+        toast.success(t('inbox.groupUnfollowed'));
+      }
+      void load();
+    } catch (cause) {
+      failure(cause);
+    } finally {
+      setFollowing(null);
+    }
+  };
+
   /** Everyone else in a customer's conversation right now, by the customer's number. */
   const [busy, setBusy] = useState<Map<string, { name: string; typing: boolean }>>(new Map());
   const scroller = useRef<HTMLDivElement>(null);
@@ -447,12 +495,19 @@ function Conversations({
                 {t('inbox.watchReadOnly')}
               </Badge>
             ) : (
-              <Button
-                icon={<MessageSquarePlus />}
-                onClick={() => setFresh((current) => ({ ...current, open: true }))}
-              >
-                {t('inbox.newChat')}
-              </Button>
+              <>
+                {groupsApi && (
+                  <Button variant="secondary" icon={<Users />} onClick={() => void openGroups()}>
+                    {t('inbox.numberGroups')}
+                  </Button>
+                )}
+                <Button
+                  icon={<MessageSquarePlus />}
+                  onClick={() => setFresh((current) => ({ ...current, open: true }))}
+                >
+                  {t('inbox.newChat')}
+                </Button>
+              </>
             )}
           </div>
         }
@@ -810,6 +865,58 @@ function Conversations({
         </Card>
       </div>
       <Dialog
+        open={numberGroups !== null}
+        onClose={() => setNumberGroups(null)}
+        title={t('inbox.numberGroups')}
+        description={t('inbox.numberGroupsHint')}
+      >
+        {numberGroups === 'loading' ? (
+          <Skeleton className="h-48 w-full" />
+        ) : Array.isArray(numberGroups) && numberGroups.length === 0 ? (
+          <p className="py-6 text-center text-sm text-content-tertiary">{t('inbox.numberGroupsNone')}</p>
+        ) : Array.isArray(numberGroups) ? (
+          <div className="space-y-2">
+            <Input
+              value={groupQuery}
+              onChange={(event) => setGroupQuery(event.target.value)}
+              placeholder={t('inbox.search')}
+              iconStart={<Search className="size-4" />}
+            />
+            <ul className="max-h-[55vh] divide-y divide-border-subtle overflow-y-auto rounded-xl ring-1 ring-border-subtle">
+              {numberGroups
+                .filter((group) => !groupQuery.trim() || group.name.includes(groupQuery.trim()))
+                .map((group) => (
+                  <li key={group.chat} className="flex items-center gap-2 px-3 py-2">
+                    <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary-subtle text-primary-text">
+                      <Users className="size-4" />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-semibold text-content">{group.name}</span>
+                      <span className="block text-[11px] text-content-tertiary">
+                        {t('inbox.groupMembers', { count: group.size })}
+                        {group.followed && <> · <span className="font-semibold text-success-text">{t('inbox.groupFollowing')}</span></>}
+                      </span>
+                    </span>
+                    {group.followed && (
+                      <button
+                        type="button"
+                        disabled={following === group.chat}
+                        onClick={() => void follow(group.chat, false)}
+                        className="shrink-0 rounded-full px-2 py-1 text-[11px] font-semibold text-content-tertiary hover:bg-danger-subtle hover:text-danger-text"
+                      >
+                        {t('inbox.groupUnfollow')}
+                      </button>
+                    )}
+                    <Button size="sm" loading={following === group.chat} onClick={() => void follow(group.chat, true)}>
+                      {t('inbox.groupOpen')}
+                    </Button>
+                  </li>
+                ))}
+            </ul>
+          </div>
+        ) : null}
+      </Dialog>
+      <Dialog
         open={fresh.open}
         onClose={() => setFresh((current) => ({ ...current, open: false }))}
         title={t('inbox.newChatTitle')}
@@ -979,6 +1086,7 @@ export function InboxView({ canWatch = false }: { canWatch?: boolean }) {
         tabs={picker}
         listTop={<MyNumber />}
         hint={t('inbox.hintMine')}
+        groupsApi="/api/inbox/mine/groups"
       />
     );
   }
