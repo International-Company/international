@@ -17,6 +17,7 @@ import {
   MessageSquare,
   Route,
   Server,
+  Undo2,
   X,
 } from 'lucide-react';
 import { useLocale } from '@/i18n/provider';
@@ -25,7 +26,7 @@ import { say } from '@/lib/failure';
 import { Button, Card, EmptyState, Skeleton } from '@/ui/primitives';
 import { Field, Input, Select } from '@/ui/form';
 import { Money } from '@/ui/display';
-import { useToast } from '@/ui/overlay';
+import { ConfirmDialog, useToast } from '@/ui/overlay';
 import { cn } from '@/ui/utils';
 import { clockOf, dayKey, dayLabel } from './days';
 import { keyOf, stateOf, type Line, type LineState } from './desk-types';
@@ -161,6 +162,10 @@ export function TransferDetail({
   const [busy, setBusy] = useState(false);
   /** What the bot read, being corrected by hand. */
   const [editing, setEditing] = useState<{ account: string; name: string; channel: string; amount: string; currency: string } | null>(null);
+  /** Taking the forward back: asked first, and whether the copies in the groups go too. */
+  const [unforwarding, setUnforwarding] = useState(false);
+  const [dropCopies, setDropCopies] = useState(true);
+  const [unforwardBusy, setUnforwardBusy] = useState(false);
   const key = line ? keyOf(line) : null;
 
   const failure = useCallback(
@@ -340,6 +345,28 @@ export function TransferDetail({
   );
 
   const pending = detail?.status === 'PENDING_TRANSFER';
+
+  /** The forward taken back: the transfer waits again. */
+  const takeBack = async () => {
+    if (!line.messageId) return;
+    setUnforwardBusy(true);
+    try {
+      const result = await api.post<{ removed: number; deleted: number }>(
+        `/api/bank/groups/messages/${line.messageId}/unforward`,
+        { deleteCopies: dropCopies },
+      );
+      toast.success(
+        t('bankDesk.unforwarded'),
+        result.deleted > 0 ? t('bankDesk.unforwardedDeleted', { count: result.deleted }) : undefined,
+      );
+      setUnforwarding(false);
+      onChanged?.();
+    } catch (cause) {
+      failure(cause);
+    } finally {
+      setUnforwardBusy(false);
+    }
+  };
   /** Where one of its photos is read from: a deal's, or a TikTok withdrawal's. */
   const proofUrl = (proofId: string) =>
     detail?.source === 'tiktok'
@@ -939,6 +966,29 @@ export function TransferDetail({
         {/* --- Doing it: passed on with a tap to a pinned group, or sent --- */}
         {detail && (
           <footer className="space-y-2 border-t border-border-subtle bg-surface p-3">
+            {line.messageId && state === 'forwarded' && (
+              <div className="flex items-center justify-between gap-2 rounded-xl bg-primary-subtle/60 px-3 py-2 text-xs">
+                <span className="flex min-w-0 items-center gap-1.5 font-semibold text-primary-text">
+                  <CornerUpRight className="size-3.5 shrink-0" />
+                  <span className="truncate">
+                    {t('bankDesk.forwardedToNow', {
+                      groups: (line.forwardedTo ?? []).map((entry) => entry.group).join('، '),
+                    })}
+                  </span>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDropCopies(true);
+                    setUnforwarding(true);
+                  }}
+                  className="inline-flex shrink-0 items-center gap-1 rounded-full px-2.5 py-1 font-semibold text-danger-text ring-1 ring-danger/30 hover:bg-danger-subtle"
+                >
+                  <Undo2 className="size-3.5" />
+                  {t('bankDesk.unforward')}
+                </button>
+              </div>
+            )}
             {line.messageId && state !== 'done' && state !== 'reversed' && onForward && (
               <div className="flex items-center gap-1.5 overflow-x-auto [scrollbar-width:none]">
                 <span className="shrink-0 text-[11px] font-semibold text-content-tertiary">{t('bankDesk.forwardTo')}</span>
@@ -1015,6 +1065,30 @@ export function TransferDetail({
           </footer>
         )}
       <MessageTrace id={tracing} onClose={() => setTracing(null)} onOpen={setTracing} />
+      <ConfirmDialog
+        open={unforwarding}
+        onClose={() => setUnforwarding(false)}
+        onConfirm={() => void takeBack()}
+        title={t('bankDesk.unforwardTitle')}
+        message={t('bankDesk.unforwardHint')}
+        confirmLabel={t('bankDesk.unforward')}
+        cancelLabel={t('common.cancel')}
+        tone="danger"
+        loading={unforwardBusy}
+      >
+        <label className="mt-3 flex items-start gap-2 text-sm text-content">
+          <input
+            type="checkbox"
+            checked={dropCopies}
+            onChange={(event) => setDropCopies(event.target.checked)}
+            className="mt-0.5 size-4 accent-[var(--color-danger)]"
+          />
+          <span>
+            {t('bankDesk.unforwardDelete')}
+            <span className="block text-xs text-content-tertiary">{t('bankDesk.unforwardDeleteHint')}</span>
+          </span>
+        </label>
+      </ConfirmDialog>
     </Card>
   );
 }

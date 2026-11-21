@@ -10,6 +10,7 @@ import {
   onGroupSighting,
   sendPassedOn,
   sendPassedOnImage,
+  deleteSent,
   type GroupSighting,
 } from '@/modules/whatsapp/whatsapp.service';
 import type { Actor } from '@/modules/exchange/transaction.service';
@@ -567,4 +568,43 @@ export async function forwardByHand(
   }
   log.info('A group message was passed on by hand', { count: done.length });
   return { sent: done };
+}
+
+/**
+ * A transfer's forward taken back: it waits again, as though it had never been
+ * passed on. Every forward the desk counts goes — by hand from the desk, by a
+ * ❤️, found forwarded on WhatsApp, or by a rule to a group that carries
+ * transfers out — and, when asked, the copies the office's number wrote there
+ * are deleted for everyone. A copy a person forwarded from their own phone is
+ * theirs; it cannot be deleted from here.
+ */
+export async function unforward(messageId: string, deleteCopies: boolean, actor: Actor & { name: string }) {
+  requireDesk(actor);
+  const message = await prisma.groupMessage.findUnique({ where: { id: messageId } });
+  if (!message) throw errors.notFound('GroupMessage', messageId);
+  const executors = await executorGroups();
+  const forwards = await prisma.groupForward.findMany({
+    where: {
+      sourceChat: message.chat,
+      sourceWaId: message.waId,
+      OR: [{ auto: false }, { targetChat: { in: executors.map((group) => group.id) } }],
+    },
+  });
+  let deleted = 0;
+  if (deleteCopies) {
+    for (const entry of forwards) {
+      // The office's own copies: sent by the desk, or by a rule. Not a reaction, nor a person's forward.
+      const ours = Boolean(entry.targetWaId) && !entry.reactor && (entry.auto || Boolean(entry.byUserId));
+      if (!ours) continue;
+      try {
+        await deleteSent(entry.targetChat, entry.targetWaId!);
+        deleted += 1;
+      } catch (error) {
+        log.warn('Could not delete a forwarded copy', { error });
+      }
+    }
+  }
+  await prisma.groupForward.deleteMany({ where: { id: { in: forwards.map((entry) => entry.id) } } });
+  log.info('A forward was taken back', { forwards: forwards.length, deleted });
+  return { removed: forwards.length, deleted };
 }

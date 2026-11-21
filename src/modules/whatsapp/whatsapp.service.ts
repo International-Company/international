@@ -877,6 +877,12 @@ export async function memberPhone(
   return found?.id.endsWith('@s.whatsapp.net') ? found.id : null;
 }
 
+/** Deletes for everyone a message one of the office's numbers wrote to a chat. */
+export async function deleteSent(jid: string, messageId: string): Promise<void> {
+  const sock = await socketFor(jid);
+  await sock.sendMessage(jid, { delete: { remoteJid: jid, fromMe: true, id: messageId } });
+}
+
 /** The office's number that writes to this chat, as a phone JID; null when none can. */
 export async function ownNumberFor(jid: string): Promise<string | null> {
   const sock = await socketFor(jid).catch(() => null);
