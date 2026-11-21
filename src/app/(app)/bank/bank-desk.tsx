@@ -1,20 +1,17 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { Activity, ArrowRight, MessagesSquare, Workflow } from 'lucide-react';
+import { Activity, MessagesSquare, Workflow, X } from 'lucide-react';
 import { useLocale } from '@/i18n/provider';
 import { api } from '@/lib/api-client';
 import { cn } from '@/ui/utils';
-import { BankView } from './bank-view';
+import { BankTable } from './bank-table';
 import { GroupFeed } from './group-feed';
 import { TransferDetail } from './transfer-detail';
 import { ForwardSheet, type Group } from './forward-panel';
 import { MarkSentDialog } from './mark-sent-dialog';
 import { TrackView } from './track-view';
 import { keyOf, type Line } from './desk-types';
-
-/** Both columns the same height: the page's, less its head. */
-const TALL = 'h-[calc(100dvh-17rem)] min-h-[30rem] lg:h-[calc(100dvh-14rem)]';
 
 /**
  * The bank desk, laid out as an inbox.
@@ -46,6 +43,19 @@ export function BankDesk() {
   }, []);
 
   const changed = useCallback(() => setVersion((value) => value + 1), []);
+
+  // The opened transfer closes with Escape, unless a dialog over it is open.
+  useEffect(() => {
+    if (!selected || forwarding || sending) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setSelected(null);
+        setSelectedKey(null);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [selected, forwarding, sending]);
   const choose = useCallback((line: Line | null) => {
     setSelected(line);
     setSelectedKey(line ? keyOf(line) : null);
@@ -92,25 +102,40 @@ export function BankDesk() {
           }}
         />
       ) : (
-        <div className="grid grid-cols-1 items-start gap-3 lg:grid-cols-[minmax(20rem,25rem)_minmax(0,1fr)]">
-          {/* The inbox: on a phone, out of the way while one is open. */}
-          <BankView
-            selectedKey={selectedKey}
-            onSelect={choose}
-            version={version}
-            className={cn(TALL, selectedKey ? 'hidden lg:flex' : 'flex')}
-          />
+        <BankTable
+          selectedKey={selectedKey}
+          onOpen={choose}
+          onSend={setSending}
+          onForward={(line, preset) => {
+            choose(line);
+            setForwarding({ preset });
+          }}
+          executors={executors}
+          version={version}
+          onChanged={changed}
+        />
+      )}
 
-          {/* The one chosen. */}
-          <div className={cn('min-w-0 flex-col gap-2', TALL, selectedKey ? 'flex' : 'hidden lg:flex')}>
-            <button
-              type="button"
-              onClick={() => choose(null)}
-              className="inline-flex h-9 w-fit shrink-0 items-center gap-1 rounded-lg px-2.5 text-sm font-semibold text-content-secondary ring-1 ring-border-subtle hover:bg-surface-sunken lg:hidden"
-            >
-              <ArrowRight className="size-4 ltr:rotate-180" />
-              {t('bankDesk.listTab')}
-            </button>
+      {mode === 'work' && selected && (
+        <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true">
+          <button
+            type="button"
+            aria-label={t('common.close')}
+            onClick={() => choose(null)}
+            className="absolute inset-0 bg-black/30 backdrop-blur-[1px]"
+          />
+          <div className="relative flex h-full w-full max-w-xl flex-col bg-surface-sunken shadow-[var(--shadow-lg)]">
+            <div className="flex shrink-0 items-center justify-between border-b border-border-subtle bg-surface px-3 py-2">
+              <span className="text-sm font-bold text-content">{t('bankTable.details')}</span>
+              <button
+                type="button"
+                onClick={() => choose(null)}
+                aria-label={t('common.close')}
+                className="inline-flex size-8 items-center justify-center rounded-full text-content-secondary hover:bg-surface-sunken hover:text-content"
+              >
+                <X className="size-4" />
+              </button>
+            </div>
             <TransferDetail
               line={selected}
               version={version}
@@ -122,7 +147,7 @@ export function BankDesk() {
               }}
               executors={executors}
               onForward={(preset) => setForwarding({ preset })}
-              className="min-h-0 flex-1"
+              className="min-h-0 flex-1 rounded-none"
             />
           </div>
         </div>
