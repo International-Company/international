@@ -5,8 +5,10 @@ import {
   CheckCircle2,
   CheckSquare,
   Clock,
+  ClipboardList,
   Copy,
   CornerUpRight,
+  FileQuestion,
   Hourglass,
   Inbox,
   ListChecks,
@@ -39,7 +41,15 @@ import type { Group } from './forward-panel';
  * table. Today's, unless other days are asked for; a search looks in every day.
  */
 
-type Show = 'all' | 'open' | 'waiting' | 'forwarded' | 'done' | 'messages';
+type Show = 'all' | 'open' | 'waiting' | 'forwarded' | 'done' | 'messages' | 'unsorted';
+
+/**
+ * A message of the bank group that looks like a transfer — it carries an
+ * account or a phone, a run of six digits or more — but the bot could not put
+ * in the list: written in a shape it does not read. Talk ("تم ✅") is not one.
+ */
+const unsorted = (line: Line) =>
+  stateOf(line) === 'message' && /\d{6,}/.test((line.text ?? '').replace(/[\s\-.]/g, ''));
 
 const SHOWN: Record<Show, LineState[]> = {
   all: ['waiting', 'forwarded', 'done', 'reversed'],
@@ -48,6 +58,7 @@ const SHOWN: Record<Show, LineState[]> = {
   forwarded: ['forwarded'],
   done: ['done', 'reversed'],
   messages: ['message'],
+  unsorted: ['message'],
 };
 
 const today = (): DayRange => {
@@ -169,6 +180,7 @@ export function BankTable({
       done: of(['done']),
       all: of(['waiting', 'forwarded', 'done']),
       messages: everything.filter((line) => stateOf(line) === 'message').length,
+      unsorted: everything.filter(unsorted).length,
     };
   }, [everything, now]);
 
@@ -185,6 +197,7 @@ export function BankTable({
   const digits = needle.replace(/\D/g, '');
   const rows = everything
     .filter((line) => SHOWN[show].includes(stateOf(line)))
+    .filter((line) => show !== 'unsorted' || unsorted(line))
     .filter((line) => !channel || (line.channel ?? '—') === channel)
     .filter((line) => {
       if (!needle) return true;
@@ -318,6 +331,23 @@ export function BankTable({
 
   const Actions = ({ line }: { line: Line }) => {
     const state = stateOf(line);
+    if (state === 'message') {
+      return (
+        <span className="flex items-center justify-end">
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              onOpen(line);
+            }}
+            className="inline-flex h-8 items-center gap-1 rounded-lg px-2.5 text-xs font-bold text-warning-text ring-1 ring-warning/40 hover:bg-warning-subtle"
+          >
+            <ClipboardList className="size-4" />
+            {t('bankFeed.addToList')}
+          </button>
+        </span>
+      );
+    }
     if (state !== 'waiting' && state !== 'forwarded') return null;
     return (
       <span className="flex items-center justify-end gap-1">
@@ -406,11 +436,30 @@ export function BankTable({
   return (
     <div className="space-y-3">
       {/* --- The day's figures, each a filter --- */}
-      <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
         <Figure which="all" label={t('bankTable.all')} icon={<ListChecks />} tone="bg-surface-sunken text-content-secondary" />
         <Figure which="waiting" label={t('bankDesk.state.waiting')} icon={<Hourglass />} tone="bg-warning-subtle text-warning-text" />
         <Figure which="forwarded" label={t('bankDesk.state.forwarded')} icon={<CornerUpRight />} tone="bg-primary-subtle text-primary-text" />
         <Figure which="done" label={t('bankDesk.state.done')} icon={<CheckCircle2 />} tone="bg-success-subtle text-success-text" />
+        <button
+          type="button"
+          onClick={() => setShow(show === 'unsorted' ? 'all' : 'unsorted')}
+          aria-pressed={show === 'unsorted'}
+          title={t('bankTable.unsortedHint')}
+          className={cn(
+            'flex min-w-0 items-center gap-3 rounded-2xl bg-surface p-3 text-start shadow-[var(--shadow-sm)] ring-1 transition',
+            show === 'unsorted' ? 'ring-2 ring-danger' : 'ring-border-subtle hover:ring-danger/30',
+          )}
+        >
+          <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-danger-subtle text-danger-text [&>svg]:size-5">
+            <FileQuestion />
+          </span>
+          <span className="min-w-0">
+            <span className="block truncate text-[11px] font-semibold text-content-tertiary">{t('bankTable.unsorted')}</span>
+            <span className="text-xl font-extrabold tabular-nums text-content">{desk ? figures.unsorted : '…'}</span>
+            <span className="block truncate text-[11px] text-content-tertiary">{t('bankTable.unsortedSub')}</span>
+          </span>
+        </button>
       </div>
 
       <Card className="overflow-hidden p-0">
@@ -592,9 +641,16 @@ export function BankTable({
                           </CopyCell>
                         </td>
                         <td className="max-w-[14rem] border-b border-border-subtle px-1 py-2">
-                          <CopyCell value={line.name} label={t('bank.name')} className="font-semibold text-content">
-                            {line.name ?? (line.source === 'message' ? line.text : null)}
-                          </CopyCell>
+                          {line.source === 'message' && !line.name ? (
+                            // A message not read: its words, as they came, to know it before opening it.
+                            <span className="line-clamp-2 whitespace-pre-line px-1.5 text-xs text-content-secondary">
+                              {(line.text ?? '').replace(/\n\s*\n+/g, '\n').trim() || '📎'}
+                            </span>
+                          ) : (
+                            <CopyCell value={line.name} label={t('bank.name')} className="font-semibold text-content">
+                              {line.name}
+                            </CopyCell>
+                          )}
                         </td>
                         <td className="border-b border-border-subtle px-1 py-2 text-end">
                           {BigInt(line.amount || '0') > 0n ? (

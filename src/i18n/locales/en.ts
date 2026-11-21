@@ -825,6 +825,9 @@ const en = {
     noPost: 'Not in the group',
   },
   bankTable: {
+    unsorted: 'Unread',
+    unsortedSub: 'The bot could not read them',
+    unsortedHint: 'Messages in the bank group with an account or phone, written in a shape the bot did not read — add them to the list in a tap.',
     details: 'Transfer details',
     all: 'All',
     search: 'Search by name, account, phone or amount — every day',
