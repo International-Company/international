@@ -58,7 +58,13 @@ export function MarkSentDialog({
     if (!line) return;
     setBusy(true);
     try {
-      await api.post(line.source === 'group' ? `/api/bank/requests/${line.id}` : `/api/bank/${line.id}`, {
+      await api.post(
+        line.source === 'group'
+          ? `/api/bank/requests/${line.id}`
+          : line.source === 'tiktok'
+            ? `/api/bank/tiktok/${line.id}`
+            : `/api/bank/${line.id}`,
+        {
         receipt,
       });
       toast.success(t('bank.sentDone'), line.reference);

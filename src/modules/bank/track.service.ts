@@ -115,6 +115,20 @@ export async function track(actor: Actor, range: { from: Date; to: Date }, db: D
       })
     : [];
 
+  const tiktokIds = lines.filter((line) => line.source === 'tiktok').map((line) => line.id);
+  const tiktokReceipts = tiktokIds.length
+    ? await db.tiktokWithdrawal.findMany({
+        where: { id: { in: tiktokIds }, receiptId: { not: null } },
+        select: { id: true, receiptId: true },
+      })
+    : [];
+  const tiktokFiles = tiktokReceipts.length
+    ? await db.chatImage.findMany({
+        where: { id: { in: tiktokReceipts.map((row) => row.receiptId!) } },
+        select: { id: true, createdAt: true },
+      })
+    : [];
+
   const groupName = read.group?.name ?? null;
 
   const tracked: Tracked[] = lines.map((line) => {
@@ -148,7 +162,9 @@ export async function track(actor: Actor, range: { from: Date; to: Date }, db: D
     const receiptAt =
       line.source === 'deal'
         ? proofs.find((proof) => proof.transactionId === line.id)?.createdAt
-        : receiptFiles.find((file) => file.id === receipts.find((row) => row.id === line.id)?.receiptId)?.createdAt;
+        : line.source === 'tiktok'
+          ? tiktokFiles.find((file) => file.id === tiktokReceipts.find((row) => row.id === line.id)?.receiptId)?.createdAt
+          : receiptFiles.find((file) => file.id === receipts.find((row) => row.id === line.id)?.receiptId)?.createdAt;
     if (receiptAt) stages.receipt = { at: receiptAt, by: null };
 
     return { key, line, stages };

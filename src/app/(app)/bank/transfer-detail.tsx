@@ -93,7 +93,7 @@ interface Detail {
   branch: string | null;
   proofs?: { id: string; kind: string }[];
   /** A request from a group: the message it was read from, and how it was added. */
-  source?: 'deal' | 'group' | 'message';
+  source?: 'deal' | 'group' | 'message' | 'tiktok';
   message?: string;
   senderPhone?: string | null;
   auto?: boolean;
@@ -192,7 +192,13 @@ export function TransferDetail({
     const reading =
       line.source === 'message'
         ? Promise.resolve(null)
-        : api.get<Detail>(line.source === 'group' ? `/api/bank/requests/${line.id}` : `/api/bank/${line.id}`);
+        : api.get<Detail>(
+            line.source === 'group'
+              ? `/api/bank/requests/${line.id}`
+              : line.source === 'tiktok'
+                ? `/api/bank/tiktok/${line.id}`
+                : `/api/bank/${line.id}`,
+          );
     Promise.all([reading, tracing])
       .then(([read, traced]) => {
         if (gone) return;
@@ -334,6 +340,11 @@ export function TransferDetail({
   );
 
   const pending = detail?.status === 'PENDING_TRANSFER';
+  /** Where one of its photos is read from: a deal's, or a TikTok withdrawal's. */
+  const proofUrl = (proofId: string) =>
+    detail?.source === 'tiktok'
+      ? `/api/bank/tiktok/${detail.id}/photos/${proofId}`
+      : `/api/bank/${detail?.id}/proofs/${proofId}`;
 
   return (
     <Card className={cn('flex flex-col overflow-hidden bg-surface-sunken p-0', className)}>
@@ -852,7 +863,7 @@ export function TransferDetail({
               )}
 
               {/* --- The deal behind it --- */}
-              {detail.source === 'deal' && (
+              {(detail.source === 'deal' || detail.source === 'tiktok') && (
               <Section title={t('bank.detailDeal')}>
                 <Row label={t('bank.detailPaid')}>
                   <Money value={detail.fromAmount} currency={detail.fromCurrency} />
@@ -902,10 +913,10 @@ export function TransferDetail({
                   </h3>
                   <div className="grid grid-cols-3 gap-2">
                     {detail.proofs!.map((proof) => (
-                      <a key={proof.id} href={`/api/bank/${detail.id}/proofs/${proof.id}`} target="_blank" rel="noopener noreferrer">
+                      <a key={proof.id} href={proofUrl(proof.id)} target="_blank" rel="noopener noreferrer">
                         {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img
-                          src={`/api/bank/${detail.id}/proofs/${proof.id}`}
+                          src={proofUrl(proof.id)}
                           alt=""
                           className="aspect-square w-full rounded-lg object-cover ring-1 ring-border-subtle"
                         />

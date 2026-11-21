@@ -5,6 +5,7 @@ import { emitAsync } from '@/core/events/bus';
 import { createLogger } from '@/core/logger/logger';
 import { BANK_EXECUTE } from './bank-desk';
 import { forDesk } from './bank-request.service';
+import { tiktokForDesk } from './bank-tiktok.service';
 import { bankGroup, executorGroups, watched } from './group-feed.service';
 import { readTransferRequest } from './transfer-request';
 import { transferChannels } from '@/modules/exchange/machine.service';
@@ -251,12 +252,16 @@ export async function desk(
   const groups = await watched();
   const groupName = (chat: string) => groups.find((group) => group.id === chat)?.name ?? null;
   const requests = await forDesk(groupName, range ?? null, db, bank?.id ?? null);
+  // TikTok withdrawals whose transfer went to the bank group: transfers like the rest.
+  const tiktok = await tiktokForDesk(range ?? null, db, bank?.id ?? null);
   const byTime = <T extends { at: Date }>(list: T[]) =>
     list.sort((a, b) => a.at.getTime() - b.at.getTime());
   const lists = {
-    waiting: byTime([...waiting.map(deskLine), ...requests.waiting]),
-    sent: [...sent.map(deskLine), ...requests.sent],
-    range: inRange ? byTime([...inRange.map(deskLine), ...(requests.range ?? [])]) : null,
+    waiting: byTime([...waiting.map(deskLine), ...requests.waiting, ...tiktok.waiting]),
+    sent: [...sent.map(deskLine), ...requests.sent, ...tiktok.sent],
+    range: inRange
+      ? byTime([...inRange.map(deskLine), ...(requests.range ?? []), ...(tiktok.range ?? [])])
+      : null,
   };
 
   // Each transfer's message as the groups' panel kept it: to check where it came from, and pass it on.

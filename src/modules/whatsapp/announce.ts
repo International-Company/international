@@ -141,6 +141,12 @@ async function target(type: string): Promise<string | null> {
   return group;
 }
 
+/** The bank transfers group, or null when none is chosen or WhatsApp is off. */
+async function bankTarget(): Promise<string | null> {
+  if (!(await settings.getBoolean('whatsapp.enabled')) || !isLinked()) return null;
+  return parseRoutes(await settings.getString('whatsapp.groupRoutes')).BANK_COPY?.id ?? null;
+}
+
 /** The group a deal's number and sum also go to, or null. */
 async function copyTarget(type: string): Promise<string | null> {
   if (!(await settings.getBoolean('whatsapp.enabled'))) return null;
@@ -689,11 +695,12 @@ export function registerWhatsappSubscribers(): void {
    * second one if the office chose one. Each on its own, so neither failing costs the other.
    */
   on('tiktok.recorded', 'whatsapp-announce-tiktok', async ({ withdrawalId }) => {
-    const [group, nameGroup] = await Promise.all([
+    const [group, nameGroup, bank] = await Promise.all([
       target(TIKTOK_DEAL_TYPE),
       copyTarget(TIKTOK_DEAL_TYPE),
+      bankTarget(),
     ]);
-    if (!group && !nameGroup) return;
+    if (!group && !nameGroup && !bank) return;
     const row = await prisma.tiktokWithdrawal.findUnique({
       where: { id: withdrawalId },
     });
@@ -706,6 +713,12 @@ export function registerWhatsappSubscribers(): void {
           return undefined;
         },
       );
+      // Kept, so the bank desk can find it in the group and follow what happens to it.
+      if (sent?.key.id) {
+        await prisma.tiktokWithdrawal
+          .update({ where: { id: withdrawalId }, data: { announcedChat: group, announcedMessageId: sent.key.id } })
+          .catch((error) => log.warn('Could not keep a TikTok withdrawal’s message', { withdrawalId, error }));
+      }
       // Its further photos as replies to it, so they read as one withdrawal.
       const extras = await prisma.tiktokPhoto.findMany({
         where: { withdrawalId },
@@ -722,6 +735,33 @@ export function registerWhatsappSubscribers(): void {
       await sendImage(nameGroup, photo, composeWithdrawalName(row), undefined, row.mimeType).catch(
         (error) => log.warn('Could not send a TikTok withdrawal’s name', { withdrawalId, error }),
       );
+    }
+
+    /*
+     * What it pays by transfer goes to the bank transfers group too, as every
+     * other transfer does — the account, the bank, the name and that part's
+     * sum — so the bank desk lists it, follows it and marks it sent. Nothing
+     * paid in notes goes there.
+     */
+    const transfer = row.payoutAmount - row.cashAmount;
+    if (bank && transfer > 0n) {
+      const words = composeWithdrawal({ ...row, payoutAmount: transfer, cashAmount: 0n });
+      const sent =
+        bank === group
+          ? null
+          : await sendText(bank, words).catch((error) => {
+              log.warn('Could not copy a TikTok transfer to the bank group', { withdrawalId, error });
+              return undefined;
+            });
+      const kept = bank === group
+        ? await prisma.tiktokWithdrawal.findUnique({ where: { id: withdrawalId }, select: { announcedMessageId: true } })
+        : null;
+      const messageId = sent?.key.id ?? kept?.announcedMessageId ?? null;
+      if (messageId) {
+        await prisma.tiktokWithdrawal
+          .update({ where: { id: withdrawalId }, data: { bankChat: bank, bankMessageId: messageId } })
+          .catch((error) => log.warn('Could not keep a TikTok transfer’s bank message', { withdrawalId, error }));
+      }
     }
   });
 
@@ -748,7 +788,6 @@ export function registerWhatsappSubscribers(): void {
       target(TIKTOK_DEAL_TYPE),
       copyTarget(TIKTOK_DEAL_TYPE),
     ]);
-    if (!group && !nameGroup) return;
     const row = await prisma.tiktokWithdrawal.findUnique({
       where: { id: withdrawalId },
       select: {
@@ -758,12 +797,18 @@ export function registerWhatsappSubscribers(): void {
         beneficiaryName: true,
         channel: true,
         payoutAmount: true,
+        bankChat: true,
       },
     });
     if (!row) return;
     if (group) {
       await sendText(group, composeWithdrawalDeleted(row, by)).catch((error) =>
         log.warn('Could not announce a TikTok deletion', { withdrawalId, error }),
+      );
+    }
+    if (row.bankChat && row.bankChat !== group) {
+      await sendText(row.bankChat, composeWithdrawalDeleted(row, by)).catch((error) =>
+        log.warn('Could not announce a TikTok deletion to the bank group', { withdrawalId, error }),
       );
     }
     if (nameGroup) {

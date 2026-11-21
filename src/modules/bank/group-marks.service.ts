@@ -32,7 +32,7 @@ const log = createLogger('bank:marks');
 type Place = { chat: string; waId: string };
 
 type Found = {
-  kind: 'deal' | 'request';
+  kind: 'deal' | 'request' | 'tiktok';
   id: string;
   waiting: boolean;
   /** Its message as the desk's list knows it: where a "passed on" is written. */
@@ -69,6 +69,27 @@ async function transferOf(place: Place): Promise<Found | null> {
     });
     if (request && request.status !== 'DISMISSED') {
       return { kind: 'request', id: request.id, waiting: request.status === 'PENDING', ref: at };
+    }
+    const tiktok = await prisma.tiktokWithdrawal.findFirst({
+      where: {
+        deletedAt: null,
+        OR: [
+          { bankChat: at.chat, bankMessageId: at.waId },
+          { announcedChat: at.chat, announcedMessageId: at.waId },
+        ],
+      },
+      select: { id: true, sentAt: true, bankChat: true, bankMessageId: true, announcedChat: true, announcedMessageId: true },
+    });
+    if (tiktok) {
+      return {
+        kind: 'tiktok',
+        id: tiktok.id,
+        waiting: !tiktok.sentAt,
+        ref:
+          tiktok.bankChat && tiktok.bankMessageId
+            ? { chat: tiktok.bankChat, waId: tiktok.bankMessageId }
+            : { chat: tiktok.announcedChat!, waId: tiktok.announcedMessageId! },
+      };
     }
     const deal = await prisma.transaction.findFirst({
       where: {
@@ -163,6 +184,11 @@ async function onReaction(reaction: GroupReaction): Promise<void> {
       where: { id: found.id, status: 'PENDING' },
       data: { status: 'SENT', sentAt: new Date(), sentByName: who },
     });
+  } else if (found.kind === 'tiktok') {
+    await prisma.tiktokWithdrawal.updateMany({
+      where: { id: found.id, sentAt: null, deletedAt: null },
+      data: { sentAt: new Date(), sentByName: who },
+    });
   } else {
     // A deal is confirmed in someone's name: the system's, with who reacted written beside it.
     const system = await prisma.user.findFirst({ where: { isSystem: true }, select: { id: true } });
@@ -239,10 +265,14 @@ async function onReply(sighting: GroupSighting): Promise<void> {
   const file = await sighting.download().catch(() => null);
   if (!file || !file.mimeType.startsWith('image/')) return;
 
-  if (found.kind === 'request') {
+  if (found.kind === 'request' || found.kind === 'tiktok') {
     const kept = await keepMedia(file, null);
     if (!kept) return;
-    await prisma.bankRequest.update({ where: { id: found.id }, data: { receiptId: kept.id } });
+    if (found.kind === 'request') {
+      await prisma.bankRequest.update({ where: { id: found.id }, data: { receiptId: kept.id } });
+    } else {
+      await prisma.tiktokWithdrawal.update({ where: { id: found.id }, data: { receiptId: kept.id } });
+    }
   } else {
     await prisma.transactionProof.create({
       data: {

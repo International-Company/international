@@ -2241,6 +2241,16 @@ model TiktokWithdrawal {
   deletedById String?
   /// Photos beyond the first: the transfer's receipt, a second screenshot.
   photos      TiktokPhoto[]
+  /// The message it went to its group as, and the copy of its transfer in the bank
+  /// transfers group: what the bank desk follows it by.
+  announcedChat      String?
+  announcedMessageId String?
+  bankChat           String?
+  bankMessageId      String?
+  /// Its transfer sent from the bank desk, by whom, and the bank's receipt (chat_images).
+  sentAt      DateTime?
+  sentByName  String?
+  receiptId   String?
 
   @@index([createdById, createdAt])
   @@map("tiktok_withdrawals")

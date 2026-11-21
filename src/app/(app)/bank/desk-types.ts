@@ -9,7 +9,7 @@ export interface Origin {
 export interface Line {
   id: string;
   /** A deal's transfer, one asked for in the group, or a message of the group that is neither. */
-  source?: 'deal' | 'group' | 'message';
+  source?: 'deal' | 'group' | 'message' | 'tiktok';
   reference: string;
   /** PENDING_TRANSFER while it waits; POSTED once sent; REVERSED when cancelled; MESSAGE for a bare message. */
   status: string;
