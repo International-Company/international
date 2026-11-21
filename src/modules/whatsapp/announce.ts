@@ -15,6 +15,7 @@ import {
   TIKTOK_DEAL_TYPE,
 } from '@/modules/tiktok/tiktok-message';
 import { copyGroupFor, groupFor, parseRoutes } from './group-routes';
+import { forwardTargets, parseForwardRules } from './group-forward';
 import {
   editSent,
   isLinked,
@@ -706,6 +707,26 @@ export function registerWhatsappSubscribers(): void {
     });
     if (!row) return;
     const photo = Buffer.from(row.data);
+    const transfer = row.payoutAmount - row.cashAmount;
+    /*
+     * The bank group hears of a withdrawal once. A forwarding rule that passes
+     * the withdrawal's group on to the bank group already carries it there, so
+     * the desk's own copy is not sent as well; and the name group, when it is
+     * the bank group, is told by that one message rather than a second.
+     */
+    const ruleCarries = Boolean(
+      group &&
+        bank &&
+        bank !== group &&
+        forwardTargets(parseForwardRules(await settings.getString('whatsapp.forwardRules')), {
+          chat: group,
+          text: composeWithdrawal(row),
+          caption: true,
+          senderPhone: null,
+        }).includes(bank),
+    );
+    const bankHearsIt = Boolean(bank && transfer > 0n);
+    let announcedId: string | null = null;
     if (group) {
       const sent = await sendImage(group, photo, composeWithdrawal(row), undefined, row.mimeType).catch(
         (error) => {
@@ -715,6 +736,7 @@ export function registerWhatsappSubscribers(): void {
       );
       // Kept, so the bank desk can find it in the group and follow what happens to it.
       if (sent?.key.id) {
+        announcedId = sent.key.id;
         await prisma.tiktokWithdrawal
           .update({ where: { id: withdrawalId }, data: { announcedChat: group, announcedMessageId: sent.key.id } })
           .catch((error) => log.warn('Could not keep a TikTok withdrawal’s message', { withdrawalId, error }));
@@ -731,7 +753,7 @@ export function registerWhatsappSubscribers(): void {
         );
       }
     }
-    if (nameGroup) {
+    if (nameGroup && !(bankHearsIt && nameGroup === bank) && nameGroup !== group) {
       await sendImage(nameGroup, photo, composeWithdrawalName(row), undefined, row.mimeType).catch(
         (error) => log.warn('Could not send a TikTok withdrawal’s name', { withdrawalId, error }),
       );
@@ -743,8 +765,23 @@ export function registerWhatsappSubscribers(): void {
      * sum — so the bank desk lists it, follows it and marks it sent. Nothing
      * paid in notes goes there.
      */
-    const transfer = row.payoutAmount - row.cashAmount;
-    if (bank && transfer > 0n) {
+    if (bank && transfer > 0n && ruleCarries && group && announcedId) {
+      // The rule's copy is the bank group's message: found once the rule has passed it on.
+      const source = announcedId;
+      for (let attempt = 0; attempt < 6; attempt++) {
+        await new Promise((resolve) => setTimeout(resolve, 5_000));
+        const passed = await prisma.groupForward.findFirst({
+          where: { sourceChat: group, sourceWaId: source, targetChat: bank, targetWaId: { not: null } },
+          select: { targetWaId: true },
+        });
+        if (passed?.targetWaId) {
+          await prisma.tiktokWithdrawal
+            .update({ where: { id: withdrawalId }, data: { bankChat: bank, bankMessageId: passed.targetWaId } })
+            .catch((error) => log.warn('Could not keep a TikTok transfer’s bank message', { withdrawalId, error }));
+          break;
+        }
+      }
+    } else if (bank && transfer > 0n) {
       const words = composeWithdrawal({ ...row, payoutAmount: transfer, cashAmount: 0n });
       const sent =
         bank === group
@@ -806,7 +843,18 @@ export function registerWhatsappSubscribers(): void {
         log.warn('Could not announce a TikTok deletion', { withdrawalId, error }),
       );
     }
-    if (row.bankChat && row.bankChat !== group) {
+    // Told there once: not again when a forwarding rule passes the group's word on to it.
+    const ruleCarriesDeletion = Boolean(
+      group &&
+        row.bankChat &&
+        forwardTargets(parseForwardRules(await settings.getString('whatsapp.forwardRules')), {
+          chat: group,
+          text: composeWithdrawalDeleted(row, by),
+          caption: false,
+          senderPhone: null,
+        }).includes(row.bankChat),
+    );
+    if (row.bankChat && row.bankChat !== group && !ruleCarriesDeletion) {
       await sendText(row.bankChat, composeWithdrawalDeleted(row, by)).catch((error) =>
         log.warn('Could not announce a TikTok deletion to the bank group', { withdrawalId, error }),
       );
