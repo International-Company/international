@@ -1,11 +1,12 @@
 import 'server-only';
+import { containsInsensitive } from '@/core/db/search';
 import { prisma, type DbClient } from '@/core/db/prisma';
 import { errors } from '@/core/errors/app-error';
 import { emitAsync } from '@/core/events/bus';
 import { createLogger } from '@/core/logger/logger';
 import { BANK_EXECUTE } from './bank-desk';
-import { forDesk } from './bank-request.service';
-import { tiktokForDesk } from './bank-tiktok.service';
+import { forDesk, searchRequests } from './bank-request.service';
+import { searchTiktok, tiktokForDesk } from './bank-tiktok.service';
 import { bankGroup, executorGroups, watched } from './group-feed.service';
 import { readTransferRequest } from './transfer-request';
 import { transferChannels } from '@/modules/exchange/machine.service';
@@ -193,13 +194,45 @@ export async function deskProof(id: string, proofId: string, actor: Actor, db: D
   return proof;
 }
 
+/** A sum as it may be typed, "1740" or "1,740.5", scaled as amounts are kept; null when it is not one. */
+export function typedSum(term: string): bigint | null {
+  const plain = term.replace(/[,\s]/g, '');
+  if (!/^\d+(\.\d{1,2})?$/.test(plain)) return null;
+  const [whole, fraction = ''] = plain.split('.');
+  return BigInt(whole!) * 100_000_000n + BigInt((fraction + '00').slice(0, 2)) * 1_000_000n;
+}
+
+/** What a deal is looked for by: whose it is, where it goes, its number, its sum. */
+function dealMatches(term: string) {
+  const words = containsInsensitive(term);
+  const sum = typedSum(term);
+  return [
+    { reference: words },
+    { payoutAccount: words },
+    { payoutBankChannel: words },
+    { recipientName: words },
+    { recipientPhone: words },
+    { counterpartyName: words },
+    { counterpartyPhone: words },
+    { notes: words },
+    { customer: { fullNameAr: words } },
+    { customer: { phone: words } },
+    ...(sum !== null ? [{ payoutBankAmount: sum }] : []),
+  ];
+}
+
 /** What is still to be sent, oldest first, and what was sent today. */
 export async function desk(
   actor: Actor,
   db: DbClient = prisma,
   /** Days asked for: every transfer promised in them, sent or not, not only what waits. */
   range?: { from: Date; to: Date } | null,
+  /** Words or digits looked for in every day: a name, an account or phone, a reference, a sum. */
+  search?: string | null,
 ) {
+  // A number typed with spaces or dashes, "059 211-7818", is looked for as its digits.
+  const typed = search?.trim() || null;
+  const term = typed && /^[\d\s+-]+$/.test(typed) ? typed.replace(/\D/g, '') || null : typed;
   requireDesk(actor);
   const since = new Date();
   since.setHours(0, 0, 0, 0);
@@ -235,7 +268,19 @@ export async function desk(
       select: SELECT,
     }),
   ]);
-  const inRange = range
+  const inRange = term
+    ? await db.transaction.findMany({
+        where: {
+          payoutBankAmount: { gt: 0n },
+          reversalOfId: null,
+          AND: [inBankGroup, { OR: dealMatches(term) }],
+        },
+        // The newest first: what is looked for is most often recent.
+        orderBy: { createdAt: 'desc' },
+        take: 200,
+        select: SELECT,
+      })
+    : range
     ? await db.transaction.findMany({
         where: {
           createdAt: { gte: range.from, lte: range.to },
@@ -254,6 +299,11 @@ export async function desk(
   const requests = await forDesk(groupName, range ?? null, db, bank?.id ?? null);
   // TikTok withdrawals whose transfer went to the bank group: transfers like the rest.
   const tiktok = await tiktokForDesk(range ?? null, db, bank?.id ?? null);
+  // Looked for: what matches, of any day, in place of the days' list.
+  if (term) {
+    requests.range = await searchRequests(term, groupName, db, bank?.id ?? null);
+    tiktok.range = await searchTiktok(term, db, bank?.id ?? null);
+  }
   const byTime = <T extends { at: Date }>(list: T[]) =>
     list.sort((a, b) => a.at.getTime() - b.at.getTime());
   const lists = {

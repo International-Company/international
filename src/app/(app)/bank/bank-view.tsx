@@ -21,7 +21,7 @@ import {
   X,
 } from 'lucide-react';
 import { clockOf, dayKey, dayLabel } from './days';
-import { ANY_DAY, DateRangePicker, inRange, type DayRange } from '@/ui/date-range-picker';
+import { ANY_DAY, DateRangePicker, inRange, keyOf as dayOf, type DayRange } from '@/ui/date-range-picker';
 import { PillSelect } from '@/ui/pill-select';
 import { keyOf, plainFigure, stateOf, type Desk, type Line, type LineState, type Origin } from './desk-types';
 import { useLocale } from '@/i18n/provider';
@@ -144,8 +144,15 @@ function FilterChip({ icon, label, onClear }: { icon?: ReactNode; label: string;
 
 /** Which lines the list shows. "open" is waiting and forwarded together: what still needs doing. */
 type Show = 'open' | 'waiting' | 'forwarded' | 'done' | 'messages' | 'all';
+/** Today, as the desk opens on it. */
+const today = (): DayRange => {
+  const key = dayOf(new Date());
+  return { from: key, to: key };
+};
+
 const SHOWN_STATES: Record<Show, LineState[]> = {
-  open: ['waiting', 'forwarded'],
+  // The desk as it opens: every transfer of the days shown, waiting, passed on or sent.
+  open: ['waiting', 'forwarded', 'done', 'reversed'],
   waiting: ['waiting'],
   forwarded: ['forwarded'],
   done: ['done', 'reversed'],
@@ -185,7 +192,8 @@ export function BankView({
   const [maxAmount, setMaxAmount] = useState('');
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [show, setShow] = useState<Show>('open');
-  const [days, setDays] = useState<DayRange>(ANY_DAY);
+  // Today's, unless other days are asked for.
+  const [days, setDays] = useState<DayRange>(today);
   const searchBox = useRef<HTMLInputElement>(null);
   /** The clock lateness is read by, moved on every half minute. */
   const [now, setNow] = useState(() => Date.now());
@@ -194,6 +202,17 @@ export function BankView({
     return () => clearInterval(timer);
   }, []);
 
+  /*
+   * What is typed in the search, a moment after the typing stops: looked for in
+   * every day by the server, whatever day is chosen — a name or a number is
+   * found without first knowing which day it was.
+   */
+  const [searched, setSearched] = useState('');
+  useEffect(() => {
+    const timer = setTimeout(() => setSearched(query.trim().length >= 2 ? query.trim() : ''), 400);
+    return () => clearTimeout(timer);
+  }, [query]);
+
   const load = useCallback(async () => {
     try {
       // A day's bounds in the browser's clock, the day the teller lived through.
@@ -201,8 +220,9 @@ export function BankView({
         const [year, month, day] = key.split('-').map(Number) as [number, number, number];
         return (end ? new Date(year, month - 1, day, 23, 59, 59, 999) : new Date(year, month - 1, day)).toISOString();
       };
-      const asked =
-        days.from || days.to
+      const asked = searched
+        ? `?${new URLSearchParams({ q: searched }).toString()}`
+        : days.from || days.to
           ? `?${new URLSearchParams({
               ...(days.from ? { from: edge(days.from, false) } : {}),
               ...(days.to ? { to: edge(days.to, true) } : {}),
@@ -217,7 +237,7 @@ export function BankView({
       setDesk((current) => current ?? { waiting: [], sent: [] });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [toast, t, days, version]);
+  }, [toast, t, days, version, searched]);
 
   useEffect(() => {
     void load();
@@ -315,7 +335,8 @@ export function BankView({
       const high = Number(digitsOnly(maxAmount));
       return (!minAmount || sum >= low) && (!maxAmount || sum <= high);
     })
-    .filter((line) => inRange(dayKey(line.at), days))
+    // Searching, every day the server found it in; otherwise the days chosen.
+    .filter((line) => Boolean(searched) || inRange(dayKey(line.at), days))
     .filter(matches);
   if (newestFirst) shown.reverse();
 
@@ -331,7 +352,12 @@ export function BankView({
     day.lines.push(line);
   }
   const extraFilters = [currency, kind, minAmount || maxAmount].filter(Boolean).length;
-  const narrowed = Boolean(needle || currency || kind || channel || minAmount || maxAmount || days.from || days.to);
+  const onToday = days.from === today().from && days.to === today().to;
+  const narrowed = Boolean(needle || currency || kind || channel || minAmount || maxAmount || !onToday);
+  /** Still waiting from before today: out of today's list, and not to be forgotten. */
+  const olderWaiting = onToday && !searched
+    ? (desk?.waiting ?? []).filter((line) => dayKey(line.at) < (today().from ?? '')).length
+    : 0;
   const clearAll = () => {
     setQuery('');
     setCurrency(null);
@@ -339,7 +365,7 @@ export function BankView({
     setChannel(null);
     setMinAmount('');
     setMaxAmount('');
-    setDays(ANY_DAY);
+    setDays(today());
   };
 
   if (!desk) {
@@ -362,7 +388,7 @@ export function BankView({
   ) => {
     const card = cards[state];
     const picked = show === state;
-    const lit = picked || (show === 'open' && state !== 'done');
+    const lit = picked || show === 'open';
     return (
       <button
         type="button"
@@ -637,6 +663,25 @@ export function BankView({
               <span className="tabular-nums opacity-80">{count}</span>
             </button>
           ))}
+          {searched && (
+            <span className="inline-flex items-center gap-1 rounded-full bg-primary-subtle px-2 py-0.5 text-primary-text">
+              <Search className="size-3" />
+              {t('bank.searchAllDays')}
+            </span>
+          )}
+          {olderWaiting > 0 && (
+            <button
+              type="button"
+              onClick={() => {
+                setDays(ANY_DAY);
+                setShow('open');
+              }}
+              className="inline-flex items-center gap-1 rounded-full bg-warning-subtle px-2 py-0.5 text-warning-text hover:bg-warning/20"
+            >
+              <Clock className="size-3" />
+              {t('bank.olderWaiting', { count: olderWaiting })}
+            </button>
+          )}
           {narrowed && (
             <button
               type="button"

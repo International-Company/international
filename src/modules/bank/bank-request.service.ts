@@ -1,5 +1,6 @@
 import 'server-only';
 import { prisma, type DbClient } from '@/core/db/prisma';
+import { containsInsensitive } from '@/core/db/search';
 import { errors } from '@/core/errors/app-error';
 import { createLogger } from '@/core/logger/logger';
 import { transferChannels } from '@/modules/exchange/machine.service';
@@ -172,6 +173,38 @@ export async function forDesk(
   ]);
   const line = (row: RequestRow) => requestLine(row, groupName(row.chat));
   return { waiting: waiting.map(line), sent: sent.map(line), range: inRange?.map(line) ?? null };
+}
+
+/** The requests that match what is looked for, of any day, newest first. */
+export async function searchRequests(
+  term: string,
+  groupName: (chat: string) => string | null,
+  db: DbClient = prisma,
+  onlyChat?: string | null,
+) {
+  const words = containsInsensitive(term);
+  const plain = term.replace(/[,\s]/g, '');
+  const sum = /^\d+(\.\d{1,2})?$/.test(plain)
+    ? BigInt(plain.split('.')[0]!) * 100_000_000n + BigInt(((plain.split('.')[1] ?? '') + '00').slice(0, 2)) * 1_000_000n
+    : null;
+  const rows = await db.bankRequest.findMany({
+    where: {
+      ...(onlyChat ? { chat: onlyChat } : {}),
+      status: { not: 'DISMISSED' },
+      OR: [
+        { account: words },
+        { name: words },
+        { channel: words },
+        { senderName: words },
+        { senderPhone: words },
+        { text: words },
+        ...(sum !== null ? [{ amount: sum }] : []),
+      ],
+    },
+    orderBy: { createdAt: 'desc' },
+    take: 200,
+  });
+  return rows.map((row) => requestLine(row, groupName(row.chat)));
 }
 
 /** One request in full: the message it was read from, and what was taken from it. */

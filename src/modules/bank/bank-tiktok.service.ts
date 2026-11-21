@@ -1,5 +1,6 @@
 import 'server-only';
 import { prisma, type DbClient } from '@/core/db/prisma';
+import { containsInsensitive } from '@/core/db/search';
 import { errors } from '@/core/errors/app-error';
 import { createLogger } from '@/core/logger/logger';
 import { readProofImage } from '@/modules/exchange/proof-image';
@@ -122,6 +123,23 @@ export async function tiktokForDesk(
     sent: sent.map(tiktokLine),
     range: inRange?.map(tiktokLine) ?? null,
   };
+}
+
+/** The withdrawals that match what is looked for, of any day, newest first. */
+export async function searchTiktok(term: string, db: DbClient = prisma, bankChat: string | null) {
+  if (!bankChat) return [];
+  const words = containsInsensitive(term);
+  const rows = await db.tiktokWithdrawal.findMany({
+    where: {
+      bankChat,
+      deletedAt: null,
+      OR: [{ account: words }, { beneficiaryName: words }, { channel: words }],
+    },
+    orderBy: { createdAt: 'desc' },
+    take: 200,
+    select: SELECT,
+  });
+  return rows.map(tiktokLine);
 }
 
 /** One withdrawal in full, for the desk: the dollars, the price, how it was paid, its photos. */
