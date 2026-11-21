@@ -1736,6 +1736,9 @@ model ChainTransaction {
   status String @default("PENDING")
 
   /// Internal transaction created from this on-chain movement.
+  /// Coins of it already paid out as the first of two deals it was split into;
+  /// the rest still waits for the second.
+  splitSettled BigInt @default(0)
   linkedTransactionId String?      @unique
   linkedTransaction   Transaction? @relation(fields: [linkedTransactionId], references: [id], onDelete: SetNull)
 

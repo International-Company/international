@@ -959,6 +959,7 @@ export async function unclaimedArrivals(
       id: true,
       txHash: true,
       amount: true,
+      splitSettled: true,
       status: true,
       confirmations: true,
       firstSeenAt: true,
@@ -985,7 +986,9 @@ export async function unclaimedArrivals(
   return rows.map((row) => ({
     id: row.id,
     txHash: row.txHash,
-    amount: row.amount,
+    // What is left to pay for: all of it, or the rest after the first of two deals.
+    amount: row.amount - row.splitSettled,
+    splitFrom: row.splitSettled > 0n ? row.amount : null,
     confirmations: row.confirmations,
     required: row.wallet.minConfirmations,
     ready: row.status === 'CONFIRMED' && row.confirmations >= row.wallet.minConfirmations,
@@ -1028,6 +1031,8 @@ export async function quoteArrival(
   db: DbClient = prisma,
   /** Others to be settled with it: the price is for all of them together. */
   alsoArrivals: string[] = [],
+  /** Split in two: the coins the first deal pays for, priced alone. */
+  splitCoins?: bigint,
 ): Promise<{
   amount: string;
   payoutCurrency: string;
@@ -1047,6 +1052,7 @@ export async function quoteArrival(
     where: { id: chainTransactionId },
     select: {
       amount: true,
+      splitSettled: true,
       direction: true,
       wallet: { select: { tokenSymbol: true, isCounterAddress: true } },
     },
@@ -1069,7 +1075,11 @@ export async function quoteArrival(
         select: { amount: true },
       })
     : [];
-  const coins = others.reduce((sum, row) => sum + row.amount, transfer.amount);
+  const left = transfer.amount - transfer.splitSettled;
+  const coins =
+    splitCoins !== undefined && splitCoins > 0n && splitCoins < left
+      ? splitCoins
+      : others.reduce((sum, row) => sum + row.amount, left);
 
   const currency = payoutCurrency.toUpperCase();
   const editLimit = await settings.getNumber('usdt.payoutEditLimit', db);
@@ -1136,6 +1146,11 @@ export type PayoutMode = (typeof PAYOUT_MODES)[number];
 
 export interface SettleArrivalInput {
   branchId: string;
+  /**
+   * The transfer split into two deals: the coins this first one pays for. The
+   * rest stays waiting on the transfer for the second, recorded on its own.
+   */
+  splitCoins?: bigint;
   /** Other transfers to the same address, settled with this one as a single deal. */
   alsoArrivals?: string[];
   payoutCurrency: string;
@@ -1237,6 +1252,25 @@ export async function settleArrival(
   }
 
   /*
+   * Split into two deals: the first pays for part of the coins and leaves the
+   * rest on the transfer; the second, recorded on its own, pays for what is
+   * left. Never with others merged in, and never all or none of it.
+   */
+  const remaining = transfer.amount - transfer.splitSettled;
+  const splitCoins = input.splitCoins ?? null;
+  if (splitCoins !== null) {
+    if ((input.alsoArrivals ?? []).length > 0) {
+      throw errors.precondition('A transfer split in two is not merged with others', 'errors.splitNotMerged');
+    }
+    if (splitCoins <= 0n || splitCoins >= remaining) {
+      throw errors.precondition(
+        'The first part must be some of the coins, not all or none of them',
+        'errors.splitShareOutOfRange',
+      );
+    }
+  }
+
+  /*
    * Several transfers, one deal: what the customer sent in parts is priced and
    * paid as the sum. Each must be free to settle on its own terms and be the same
    * coin. They may have reached different addresses: a deal moves the coin's
@@ -1263,6 +1297,7 @@ export async function settleArrival(
         row.depositRequest ||
         row.linkedTransactionId ||
         row.mergedTransactionId ||
+        row.splitSettled > 0n ||
         row.status !== 'CONFIRMED' ||
         row.confirmations < row.wallet.minConfirmations,
     )
@@ -1272,7 +1307,14 @@ export async function settleArrival(
       'errors.arrivalsNotMergeable',
     );
   }
-  const totalCoins = others.reduce((sum, row) => sum + row.amount, transfer.amount);
+  const totalCoins = splitCoins ?? others.reduce((sum, row) => sum + row.amount, remaining);
+  // Said on the deal: which part of the transfer it is.
+  const splitNote =
+    splitCoins !== null
+      ? `الحركة 1 من 2 — ${toDecimalString(splitCoins, 2)} من ${toDecimalString(transfer.amount, 2)} ${transfer.wallet.tokenSymbol}`
+      : transfer.splitSettled > 0n
+        ? `الحركة 2 من 2 — الباقي ${toDecimalString(remaining, 2)} من ${toDecimalString(transfer.amount, 2)} ${transfer.wallet.tokenSymbol}`
+        : '';
   const mergedParts =
     others.length > 0
       ? [transfer, ...others]
@@ -1613,7 +1655,7 @@ export async function settleArrival(
       counterpartyPhone: input.counterpartyPhone ?? null,
       mergedParts,
       notes:
-        [mergedParts && `دمج تحويلات: ${mergedParts}`, percentNote && `النسبة: ${percentNote}`, ...new Set(priceNotes), editNote, input.notes]
+        [splitNote, mergedParts && `دمج تحويلات: ${mergedParts}`, percentNote && `النسبة: ${percentNote}`, ...new Set(priceNotes), editNote, input.notes]
           .filter(Boolean)
           .join(' — ') || null,
     },
@@ -1623,7 +1665,21 @@ export async function settleArrival(
 
   // Claimed only after the posting exists. The other order would mark the money
   // spoken for and then leave it stranded if the posting failed.
-  if (others.length > 0) {
+  if (splitCoins !== null) {
+    // What the first part took, against another teller settling the transfer at this moment.
+    const marked = await db.chainTransaction.updateMany({
+      where: {
+        id: chainTransactionId,
+        linkedTransactionId: null,
+        mergedTransactionId: null,
+        splitSettled: transfer.splitSettled,
+      },
+      data: { splitSettled: transfer.splitSettled + splitCoins },
+    });
+    if (marked.count !== 1) {
+      throw errors.conflict('That transfer is already posted', 'errors.depositAlreadyPosted');
+    }
+  } else if (others.length > 0) {
     // All or none, against another teller settling one of them at this moment.
     const claimed = await db.chainTransaction.updateMany({
       where: { id: { in: ids }, linkedTransactionId: null, mergedTransactionId: null },

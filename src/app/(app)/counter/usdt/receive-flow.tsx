@@ -103,6 +103,8 @@ interface Arrival {
   explorerUrl: string;
   wallet: { id: string; label: string; labelAr: string; network: string; tokenSymbol: string };
   recognised: Recognised | null;
+  /** The whole transfer, when its first part was paid as a deal of its own and this is the rest. */
+  splitFrom?: string | null;
   /** Set on a deal made of several transfers: the rest of them, and their sums. */
   alsoIds?: string[];
   parts?: string[];
@@ -177,6 +179,12 @@ export function ReceiveFlow({
   const [mode, setMode] = useState<Mode>('CASH');
   /** For a split: what goes by transfer, in the money paid out. The rest is notes. */
   const [bankPayout, setBankPayout] = useState('');
+  /**
+   * The transfer split in two deals: on, the coins this first one pays for. The
+   * rest stays on the transfer and opens again for the second, on its own form.
+   */
+  const [splitOn, setSplitOn] = useState(false);
+  const [splitCoins, setSplitCoins] = useState('');
   const [percentCash, setPercentCash] = useState('');
   const [percentBroker, setPercentBroker] = useState('');
   /** The teller's own shekel price per coin, each way of paying. Empty keeps the board's. */
@@ -470,6 +478,8 @@ export function ReceiveFlow({
     setSaveCustomer(true);
     setBankPayout('');
     setSavedPayouts([]);
+    setSplitOn(false);
+    setSplitCoins('');
 
     const known = arrival.recognised?.status === 'KNOWN' ? arrival.recognised : null;
     setCustomer(
@@ -519,7 +529,15 @@ export function ReceiveFlow({
     };
   }, [customer, transferChannels]);
 
-  // Priced when a row is chosen, and again if the currency changes under it.
+  /** The coins of the first part, when the split is on and they are some of the transfer, not all. */
+  const splitValue = (() => {
+    if (!splitOn || !chosen) return null;
+    const typed = Number(splitCoins.replace(/[^\d.]/g, ''));
+    const whole = Number(chosen.amount) / 1e8;
+    return typed > 0 && typed < whole ? splitCoins.replace(/[^\d.]/g, '') : null;
+  })();
+
+  // Priced when a row is chosen, and again if the currency, or the first part's coins, change under it.
   useEffect(() => {
     if (!chosen) return;
     let current = true;
@@ -528,7 +546,7 @@ export function ReceiveFlow({
       .get<Priced>(
         `/api/usdt/arrivals/${chosen.id}?payoutCurrency=${payoutCurrency}${
           chosen.alsoIds?.length ? `&also=${chosen.alsoIds.join(',')}` : ''
-        }`,
+        }${splitValue ? `&coins=${splitValue}` : ''}`,
       )
       .then((result) => {
         if (!current) return;
@@ -544,7 +562,7 @@ export function ReceiveFlow({
     return () => {
       current = false;
     };
-  }, [chosen, payoutCurrency]);
+  }, [chosen, payoutCurrency, splitValue]);
 
   // A remembered transfer with no broker price published today falls back to
   // cash, rather than leaving a payout of nothing and a button that stays grey.
@@ -616,6 +634,7 @@ export function ReceiveFlow({
         {
           payoutCurrency,
           alsoArrivals: chosen.alsoIds ?? [],
+          splitCoins: splitValue ?? undefined,
           mode,
           /*
            * Only the broker's share of the coins travels. The till takes the
@@ -652,6 +671,7 @@ export function ReceiveFlow({
       }
       void loadRecent();
       setMerging([]);
+      const firstOfTwo = splitValue ? chosen.id : null;
       setChosen(null);
       setCustomer(null);
       setCounterpartyName('');
@@ -660,6 +680,15 @@ export function ReceiveFlow({
       setPayoutAccount('');
       await load();
       router.refresh();
+      // The first of two: the rest of the transfer, opened for the second deal on its own form.
+      if (firstOfTwo) {
+        const rest = await api.get<Arrival[]>('/api/usdt/arrivals?sync=false').catch(() => [] as Arrival[]);
+        const left = rest.find((row) => row.id === firstOfTwo);
+        if (left) {
+          toast.success(t('receive.splitSecond'));
+          open(left);
+        }
+      }
     } catch (caught) {
       const failure = describeFailure(caught, t as never);
       toast.error(failure.title, failure.body);
@@ -1083,6 +1112,70 @@ export function ReceiveFlow({
                 {chosen.mixedWallets && <p className="mt-1">{t('receive.mergedWallets')}</p>}
                 {chosen.mixedSenders && <p className="mt-1">{t('receive.mergedSenders')}</p>}
               </Alert>
+            )}
+
+            {/* The rest of a transfer whose first part was paid already. */}
+            {chosen.splitFrom && (
+              <Alert tone="primary">
+                {t('receive.splitRest', {
+                  left: toPlainAmount(BigInt(chosen.amount), 2),
+                  whole: toPlainAmount(BigInt(chosen.splitFrom), 2),
+                  coin: chosen.wallet.tokenSymbol,
+                })}
+              </Alert>
+            )}
+
+            {/* Split in two deals: this one pays for part of the coins, the rest is a deal of its own. */}
+            {!chosen.alsoIds?.length && !chosen.splitFrom && (
+              <div className="rounded-xl bg-surface-sunken p-3 ring-1 ring-border-subtle">
+                <label className="flex cursor-pointer items-center justify-between gap-3">
+                  <span>
+                    <span className="block text-sm font-semibold text-content">{t('receive.split')}</span>
+                    <span className="block text-xs text-content-tertiary">{t('receive.splitHint')}</span>
+                  </span>
+                  <input
+                    type="checkbox"
+                    checked={splitOn}
+                    onChange={(event) => {
+                      setSplitOn(event.target.checked);
+                      setSplitCoins('');
+                    }}
+                    className="size-5 accent-[var(--color-primary)]"
+                  />
+                </label>
+                {splitOn && (
+                  <div className="mt-3 grid grid-cols-2 gap-3">
+                    <label className="block">
+                      <span className="text-xs text-content-tertiary">
+                        {t('receive.splitFirst', { coin: chosen.wallet.tokenSymbol })}
+                      </span>
+                      <input
+                        type="text"
+                        dir="ltr"
+                        inputMode="decimal"
+                        autoComplete="off"
+                        value={splitCoins}
+                        onChange={(event) => setSplitCoins(event.target.value)}
+                        className={cn(
+                          'mt-1 h-11 w-full rounded-xl bg-surface px-3 text-end text-lg font-bold tabular-nums text-content outline-none ring-1 focus:ring-primary',
+                          splitCoins && !splitValue ? 'ring-danger' : 'ring-border-subtle',
+                        )}
+                      />
+                    </label>
+                    <div className="block">
+                      <span className="text-xs text-content-tertiary">
+                        {t('receive.splitSecondPart', { coin: chosen.wallet.tokenSymbol })}
+                      </span>
+                      <p className="mt-1 flex h-11 items-center justify-end rounded-xl bg-surface px-3 text-lg font-bold tabular-nums text-content-secondary ring-1 ring-border-subtle ltr-content">
+                        {splitValue
+                          ? (Number(chosen.amount) / 1e8 - Number(splitValue)).toFixed(2).replace(/\.00$/, '')
+                          : '—'}
+                      </p>
+                    </div>
+                    <p className="col-span-2 text-xs text-content-tertiary">{t('receive.splitHow')}</p>
+                  </div>
+                )}
+              </div>
             )}
 
             {chosen.recognised?.status === 'KNOWN' && (

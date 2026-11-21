@@ -2337,6 +2337,13 @@ const en = {
   },
 
   receive: {
+    split: 'Split into two deals',
+    splitHint: 'One part with its own payment, account and name; the rest a second deal of its own.',
+    splitFirst: 'First deal ({coin})',
+    splitSecondPart: 'Left for the second deal ({coin})',
+    splitHow: 'Record the first deal with its own payment, account and name; the rest then opens by itself for the second. Each goes to the group on its own.',
+    splitSecond: 'First deal recorded — now record the second for the rest',
+    splitRest: 'Second deal: the rest, {left} of {whole} {coin}. The first deal is recorded.',
     mergedWallets: 'These reached different receiving addresses.',
     mergeTick: 'Merge',
     mergeSummary: 'Merge {count} transfers:',
@@ -3289,6 +3296,7 @@ const en = {
       'A split is priced from what the customer hands over — put the amount in the "customer pays" field',
     splitOverPay: 'That transfer costs more than the customer is handing over',
     tiktokRecipientRequired: 'Choose whom the withdrawal is sent to',
+    splitNotMerged: 'A transfer merged with others cannot be split',
     splitShareOutOfRange: 'The transferred share must be part of the amount, not all or none of it',
     bothWaysNeedsPrice: 'Set one rate for the whole deal paid both ways',
 

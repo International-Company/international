@@ -11,6 +11,8 @@ const querySchema = z.object({
   payoutCurrency: z.string().min(2).max(8),
   /** Other transfers to price with it, comma separated. */
   also: z.string().max(1000).optional(),
+  /** Split in two: the coins the first deal pays for. */
+  coins: z.string().max(30).optional(),
 });
 
 const MAX_MERGED = 19;
@@ -31,6 +33,7 @@ export const GET = route<unknown, z.infer<typeof querySchema>, z.infer<typeof pa
       query.payoutCurrency,
       undefined,
       query.also?.split(',').filter(Boolean).slice(0, MAX_MERGED) ?? [],
+      query.coins?.trim() ? parseMoney(query.coins) : undefined,
     ),
 });
 
@@ -38,6 +41,8 @@ const bodySchema = z.object({
   payoutCurrency: z.string().min(2).max(8),
   /** Other transfers to settle with this one, as a single deal. */
   alsoArrivals: z.array(z.string().min(1)).max(MAX_MERGED).default([]),
+  /** Split in two: the coins this first deal pays for; the rest waits for the second. */
+  splitCoins: z.string().max(30).optional(),
   /** Which balance the money leaves from: the till, the broker, or part each. */
   mode: z.enum(counter.PAYOUT_MODES).default('CASH'),
   /** For a split: how much of the arrived USDT settles through the broker. */
@@ -88,6 +93,7 @@ export const POST = route<z.infer<typeof bodySchema>, unknown, z.infer<typeof pa
         {
           branchId,
           alsoArrivals: body.alsoArrivals,
+          splitCoins: body.splitCoins?.trim() ? parseMoney(body.splitCoins) : undefined,
           payoutCurrency: body.payoutCurrency.toUpperCase(),
           mode: body.mode,
           brokerShare: body.brokerShare !== undefined ? parseMoney(body.brokerShare) : undefined,
