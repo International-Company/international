@@ -275,13 +275,14 @@ async function open(userId: string): Promise<void> {
     markOnlineOnConnect: false,
     syncFullHistory: false,
     /*
-     * A teller's own number hears every contact's status and carries years of
-     * history; none of it is anyone writing to them, and decrypting it held up
-     * the whole server. It is acknowledged and dropped unread. Its groups are
-     * read — the office chose to answer in them from the inbox — but only what
-     * is written from now on, never their history.
+     * A teller's own number is in their family's groups, hears every contact's
+     * status, and carries years of history. None of it is a customer writing to
+     * them, and decrypting it all, and keeping a key for every member of every
+     * group, held up the whole server — twice now: reading every group again on
+     * 2026-11-21 slowed it within the hour. It is acknowledged and dropped unread.
      */
-    shouldIgnoreJid: (jid) => Boolean(isJidBroadcast(jid) || isJidNewsletter(jid)),
+    shouldIgnoreJid: (jid) =>
+      Boolean(isJidGroup(jid) || isJidBroadcast(jid) || isJidNewsletter(jid)),
     shouldSyncHistoryMessage: () => false,
     defaultQueryTimeoutMs: 15_000,
     ...(version ? { version } : {}),
