@@ -55,6 +55,18 @@ describe('a transfer request, read off a group message', () => {
     assert.equal(readTransferRequest('0597000000\nبنك الاردن\nسامر\n100', CHANNELS)?.name, 'سامر');
   });
 
+  it('reads a transfer written out of order, with dots and an order word among its lines', () => {
+    // As it came in the group.
+    const read = readTransferRequest('.0599946133.\nاياد زويد العطار\nبنك\nارسال\n600 دولار\n.', CHANNELS);
+    assert.equal(read?.account, '0599946133');
+    assert.equal(read?.name, 'اياد زويد العطار');
+    assert.equal(read?.channel, 'بنك');
+    assert.equal(read?.amount, 600n * UNIT);
+    assert.equal(read?.currency, 'USD');
+    // The order word is never the name, wherever it stands.
+    assert.equal(readTransferRequest('0599946133\nارسال\nاياد العطار\n600', CHANNELS)?.name, 'اياد العطار');
+  });
+
   it('knows a listed bank spelt the short way', () => {
     const read = readTransferRequest('0599732007\n\nجوال بي\n\n200 شيكل\n\nاحمد ابو جراد', CHANNELS);
     assert.equal(read?.channel, 'جوال باي');

@@ -57,6 +57,16 @@ function sumOf(text: string): bigint | null {
 const BANKISH =
   /^(ال)?(محفظ[ةه]|محافظ|wallet|بنك|البنك|مصرف|bank|pal\s*pay|palpay|jawwal\s*pay|jawwalpay|bop|iban|ايبان)(\s|$)|^(بال|جوال)\s*(باي|بي|بى)$/i;
 
+/**
+ * A line that only says what to do — "ارسال", "تحويل" — and names no one: it
+ * is never the name. Written in among the four lines often enough to matter.
+ */
+const ORDER_WORDS =
+  /^(ال)?(ارسال|إرسال|ارسل|أرسل|تحويل|حول|حوّل|حواله|حوالة|سحب|ايداع|إيداع|استلام|تسليم|send|transfer)[\s.!:؟?]*$/i;
+
+/** A word for a bank or a wallet that says which one it is not. */
+const GENERIC_BANK = /^(ال)?(بنك|مصرف|محفظ[ةه]|محافظ|bank|wallet)$/i;
+
 const letters = (line: string) => (line.match(/[\p{L}]/gu) ?? []).length;
 const digitsIn = (line: string) => (line.match(/\d/g) ?? []).length;
 
@@ -72,7 +82,8 @@ export function readTransferRequest(text: string, channels: string[]): ReadReque
   // The account: a line that is a long number — a phone, an account, an IBAN.
   let account: string | null = null;
   for (const [index, line] of lines.entries()) {
-    const compact = line.replace(/[\s\-+]/g, '');
+    // Dots or commas typed around the number — ".0599946133." — are not part of it.
+    const compact = line.replace(/[\s\-+]/g, '').replace(/^[.,،:;]+|[.,،:;]+$/g, '');
     const iban = /^[A-Z]{2}\d{2}[A-Z0-9]{8,}$/i.test(compact);
     if (iban || (/^\d{6,}$/.test(compact) && !unitOf(line))) {
       account = compact;
@@ -127,8 +138,11 @@ export function readTransferRequest(text: string, channels: string[]): ReadReque
       .toLowerCase();
   for (const [index, line] of lines.entries()) {
     if (used.has(index)) continue;
+    // "بنك" alone names no bank: it is not "بنك فلسطين" for being part of it.
+    const generic = GENERIC_BANK.test(line.trim());
     const known = channels.find(
-      (entry) => fold(line).includes(fold(entry)) || fold(entry).includes(fold(line)),
+      (entry) =>
+        fold(line).includes(fold(entry)) || (!generic && fold(entry).includes(fold(line))),
     );
     if (known && letters(line) > 0) {
       channel = known;
@@ -151,7 +165,7 @@ export function readTransferRequest(text: string, channels: string[]): ReadReque
   let name: string | null = null;
   for (const [index, line] of lines.entries()) {
     if (used.has(index)) continue;
-    if (letters(line) >= 2 && digitsIn(line) <= 2 && line.length <= 60) {
+    if (letters(line) >= 2 && digitsIn(line) <= 2 && line.length <= 60 && !ORDER_WORDS.test(line)) {
       name = line;
       used.add(index);
       break;
