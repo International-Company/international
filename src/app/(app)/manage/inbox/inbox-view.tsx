@@ -527,7 +527,8 @@ function Conversations({
         title={t('inbox.title')}
         description={t('inbox.subtitle')}
         actions={
-          <div className="flex flex-wrap items-center gap-2">
+          // On a phone the number picker takes the row and the buttons shrink to icons.
+          <div className="flex w-full items-center gap-2 sm:w-auto sm:flex-wrap [&>*:first-child]:min-w-0 [&>*:first-child]:flex-1 sm:[&>*:first-child]:flex-none">
             {tabs}
             {readOnly ? (
               <Badge tone="warning">
@@ -537,15 +538,25 @@ function Conversations({
             ) : (
               <>
                 {groupsApi && (
-                  <Button variant="secondary" icon={<Users />} onClick={() => void openGroups()}>
-                    {t('inbox.numberGroups')}
+                  <Button
+                    variant="secondary"
+                    icon={<Users />}
+                    aria-label={t('inbox.numberGroups')}
+                    title={t('inbox.numberGroups')}
+                    onClick={() => void openGroups()}
+                    className="shrink-0"
+                  >
+                    <span className="hidden sm:inline">{t('inbox.numberGroups')}</span>
                   </Button>
                 )}
                 <Button
                   icon={<MessageSquarePlus />}
+                  aria-label={t('inbox.newChat')}
+                  title={t('inbox.newChat')}
                   onClick={() => setFresh((current) => ({ ...current, open: true }))}
+                  className="shrink-0"
                 >
-                  {t('inbox.newChat')}
+                  <span className="hidden sm:inline">{t('inbox.newChat')}</span>
                 </Button>
               </>
             )}
@@ -578,8 +589,8 @@ function Conversations({
     <div className="space-y-4">
       {header}
       <div
-        className={`grid gap-4 md:grid-cols-[17rem_minmax(0,1fr)] lg:grid-cols-[21rem_minmax(0,1fr)] ${
-          activeNotice ? 'xl:grid-cols-[19rem_minmax(0,1fr)_23rem]' : ''
+        className={`grid gap-4 md:grid-cols-[20rem_minmax(0,1fr)] lg:grid-cols-[21rem_minmax(0,1fr)] ${
+          activeNotice ? '2xl:grid-cols-[21rem_minmax(0,1fr)_24rem]' : ''
         }`}
       >
         {/* The list: the whole page on a phone, a column beside the conversation from a tablet. */}
@@ -594,14 +605,14 @@ function Conversations({
               placeholder={t('inbox.search')}
               iconStart={<Search className="size-4" />}
             />
-            <div className="flex gap-1 rounded-xl bg-surface-sunken p-1 text-sm">
+            <div className="flex gap-1 overflow-x-auto rounded-xl bg-surface-sunken p-1 text-sm [scrollbar-width:none]">
               {(['people', 'waiting', 'groups', ...(withNotices ? (['notices'] as const) : [])] as const).map((view) => (
                 <button
                   key={view}
                   type="button"
                   aria-pressed={listView === view}
                   onClick={() => setListView(view)}
-                  className={`min-h-9 flex-1 rounded-lg px-2 py-1.5 font-medium ${
+                  className={`min-h-9 flex-1 shrink-0 whitespace-nowrap rounded-lg px-2 py-1.5 font-medium ${
                     listView === view
                       ? 'bg-surface text-content shadow-sm'
                       : 'text-content-secondary'
@@ -975,13 +986,26 @@ function Conversations({
           )}
         </Card>
         {activeNotice && (
-          <Card className="fixed inset-y-0 end-0 z-40 flex w-full max-w-sm flex-col overflow-hidden rounded-none p-0 shadow-[var(--shadow-lg)] xl:static xl:z-auto xl:h-[calc(100dvh-13.5rem)] xl:max-w-none xl:rounded-2xl xl:shadow-none">
-            <NoticePanel
-              noticeId={activeNotice}
-              onClose={() => setActiveNotice(null)}
-              onChanged={() => void loadNotices()}
+          // A drawer over the page (above the ticker) until the screen is wide enough for a third column.
+          <div
+            className="fixed inset-0 z-50 flex justify-end 2xl:static 2xl:z-auto 2xl:block"
+            role="dialog"
+            aria-label={t('inbox.notice.tab')}
+          >
+            <button
+              type="button"
+              aria-label={t('common.close')}
+              onClick={() => setActiveNotice(null)}
+              className="absolute inset-0 bg-black/30 backdrop-blur-[1px] 2xl:hidden"
             />
-          </Card>
+            <Card className="relative flex h-full w-full flex-col overflow-hidden rounded-none p-0 pb-[env(safe-area-inset-bottom)] shadow-[var(--shadow-lg)] sm:max-w-md 2xl:h-[calc(100dvh-13.5rem)] 2xl:max-w-none 2xl:rounded-2xl 2xl:pb-0 2xl:shadow-none">
+              <NoticePanel
+                noticeId={activeNotice}
+                onClose={() => setActiveNotice(null)}
+                onChanged={() => void loadNotices()}
+              />
+            </Card>
+          </div>
         )}
       </div>
       <Dialog

@@ -1075,7 +1075,7 @@ const en = {
     subtitle: 'Customers’ conversations on your number, answered from here.',
     search: 'Search by number or word',
     all: 'All',
-    waiting: 'Awaiting reply ({count})',
+    waiting: 'Waiting ({count})',
     awaiting: 'Awaiting reply',
     empty: 'No conversations',
     choose: 'Choose a conversation',
