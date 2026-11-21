@@ -88,6 +88,19 @@ export function TiktokView({
   const [attaching, setAttaching] = useState<string | null>(null);
   const [rows, setRows] = useState<Row[]>([]);
   const [deleting, setDeleting] = useState<Row | null>(null);
+  /** Whom withdrawals are sent to, as set on the WhatsApp panel; and whom this one goes to. */
+  const [recipients, setRecipients] = useState<string[]>([]);
+  const [recipient, setRecipient] = useState('');
+  useEffect(() => {
+    api
+      .get<string[]>('/api/tiktok/recipients')
+      .then((names) => {
+        setRecipients(names);
+        // One alone is chosen already; with several, the teller chooses.
+        if (names.length === 1) setRecipient(names[0]!);
+      })
+      .catch(() => setRecipients([]));
+  }, []);
 
   const canDelete = permissions.includes('exchange.transaction.reverse');
   const canPrint = permissions.includes('exchange.receipt.print');
@@ -187,6 +200,7 @@ export function TiktokView({
     beneficiaryName.trim().length > 0 &&
     (cash || Boolean(channel)) &&
     payout > 0n &&
+    (recipients.length === 0 || recipients.includes(recipient)) &&
     (payVia !== 'SPLIT' || (sentPart > 0n && sentPart < payout)) &&
     scan !== 'READING';
 
@@ -205,6 +219,7 @@ export function TiktokView({
         payVia,
         transferPart: payVia === 'SPLIT' ? transferPart : null,
         extraPhotos: extras,
+        recipient: recipients.length > 0 ? recipient : null,
       });
       toast.success(t('tiktok.recorded'));
       printAfterRecording(created.id, permissions, 'tiktok');
@@ -368,6 +383,31 @@ export function TiktokView({
               ))}
             </div>
           </div>
+
+          {recipients.length > 0 && (
+            <Field label={t('tiktok.recipient')} hint={t('tiktok.recipientHint')} required>
+              {() => (
+                <div className="flex flex-wrap gap-2" role="radiogroup" aria-label={t('tiktok.recipient')}>
+                  {recipients.map((name) => (
+                    <button
+                      key={name}
+                      type="button"
+                      role="radio"
+                      aria-checked={recipient === name}
+                      onClick={() => setRecipient(name)}
+                      className={
+                        recipient === name
+                          ? 'h-11 flex-1 rounded-xl bg-primary px-4 text-base font-bold text-white shadow-sm'
+                          : 'h-11 flex-1 rounded-xl bg-surface-sunken px-4 text-base font-semibold text-content-secondary ring-1 ring-border-subtle hover:text-content'
+                      }
+                    >
+                      {name}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </Field>
+          )}
 
           <Field label={t('tiktok.account')} required={!cash}>
             {(props) => (

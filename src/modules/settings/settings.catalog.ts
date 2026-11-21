@@ -602,6 +602,11 @@ export const SETTINGS: SettingDefinition[] = [
     labelEn: 'Messages passed from group to group', labelAr: 'نقل الرسائل من مجموعة إلى أخرى',
     descriptionEn: 'Set on the WhatsApp panel', descriptionAr: 'تُضبط من لوحة الواتساب',
   },
+  {
+    key: 'whatsapp.tiktokRecipients', category: 'whatsapp', type: 'string', defaultValue: '[]', hidden: true,
+    labelEn: 'Who TikTok withdrawals are sent to, each with a group', labelAr: 'مستلمو سحوبات التيك توك ومجموعاتهم',
+    descriptionEn: 'Set on the WhatsApp panel', descriptionAr: 'تُضبط من لوحة الواتساب',
+  },
 
   {
     // Off until the manager has linked the number and chosen who hears of requests.

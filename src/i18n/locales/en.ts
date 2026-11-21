@@ -1305,6 +1305,8 @@ const en = {
   },
 
   tiktok: {
+    recipient: 'Send to',
+    recipientHint: 'The withdrawal goes to this person’s WhatsApp group.',
     title: 'TikTok',
     subtitle: 'TikTok withdrawn in dollars and handed over in shekels. No balance moves.',
     photo: 'Photo of the withdrawal',
@@ -2830,6 +2832,19 @@ const en = {
       saved: 'Rules saved',
       hint: 'The bot passes on the words only, as written, never the photo itself. The group number must be in both groups. What the bot itself writes is never passed on.',
     },
+    tiktokRecipients: {
+      title: 'TikTok withdrawal recipients',
+      add: 'Add names',
+      edit: 'Edit',
+      none: 'No names yet — every withdrawal goes to the TikTok group.',
+      name: 'The name the teller sees',
+      group: 'Their group',
+      choose: 'Choose the group',
+      remove: 'Remove',
+      another: 'Another name',
+      hint: 'The teller chooses one of these names on the TikTok screen, and the withdrawal goes to that name’s group instead of the TikTok group.',
+      saved: 'Recipients saved',
+    },
     route: {
       EXCHANGE: 'Exchange',
       WALLET_CASHOUT: 'Wallet cash-outs',
@@ -3261,6 +3276,7 @@ const en = {
     splitNeedsPayAmount:
       'A split is priced from what the customer hands over — put the amount in the "customer pays" field',
     splitOverPay: 'That transfer costs more than the customer is handing over',
+    tiktokRecipientRequired: 'Choose whom the withdrawal is sent to',
     splitShareOutOfRange: 'The transferred share must be part of the amount, not all or none of it',
     bothWaysNeedsPrice: 'Set one rate for the whole deal paid both ways',
 

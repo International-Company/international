@@ -12,6 +12,7 @@ import {
   composeWithdrawalDeleted,
   composeWithdrawalName,
   composeWithdrawalNameDeleted,
+  parseTiktokRecipients,
   TIKTOK_DEAL_TYPE,
 } from '@/modules/tiktok/tiktok-message';
 import { copyGroupFor, groupFor, parseRoutes } from './group-routes';
@@ -140,6 +141,21 @@ async function target(type: string): Promise<string | null> {
   );
   if (!group || !isLinked()) return null;
   return group;
+}
+
+/**
+ * The group a TikTok withdrawal goes to: the group of whom it was sent to, when
+ * one was chosen and still has a group; else the TikTok group, as before.
+ */
+async function tiktokTarget(recipient: string | null | undefined): Promise<string | null> {
+  if (recipient) {
+    if (!(await settings.getBoolean('whatsapp.enabled')) || !isLinked()) return null;
+    const chosen = parseTiktokRecipients(await settings.getString('whatsapp.tiktokRecipients')).find(
+      (entry) => entry.name === recipient,
+    );
+    if (chosen) return chosen.group.id;
+  }
+  return target(TIKTOK_DEAL_TYPE);
 }
 
 /** The bank transfers group, or null when none is chosen or WhatsApp is off. */
@@ -696,16 +712,16 @@ export function registerWhatsappSubscribers(): void {
    * second one if the office chose one. Each on its own, so neither failing costs the other.
    */
   on('tiktok.recorded', 'whatsapp-announce-tiktok', async ({ withdrawalId }) => {
-    const [group, nameGroup, bank] = await Promise.all([
-      target(TIKTOK_DEAL_TYPE),
-      copyTarget(TIKTOK_DEAL_TYPE),
-      bankTarget(),
-    ]);
-    if (!group && !nameGroup && !bank) return;
     const row = await prisma.tiktokWithdrawal.findUnique({
       where: { id: withdrawalId },
     });
     if (!row) return;
+    const [group, nameGroup, bank] = await Promise.all([
+      tiktokTarget(row.recipient),
+      copyTarget(TIKTOK_DEAL_TYPE),
+      bankTarget(),
+    ]);
+    if (!group && !nameGroup && !bank) return;
     const photo = Buffer.from(row.data);
     const transfer = row.payoutAmount - row.cashAmount;
     /*
@@ -804,13 +820,13 @@ export function registerWhatsappSubscribers(): void {
 
   // A photo attached afterwards goes to the group with whose withdrawal it is.
   on('tiktok.photoAdded', 'whatsapp-announce-tiktok-photo', async ({ withdrawalId, photoId }) => {
-    const group = await target(TIKTOK_DEAL_TYPE);
-    if (!group) return;
     const [row, photo] = await Promise.all([
       prisma.tiktokWithdrawal.findUnique({ where: { id: withdrawalId } }),
       prisma.tiktokPhoto.findUnique({ where: { id: photoId }, select: { data: true, mimeType: true } }),
     ]);
     if (!row || !photo || row.deletedAt) return;
+    const group = row.announcedChat ?? (await tiktokTarget(row.recipient));
+    if (!group) return;
     await sendImage(
       group,
       Buffer.from(photo.data),
@@ -821,13 +837,11 @@ export function registerWhatsappSubscribers(): void {
   });
 
   on('tiktok.deleted', 'whatsapp-announce-tiktok-deletion', async ({ withdrawalId, by }) => {
-    const [group, nameGroup] = await Promise.all([
-      target(TIKTOK_DEAL_TYPE),
-      copyTarget(TIKTOK_DEAL_TYPE),
-    ]);
     const row = await prisma.tiktokWithdrawal.findUnique({
       where: { id: withdrawalId },
       select: {
+        recipient: true,
+        announcedChat: true,
         amount: true,
         currency: true,
         account: true,
@@ -838,6 +852,10 @@ export function registerWhatsappSubscribers(): void {
       },
     });
     if (!row) return;
+    const [group, nameGroup] = await Promise.all([
+      row.announcedChat ? Promise.resolve(row.announcedChat) : tiktokTarget(row.recipient),
+      copyTarget(TIKTOK_DEAL_TYPE),
+    ]);
     if (group) {
       await sendText(group, composeWithdrawalDeleted(row, by)).catch((error) =>
         log.warn('Could not announce a TikTok deletion', { withdrawalId, error }),

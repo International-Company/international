@@ -1,5 +1,6 @@
 import 'server-only';
 import { prisma } from '@/core/db/prisma';
+import * as settings from '@/modules/settings/settings.service';
 import { errors } from '@/core/errors/app-error';
 import { normalizeDigits } from '@/core/money/money';
 import { emitAsync } from '@/core/events/bus';
@@ -8,7 +9,7 @@ import { transferChannels } from '@/modules/exchange/machine.service';
 import { readProofImage } from '@/modules/exchange/proof-image';
 import type { Actor } from '@/modules/exchange/transaction.service';
 import { formatAmount, formatFigure } from '@/modules/whatsapp/report-command';
-import { rateText, tiktokPayout, tiktokTotals } from './tiktok-message';
+import { rateText, tiktokPayout, tiktokTotals, parseTiktokRecipients } from './tiktok-message';
 
 /**
  * TikTok withdrawals, written down: a photo, who it is for, how it is sent, the
@@ -40,6 +41,8 @@ const seesAll = (actor: Actor) => actor.permissions.includes('exchange.transacti
 
 export async function record(
   input: {
+    /** Whom it is sent to, by the name set on the WhatsApp panel. */
+    recipient?: string | null;
     amount: bigint;
     rate: bigint;
     account: string;
@@ -96,6 +99,12 @@ export async function record(
     cashAmount = payoutAmount - sent;
   }
   const egpAmount = input.egpAmount && input.egpAmount > 0n ? input.egpAmount : null;
+  // Whom it goes to: one of the names the office set, when it set any.
+  const recipients = parseTiktokRecipients(await settings.getString('whatsapp.tiktokRecipients'));
+  const recipient = input.recipient?.trim() || null;
+  if (recipients.length > 0 && !recipients.some((entry) => entry.name === recipient)) {
+    throw errors.precondition('Say whom it is sent to', 'errors.tiktokRecipientRequired');
+  }
   const image = readProofImage(input.photo);
   if (typeof image === 'string') throw errors.precondition('That photo cannot be kept', image);
   const extras = readExtras(input.extraPhotos);
@@ -111,6 +120,7 @@ export async function record(
       account,
       beneficiaryName,
       channel,
+      recipient: recipients.length > 0 ? recipient : null,
       mimeType: image.mimeType,
       size: image.bytes.length,
       data: new Uint8Array(image.bytes),

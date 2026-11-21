@@ -103,3 +103,33 @@ export function composeWithdrawalDeleted(
     .filter((line): line is string => Boolean(line))
     .join('\n');
 }
+
+/** Someone TikTok withdrawals are sent to, by name, and the group that is theirs. */
+export interface TiktokRecipient {
+  name: string;
+  group: { id: string; name: string };
+}
+
+export const MAX_TIKTOK_RECIPIENTS = 10;
+
+/** The recipients as stored; anything unreadable, or without a name or a group, is left out. */
+export function parseTiktokRecipients(raw: string): TiktokRecipient[] {
+  let stored: unknown;
+  try {
+    stored = JSON.parse(raw || '[]');
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(stored)) return [];
+  const seen = new Set<string>();
+  const out: TiktokRecipient[] = [];
+  for (const entry of stored) {
+    const value = (entry ?? {}) as { name?: unknown; group?: { id?: unknown; name?: unknown } };
+    const name = typeof value.name === 'string' ? value.name.trim().slice(0, 60) : '';
+    const id = typeof value.group?.id === 'string' ? value.group.id.trim() : '';
+    if (!name || !id.endsWith('@g.us') || seen.has(name)) continue;
+    seen.add(name);
+    out.push({ name, group: { id, name: typeof value.group?.name === 'string' ? value.group.name : '' } });
+  }
+  return out.slice(0, MAX_TIKTOK_RECIPIENTS);
+}

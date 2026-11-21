@@ -21,6 +21,8 @@ const bodySchema = z.object({
   /** Further photos — the transfer's receipt, say — shrunk by the screen. */
   extraPhotos: z.array(z.string().min(1).max(6_000_000)).max(4).optional(),
   transferPart: z.string().max(30).nullish(),
+  /** Whom it is sent to, by the name set on the WhatsApp panel. */
+  recipient: z.string().max(60).nullish(),
   /** The photo, shrunk by the screen, as base64. The service checks what it is. */
   photo: z.string().min(1).max(6_000_000),
 });
@@ -41,6 +43,7 @@ export const POST = route<z.infer<typeof bodySchema>>({
         payVia: body.payVia ?? 'TRANSFER',
         extraPhotos: body.extraPhotos ?? [],
         transferPart: body.transferPart?.trim() ? parseMoney(body.transferPart) : null,
+        recipient: body.recipient ?? null,
       },
       actor,
     ),

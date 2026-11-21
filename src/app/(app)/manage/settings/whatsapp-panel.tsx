@@ -15,6 +15,7 @@ import { ConfirmDialog, useToast } from '@/ui/overlay';
 import { Field, Textarea } from '@/ui/form';
 import { GroupPicker } from './group-picker';
 import { ForwardRules } from './forward-rules';
+import { TiktokRecipients } from './tiktok-recipients';
 
 /**
  * The office's WhatsApp number: linked by scanning a QR from the phone, then
@@ -375,6 +376,9 @@ export function WhatsappPanel({ canManage }: { canManage: boolean }) {
 
           {/* --- What the bot passes from one group on to another --------------- */}
           <ForwardRules canManage={canManage} />
+
+          {/* --- Whom TikTok withdrawals are sent to, each with their group ------- */}
+          <TiktokRecipients canManage={canManage} />
 
           {/* --- What a group is told when it is linked ------------------------- */}
           {canManage && (

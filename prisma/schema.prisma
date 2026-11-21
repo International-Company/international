@@ -2241,6 +2241,8 @@ model TiktokWithdrawal {
   deletedById String?
   /// Photos beyond the first: the transfer's receipt, a second screenshot.
   photos      TiktokPhoto[]
+  /// Whom it was sent to, by the name set on the WhatsApp panel: their group hears of it.
+  recipient   String?
   /// The message it went to its group as, and the copy of its transfer in the bank
   /// transfers group: what the bank desk follows it by.
   announcedChat      String?
