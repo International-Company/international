@@ -10,6 +10,7 @@ import {
 } from 'react';
 import {
   ArrowLeft,
+  Eye,
   ExternalLink,
   FileText,
   ImagePlus,
@@ -163,12 +164,15 @@ function Conversations({
   tabs,
   listTop,
   hint,
+  readOnly = false,
 }: {
   base: string;
   tabs: ReactNode;
   listTop?: ReactNode;
   /** What an answer from here does, under the box. */
   hint: string;
+  /** Watching another number: read, never answered from here. */
+  readOnly?: boolean;
 }) {
   const { t } = useLocale();
   const toast = useToast();
@@ -365,12 +369,19 @@ function Conversations({
         actions={
           <div className="flex flex-wrap items-center gap-2">
             {tabs}
-            <Button
-              icon={<MessageSquarePlus />}
-              onClick={() => setFresh((current) => ({ ...current, open: true }))}
-            >
-              {t('inbox.newChat')}
-            </Button>
+            {readOnly ? (
+              <Badge tone="warning">
+                <Eye className="me-1 inline size-3.5" />
+                {t('inbox.watchReadOnly')}
+              </Badge>
+            ) : (
+              <Button
+                icon={<MessageSquarePlus />}
+                onClick={() => setFresh((current) => ({ ...current, open: true }))}
+              >
+                {t('inbox.newChat')}
+              </Button>
+            )}
           </div>
         }
       />
@@ -581,7 +592,7 @@ function Conversations({
                         · <span className="tabular-nums">{when(message.createdAt)}</span>
                         {message.edited && !message.deleted && <> · {t('inbox.edited')}</>}
                       </span>
-                      {message.editable && (
+                      {!readOnly && message.editable && (
                         <button
                           type="button"
                           aria-label={t('inbox.edit')}
@@ -592,7 +603,7 @@ function Conversations({
                           <Pencil className="size-3.5" />
                         </button>
                       )}
-                      {message.deletable && (
+                      {!readOnly && message.deletable && (
                         <button
                           type="button"
                           aria-label={t('inbox.delete')}
@@ -603,7 +614,7 @@ function Conversations({
                           <Trash2 className="size-3.5" />
                         </button>
                       )}
-                      {message.quotable && (
+                      {!readOnly && message.quotable && (
                         <button
                           type="button"
                           aria-label={t('inbox.quote')}
@@ -622,6 +633,12 @@ function Conversations({
                 ))}
               </div>
 
+              {readOnly ? (
+                <p className="flex shrink-0 items-center justify-center gap-1.5 border-t border-border-subtle bg-warning-subtle/40 p-3 text-xs font-medium text-warning-text">
+                  <Eye className="size-4" />
+                  {t('inbox.watchNoAnswer')}
+                </p>
+              ) : (
               <div className="shrink-0 space-y-1.5 border-t border-border-subtle p-2 sm:p-3">
                 {quote && <QuoteLine message={quote} onClose={() => setQuote(null)} />}
                 {photo && (
@@ -686,6 +703,7 @@ function Conversations({
                 </div>
                 <p className="hidden text-xs text-content-tertiary md:block">{hint}</p>
               </div>
+              )}
             </>
           )}
         </Card>
@@ -798,15 +816,78 @@ interface Link {
  * Each person's own number, answered from here. The office's private number is
  * the bot's now: its conversations are not offered here.
  */
-export function InboxView() {
-  const { t } = useLocale();
+interface Watched {
+  numbers: { id: string; nameAr: string; nameEn: string; chats: number; unread: number }[];
+  private: { chats: number; unread: number };
+}
+
+/**
+ * The customer inbox: one's own number, answered from here. Whoever watches the
+ * office's conversations also reads each person's number and the private one —
+ * chosen at the top, and never answered from here, nor marked read for them.
+ */
+export function InboxView({ canWatch = false }: { canWatch?: boolean }) {
+  const { t, locale } = useLocale();
+  const [view, setView] = useState('mine');
+  const [watched, setWatched] = useState<Watched | null>(null);
+
+  useEffect(() => {
+    if (!canWatch) return;
+    const read = () =>
+      void api
+        .get<Watched>('/api/inbox/watch')
+        .then(setWatched)
+        .catch(() => undefined);
+    read();
+    const timer = setInterval(() => {
+      if (!document.hidden) read();
+    }, 60_000);
+    return () => clearInterval(timer);
+  }, [canWatch]);
+
+  const picker = canWatch ? (
+    <label className="flex h-10 items-center gap-2 rounded-xl bg-surface-sunken px-3 ring-1 ring-border-subtle">
+      <Eye className="size-4 shrink-0 text-content-tertiary" />
+      <span className="sr-only">{t('inbox.watchWhose')}</span>
+      <select
+        value={view}
+        onChange={(event) => setView(event.target.value)}
+        className="h-full min-w-0 bg-transparent text-sm font-semibold text-content outline-none"
+      >
+        <option value="mine">{t('inbox.watchMine')}</option>
+        <option value="private">
+          {t('inbox.watchPrivate')}
+          {watched?.private.unread ? ` (${watched.private.unread})` : ''}
+        </option>
+        {(watched?.numbers ?? []).map((number) => (
+          <option key={number.id} value={number.id}>
+            {(locale === 'ar' ? number.nameAr : number.nameEn) +
+              ` · ${t('inbox.watchChats', { count: number.chats })}` +
+              (number.unread ? ` (${number.unread})` : '')}
+          </option>
+        ))}
+      </select>
+    </label>
+  ) : null;
+
+  if (view === 'mine') {
+    return (
+      <Conversations
+        key="mine"
+        base="/api/inbox/mine"
+        tabs={picker}
+        listTop={<MyNumber />}
+        hint={t('inbox.hintMine')}
+      />
+    );
+  }
   return (
     <Conversations
-      key="mine"
-      base="/api/inbox/mine"
-      tabs={null}
-      listTop={<MyNumber />}
-      hint={t('inbox.hintMine')}
+      key={view}
+      base={`/api/inbox/watch/${view}`}
+      tabs={picker}
+      hint=""
+      readOnly
     />
   );
 }

@@ -986,6 +986,12 @@ const ar: Dictionary = {
     emptyBody: 'كل تحويل تعد به حركة يظهر هنا حتى يُنفَّذ.',
   },
   inbox: {
+    watchReadOnly: 'للقراءة فقط',
+    watchNoAnswer: 'مراقبة فقط — الرد يكون من صاحب الرقم',
+    watchWhose: 'محادثات من',
+    watchMine: 'رقمي',
+    watchPrivate: 'الرقم الخاص',
+    watchChats: '{count} محادثة',
     title: 'واتساب العملاء',
     subtitle: 'محادثات العملاء على رقمك، والرد عليهم من هنا.',
     search: 'ابحث برقم أو كلمة',

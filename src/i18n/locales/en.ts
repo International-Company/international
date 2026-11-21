@@ -984,6 +984,12 @@ const en = {
     emptyBody: 'Every transfer a deal promises shows here until it is sent.',
   },
   inbox: {
+    watchReadOnly: 'Read only',
+    watchNoAnswer: 'Watching only — answers come from the number’s owner',
+    watchWhose: 'Whose conversations',
+    watchMine: 'My number',
+    watchPrivate: 'The private number',
+    watchChats: '{count} conversations',
     title: 'Customer WhatsApp',
     subtitle: 'Customers’ conversations on your number, answered from here.',
     search: 'Search by number or word',

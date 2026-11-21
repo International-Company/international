@@ -208,6 +208,9 @@ export const PERMISSIONS: PermissionDefinition[] = [
   def('customers.whatsapp', 'customers', 'manage', 'Customer WhatsApp', 'محادثات العملاء على واتساب',
     'Read what customers write to the private number and answer them from the system',
     'قراءة ما يكتبه العملاء للرقم الخاص والرد عليهم من النظام'),
+  def('customers.whatsapp.monitor', 'customers', 'view', 'Watch customer WhatsApp', 'مراقبة محادثات واتساب العملاء',
+    'Read, without answering, the conversations on each employee’s own number and on the private number',
+    'قراءة محادثات رقم كل موظف والرقم الخاص، دون الرد', true),
 
   // --- Settings ------------------------------------------------------------
   def('settings.view', 'settings', 'view', 'View settings', 'عرض الإعدادات',

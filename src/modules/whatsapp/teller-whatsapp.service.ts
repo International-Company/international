@@ -511,6 +511,36 @@ export async function listChats(ownerId: string) {
   }));
 }
 
+/**
+ * Whose numbers have conversations, for the manager watching them: each
+ * person, how many conversations and how many unread, the busiest first.
+ */
+export async function watchedNumbers() {
+  const owners = await prisma.tellerChat.groupBy({
+    by: ['ownerId'],
+    _count: { _all: true },
+    _sum: { unread: true },
+    _max: { lastMessageAt: true },
+  });
+  const people = await prisma.user.findMany({
+    where: { id: { in: owners.map((owner) => owner.ownerId) } },
+    select: { id: true, fullNameAr: true, fullNameEn: true },
+  });
+  return owners
+    .map((owner) => {
+      const person = people.find((entry) => entry.id === owner.ownerId);
+      return {
+        id: owner.ownerId,
+        nameAr: person?.fullNameAr ?? '—',
+        nameEn: person?.fullNameEn ?? '—',
+        chats: owner._count._all,
+        unread: owner._sum.unread ?? 0,
+        lastMessageAt: owner._max.lastMessageAt,
+      };
+    })
+    .sort((a, b) => (b.lastMessageAt?.getTime() ?? 0) - (a.lastMessageAt?.getTime() ?? 0));
+}
+
 /** How many of their customers' messages the teller has not opened. */
 export async function unreadCount(ownerId: string): Promise<number> {
   const total = await prisma.tellerChat.aggregate({
@@ -520,14 +550,15 @@ export async function unreadCount(ownerId: string): Promise<number> {
   return total._sum.unread ?? 0;
 }
 
-export async function readChat(ownerId: string, id: string) {
+export async function readChat(ownerId: string, id: string, options: { watching?: boolean } = {}) {
   const row = await prisma.tellerChat.findFirst({
     where: { id, ownerId },
     include: { messages: { orderBy: { createdAt: 'desc' }, take: 300 } },
   });
   // Another teller's conversation is not found, rather than forbidden: it is not theirs to know of.
   if (!row) throw errors.notFound('TellerChat', id);
-  if (row.unread > 0) {
+  // Read by the manager watching, it is still unread for the teller whose customer wrote.
+  if (row.unread > 0 && !options.watching) {
     await prisma.tellerChat.update({ where: { id: row.id }, data: { unread: 0 } });
   }
   const records = await customerNames([row.phone]);

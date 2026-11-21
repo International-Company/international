@@ -6,7 +6,7 @@ export const metadata: Metadata = { title: 'Customer WhatsApp' };
 export const dynamic = 'force-dynamic';
 
 export default async function InboxPage() {
-  await requirePagePermission('customers.whatsapp');
+  const session = await requirePagePermission('customers.whatsapp');
   // The view draws its own title: a conversation open on a phone hides it.
-  return <InboxView />;
+  return <InboxView canWatch={session.user.permissions.includes('customers.whatsapp.monitor')} />;
 }

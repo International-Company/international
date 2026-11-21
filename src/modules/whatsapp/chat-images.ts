@@ -72,8 +72,10 @@ export async function keepImage(image: ReadyImage, ownerId: string | null): Prom
  * alone, the private number's to anyone with the inbox. Another teller's is
  * not found, rather than forbidden.
  */
-export async function readImage(id: string, actor: { id: string }) {
+export async function readImage(id: string, actor: { id: string; permissions?: string[] }) {
   const row = await prisma.chatImage.findUnique({ where: { id } });
-  if (!row || (row.ownerId && row.ownerId !== actor.id)) throw errors.notFound('ChatImage', id);
+  // Someone else's, unless the reader watches every number's conversations.
+  const watcher = actor.permissions?.includes('customers.whatsapp.monitor') ?? false;
+  if (!row || (row.ownerId && row.ownerId !== actor.id && !watcher)) throw errors.notFound('ChatImage', id);
   return row;
 }
