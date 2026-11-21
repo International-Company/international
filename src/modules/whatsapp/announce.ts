@@ -24,6 +24,7 @@ import {
   replyToSent,
   sendImage,
   sendText,
+  ownNumberFor,
   sentStub,
   type SentMessage,
 } from './whatsapp.service';
@@ -740,7 +741,7 @@ export function registerWhatsappSubscribers(): void {
           chat: group,
           text: composeWithdrawal(row),
           caption: true,
-          senderPhone: null,
+          senderPhone: await ownNumberFor(group),
         }).includes(bank),
     );
     const bankHearsIt = Boolean(bank && transfer > 0n);
@@ -871,7 +872,7 @@ export function registerWhatsappSubscribers(): void {
           chat: group,
           text: composeWithdrawalDeleted(row, by),
           caption: false,
-          senderPhone: null,
+          senderPhone: await ownNumberFor(group),
         }).includes(row.bankChat),
     );
     if (row.bankChat && row.bankChat !== group && !ruleCarriesDeletion) {

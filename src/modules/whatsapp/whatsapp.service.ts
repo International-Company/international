@@ -877,6 +877,13 @@ export async function memberPhone(
   return found?.id.endsWith('@s.whatsapp.net') ? found.id : null;
 }
 
+/** The office's number that writes to this chat, as a phone JID; null when none can. */
+export async function ownNumberFor(jid: string): Promise<string | null> {
+  const sock = await socketFor(jid).catch(() => null);
+  const id = sock?.user?.id;
+  return id ? `${id.split('@')[0]!.split(':')[0]}@s.whatsapp.net` : null;
+}
+
 /** Whether a phone JID is one of this office's own linked numbers. */
 export function isOwnNumber(phoneJid: string | null): boolean {
   const digits = phoneJid?.split('@')[0]?.split(':')[0];
