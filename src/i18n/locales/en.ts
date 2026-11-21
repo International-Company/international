@@ -986,6 +986,10 @@ const en = {
     emptyBody: 'To see an earlier day, pick it from the date button above.',
   },
   inbox: {
+    busyWith: '{name} is in this conversation now',
+    busyTyping: '{name} is typing…',
+    busyTypingLong: '{name} is typing an answer here now',
+    pasteHint: 'Paste a photo with Ctrl+V',
     watchReadOnly: 'Read only',
     watchNoAnswer: 'Watching only — answers come from the number’s owner',
     watchWhose: 'Whose conversations',

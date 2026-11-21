@@ -988,6 +988,10 @@ const ar: Dictionary = {
     emptyBody: 'لرؤية حركات يوم سابق، اختر اليوم من زر التاريخ أعلاه.',
   },
   inbox: {
+    busyWith: '{name} يتابع هذه المحادثة الآن',
+    busyTyping: '{name} يكتب…',
+    busyTypingLong: '{name} يكتب رداً في هذه المحادثة الآن',
+    pasteHint: 'يمكنك لصق صورة بـ Ctrl+V',
     watchReadOnly: 'للقراءة فقط',
     watchNoAnswer: 'مراقبة فقط — الرد يكون من صاحب الرقم',
     watchWhose: 'محادثات من',

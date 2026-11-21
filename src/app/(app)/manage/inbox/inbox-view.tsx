@@ -11,6 +11,7 @@ import {
 import {
   ArrowLeft,
   Eye,
+  Headset,
   ExternalLink,
   FileText,
   ImagePlus,
@@ -192,6 +193,8 @@ function Conversations({
   const [editing, setEditing] = useState<{ id: string; text: string } | null>(null);
   const [deleting, setDeleting] = useState<Message | null>(null);
   const [changing, setChanging] = useState(false);
+  /** Everyone else in a customer's conversation right now, by the customer's number. */
+  const [busy, setBusy] = useState<Map<string, { name: string; typing: boolean }>>(new Map());
   const scroller = useRef<HTMLDivElement>(null);
   const box = useRef<HTMLTextAreaElement>(null);
   // On a phone Enter is a new line, as in WhatsApp there; the button sends.
@@ -230,6 +233,62 @@ function Conversations({
     },
     [failure, base],
   );
+
+  const readBusy = useCallback((list: { phone: string; name: string; typing: boolean }[]) => {
+    const map = new Map<string, { name: string; typing: boolean }>();
+    for (const entry of list) {
+      const known = map.get(entry.phone);
+      // Two in one conversation: whoever is typing is the one to say.
+      if (!known || entry.typing) map.set(entry.phone, { name: entry.name, typing: entry.typing });
+    }
+    setBusy(map);
+  }, []);
+
+  // Who is where: asked every few seconds, so a taken conversation shows before it is answered twice.
+  useEffect(() => {
+    const ask = () =>
+      void api
+        .get<{ phone: string; name: string; typing: boolean }[]>('/api/inbox/presence')
+        .then(readBusy)
+        .catch(() => undefined);
+    ask();
+    const timer = setInterval(() => {
+      if (!document.hidden) ask();
+    }, 6_000);
+    return () => clearInterval(timer);
+  }, [readBusy]);
+
+  /*
+   * This conversation is open here: said to the others while it is, and whether
+   * an answer is being typed. Watching another's number says nothing — the
+   * watcher answers no one.
+   */
+  const openPhone = !readOnly && selected && thread?.id === selected ? thread.phone : null;
+  const typingNow = draft.trim().length > 0 || photo !== null;
+  useEffect(() => {
+    if (readOnly) return;
+    const say = () =>
+      void api
+        .post<{ phone: string; name: string; typing: boolean }[]>('/api/inbox/presence', {
+          phone: openPhone,
+          typing: Boolean(openPhone) && typingNow,
+        })
+        .then(readBusy)
+        .catch(() => undefined);
+    say();
+    if (!openPhone) return;
+    const timer = setInterval(() => {
+      if (!document.hidden) say();
+    }, 15_000);
+    return () => clearInterval(timer);
+  }, [readOnly, openPhone, typingNow, readBusy]);
+  // Leaving the page leaves the conversation.
+  useEffect(() => {
+    if (readOnly) return;
+    return () => {
+      void api.post('/api/inbox/presence', { phone: null, typing: false }).catch(() => undefined);
+    };
+  }, [readOnly]);
 
   useEffect(() => {
     void load();
@@ -300,6 +359,14 @@ function Conversations({
     } finally {
       setStarting(false);
     }
+  };
+
+  /** A photo pasted into the box, as WhatsApp takes one. Words pasted are left as they are. */
+  const pastePhoto = (event: { clipboardData: DataTransfer | null; preventDefault: () => void }) => {
+    const file = [...(event.clipboardData?.files ?? [])].find((entry) => entry.type.startsWith('image/'));
+    if (!file) return;
+    event.preventDefault();
+    void choosePhoto(file);
   };
 
   const choosePhoto = async (file: File | undefined) => {
@@ -470,7 +537,19 @@ function Conversations({
                         </span>
                       )}
                     </span>
-                    {row.unread > 0 ? (
+                    {busy.get(row.phone ?? '') ? (
+                      <span
+                        className="inline-flex max-w-[9rem] shrink-0 items-center gap-1 truncate rounded-full bg-warning-subtle px-2 py-0.5 text-[11px] font-semibold text-warning-text"
+                        title={t('inbox.busyWith', { name: busy.get(row.phone ?? '')!.name })}
+                      >
+                        <Headset className="size-3 shrink-0" />
+                        <span className="truncate">
+                          {busy.get(row.phone ?? '')!.typing
+                            ? t('inbox.busyTyping', { name: busy.get(row.phone ?? '')!.name })
+                            : busy.get(row.phone ?? '')!.name}
+                        </span>
+                      </span>
+                    ) : row.unread > 0 ? (
                       <span className="inline-flex min-w-5 shrink-0 items-center justify-center rounded-full bg-success px-1.5 text-[11px] font-bold leading-5 text-white tabular-nums">
                         {row.unread > 99 ? '99+' : row.unread}
                       </span>
@@ -554,6 +633,14 @@ function Conversations({
                 )}
               </div>
 
+              {busy.get(thread.phone ?? '') && (
+                <p className="flex shrink-0 items-center gap-2 border-b border-warning/30 bg-warning-subtle px-3 py-2 text-xs font-semibold text-warning-text">
+                  <Headset className="size-4 shrink-0" />
+                  {busy.get(thread.phone ?? '')!.typing
+                    ? t('inbox.busyTypingLong', { name: busy.get(thread.phone ?? '')!.name })
+                    : t('inbox.busyWith', { name: busy.get(thread.phone ?? '')!.name })}
+                </p>
+              )}
               <div
                 ref={scroller}
                 className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto overscroll-contain bg-surface-sunken p-3"
@@ -684,6 +771,7 @@ function Conversations({
                     value={draft}
                     onChange={(event) => setDraft(event.target.value)}
                     onKeyDown={onKey}
+                    onPaste={pastePhoto}
                     rows={1}
                     maxLength={2000}
                     enterKeyHint={touch ? 'enter' : 'send'}
@@ -701,7 +789,9 @@ function Conversations({
                     <span className="hidden sm:inline">{t('inbox.send')}</span>
                   </Button>
                 </div>
-                <p className="hidden text-xs text-content-tertiary md:block">{hint}</p>
+                <p className="hidden text-xs text-content-tertiary md:block">
+                  {hint} {t('inbox.pasteHint')}
+                </p>
               </div>
               )}
             </>
