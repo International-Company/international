@@ -988,6 +988,8 @@ const ar: Dictionary = {
     emptyBody: 'لرؤية حركات يوم سابق، اختر اليوم من زر التاريخ أعلاه.',
   },
   inbox: {
+    groups: 'القروبات',
+    group: 'قروب',
     busyWith: '{name} يتابع هذه المحادثة الآن',
     busyTyping: '{name} يكتب…',
     busyTypingLong: '{name} يكتب رداً في هذه المحادثة الآن',

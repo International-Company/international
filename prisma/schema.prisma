@@ -2331,6 +2331,8 @@ model TellerChatMessage {
   chat      TellerChat @relation(fields: [chatId], references: [id], onDelete: Cascade)
   /// Written from the teller's number, here or on the phone.
   fromMe    Boolean
+  /// In a group: who wrote it, by their WhatsApp name.
+  authorName String?
   text      String
   /// A photo sent with it, from the system.
   imageId   String?

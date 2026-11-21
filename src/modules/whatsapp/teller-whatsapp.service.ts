@@ -54,6 +54,8 @@ interface Holder {
   /** Linking by number rather than QR: the number, then the code WhatsApp gives for it. */
   pairPhone: string | null;
   pairingCode: string | null;
+  /** The names of the number's groups, read once each. */
+  groupNames?: Map<string, string>;
 }
 
 const globalForTellers = globalThis as unknown as { __ifmsTellerNumbers?: Map<string, Holder> };
@@ -110,6 +112,9 @@ interface KeepExtra {
   quotedWaId?: string | null;
   /** The name the customer goes by on WhatsApp. */
   name?: string | null;
+  /** In a group: the group's own name, and who wrote this message. */
+  groupName?: string | null;
+  authorName?: string | null;
 }
 
 /**
@@ -127,14 +132,22 @@ async function keep(
   text: string,
   extra: KeepExtra = {},
 ): Promise<string> {
-  const phone = digitsOf(phoneJid) ?? digitsOf(chat);
+  // A group is found by its address alone: it has no number, and its members are not it.
+  const group = chat.endsWith('@g.us');
+  const phone = group ? null : (digitsOf(phoneJid) ?? digitsOf(chat));
   const now = new Date();
   const found = await prisma.tellerChat.findFirst({
     where: { ownerId, OR: [{ chat }, ...(phone ? [{ phone }] : [])] },
     orderBy: { lastMessageAt: 'desc' },
     select: { id: true },
   });
-  const named = !fromMe && extra.name?.trim() ? { name: extra.name.trim().slice(0, 80) } : {};
+  const named = group
+    ? extra.groupName?.trim()
+      ? { name: extra.groupName.trim().slice(0, 80) }
+      : {}
+    : !fromMe && extra.name?.trim()
+      ? { name: extra.name.trim().slice(0, 80) }
+      : {};
   const counted = fromMe ? {} : { unread: { increment: 1 } };
   const row = found
     ? await prisma.tellerChat.update({
@@ -156,6 +169,7 @@ async function keep(
     data: {
       chatId: row.id,
       fromMe,
+      authorName: group && !fromMe ? (extra.authorName?.trim().slice(0, 80) || null) : null,
       text: text.slice(0, MAX_TEXT),
       imageId: extra.mediaId ?? null,
       mediaKind: extra.mediaKind ?? null,
@@ -228,6 +242,19 @@ async function keepIncomingMedia(
   );
 }
 
+/** A group's name, asked of WhatsApp once and kept. */
+async function groupNameOf(holder: Holder, sock: WASocket, chat: string): Promise<string | null> {
+  holder.groupNames ??= new Map();
+  const known = holder.groupNames.get(chat);
+  if (known) return known;
+  const subject = await sock
+    .groupMetadata(chat)
+    .then((meta) => meta.subject?.trim() || null)
+    .catch(() => null);
+  if (subject) holder.groupNames.set(chat, subject);
+  return subject;
+}
+
 async function open(userId: string): Promise<void> {
   const holder = holderOf(userId);
   const generation = ++holder.generation;
@@ -248,13 +275,13 @@ async function open(userId: string): Promise<void> {
     markOnlineOnConnect: false,
     syncFullHistory: false,
     /*
-     * A teller's own number is in their family's groups, hears every contact's
-     * status, and carries years of history. None of it is a customer writing to
-     * them, and decrypting it all, and keeping a key for every member of every
-     * group, held up the whole server. It is acknowledged and dropped unread.
+     * A teller's own number hears every contact's status and carries years of
+     * history; none of it is anyone writing to them, and decrypting it held up
+     * the whole server. It is acknowledged and dropped unread. Its groups are
+     * read — the office chose to answer in them from the inbox — but only what
+     * is written from now on, never their history.
      */
-    shouldIgnoreJid: (jid) =>
-      Boolean(isJidGroup(jid) || isJidBroadcast(jid) || isJidNewsletter(jid)),
+    shouldIgnoreJid: (jid) => Boolean(isJidBroadcast(jid) || isJidNewsletter(jid)),
     shouldSyncHistoryMessage: () => false,
     defaultQueryTimeoutMs: 15_000,
     ...(version ? { version } : {}),
@@ -272,7 +299,8 @@ async function open(userId: string): Promise<void> {
     if (generation !== holder.generation || type !== 'notify') return;
     for (const message of messages) {
       const chat = message.key.remoteJid;
-      if (!chat || !isPrivateChat(chat)) continue;
+      const inGroup = Boolean(chat && isJidGroup(chat));
+      if (!chat || !(inGroup || isPrivateChat(chat))) continue;
       const sentAt = Number(message.messageTimestamp ?? 0) * 1000;
       if (sentAt > 0 && Date.now() - sentAt > STALE_AFTER_MS) continue;
       const content = normalizeMessageContent(message.message);
@@ -292,7 +320,7 @@ async function open(userId: string): Promise<void> {
       );
       if (!words && !media) continue;
       // A note to oneself is not a customer.
-      if (digitsOf(chat) && digitsOf(chat) === holder.me) continue;
+      if (!inGroup && digitsOf(chat) && digitsOf(chat) === holder.me) continue;
       const phoneJid =
         [message.key.remoteJidAlt, chat].find((jid) => jid?.endsWith('@s.whatsapp.net')) ?? null;
       const fromMe = Boolean(message.key.fromMe);
@@ -300,12 +328,14 @@ async function open(userId: string): Promise<void> {
         // A photo, voice note, video or document is shown; a sticker stays a clip.
         const kept = media ? await keepIncomingMedia(message, content, sock, userId) : null;
         const text = kept ? (words ?? '') : words ? (media ? `📎 ${words}` : words) : '📎';
-        await keep(userId, chat, phoneJid, fromMe, text, {
+        await keep(userId, chat, inGroup ? null : phoneJid, fromMe, text, {
           mediaId: kept?.id ?? null,
           mediaKind: kept?.kind ?? null,
           waId: message.key.id ?? null,
           quotedWaId: quotedStanzaId(message),
-          name: message.pushName ?? null,
+          name: inGroup ? null : (message.pushName ?? null),
+          groupName: inGroup ? await groupNameOf(holder, sock, chat) : null,
+          authorName: inGroup ? (message.pushName ?? null) : null,
         });
       })().catch((error) => log.warn('Could not keep a teller message', { error }));
     }
@@ -507,7 +537,9 @@ export async function listChats(ownerId: string) {
     lastText: row.messages[0]?.deletedAt
       ? '🚫'
       : row.messages[0]?.text || mediaMark(row.messages[0]?.mediaKind, row.messages[0]?.imageId),
-    awaiting: row.messages[0] ? !row.messages[0].fromMe : false,
+    group: row.chat.endsWith('@g.us'),
+    // A group's talk is not a customer waiting on an answer.
+    awaiting: row.messages[0] && !row.chat.endsWith('@g.us') ? !row.messages[0].fromMe : false,
   }));
 }
 
@@ -544,7 +576,7 @@ export async function watchedNumbers() {
 /** How many of their customers' messages the teller has not opened. */
 export async function unreadCount(ownerId: string): Promise<number> {
   const total = await prisma.tellerChat.aggregate({
-    where: { ownerId },
+    where: { ownerId, NOT: { chat: { endsWith: '@g.us' } } },
     _sum: { unread: true },
   });
   return total._sum.unread ?? 0;
@@ -567,6 +599,7 @@ export async function readChat(ownerId: string, id: string, options: { watching?
     id: row.id,
     phone: row.phone,
     name: shownName(row.phone, row.name, records),
+    group: row.chat.endsWith('@g.us'),
     messages: row.messages.reverse().map((message) => {
       const kind = message.mediaKind ?? (message.imageId ? 'image' : null);
       const deleted = Boolean(message.deletedAt);
@@ -578,7 +611,7 @@ export async function readChat(ownerId: string, id: string, options: { watching?
         mediaKind: deleted ? null : kind,
         quotedId: message.quotedId,
         quotable: Boolean(message.waId) && !deleted,
-        authorName: null,
+        authorName: message.authorName ?? null,
         createdAt: message.createdAt,
         edited: Boolean(message.editedAt),
         deleted,

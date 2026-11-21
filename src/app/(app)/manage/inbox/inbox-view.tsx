@@ -11,6 +11,7 @@ import {
 import {
   ArrowLeft,
   Eye,
+  Users,
   Headset,
   ExternalLink,
   FileText,
@@ -43,6 +44,8 @@ interface ChatRow {
   lastMessageAt: string;
   lastText: string;
   awaiting: boolean;
+  /** A group the number is in, rather than one person. */
+  group?: boolean;
 }
 
 interface Message {
@@ -70,6 +73,7 @@ interface Thread {
   id: string;
   phone: string | null;
   name: string | null;
+  group?: boolean;
   messages: Message[];
 }
 
@@ -181,7 +185,8 @@ function Conversations({
   const [selected, setSelected] = useState<string | null>(null);
   const [thread, setThread] = useState<Thread | null>(null);
   const [query, setQuery] = useState('');
-  const [onlyWaiting, setOnlyWaiting] = useState(false);
+  /** The list: every conversation, those waiting on an answer, or the groups. */
+  const [listView, setListView] = useState<'all' | 'waiting' | 'groups'>('all');
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
   const [photo, setPhoto] = useState<{ data: string; preview: string } | null>(null);
@@ -468,7 +473,8 @@ function Conversations({
   const words = query.trim();
   const shown = rows.filter(
     (row) =>
-      (!onlyWaiting || row.awaiting) &&
+      (listView !== 'waiting' || row.awaiting) &&
+      (listView !== 'groups' || row.group) &&
       (!digits || (row.phone ?? '').includes(digits)) &&
       (digits || !words || row.lastText.includes(words) || (row.name ?? '').includes(words)),
   );
@@ -490,19 +496,23 @@ function Conversations({
               iconStart={<Search className="size-4" />}
             />
             <div className="flex gap-1 rounded-xl bg-surface-sunken p-1 text-sm">
-              {[false, true].map((waiting) => (
+              {(['all', 'waiting', ...(rows.some((row) => row.group) ? (['groups'] as const) : [])] as const).map((view) => (
                 <button
-                  key={String(waiting)}
+                  key={view}
                   type="button"
-                  aria-pressed={onlyWaiting === waiting}
-                  onClick={() => setOnlyWaiting(waiting)}
+                  aria-pressed={listView === view}
+                  onClick={() => setListView(view)}
                   className={`min-h-9 flex-1 rounded-lg px-2 py-1.5 font-medium ${
-                    onlyWaiting === waiting
+                    listView === view
                       ? 'bg-surface text-content shadow-sm'
                       : 'text-content-secondary'
                   }`}
                 >
-                  {waiting ? t('inbox.waiting', { count: waitingCount }) : t('inbox.all')}
+                  {view === 'waiting'
+                    ? t('inbox.waiting', { count: waitingCount })
+                    : view === 'groups'
+                      ? t('inbox.groups')
+                      : t('inbox.all')}
                 </button>
               ))}
             </div>
@@ -530,7 +540,8 @@ function Conversations({
                   }`}
                 >
                   <span className="flex items-center justify-between gap-2">
-                    <span className="min-w-0 truncate text-sm font-semibold text-content">
+                    <span className="flex min-w-0 items-center gap-1.5 truncate text-sm font-semibold text-content">
+                      {row.group && <Users className="size-4 shrink-0 text-primary-text" aria-label={t('inbox.group')} />}
                       {row.name ?? (
                         <span className="ltr-content tabular-nums">
                           {phoneOf(row.phone) ?? t('inbox.phoneHidden')}
@@ -673,7 +684,7 @@ function Conversations({
                     )}
                     <span className="mt-1 flex items-center gap-1 text-[11px] text-content-tertiary">
                       <span className="min-w-0 flex-1">
-                        {message.role === 'staff' && message.authorName
+                        {message.authorName
                           ? message.authorName
                           : t(`inbox.role.${message.role}`)}{' '}
                         · <span className="tabular-nums">{when(message.createdAt)}</span>

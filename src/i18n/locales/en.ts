@@ -986,6 +986,8 @@ const en = {
     emptyBody: 'To see an earlier day, pick it from the date button above.',
   },
   inbox: {
+    groups: 'Groups',
+    group: 'Group',
     busyWith: '{name} is in this conversation now',
     busyTyping: '{name} is typing…',
     busyTypingLong: '{name} is typing an answer here now',
