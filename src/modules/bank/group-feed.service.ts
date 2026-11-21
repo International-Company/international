@@ -11,6 +11,7 @@ import {
   sendPassedOn,
   sendPassedOnImage,
   deleteSent,
+  reactOn,
   type GroupSighting,
 } from '@/modules/whatsapp/whatsapp.service';
 import type { Actor } from '@/modules/exchange/transaction.service';
@@ -566,6 +567,10 @@ export async function forwardByHand(
   if (done.length === 0) {
     throw errors.precondition('WhatsApp did not take the message', 'errors.inboxSendFailed');
   }
+  // Marked in its own group as passed on, as a person would mark it: a red heart.
+  await reactOn(message.chat, { id: message.waId, fromMe: message.fromMe, author: message.senderJid }, '❤️').catch(
+    (error) => log.warn('Could not mark a forwarded message with a heart', { error }),
+  );
   log.info('A group message was passed on by hand', { count: done.length });
   return { sent: done };
 }
@@ -605,6 +610,10 @@ export async function unforward(messageId: string, deleteCopies: boolean, actor:
     }
   }
   await prisma.groupForward.deleteMany({ where: { id: { in: forwards.map((entry) => entry.id) } } });
+  // The heart taken off with it: it waits again.
+  await reactOn(message.chat, { id: message.waId, fromMe: message.fromMe, author: message.senderJid }, '').catch(
+    (error) => log.warn('Could not take a forwarded message’s heart off', { error }),
+  );
   log.info('A forward was taken back', { forwards: forwards.length, deleted });
   return { removed: forwards.length, deleted };
 }

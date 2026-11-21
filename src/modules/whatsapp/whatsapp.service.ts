@@ -1177,6 +1177,29 @@ export async function answerInGroup(
   return sent;
 }
 
+/**
+ * Puts a reaction on any message of a group — the office's own or a member's,
+ * who is named for WhatsApp to find it — or takes it off, with an empty emoji.
+ */
+export async function reactOn(
+  jid: string,
+  message: { id: string; fromMe: boolean; author: string | null },
+  emoji: string,
+): Promise<void> {
+  const sock = await socketFor(jid);
+  await sock.sendMessage(jid, {
+    react: {
+      text: emoji,
+      key: {
+        remoteJid: jid,
+        fromMe: message.fromMe,
+        id: message.id,
+        ...(message.fromMe || !message.author ? {} : { participant: message.author }),
+      },
+    },
+  });
+}
+
 /** Puts a reaction on a message this office's number sent to a chat. */
 export async function reactTo(jid: string, messageId: string, emoji: string): Promise<void> {
   const sock = await socketFor(jid);
