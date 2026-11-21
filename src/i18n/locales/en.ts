@@ -1021,6 +1021,7 @@ const en = {
     emptyBody: 'To see an earlier day, pick it from the date button above.',
   },
   inbox: {
+    people: 'People',
     numberGroups: 'Number’s groups',
     numberGroupsHint: 'Every group your number is in. Open one to follow what is written in it from now on and answer it here.',
     numberGroupsNone: 'Your number is in no group.',

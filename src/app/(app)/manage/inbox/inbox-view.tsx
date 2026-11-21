@@ -189,7 +189,8 @@ function Conversations({
   const [thread, setThread] = useState<Thread | null>(null);
   const [query, setQuery] = useState('');
   /** The list: every conversation, those waiting on an answer, or the groups. */
-  const [listView, setListView] = useState<'all' | 'waiting' | 'groups'>('all');
+  /** The list: people, people waiting on an answer, or the groups — never the two mixed. */
+  const [listView, setListView] = useState<'people' | 'waiting' | 'groups'>('people');
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
   const [photo, setPhoto] = useState<{ data: string; preview: string } | null>(null);
@@ -228,7 +229,7 @@ function Conversations({
       const result = await api.post<{ id: string | null }>(groupsApi, { chat, follow: on });
       if (on && result.id) {
         setNumberGroups(null);
-        setListView('all');
+        setListView('groups');
         setThread(null);
         setSelected(result.id);
         toast.success(t('inbox.groupFollowed'));
@@ -528,8 +529,8 @@ function Conversations({
   const words = query.trim();
   const shown = rows.filter(
     (row) =>
+      (listView === 'groups' ? Boolean(row.group) : !row.group) &&
       (listView !== 'waiting' || row.awaiting) &&
-      (listView !== 'groups' || row.group) &&
       (!digits || (row.phone ?? '').includes(digits)) &&
       (digits || !words || row.lastText.includes(words) || (row.name ?? '').includes(words)),
   );
@@ -551,7 +552,7 @@ function Conversations({
               iconStart={<Search className="size-4" />}
             />
             <div className="flex gap-1 rounded-xl bg-surface-sunken p-1 text-sm">
-              {(['all', 'waiting', ...(rows.some((row) => row.group) ? (['groups'] as const) : [])] as const).map((view) => (
+              {(['people', 'waiting', 'groups'] as const).map((view) => (
                 <button
                   key={view}
                   type="button"
@@ -567,7 +568,7 @@ function Conversations({
                     ? t('inbox.waiting', { count: waitingCount })
                     : view === 'groups'
                       ? t('inbox.groups')
-                      : t('inbox.all')}
+                      : t('inbox.people')}
                 </button>
               ))}
             </div>
