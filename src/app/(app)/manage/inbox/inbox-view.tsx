@@ -10,6 +10,7 @@ import {
 } from 'react';
 import {
   ArrowLeft,
+  BadgeDollarSign,
   Eye,
   Users,
   Headset,
@@ -34,6 +35,7 @@ import { ConfirmDialog, Dialog, useToast } from '@/ui/overlay';
 import { Badge, Button, Card, EmptyState, PageHeader, Skeleton } from '@/ui/primitives';
 import { Field, Input, Textarea } from '@/ui/form';
 import { shrinkPhoto } from '@/ui/proof-photo';
+import { checkingLate, NoticePanel, STATUS_STYLE, type NoticeLine } from './notice-panel';
 
 interface ChatRow {
   id: string;
@@ -171,6 +173,7 @@ function Conversations({
   hint,
   readOnly = false,
   groupsApi,
+  notices: withNotices = false,
 }: {
   base: string;
   tabs: ReactNode;
@@ -181,6 +184,8 @@ function Conversations({
   readOnly?: boolean;
   /** Where the number's groups are listed and followed, when it has any to offer. */
   groupsApi?: string;
+  /** Remittance notices taken from the conversations and checked with agents: one's own number only. */
+  notices?: boolean;
 }) {
   const { t } = useLocale();
   const toast = useToast();
@@ -190,7 +195,41 @@ function Conversations({
   const [query, setQuery] = useState('');
   /** The list: every conversation, those waiting on an answer, or the groups. */
   /** The list: people, people waiting on an answer, or the groups — never the two mixed. */
-  const [listView, setListView] = useState<'people' | 'waiting' | 'groups'>('people');
+  const [listView, setListView] = useState<'people' | 'waiting' | 'groups' | 'notices'>('people');
+  /** The remittance notices, and the one open beside the conversation. */
+  const [noticeRows, setNoticeRows] = useState<NoticeLine[]>([]);
+  const [activeNotice, setActiveNotice] = useState<string | null>(null);
+  const [noticeNow, setNoticeNow] = useState(() => Date.now());
+  const loadNotices = useCallback(async () => {
+    if (!withNotices) return;
+    try {
+      setNoticeRows(await api.get<NoticeLine[]>('/api/inbox/mine/notices'));
+      setNoticeNow(Date.now());
+    } catch {
+      // The notices are a side of the inbox: the conversations go on without them.
+    }
+  }, [withNotices]);
+  useEffect(() => {
+    void loadNotices();
+    const timer = setInterval(() => {
+      if (!document.hidden) void loadNotices();
+    }, 15_000);
+    return () => clearInterval(timer);
+  }, [loadNotices]);
+  /** A customer's photo taken as a remittance notice, and opened beside the conversation. */
+  const takeNotice = async (messageId: string) => {
+    try {
+      const { id } = await api.post<{ id: string }>('/api/inbox/mine/notices', { messageId });
+      setActiveNotice(id);
+      void loadNotices();
+    } catch (cause) {
+      toast.error(
+        t('errors.title'),
+        cause instanceof ApiError ? say(t, cause.messageKey, cause.params) || cause.message : t('errors.generic'),
+      );
+    }
+  };
+  const checkingCount = noticeRows.filter((row) => row.status === 'CHECKING' || row.status === 'NEW').length;
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
   const [photo, setPhoto] = useState<{ data: string; preview: string } | null>(null);
@@ -538,7 +577,11 @@ function Conversations({
   return (
     <div className="space-y-4">
       {header}
-      <div className="grid gap-4 md:grid-cols-[17rem_minmax(0,1fr)] lg:grid-cols-[21rem_minmax(0,1fr)]">
+      <div
+        className={`grid gap-4 md:grid-cols-[17rem_minmax(0,1fr)] lg:grid-cols-[21rem_minmax(0,1fr)] ${
+          activeNotice ? 'xl:grid-cols-[19rem_minmax(0,1fr)_23rem]' : ''
+        }`}
+      >
         {/* The list: the whole page on a phone, a column beside the conversation from a tablet. */}
         <Card
           className={`${selected ? 'hidden' : 'flex'} flex-col overflow-hidden md:flex md:h-[calc(100dvh-13.5rem)] md:min-h-[24rem]`}
@@ -552,7 +595,7 @@ function Conversations({
               iconStart={<Search className="size-4" />}
             />
             <div className="flex gap-1 rounded-xl bg-surface-sunken p-1 text-sm">
-              {(['people', 'waiting', 'groups'] as const).map((view) => (
+              {(['people', 'waiting', 'groups', ...(withNotices ? (['notices'] as const) : [])] as const).map((view) => (
                 <button
                   key={view}
                   type="button"
@@ -568,13 +611,70 @@ function Conversations({
                     ? t('inbox.waiting', { count: waitingCount })
                     : view === 'groups'
                       ? t('inbox.groups')
-                      : t('inbox.people')}
+                      : view === 'notices'
+                        ? `${t('inbox.notice.tab')}${checkingCount ? ` (${checkingCount})` : ''}`
+                        : t('inbox.people')}
                 </button>
               ))}
             </div>
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
-            {shown.length === 0 ? (
+            {listView === 'notices' ? (
+              noticeRows.length === 0 ? (
+                <p className="px-4 py-10 text-center text-sm text-content-tertiary">{t('inbox.notice.none')}</p>
+              ) : (
+                noticeRows.map((row) => {
+                  const late = row.status === 'CHECKING' ? checkingLate(row.sentAt, noticeNow) : 'ok';
+                  return (
+                    <button
+                      key={row.id}
+                      type="button"
+                      aria-pressed={activeNotice === row.id}
+                      onClick={() => {
+                        setSelected(row.chatId);
+                        setThread(null);
+                        setActiveNotice(row.id);
+                      }}
+                      className={`flex w-full items-center gap-3 border-b border-s-4 border-border-subtle px-3 py-2.5 text-start last:border-b-0 ${
+                        late === 'veryLate' ? 'border-s-danger' : late === 'late' ? 'border-s-warning' : 'border-s-transparent'
+                      } ${activeNotice === row.id ? 'bg-primary-subtle' : 'hover:bg-surface-sunken'}`}
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={`/api/inbox/images/${row.imageId}`}
+                        alt=""
+                        loading="lazy"
+                        className="size-11 shrink-0 rounded-lg bg-surface-sunken object-cover ring-1 ring-border-subtle"
+                      />
+                      <span className="min-w-0 flex-1">
+                        <span className="flex items-center justify-between gap-2">
+                          <span className="truncate text-sm font-semibold text-content">
+                            {row.customerName ?? (row.customerPhone ? `+${row.customerPhone}` : '—')}
+                          </span>
+                          <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold ${STATUS_STYLE[row.status]}`}>
+                            {t(`inbox.notice.status.${row.status}`)}
+                          </span>
+                        </span>
+                        <span className="mt-0.5 flex items-center justify-between gap-2 text-xs text-content-secondary">
+                          <span className="truncate">
+                            {t(`inbox.notice.network.${row.network}`)}
+                            {row.amount && ` · ${Number(row.amount) / 1e8} ${row.currency ?? ''}`}
+                          </span>
+                          {(row.replyCount ?? 0) > 0 && (
+                            <span className="shrink-0 rounded-full bg-primary px-1.5 text-[10px] font-bold text-white">
+                              {row.replyCount}
+                            </span>
+                          )}
+                        </span>
+                        {row.agentName && (
+                          <span className="block truncate text-[11px] text-content-tertiary">{row.agentName}</span>
+                        )}
+                      </span>
+                    </button>
+                  );
+                })
+              )
+            ) : shown.length === 0 ? (
               <p className="px-4 py-10 text-center text-sm text-content-tertiary">
                 {t('inbox.empty')}
               </p>
@@ -731,6 +831,16 @@ function Conversations({
                       />
                     )}
                     {message.imageId && <MediaView message={message} />}
+                    {withNotices && message.imageId && message.role === 'customer' && !message.deleted && (
+                      <button
+                        type="button"
+                        onClick={() => void takeNotice(message.id)}
+                        className="mb-1 inline-flex items-center gap-1 rounded-full bg-primary-subtle px-2.5 py-1 text-[11px] font-bold text-primary-text hover:bg-primary/15"
+                      >
+                        <BadgeDollarSign className="size-3.5" />
+                        {t('inbox.notice.take')}
+                      </button>
+                    )}
                     {message.deleted ? (
                       <span className="italic text-content-tertiary">🚫 {t('inbox.deleted')}</span>
                     ) : (
@@ -864,6 +974,15 @@ function Conversations({
             </>
           )}
         </Card>
+        {activeNotice && (
+          <Card className="fixed inset-y-0 end-0 z-40 flex w-full max-w-sm flex-col overflow-hidden rounded-none p-0 shadow-[var(--shadow-lg)] xl:static xl:z-auto xl:h-[calc(100dvh-13.5rem)] xl:max-w-none xl:rounded-2xl xl:shadow-none">
+            <NoticePanel
+              noticeId={activeNotice}
+              onClose={() => setActiveNotice(null)}
+              onChanged={() => void loadNotices()}
+            />
+          </Card>
+        )}
       </div>
       <Dialog
         open={numberGroups !== null}
@@ -1088,6 +1207,7 @@ export function InboxView({ canWatch = false }: { canWatch?: boolean }) {
         listTop={<MyNumber />}
         hint={t('inbox.hintMine')}
         groupsApi="/api/inbox/mine/groups"
+        notices
       />
     );
   }

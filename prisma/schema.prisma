@@ -2311,6 +2311,41 @@ model ChatImage {
   @@map("chat_images")
 }
 
+/// A remittance notice a customer sent a teller on their own number, checked
+/// with the network's agent in the agent's group before anything is paid out.
+model RemittanceNotice {
+  id            String    @id @default(cuid())
+  /// The teller whose number the customer wrote to.
+  ownerId       String
+  /// The customer's conversation, and the photo of the notice in it.
+  chatId        String
+  messageId     String?
+  imageId       String
+  customerName  String?
+  customerPhone String?
+  /// WESTERN | MONEYGRAM | PAYPAL | OTHER
+  network       String    @default("WESTERN")
+  amount        BigInt?
+  currency      String?
+  /// The agent's group it was sent to for checking, and the message it went as.
+  agentChat     String?
+  agentName     String?
+  sentMessageId String?
+  sentAt        DateTime?
+  /// NEW | CHECKING | CONFIRMED | REJECTED
+  status        String    @default("NEW")
+  decidedAt     DateTime?
+  decidedByName String?
+  note          String?
+  /// The remittance it was paid out as, once it is.
+  transactionId String?
+  createdAt     DateTime  @default(now())
+
+  @@index([ownerId, status, createdAt])
+  @@index([chatId])
+  @@map("remittance_notices")
+}
+
 /// A group on a teller's own number that the teller chose to follow from the
 /// inbox. Only these of the number's groups are read: reading every group the
 /// number is in held up the whole server.
