@@ -21,7 +21,7 @@ const log = createLogger('bank:marks');
  *
  *   ❤️ on a transfer's message    → "passed on" (موجّهة);
  *   👍 on it                      → "sent" (نُفّذت), as the desk's own button;
- *   a reply quoting it, with a photo → that photo is its receipt.
+ *   a reply quoting it, with a photo → that photo is its receipt, and it is sent.
  *
  * The message may be the transfer's own, in the bank transfers group, or the
  * copy the office passed on to a group that carries it out. Anywhere else a
@@ -179,6 +179,17 @@ async function onReaction(reaction: GroupReaction): Promise<void> {
   }
 
   // 👍: sent, as the desk's "تم التنفيذ" — the group already holds the word, so the bot adds none.
+  await markDone(found, who, '👍');
+}
+
+/**
+ * Sent, as the desk's "تم التنفيذ" would mark it: by a 👍 on the transfer, or by
+ * its receipt arriving as a reply to it. The group already holds the word, so
+ * the bot adds none; a deal is confirmed in the system's name, with who did it
+ * and how written beside it.
+ */
+async function markDone(found: Found, who: string, how: '👍' | '📎'): Promise<void> {
+  if (!found.waiting) return;
   if (found.kind === 'request') {
     await prisma.bankRequest.updateMany({
       where: { id: found.id, status: 'PENDING' },
@@ -198,11 +209,11 @@ async function onReaction(reaction: GroupReaction): Promise<void> {
     }
     await markSent(found.id, null, {
       id: system.id,
-      name: `${who} (👍 واتساب)`,
+      name: `${who} (${how} واتساب)`,
       permissions: ['bank.execute'],
     });
   }
-  log.info('A transfer was marked sent by a reaction', { kind: found.kind });
+  log.info('A transfer was marked sent from the group', { kind: found.kind, how });
 }
 
 /**
@@ -285,6 +296,13 @@ async function onReply(sighting: GroupSighting): Promise<void> {
     });
   }
   log.info('A transfer receipt was taken from a reply in a group', { kind: found.kind });
+
+  // The bank's receipt is the transfer done: sent, without waiting on a 👍.
+  const who =
+    sighting.name?.trim() ||
+    (sighting.phone ? `+${sighting.phone.split('@')[0]}` : null) ||
+    (sighting.fromMe ? 'المكتب' : 'واتساب');
+  await markDone(found, who, '📎');
 }
 
 let registered = false;
