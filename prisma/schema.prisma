@@ -2360,6 +2360,52 @@ model TellerFollowedGroup {
   @@map("teller_followed_groups")
 }
 
+/// A reply kept to be put in the box with "/": the person's own, or shared with the office.
+model InboxQuickReply {
+  id        String   @id @default(cuid())
+  /// Who made it; a shared one is offered to everyone.
+  ownerId   String
+  shared    Boolean  @default(false)
+  /// What is typed after "/" to find it.
+  shortcut  String
+  text      String
+  createdAt DateTime @default(now())
+
+  @@index([ownerId])
+  @@index([shared])
+  @@map("inbox_quick_replies")
+}
+
+/// A colour a person puts on conversations to sort them: their own labels.
+model InboxLabel {
+  id        String   @id @default(cuid())
+  ownerId   String
+  name      String
+  color     String
+  createdAt DateTime @default(now())
+
+  @@index([ownerId])
+  @@map("inbox_labels")
+}
+
+/// How one person keeps one conversation: pinned, archived, left unread, labelled.
+model InboxChatMark {
+  id           String   @id @default(cuid())
+  ownerId      String
+  /// "bot:<id>" for the private number's, "teller:<id>" for a teller's own number's.
+  chatKey      String
+  pinned       Boolean  @default(false)
+  pinnedAt     DateTime?
+  archived     Boolean  @default(false)
+  markedUnread Boolean  @default(false)
+  /// The labels on it, as a JSON list of label ids.
+  labels       String?
+  updatedAt    DateTime @updatedAt
+
+  @@unique([ownerId, chatKey])
+  @@map("inbox_chat_marks")
+}
+
 /// A conversation on a teller's own WhatsApp number. Only that teller reads it.
 model TellerChat {
   id            String              @id @default(cuid())

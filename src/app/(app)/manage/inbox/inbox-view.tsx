@@ -15,7 +15,12 @@ import {
   ChevronDown,
   ChevronUp,
   Copy,
+  Archive,
   Forward,
+  MoreVertical,
+  Pin,
+  Tag,
+  Zap,
   Smile,
   SmilePlus,
   Eye,
@@ -57,6 +62,17 @@ import {
   QUICK_REACTIONS,
   Ticks,
 } from './chat-ui';
+import {
+  ChatMenu,
+  fillReply,
+  LabelsDialog,
+  matchReplies,
+  RepliesDialog,
+  ReplyPicker,
+  type ChatMark,
+  type Organisation,
+  type QuickReply,
+} from './organise-ui';
 
 interface ChatRow {
   id: string;
@@ -201,6 +217,7 @@ function Conversations({
   readOnly = false,
   groupsApi,
   notices: withNotices = false,
+  canShare = false,
 }: {
   base: string;
   tabs: ReactNode;
@@ -213,6 +230,8 @@ function Conversations({
   groupsApi?: string;
   /** Remittance notices taken from the conversations and checked with agents: one's own number only. */
   notices?: boolean;
+  /** May offer a quick reply to the whole office. */
+  canShare?: boolean;
 }) {
   const { t } = useLocale();
   const toast = useToast();
@@ -447,6 +466,78 @@ function Conversations({
   const [forwarding, setForwarding] = useState<Message | null>(null);
   const [forwardQuery, setForwardQuery] = useState('');
   const [forwardingTo, setForwardingTo] = useState<string | null>(null);
+  /*
+   * How this person keeps the inbox: quick replies, labels, and which
+   * conversations are pinned, archived or left unread. Not while watching
+   * another's number — that is theirs to keep.
+   */
+  const scope = readOnly ? null : base === '/api/inbox/mine' ? 'teller' : base === '/api/inbox' ? 'bot' : null;
+  const [org, setOrg] = useState<Organisation>({ labels: [], marks: {} });
+  const [replies, setReplies] = useState<QuickReply[]>([]);
+  const [repliesOpen, setRepliesOpen] = useState(false);
+  const [labelsOpen, setLabelsOpen] = useState(false);
+  const [menuFor, setMenuFor] = useState<{ id: string; at: { top: number; bottom: number; left: number; right: number } } | null>(null);
+  const [showArchived, setShowArchived] = useState(false);
+  const [labelFilter, setLabelFilter] = useState<string | null>(null);
+  const [pickIndex, setPickIndex] = useState(0);
+  useEffect(() => {
+    if (!scope) return;
+    void api.get<Organisation>(`/api/inbox/organise?scope=${scope}`).then(setOrg).catch(() => undefined);
+    void api.get<QuickReply[]>('/api/inbox/replies').then(setReplies).catch(() => undefined);
+  }, [scope]);
+  const markOf = (id: string): ChatMark | undefined => org.marks[id];
+  const markChat = async (chatId: string, change: Partial<Pick<ChatMark, 'pinned' | 'archived' | 'markedUnread' | 'labels'>>) => {
+    setMenuFor(null);
+    if (!scope) return;
+    try {
+      setOrg(await api.put<Organisation>('/api/inbox/organise', { scope, chatId, ...change }));
+    } catch (cause) {
+      failure(cause);
+    }
+  };
+  const saveReply = async (reply: { id?: string; shortcut: string; text: string; shared: boolean }) => {
+    try {
+      setReplies(await api.post<QuickReply[]>('/api/inbox/replies', reply));
+      return true;
+    } catch (cause) {
+      failure(cause);
+      return false;
+    }
+  };
+  const removeReply = async (id: string) => {
+    try {
+      setReplies(await api.delete<QuickReply[]>(`/api/inbox/replies/${id}`));
+    } catch (cause) {
+      failure(cause);
+    }
+  };
+  const saveLabel = async (label: { id?: string; name: string; color: string }) => {
+    try {
+      setOrg(await api.post<Organisation>('/api/inbox/labels', { scope, ...label }));
+      return true;
+    } catch (cause) {
+      failure(cause);
+      return false;
+    }
+  };
+  const removeLabel = async (id: string) => {
+    try {
+      setOrg(await api.delete<Organisation>(`/api/inbox/labels/${id}?scope=${scope}`));
+      if (labelFilter === id) setLabelFilter(null);
+    } catch (cause) {
+      failure(cause);
+    }
+  };
+  // "/" at the start of the box: the replies it finds.
+  const found = scope ? matchReplies(replies, draft) : null;
+  useEffect(() => {
+    setPickIndex(0);
+  }, [draft]);
+  const pickReply = (reply: QuickReply) => {
+    setDraft(fillReply(reply.text, thread?.name ?? null));
+    requestAnimationFrame(() => box.current?.focus());
+  };
+
   /** Looking for words in this conversation: what, and which of the places found is shown. */
   const [searchOpen, setSearchOpen] = useState(false);
   const [term, setTerm] = useState('');
@@ -660,6 +751,23 @@ function Conversations({
   };
 
   const onKey = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (found && found.length > 0) {
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        event.preventDefault();
+        setPickIndex((index) => (index + (event.key === 'ArrowDown' ? 1 : found.length - 1)) % found.length);
+        return;
+      }
+      if ((event.key === 'Enter' && !event.shiftKey) || event.key === 'Tab') {
+        event.preventDefault();
+        pickReply(found[Math.min(pickIndex, found.length - 1)]!);
+        return;
+      }
+    }
+    if (found && event.key === 'Escape') {
+      event.preventDefault();
+      setDraft('');
+      return;
+    }
     // Enter sends; Shift+Enter starts a new line, as in WhatsApp on a computer.
     if (touch) return;
     if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
@@ -725,13 +833,27 @@ function Conversations({
 
   const digits = query.replace(/\D/g, '');
   const words = query.trim();
-  const shown = rows.filter(
+  const inView = rows.filter(
     (row) =>
       (listView === 'groups' ? Boolean(row.group) : !row.group) &&
       (listView !== 'waiting' || row.awaiting) &&
       (!digits || (row.phone ?? '').includes(digits)) &&
-      (digits || !words || row.lastText.includes(words) || (row.name ?? '').includes(words)),
+      (digits || !words || row.lastText.includes(words) || (row.name ?? '').includes(words)) &&
+      (!labelFilter || (org.marks[row.id]?.labels ?? []).includes(labelFilter)),
   );
+  // Archived: out of the list, one row away — unless what is looked for is there.
+  const archivedRows = inView.filter((row) => org.marks[row.id]?.archived);
+  const searching = Boolean(digits || words);
+  const shown = (showArchived ? archivedRows : searching ? inView : inView.filter((row) => !org.marks[row.id]?.archived))
+    .map((row, index) => ({ row, index }))
+    .sort((a, b) => {
+      const pa = org.marks[a.row.id]?.pinned ? new Date(org.marks[a.row.id]!.pinnedAt ?? 0).getTime() : -1;
+      const pb = org.marks[b.row.id]?.pinned ? new Date(org.marks[b.row.id]!.pinnedAt ?? 0).getTime() : -1;
+      if ((pa >= 0) !== (pb >= 0)) return pa >= 0 ? -1 : 1;
+      return a.index - b.index;
+    })
+    .map((entry) => entry.row);
+  const archivedUnread = archivedRows.filter((row) => row.unread > 0 || org.marks[row.id]?.markedUnread).length;
 
   return (
     <div className="space-y-4">
@@ -833,14 +955,71 @@ function Conversations({
                   );
                 })
               )
-            ) : shown.length === 0 ? (
+            ) : (
+              <>
+              {scope && (org.labels.length > 0 || showArchived) && (
+                <div className="flex items-center gap-1.5 overflow-x-auto border-b border-border-subtle px-3 py-2 [scrollbar-width:none]">
+                  {org.labels.map((label) => (
+                    <button
+                      key={label.id}
+                      type="button"
+                      aria-pressed={labelFilter === label.id}
+                      onClick={() => setLabelFilter((current) => (current === label.id ? null : label.id))}
+                      className={`inline-flex shrink-0 items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold ring-1 transition-colors ${
+                        labelFilter === label.id ? 'text-white ring-transparent' : 'bg-surface text-content-secondary ring-border-subtle'
+                      }`}
+                      style={labelFilter === label.id ? { background: label.color } : undefined}
+                    >
+                      <Tag className="size-3" style={labelFilter === label.id ? undefined : { color: label.color }} />
+                      {label.name}
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={() => setLabelsOpen(true)}
+                    className="inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-1 text-xs font-semibold text-primary-text hover:bg-surface-sunken"
+                  >
+                    <Tag className="size-3" />
+                    {t('inbox.labels.title')}
+                  </button>
+                </div>
+              )}
+              {scope && showArchived ? (
+                <button
+                  type="button"
+                  onClick={() => setShowArchived(false)}
+                  className="flex w-full items-center gap-3 border-b border-border-subtle px-4 py-3 text-start text-sm font-semibold text-content hover:bg-surface-sunken/60"
+                >
+                  <ArrowLeft className="size-4 rtl:-scale-x-100" />
+                  {t('inbox.archived')}
+                </button>
+              ) : (
+                scope &&
+                !searching &&
+                archivedRows.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setShowArchived(true)}
+                    className="flex w-full items-center gap-3 px-4 py-2.5 text-start hover:bg-surface-sunken/60"
+                  >
+                    <span className="inline-flex size-11 shrink-0 items-center justify-center">
+                      <Archive className="size-5 wa-accent-text" />
+                    </span>
+                    <span className="flex-1 text-[15px] font-semibold text-content">{t('inbox.archived')}</span>
+                    <span className={`text-xs font-semibold tabular-nums ${archivedUnread ? 'wa-accent-text' : 'text-content-tertiary'}`}>
+                      {archivedUnread || archivedRows.length}
+                    </span>
+                  </button>
+                )
+              )}
+              {shown.length === 0 ? (
               <p className="px-4 py-10 text-center text-sm text-content-tertiary">
                 {t('inbox.empty')}
               </p>
             ) : (
               shown.map((row) => (
+                <div key={row.id} className="group/row relative">
                 <button
-                  key={row.id}
                   type="button"
                   aria-pressed={selected === row.id}
                   onClick={() => {
@@ -849,6 +1028,7 @@ function Conversations({
                     setDraft('');
                     setPhoto(null);
                     setQuote(null);
+                    if (markOf(row.id)?.markedUnread) void markChat(row.id, { markedUnread: false });
                   }}
                   className={`flex w-full items-center gap-3 px-3 py-2.5 text-start transition-colors ${
                     selected === row.id ? 'bg-surface-sunken' : 'hover:bg-surface-sunken/60'
@@ -865,7 +1045,9 @@ function Conversations({
                       )}
                     </span>
                     <span
-                      className={`shrink-0 text-[11px] tabular-nums ${row.unread > 0 ? 'font-semibold wa-accent-text' : 'text-content-tertiary'}`}
+                      className={`shrink-0 text-[11px] tabular-nums ${
+                        row.unread > 0 || markOf(row.id)?.markedUnread ? 'font-semibold wa-accent-text' : 'text-content-tertiary'
+                      } ${scope ? 'transition-opacity group-hover/row:opacity-0' : ''}`}
                       title={when(row.lastMessageAt)}
                     >
                       {listTime(row.lastMessageAt, t('inbox.yesterday'))}
@@ -892,10 +1074,17 @@ function Conversations({
                             : busy.get(row.phone ?? '')!.name}
                         </span>
                       </span>
-                    ) : row.unread > 0 ? (
-                      <span className="inline-flex min-w-5 shrink-0 items-center justify-center rounded-full px-1.5 text-[11px] font-bold leading-5 text-white tabular-nums wa-accent-bg">
-                        {row.unread > 99 ? '99+' : row.unread}
+                    ) : row.unread > 0 || markOf(row.id)?.markedUnread ? (
+                      <span className="flex shrink-0 items-center gap-1">
+                        {markOf(row.id)?.pinned && (
+                          <Pin className="size-3.5 rotate-45 text-content-tertiary" aria-label={t('inbox.menu.pin')} />
+                        )}
+                        <span className="inline-flex min-w-5 items-center justify-center rounded-full px-1.5 text-[11px] font-bold leading-5 text-white tabular-nums wa-accent-bg">
+                          {row.unread > 99 ? '99+' : row.unread > 0 ? row.unread : ''}
+                        </span>
                       </span>
+                    ) : markOf(row.id)?.pinned ? (
+                      <Pin className="size-3.5 shrink-0 rotate-45 text-content-tertiary" aria-label={t('inbox.menu.pin')} />
                     ) : (
                       row.awaiting && (
                         <span className="shrink-0 rounded-full bg-warning-subtle px-1.5 py-px text-[10px] font-semibold text-warning-text">
@@ -904,9 +1093,60 @@ function Conversations({
                       )
                     )}
                   </span>
+                  {(markOf(row.id)?.labels.length ?? 0) > 0 && (
+                    <span className="mt-1 flex flex-wrap gap-1">
+                      {org.labels
+                        .filter((label) => markOf(row.id)!.labels.includes(label.id))
+                        .map((label) => (
+                          <span
+                            key={label.id}
+                            className="inline-flex items-center gap-1 rounded-full px-1.5 py-px text-[10px] font-semibold text-white"
+                            style={{ background: label.color }}
+                          >
+                            {label.name}
+                          </span>
+                        ))}
+                    </span>
+                  )}
                   </span>
                 </button>
+                {scope && (
+                  <button
+                    type="button"
+                    aria-label={t('inbox.menu.open')}
+                    title={t('inbox.menu.open')}
+                    onClick={(event) => {
+                      const box = event.currentTarget.getBoundingClientRect();
+                      setMenuFor((current) =>
+                        current?.id === row.id
+                          ? null
+                          : { id: row.id, at: { top: box.top, bottom: box.bottom, left: box.left, right: box.right } },
+                      );
+                    }}
+                    className={`absolute end-2 top-2 inline-flex size-8 items-center justify-center rounded-full bg-surface text-content-secondary shadow-sm ring-1 ring-border-subtle transition-opacity hover:text-content ${
+                      touch || menuFor?.id === row.id ? '' : 'opacity-0 group-hover/row:opacity-100 focus-visible:opacity-100'
+                    }`}
+                  >
+                    <MoreVertical className="size-4" />
+                  </button>
+                )}
+                {menuFor?.id === row.id && (
+                  <ChatMenu
+                    at={menuFor.at}
+                    mark={markOf(row.id)}
+                    labels={org.labels}
+                    onChange={(change) => void markChat(row.id, change)}
+                    onNewLabel={() => {
+                      setMenuFor(null);
+                      setLabelsOpen(true);
+                    }}
+                    onClose={() => setMenuFor(null)}
+                  />
+                )}
+                </div>
               ))
+            )}
+              </>
             )}
           </div>
         </Card>
@@ -1264,7 +1504,15 @@ function Conversations({
                   {t('inbox.watchNoAnswer')}
                 </p>
               ) : (
-              <div className="shrink-0 space-y-1.5 border-t border-border-subtle bg-surface-sunken px-2 py-2 sm:px-3">
+              <div className="relative shrink-0 space-y-1.5 border-t border-border-subtle bg-surface-sunken px-2 py-2 sm:px-3">
+                {found && (
+                  <ReplyPicker
+                    found={found}
+                    active={Math.min(pickIndex, Math.max(0, found.length - 1))}
+                    onPick={pickReply}
+                    onManage={() => setRepliesOpen(true)}
+                  />
+                )}
                 {quote && <QuoteLine message={quote} onClose={() => setQuote(null)} />}
                 {photo && (
                   <div className="relative inline-block">
@@ -1296,6 +1544,17 @@ function Conversations({
                   >
                     <Smile className="size-5" />
                   </button>
+                  {scope && (
+                    <button
+                      type="button"
+                      aria-label={t('inbox.replies.title')}
+                      title={t('inbox.replies.title')}
+                      onClick={() => setRepliesOpen(true)}
+                      className="inline-flex size-9 shrink-0 items-center justify-center rounded-full text-content-secondary hover:bg-surface-sunken hover:text-content"
+                    >
+                      <Zap className="size-5" />
+                    </button>
+                  )}
                   {emojiOpen && (
                     <EmojiSheet
                       emojis={EMOJIS}
@@ -1383,6 +1642,25 @@ function Conversations({
         )}
       </div>
       <Lightbox src={viewing} onClose={() => setViewing(null)} label={t('inbox.photo')} />
+      {scope && (
+        <>
+          <RepliesDialog
+            open={repliesOpen}
+            onClose={() => setRepliesOpen(false)}
+            replies={replies}
+            canShare={canShare}
+            onSave={saveReply}
+            onRemove={(id) => void removeReply(id)}
+          />
+          <LabelsDialog
+            open={labelsOpen}
+            onClose={() => setLabelsOpen(false)}
+            labels={org.labels}
+            onSave={saveLabel}
+            onRemove={(id) => void removeLabel(id)}
+          />
+        </>
+      )}
       <Dialog
         open={forwarding !== null}
         onClose={() => setForwarding(null)}
@@ -1658,6 +1936,7 @@ export function InboxView({ canWatch = false }: { canWatch?: boolean }) {
         hint={t('inbox.hintMine')}
         groupsApi="/api/inbox/mine/groups"
         notices
+        canShare={canWatch}
       />
     );
   }
