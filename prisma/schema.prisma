@@ -2289,10 +2289,13 @@ model TransactionProof {
   data          Bytes
   createdById   String?
   createdAt     DateTime    @default(now())
-  /// The group message it was fetched from ("chat|waId"), so it is kept once.
-  sourceKey     String?     @unique
+  /// The group message it was fetched from ("chat|waId"), so it is kept once — checked when it is
+  /// kept, not by a unique index: one added to a table already holding rows is a change `db push`
+  /// will not make on its own, and the deploy would stop on it.
+  sourceKey     String?
 
   @@index([transactionId])
+  @@index([sourceKey])
   @@map("transaction_proofs")
 }
 

@@ -41,7 +41,7 @@ export async function addReceipt(
   if (sourceKey) {
     const already =
       kind === 'deal'
-        ? await prisma.transactionProof.findUnique({ where: { sourceKey }, select: { id: true } })
+        ? await prisma.transactionProof.findFirst({ where: { sourceKey }, select: { id: true } })
         : await prisma.transferReceipt.findUnique({ where: { sourceKey }, select: { id: true } });
     if (already) return null;
   }
