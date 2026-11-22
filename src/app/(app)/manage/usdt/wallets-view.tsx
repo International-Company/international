@@ -7,6 +7,7 @@ import { useLocale } from '@/i18n/provider';
 import type { TranslationKey } from '@/i18n/types';
 import { api, ApiError } from '@/lib/api-client';
 import { say } from '@/lib/failure';
+import { networkLabel } from '@/lib/network-label';
 import { Alert, Badge, Button, Card, CardHeader, EmptyState, StatTile } from '@/ui/primitives';
 import { ConfirmDialog, Dialog, useToast } from '@/ui/overlay';
 import { Checkbox, Field, FormGrid, Input, NumberInput, Select, Switch } from '@/ui/form';
@@ -289,7 +290,7 @@ export function WalletsView({
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="text-sm font-medium text-content">{ln(wallet, 'label')}</span>
-                    <Badge tone="neutral">{wallet.network}</Badge>
+                    <Badge tone="neutral">{networkLabel(wallet.network)}</Badge>
                     {!wallet.isActive && <Badge tone="danger">{t('common.inactive')}</Badge>}
                     {wallet.isCounterAddress && (
                       <Badge tone="primary">{t('usdt.counterAddress')}</Badge>
@@ -378,7 +379,7 @@ export function WalletsView({
             <li key={entry.network} className="flex items-center justify-between gap-3 px-4 py-2.5">
               <div>
                 <p className="text-sm text-content">{entry.name}</p>
-                <p className="text-xs text-content-tertiary">{entry.network}</p>
+                <p className="text-xs text-content-tertiary">{networkLabel(entry.network)}</p>
               </div>
               {/*
                 Not "enabled" — that word could not tell a working key from a
@@ -574,7 +575,7 @@ export function WalletsView({
                 {...props}
                 options={networks.map((entry) => ({
                   value: entry.network,
-                  label: `${entry.network} — ${entry.name}`,
+                  label: entry.network === 'MANUAL' ? entry.name : `${networkLabel(entry.network)} — ${entry.name}`,
                 }))}
                 value={form.network}
                 onChange={(event) => setForm({ ...form, network: event.target.value })}

@@ -889,6 +889,10 @@ export interface Arrival {
 /** An address read from the chain this recently is read from the table instead. */
 const RESYNC_AFTER_MS = 5_000;
 
+/** The chain reads under way, per wallet, kept across requests in this process. */
+const globalForReads = globalThis as unknown as { __ifmsArrivalReads?: Map<string, Promise<void>> };
+const reading: Map<string, Promise<void>> = (globalForReads.__ifmsArrivalReads ??= new Map());
+
 /**
  * What is waiting, newest first.
  *
@@ -921,14 +925,22 @@ export async function unclaimedArrivals(
       wallets
         .filter((wallet) => providerFor(wallet.network).network !== 'MANUAL')
         .filter((wallet) => !wallet.lastSyncedAt || wallet.lastSyncedAt.getTime() < fresh)
-        .map((wallet) =>
-          syncWallet(wallet.id, { skipBalance: true }, db).catch((error) =>
-            log.warn('Arrivals sync failed; showing what is already stored', {
-              walletId: wallet.id,
-              error,
-            }),
-          ),
-        ),
+        .map((wallet) => {
+          // Every open page asks: those asking at once wait on the one read already going.
+          const going = reading.get(wallet.id);
+          if (going) return going;
+          const read = syncWallet(wallet.id, { skipBalance: true }, db)
+            .then(() => undefined)
+            .catch((error) =>
+              log.warn('Arrivals sync failed; showing what is already stored', {
+                walletId: wallet.id,
+                error,
+              }),
+            )
+            .finally(() => reading.delete(wallet.id));
+          reading.set(wallet.id, read);
+          return read;
+        }),
     );
   }
 

@@ -31,6 +31,7 @@ import { ShortcutHelp, useShortcuts } from './shortcuts';
 import { UpdateChip } from '../update-watcher';
 import { MarketBar } from './market-bar';
 import { useInboxUnread } from './inbox-unread';
+import { UsdtArrivalAlert } from './usdt-arrivals';
 
 /**
  * The application shell.
@@ -413,6 +414,7 @@ export function AppShell({
         </main>
       </div>
 
+      <UsdtArrivalAlert enabled={user.permissions.includes('usdt.counter.use')} />
       <CommandPalette
         open={paletteOpen}
         onClose={() => setPaletteOpen(false)}

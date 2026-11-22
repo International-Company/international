@@ -53,9 +53,24 @@ export async function syncWallet(
 
   const provider = await providerForWallet(wallet, db);
 
-  const run = await db.walletSyncRun.create({
-    data: { walletId, provider: provider.name, status: 'RUNNING' },
-  });
+  /*
+   * A quick read for the counter's log runs every few seconds while anyone has
+   * a page open: it leaves a row in the history only when it found something,
+   * or failed, so the history stays a record of what happened.
+   */
+  const quick = Boolean(options.skipBalance);
+  const run = quick
+    ? null
+    : await db.walletSyncRun.create({
+        data: { walletId, provider: provider.name, status: 'RUNNING' },
+      });
+  const finish = async (data: { status: string; fetched: number; created: number; updated: number; error?: string }) => {
+    if (run) {
+      await db.walletSyncRun.update({ where: { id: run.id }, data: { ...data, finishedAt: new Date() } });
+    } else if (data.created > 0 || data.updated > 0 || data.status === 'ERROR') {
+      await db.walletSyncRun.create({ data: { walletId, provider: provider.name, ...data, finishedAt: new Date() } });
+    }
+  };
 
   let fetched = 0;
   let created = 0;
@@ -101,10 +116,7 @@ export async function syncWallet(
       },
     });
 
-    await db.walletSyncRun.update({
-      where: { id: run.id },
-      data: { status: 'OK', finishedAt: new Date(), fetched, created, updated },
-    });
+    await finish({ status: 'OK', fetched, created, updated });
 
     if (created > 0 || updated > 0) {
       log.info('Wallet synchronised', { walletId, fetched, created, updated });
@@ -120,10 +132,7 @@ export async function syncWallet(
       where: { id: walletId },
       data: { lastSyncedAt: new Date(), lastSyncStatus: 'ERROR', lastSyncError: message.slice(0, 500) },
     });
-    await db.walletSyncRun.update({
-      where: { id: run.id },
-      data: { status: 'ERROR', finishedAt: new Date(), fetched, created, updated, error: message.slice(0, 1000) },
-    });
+    await finish({ status: 'ERROR', fetched, created, updated, error: message.slice(0, 1000) });
 
     log.error('Wallet synchronisation failed', { walletId, error: message });
 
@@ -322,6 +331,149 @@ export async function syncAllWallets(db: DbClient = prisma): Promise<SyncResult[
     results.push(await syncWallet(wallet.id, {}, db));
   }
   return results;
+}
+
+// ---------------------------------------------------------------------------
+// One transaction, by its hash
+// ---------------------------------------------------------------------------
+
+/** The hash as each chain writes it: EVM chains with `0x`, TRON without. */
+export function hashFamily(raw: string): { hash: string; networks: string[] } | null {
+  const text = raw.trim().replace(/^.*\/(?:tx|transaction)\/([0-9a-fA-Fx]+).*$/, '$1');
+  if (/^0x[0-9a-fA-F]{64}$/.test(text)) return { hash: text.toLowerCase(), networks: ['BSC', 'ETHEREUM'] };
+  if (/^[0-9a-fA-F]{64}$/.test(text)) return { hash: text.toLowerCase(), networks: ['TRON'] };
+  return null;
+}
+
+/**
+ * The transfer a customer names by its hash, found on the chain at once and
+ * written down like any other — however old, and whether or not a poll saw it.
+ * Only the counter's own addresses: a hash that pays somebody else is said so.
+ * A link pasted from an explorer is read for the hash inside it.
+ */
+export async function findByHash(raw: string, db: DbClient = prisma): Promise<string[]> {
+  const family = hashFamily(raw);
+  if (!family) throw errors.precondition('Not a transaction hash', 'errors.txHashInvalid');
+
+  const wallets = await db.wallet.findMany({
+    where: { isActive: true, isCounterAddress: true, network: { in: family.networks } },
+  });
+  if (wallets.length === 0) throw errors.precondition('No counter address on that network', 'errors.txNoAddress');
+
+  let known = false;
+  let reached = false;
+  for (const wallet of wallets) {
+    const provider = await providerForWallet(wallet, db);
+    if (!provider.fetchTransaction) continue;
+    reached = true;
+    const transfers = await provider.fetchTransaction(family.hash, wallet.address, wallet.contractAddress);
+    if (transfers === null) continue;
+    known = true;
+    for (const transfer of transfers) await ingestTransfer(wallet.id, { ...transfer, txHash: family.hash }, db);
+  }
+
+  const found = await db.chainTransaction.findMany({
+    where: { txHash: family.hash, direction: 'IN', walletId: { in: wallets.map((wallet) => wallet.id) } },
+    select: { id: true },
+  });
+  if (found.length > 0) return found.map((row) => row.id);
+  if (!reached) throw errors.precondition('That network cannot be asked by hash', 'errors.txNoAddress');
+  if (!known) throw errors.precondition('The chain does not know that hash', 'errors.txNotFound');
+  throw errors.precondition('That transaction did not pay a counter address', 'errors.txNotOurs');
+}
+
+/** Where an address or a transaction is shown in public, per chain. */
+export function explorerLinks(network: string, txHash: string, addresses: string[]) {
+  const base =
+    network === 'BSC'
+      ? { tx: 'https://bscscan.com/tx/', address: 'https://bscscan.com/address/' }
+      : network === 'ETHEREUM'
+        ? { tx: 'https://etherscan.io/tx/', address: 'https://etherscan.io/address/' }
+        : network === 'TRON'
+          ? { tx: 'https://tronscan.org/#/transaction/', address: 'https://tronscan.org/#/address/' }
+          : null;
+  return {
+    tx: base ? `${base.tx}${txHash}` : null,
+    addresses: Object.fromEntries(addresses.filter(Boolean).map((address) => [address, base ? `${base.address}${address}` : null])),
+    name: network === 'BSC' ? 'BscScan' : network === 'ETHEREUM' ? 'Etherscan' : network === 'TRON' ? 'TronScan' : null,
+  };
+}
+
+/**
+ * One transfer as an explorer shows it — amount, from, to, block, time, and
+ * how settled it is now — read live from the chain's height, so a screen kept
+ * open watches the confirmations climb.
+ */
+export async function chainDetail(id: string, db: DbClient = prisma) {
+  const row = await db.chainTransaction.findUnique({
+    where: { id },
+    include: {
+      wallet: { select: { id: true, label: true, labelAr: true, network: true, address: true, minConfirmations: true, isCounterAddress: true } },
+      linkedTransaction: { select: { id: true, reference: true } },
+      depositRequest: { select: { id: true, transactionId: true } },
+    },
+  });
+  if (!row) throw errors.notFound('ChainTransaction', id);
+
+  let confirmations = row.confirmations;
+  if (row.status !== 'FAILED') {
+    if (row.network === 'TRON' && row.blockTimestamp) {
+      confirmations = Math.max(confirmations, Math.floor((Date.now() - row.blockTimestamp.getTime()) / 3000));
+    } else if (row.blockNumber !== null) {
+      const head = await providerForWallet(row.wallet, db)
+        .then((provider) => provider.currentBlock())
+        .catch(() => null);
+      if (head !== null) confirmations = Math.max(confirmations, Number(head - row.blockNumber));
+    }
+  }
+  const required = row.wallet.minConfirmations;
+  // Crossed the line since it was last read: the next poll writes it, the screen says it now.
+  if (row.status === 'PENDING' && confirmations >= required) {
+    await syncWallet(row.walletId, { skipBalance: true }, db).catch(() => null);
+  }
+  const fresh = await db.chainTransaction.findUnique({ where: { id }, select: { status: true } });
+
+  const merged = row.mergedTransactionId
+    ? await db.transaction.findUnique({ where: { id: row.mergedTransactionId }, select: { id: true, reference: true } })
+    : null;
+  const deal =
+    row.linkedTransaction ??
+    merged ??
+    (row.depositRequest?.transactionId
+      ? await db.transaction.findUnique({ where: { id: row.depositRequest.transactionId }, select: { id: true, reference: true } })
+      : null);
+
+  const status = fresh?.status ?? row.status;
+  return {
+    id: row.id,
+    txHash: row.txHash,
+    network: row.network,
+    direction: row.direction,
+    fromAddress: row.fromAddress,
+    toAddress: row.toAddress,
+    amount: row.amount,
+    splitSettled: row.splitSettled,
+    tokenSymbol: row.tokenSymbol,
+    contractAddress: row.contractAddress,
+    blockNumber: row.blockNumber,
+    blockTimestamp: row.blockTimestamp,
+    firstSeenAt: row.firstSeenAt,
+    confirmations,
+    required,
+    status,
+    ready: status === 'CONFIRMED' && confirmations >= required,
+    wallet: {
+      id: row.wallet.id,
+      label: row.wallet.label,
+      labelAr: row.wallet.labelAr,
+      address: row.wallet.address,
+      isCounterAddress: row.wallet.isCounterAddress,
+    },
+    /** The deal it was paid in, when it has been. */
+    deal,
+    claimed: Boolean(row.linkedTransactionId || row.mergedTransactionId || row.depositRequest),
+    explorer: explorerLinks(row.network, row.txHash, [row.fromAddress, row.toAddress]),
+  };
 }
 
 // ---------------------------------------------------------------------------

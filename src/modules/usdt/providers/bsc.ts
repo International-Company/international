@@ -92,6 +92,15 @@ export class BscProvider implements ChainProvider {
   readonly name = 'BNB Smart Chain RPC';
 
   private readonly rpcUrl: string;
+  /**
+   * Where a single transaction is asked for by its hash. A public node that
+   * keeps only recent history calls an older hash an archive request and
+   * refuses it — and refuses an unknown hash the same way. BNB Chain's own
+   * full nodes keep every transaction's receipt and say plainly when a hash
+   * is unknown, so they answer this; a keyed node set for the volume, when
+   * there is one, answers it first.
+   */
+  private readonly lookupUrls: string[];
   private readonly keyed: boolean;
   private readonly contract: string;
   private readonly range: bigint;
@@ -103,6 +112,12 @@ export class BscProvider implements ChainProvider {
   ) {
     this.keyed = Boolean(options.rpcUrl ?? env.BSC_RPC_URL);
     this.rpcUrl = options.rpcUrl ?? (env.BSC_RPC_URL || 'https://bsc-rpc.publicnode.com');
+    this.lookupUrls = [
+      ...(this.keyed ? [this.rpcUrl] : []),
+      'https://bsc-dataseed.bnbchain.org',
+      'https://bsc-dataseed1.defibit.io',
+      ...(this.keyed ? [] : [this.rpcUrl]),
+    ];
     this.contract = (options.contract ?? env.BSC_USDT_CONTRACT).toLowerCase();
     this.range = BigInt(options.range ?? env.BSC_LOG_RANGE);
     this.reach = BigInt(options.reach ?? env.BSC_MAX_REACH);
@@ -125,11 +140,11 @@ export class BscProvider implements ChainProvider {
     return `https://bscscan.com/tx/${txHash}`;
   }
 
-  private async call<T>(method: string, params: unknown[]): Promise<T> {
+  private async call<T>(method: string, params: unknown[], url = this.rpcUrl): Promise<T> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 20_000);
     try {
-      const response = await fetch(this.rpcUrl, {
+      const response = await fetch(url, {
         method: 'POST',
         headers: { 'content-type': 'application/json', accept: 'application/json' },
         body: JSON.stringify({ jsonrpc: '2.0', id: ++this.requestId, method, params }),
@@ -170,6 +185,66 @@ export class BscProvider implements ChainProvider {
       'latest',
     ]);
     return fromTokenUnits(BigInt(raw && raw !== '0x' ? raw : '0x0'), USDT_BEP20_DECIMALS);
+  }
+
+  async fetchTransaction(
+    txHash: string,
+    address: string,
+    contractAddress: string | null,
+  ): Promise<ChainTransfer[] | null> {
+    if (!this.validateAddress(address)) return [];
+    type Receipt = { status?: string; blockNumber?: string; logs?: RpcLog[] } | null;
+    // The first node that answers, in order; one that refuses hands over to the next.
+    let url = this.lookupUrls[0]!;
+    let receipt: Receipt = null;
+    let failure: unknown = null;
+    for (const candidate of this.lookupUrls) {
+      try {
+        receipt = await this.call<Receipt>('eth_getTransactionReceipt', [txHash], candidate);
+        url = candidate;
+        failure = null;
+        break;
+      } catch (error) {
+        failure = error;
+      }
+    }
+    if (failure) throw failure;
+    // Unknown, or still waiting to be put in a block.
+    if (!receipt?.blockNumber) return null;
+
+    const head = BigInt(await this.call<string>('eth_blockNumber', [], url));
+    const blockNumber = BigInt(receipt.blockNumber);
+    let blockTimestamp: Date | null = null;
+    try {
+      const block = await this.call<RpcBlock>('eth_getBlockByNumber', [receipt.blockNumber, false], url);
+      blockTimestamp = new Date(Number(BigInt(block.timestamp)) * 1000);
+    } catch {
+      // the time is a nicety; the transfer stands without it
+    }
+
+    const contract = (contractAddress ?? this.contract).toLowerCase();
+    const mine = pad(address);
+    return (receipt.logs ?? [])
+      .filter(
+        (entry) =>
+          !entry.removed &&
+          entry.address.toLowerCase() === contract &&
+          entry.topics[0] === TRANSFER_TOPIC &&
+          (entry.topics[2]?.toLowerCase() === mine || entry.topics[1]?.toLowerCase() === mine),
+      )
+      .map((entry) => ({
+        txHash: entry.transactionHash ?? txHash,
+        fromAddress: unpad(entry.topics[1] ?? '0x'),
+        toAddress: unpad(entry.topics[2] ?? '0x'),
+        amount: fromTokenUnits(BigInt(entry.data && entry.data !== '0x' ? entry.data : '0x0'), USDT_BEP20_DECIMALS),
+        tokenSymbol: 'USDT',
+        contractAddress: entry.address,
+        blockNumber,
+        blockTimestamp,
+        confirmations: Number(head - blockNumber),
+        status: receipt.status === '0x1' ? ('CONFIRMED' as const) : ('FAILED' as const),
+        networkFee: 0n,
+      }));
   }
 
   async fetchTransfers(

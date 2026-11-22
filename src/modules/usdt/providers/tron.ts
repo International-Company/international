@@ -1,4 +1,5 @@
 import 'server-only';
+import { createHash } from 'node:crypto';
 import { env } from '@/core/config/env';
 import { errors } from '@/core/errors/app-error';
 import { createLogger } from '@/core/logger/logger';
@@ -29,6 +30,31 @@ const MAX_PAGES = 4;
 
 /** Base58 TRON mainnet addresses always start with `T` and are 34 chars. */
 const ADDRESS_PATTERN = /^T[1-9A-HJ-NP-Za-km-z]{33}$/;
+
+const BASE58 = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+
+/**
+ * A contract event's address, `0x` and twenty bytes, as TRON writes it: the
+ * mainnet prefix, a double-SHA-256 checksum, base58. Null for anything else.
+ */
+export function tronAddress(hex: string): string | null {
+  const body = hex.replace(/^0x/i, '').replace(/^41/, '');
+  if (!/^[0-9a-fA-F]{40}$/.test(body)) return null;
+  const payload = Buffer.from(`41${body}`, 'hex');
+  const check = createHash('sha256').update(createHash('sha256').update(payload).digest()).digest();
+  const bytes = Buffer.concat([payload, check.subarray(0, 4)]);
+  let value = BigInt(`0x${bytes.toString('hex')}`);
+  let out = '';
+  while (value > 0n) {
+    out = BASE58[Number(value % 58n)] + out;
+    value /= 58n;
+  }
+  for (const byte of bytes) {
+    if (byte !== 0) break;
+    out = `1${out}`;
+  }
+  return out;
+}
 
 interface TronTrc20Transfer {
   transaction_id: string;
@@ -182,6 +208,57 @@ export class TronProvider implements ChainProvider {
       log.warn('Could not read current TRON block height', { error });
       return null;
     }
+  }
+
+  async fetchTransaction(
+    txHash: string,
+    address: string,
+    contractAddress: string | null,
+  ): Promise<ChainTransfer[] | null> {
+    if (!this.validateAddress(address)) return [];
+    const contract = contractAddress ?? env.TRON_USDT_CONTRACT;
+    const response = await this.request<
+      TronListResponse<{
+        block_number?: number;
+        block_timestamp?: number;
+        contract_address?: string;
+        event_name?: string;
+        result?: { from?: string; to?: string; value?: string };
+        _unconfirmed?: boolean;
+      }>
+    >(`/v1/transactions/${txHash}/events`);
+    const events = response.data ?? [];
+    // TronGrid answers an unknown hash with no events, the same as one without transfers.
+    if (events.length === 0) return null;
+
+    return events
+      .filter((event) => event.event_name === 'Transfer' && event.contract_address === contract)
+      .map((event) => ({
+        event,
+        from: tronAddress(event.result?.from ?? ''),
+        to: tronAddress(event.result?.to ?? ''),
+      }))
+      .filter(({ from, to }) => from === address || to === address)
+      .map(({ event, from, to }) => {
+        const timestamp = event.block_timestamp ? new Date(event.block_timestamp) : null;
+        return {
+          txHash,
+          fromAddress: from ?? '',
+          toAddress: to ?? '',
+          amount: fromTokenUnits(event.result?.value ?? '0', USDT_DECIMALS),
+          tokenSymbol: 'USDT',
+          contractAddress: contract,
+          blockNumber: event.block_number ? BigInt(event.block_number) : null,
+          blockTimestamp: timestamp,
+          // As the address's list counts them: TRON blocks are ~3s.
+          confirmations:
+            event._unconfirmed || !timestamp
+              ? 0
+              : Math.max(0, Math.floor((Date.now() - timestamp.getTime()) / 3000)),
+          status: 'CONFIRMED' as const,
+          networkFee: 0n,
+        };
+      });
   }
 
   async fetchTransfers(

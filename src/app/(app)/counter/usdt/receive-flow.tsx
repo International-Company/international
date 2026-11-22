@@ -7,12 +7,14 @@ import {
   Check,
   Copy,
   ExternalLink,
+  FileSearch,
   History,
   Inbox,
   Loader2,
   MessageCircle,
   Printer,
   RefreshCw,
+  Search,
   UserCheck,
 } from 'lucide-react';
 import { useLocale } from '@/i18n/provider';
@@ -32,6 +34,7 @@ import { cn } from '@/ui/utils';
 import { convert, normalizeDigits } from '@/core/money/money';
 import { payoutAtPercent, validPercent } from '@/modules/usdt/percent-payout';
 import { tellerPriceAllowed, withinEditLimit } from '@/modules/usdt/payout-edit';
+import { TxDetailDialog } from './tx-detail';
 
 /**
  * Taking USDT at the window: the address, then the log of what actually landed.
@@ -141,7 +144,7 @@ type Recognised =
 const LAST_CURRENCY_KEY = 'ifms.receive.lastCurrency';
 
 /** How often the log refreshes itself while a customer is waiting. */
-const POLL_MS = 10_000;
+const POLL_MS = 5_000;
 
 export function ReceiveFlow({
   addresses,
@@ -456,6 +459,76 @@ export function ReceiveFlow({
       setMarking(null);
     }
   };
+
+  /** The transfer shown as an explorer shows it. */
+  const [detailId, setDetailId] = useState<string | null>(null);
+  /** A hash the customer sent, looked for on the chain at once. */
+  const [hash, setHash] = useState('');
+  const [finding, setFinding] = useState(false);
+
+  const readArrivals = async () => {
+    const next = await api.get<Arrival[]>('/api/usdt/arrivals');
+    setArrivals(next);
+    return next;
+  };
+
+  /** Opens the one with this id to be recorded, reading the list again if it is not on it yet. */
+  const recordById = async (id: string) => {
+    let row = arrivals?.find((arrival) => arrival.id === id);
+    if (!row) row = (await readArrivals().catch(() => [])).find((arrival) => arrival.id === id);
+    if (row) {
+      setDetailId(null);
+      open(row);
+    }
+  };
+
+  const findHash = async () => {
+    if (!hash.trim() || finding) return;
+    setFinding(true);
+    try {
+      const { ids } = await api.post<{ ids: string[] }>('/api/usdt/arrivals/lookup', { txHash: hash });
+      const next = await readArrivals().catch(() => arrivals ?? []);
+      const row = next.find((arrival) => ids.includes(arrival.id));
+      setHash('');
+      setLogWallet('ALL');
+      if (!row) {
+        // On the chain and ours, but already paid: shown, not offered again.
+        toast.success(t('receive.hashClaimed'));
+        setDetailId(ids[0] ?? null);
+      } else if (row.ready) {
+        toast.success(t('receive.hashFound'));
+        open(row);
+      } else {
+        toast.success(t('receive.hashFound'));
+        setDetailId(row.id);
+      }
+    } catch (caught) {
+      const failure = describeFailure(caught, t as never);
+      toast.error(failure.title, failure.body);
+    } finally {
+      setFinding(false);
+    }
+  };
+
+  /*
+   * Come from the alert that a transfer landed: that one, opened. Recorded
+   * at once when it is settled, shown settling when it is not.
+   */
+  const linked = useRef<string | null>(
+    typeof window === 'undefined' ? null : new URLSearchParams(window.location.search).get('arrival'),
+  );
+  useEffect(() => {
+    const id = linked.current;
+    if (!id || !arrivals) return;
+    linked.current = null;
+    const url = new URL(window.location.href);
+    url.searchParams.delete('arrival');
+    window.history.replaceState(window.history.state, '', url);
+    const row = arrivals.find((arrival) => arrival.id === id);
+    if (row?.ready) open(row);
+    else setDetailId(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [arrivals]);
 
   const open = (arrival: Arrival) => {
     setDone(null);
@@ -845,6 +918,30 @@ export function ReceiveFlow({
               </div>
             )}
 
+            {/* The hash the customer sent: found on the chain now, not at the next read. */}
+            <form
+              className="flex gap-2"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void findHash();
+              }}
+            >
+              <div className="min-w-0 flex-1">
+                <Input
+                  value={hash}
+                  onChange={(event) => setHash(event.target.value)}
+                  placeholder={t('receive.hashPlaceholder')}
+                  aria-label={t('receive.hashLabel')}
+                  iconStart={<Search className="size-4" />}
+                  dir="ltr"
+                  className="font-mono text-xs"
+                />
+              </div>
+              <Button type="submit" variant="secondary" loading={finding} disabled={!hash.trim()} className="shrink-0">
+                {t('receive.hashFind')}
+              </Button>
+            </form>
+
             {toMerge.length >= 2 && (
               <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-primary-subtle px-3 py-2">
                 <span className="text-sm font-semibold text-content">
@@ -951,9 +1048,14 @@ export function ReceiveFlow({
                           className="inline-flex min-h-9 items-center gap-1.5 rounded-[var(--radius-control)] border border-border-base px-3 text-sm text-content-secondary transition-colors hover:border-primary hover:text-primary-text"
                         >
                           <ExternalLink className="size-4" />
-                          {t('receive.openExplorer')}
+                          {t('receive.openExplorer', {
+                            name: arrival.wallet.network === 'BSC' ? 'BscScan' : arrival.wallet.network === 'ETHEREUM' ? 'Etherscan' : 'TronScan',
+                          })}
                         </a>
                       )}
+                      <Button size="sm" variant="ghost" icon={<FileSearch />} onClick={() => setDetailId(arrival.id)}>
+                        {t('receive.details')}
+                      </Button>
 
                       {arrival.ready && (!mergeToken || mergeToken === arrival.wallet.tokenSymbol) && (
                         <label className="ms-auto inline-flex min-h-9 cursor-pointer items-center gap-2 text-sm text-content-secondary">
@@ -1059,6 +1161,8 @@ export function ReceiveFlow({
           </Card>
         )}
       </div>
+
+      <TxDetailDialog id={detailId} onClose={() => setDetailId(null)} onRecord={(detail) => void recordById(detail.id)} />
 
       {/* ============ Recording the one the teller picked ================== */}
       <Dialog

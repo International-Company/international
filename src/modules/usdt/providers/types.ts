@@ -80,6 +80,17 @@ export interface ChainProvider {
   validateAddress(address: string): boolean;
   /** Link to a public explorer for a transaction — shown in the UI. */
   explorerUrl(txHash: string): string;
+  /**
+   * One transaction, asked for by its hash: the token's transfers in it that
+   * reach or leave `address`. Null when the chain does not know the hash at
+   * all; an empty list when it does, but nothing in it touches the address.
+   * For the hash a customer reads out — found at once, however old.
+   */
+  fetchTransaction?(
+    txHash: string,
+    address: string,
+    contractAddress: string | null,
+  ): Promise<ChainTransfer[] | null>;
 }
 
 /**
