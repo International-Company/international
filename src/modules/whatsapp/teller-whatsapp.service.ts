@@ -16,6 +16,7 @@ import { prisma } from '@/core/db/prisma';
 import { errors } from '@/core/errors/app-error';
 import { createLogger } from '@/core/logger/logger';
 import * as settings from '@/modules/settings/settings.service';
+import { reactionsOf, withReaction } from './reactions';
 import { isPrivateChat, TELLER_SESSION_PREFIX, tellerSessionPrefix } from './accounts';
 import { clearSession, databaseAuthState, hasSession } from './auth-state';
 import { mediaMark } from './bot-store';
@@ -319,6 +320,23 @@ async function open(userId: string): Promise<void> {
       const sentAt = Number(message.messageTimestamp ?? 0) * 1000;
       if (sentAt > 0 && Date.now() - sentAt > STALE_AFTER_MS) continue;
       const content = normalizeMessageContent(message.message);
+      // A reaction is kept on the message it is on: the customer's, or one put from the phone.
+      const reacted = content?.reactionMessage;
+      if (reacted?.key?.id && !inGroup) {
+        const who = message.key.fromMe ? 'me' : 'them';
+        void (async () => {
+          const target = await prisma.tellerChatMessage.findFirst({
+            where: { waId: reacted.key!.id!, chat: { ownerId: userId } },
+            select: { id: true, reactions: true },
+          });
+          if (!target) return;
+          await prisma.tellerChatMessage.update({
+            where: { id: target.id },
+            data: { reactions: withReaction(target.reactions, who, reacted.text ?? '') },
+          });
+        })().catch(() => undefined);
+        continue;
+      }
       if (!content || content.protocolMessage || content.reactionMessage) continue;
       const words =
         content.conversation ??
@@ -706,6 +724,8 @@ export async function readChat(ownerId: string, id: string, options: { watching?
         quotable: Boolean(message.waId) && !deleted,
         authorName: message.authorName ?? null,
         ack: message.fromMe ? (message.ack ?? null) : null,
+        reactions: reactionsOf(message.reactions),
+        reactable: Boolean(message.waId) && !deleted && !row.chat.endsWith('@g.us'),
         createdAt: message.createdAt,
         edited: Boolean(message.editedAt),
         deleted,
@@ -814,6 +834,31 @@ export async function changeMine(
   await prisma.tellerChatMessage.update({
     where: { id: message.id },
     data: 'text' in change ? { text: words, editedAt: new Date() } : { deletedAt: new Date() },
+  });
+  return readChat(ownerId, id);
+}
+
+/**
+ * A reaction put on a message of the conversation from the inbox, or taken off
+ * (an empty emoji), as tapping one in WhatsApp does — the customer sees it.
+ */
+export async function reactMine(ownerId: string, id: string, messageId: string, emoji: string) {
+  const row = await prisma.tellerChat.findFirst({ where: { id, ownerId } });
+  if (!row) throw errors.notFound('TellerChat', id);
+  if (row.chat.endsWith('@g.us')) throw errors.precondition('Not in a group', 'errors.tellerSendFailed');
+  const message = await prisma.tellerChatMessage.findFirst({ where: { id: messageId, chatId: row.id } });
+  if (!message?.waId || message.deletedAt) throw errors.notFound('TellerChatMessage', messageId);
+  try {
+    await socketOf(ownerId).sendMessage(row.chat, {
+      react: { text: emoji, key: { remoteJid: row.chat, fromMe: message.fromMe, id: message.waId } },
+    });
+  } catch (error) {
+    log.warn('A teller reaction was not sent', { error });
+    throw errors.precondition('WhatsApp did not take the reaction', 'errors.tellerSendFailed');
+  }
+  await prisma.tellerChatMessage.update({
+    where: { id: message.id },
+    data: { reactions: withReaction(message.reactions, 'me', emoji) },
   });
   return readChat(ownerId, id);
 }

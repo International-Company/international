@@ -2401,6 +2401,8 @@ model TellerChatMessage {
   deletedAt DateTime?
   /// How far one of ours got, as WhatsApp reports it: 2 sent, 3 delivered, 4 read, 5 played.
   ack       Int?
+  /// Reactions on it, one emoji a person, as JSON of who → emoji ("me" is the number's own).
+  reactions String?
   createdAt DateTime   @default(now())
 
   @@index([chatId, createdAt])
@@ -2450,6 +2452,8 @@ model BotMessage {
   deletedAt      DateTime?
   /// How far one of ours got, as WhatsApp reports it: 2 sent, 3 delivered, 4 read, 5 played.
   ack            Int?
+  /// Reactions on it, one emoji a person, as JSON of who → emoji ("me" is the number's own).
+  reactions      String?
   createdAt      DateTime        @default(now())
 
   @@index([conversationId, createdAt])

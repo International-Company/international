@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { route } from '@/core/http/route';
 import { markSeen, readConversation } from '@/modules/whatsapp/bot-store';
-import { answerCustomer, changeAnswer, MAX_ANSWER_LENGTH } from '@/modules/whatsapp/inbox.service';
+import { answerCustomer, changeAnswer, MAX_ANSWER_LENGTH, reactAnswer } from '@/modules/whatsapp/inbox.service';
 
 const paramsSchema = z.object({ id: z.string().min(1) });
 
@@ -38,6 +38,8 @@ export const POST = route<z.infer<typeof bodySchema>, unknown, z.infer<typeof pa
 const changeSchema = z.union([
   z.object({ messageId: z.string().min(1).max(40), text: z.string().trim().min(1).max(MAX_ANSWER_LENGTH) }),
   z.object({ messageId: z.string().min(1).max(40), delete: z.literal(true) }),
+  /** A reaction put on, or taken off with an empty one. */
+  z.object({ messageId: z.string().min(1).max(40), react: z.string().max(16) }),
 ]);
 
 export const PATCH = route<z.infer<typeof changeSchema>, unknown, z.infer<typeof paramsSchema>>({
@@ -45,10 +47,12 @@ export const PATCH = route<z.infer<typeof changeSchema>, unknown, z.infer<typeof
   paramsSchema,
   bodySchema: changeSchema,
   handler: async ({ params, body, actor }) =>
-    changeAnswer(
-      params.id,
-      body.messageId,
-      'text' in body ? { text: body.text } : { delete: true },
-      actor,
-    ),
+    'react' in body
+      ? reactAnswer(params.id, body.messageId, body.react)
+      : changeAnswer(
+          params.id,
+          body.messageId,
+          'text' in body ? { text: body.text } : { delete: true },
+          actor,
+        ),
 });

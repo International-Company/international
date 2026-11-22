@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { route } from '@/core/http/route';
-import { answer, changeMine, readChat } from '@/modules/whatsapp/teller-whatsapp.service';
+import { answer, changeMine, reactMine, readChat } from '@/modules/whatsapp/teller-whatsapp.service';
 
 const paramsSchema = z.object({ id: z.string().min(1) });
 
@@ -32,6 +32,8 @@ export const POST = route<z.infer<typeof bodySchema>, unknown, z.infer<typeof pa
 const changeSchema = z.union([
   z.object({ messageId: z.string().min(1).max(40), text: z.string().trim().min(1).max(2000) }),
   z.object({ messageId: z.string().min(1).max(40), delete: z.literal(true) }),
+  /** A reaction put on, or taken off with an empty one. */
+  z.object({ messageId: z.string().min(1).max(40), react: z.string().max(16) }),
 ]);
 
 export const PATCH = route<z.infer<typeof changeSchema>, unknown, z.infer<typeof paramsSchema>>({
@@ -39,5 +41,7 @@ export const PATCH = route<z.infer<typeof changeSchema>, unknown, z.infer<typeof
   paramsSchema,
   bodySchema: changeSchema,
   handler: async ({ params, body, actor }) =>
-    changeMine(actor.id, params.id, body.messageId, 'text' in body ? { text: body.text } : { delete: true }),
+    'react' in body
+      ? reactMine(actor.id, params.id, body.messageId, body.react)
+      : changeMine(actor.id, params.id, body.messageId, 'text' in body ? { text: body.text } : { delete: true }),
 });

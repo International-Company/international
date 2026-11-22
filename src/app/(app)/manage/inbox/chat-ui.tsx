@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, type ReactNode } from 'react';
 import { Check, CheckCheck, Clock, Download, Users, X } from 'lucide-react';
 
 /** Colours a name is drawn in, the same name always the same, as WhatsApp does for group members. */
@@ -84,6 +84,84 @@ export function listTime(value: string, yesterday: string): string {
   if (date >= start) return clockOf(value);
   if (date >= new Date(start.getTime() - 86_400_000)) return yesterday;
   return new Intl.DateTimeFormat('en-GB', { day: '2-digit', month: '2-digit', year: '2-digit' }).format(date);
+}
+
+/** The reactions WhatsApp offers first. */
+export const QUICK_REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
+
+/** The emojis a counter actually types, in the panel beside the box. */
+export const EMOJIS = [
+  '😀', '😁', '😂', '🤣', '😊', '😇', '🙂', '😉', '😍', '🥰', '😘', '😎',
+  '🤔', '🤗', '😅', '😌', '😴', '😢', '😭', '😮', '😡', '🙄', '😬', '😐',
+  '👍', '👎', '👌', '👏', '🙏', '🤝', '✌️', '💪', '👋', '☝️', '👇', '👉',
+  '❤️', '💚', '💙', '🔥', '⭐', '🌷', '🌹', '🎉', '✅', '❌', '⚠️', '⏳',
+  '💵', '💰', '💳', '🏦', '📄', '📷', '📞', '📍', '🕐', '📌', '🔒', '💯',
+];
+
+/** A small sheet of emojis over what was tapped: a reaction's or the box's. */
+export function EmojiSheet({
+  emojis,
+  chosen,
+  onPick,
+  onClose,
+  className = '',
+}: {
+  emojis: string[];
+  chosen?: string | null;
+  onPick: (emoji: string) => void;
+  onClose: () => void;
+  className?: string;
+}) {
+  useEffect(() => {
+    const key = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', key);
+    return () => window.removeEventListener('keydown', key);
+  }, [onClose]);
+  return (
+    <>
+      <button type="button" aria-hidden tabIndex={-1} className="fixed inset-0 z-30 cursor-default" onClick={onClose} />
+      <div
+        role="menu"
+        className={`absolute z-40 grid gap-0.5 rounded-2xl bg-surface p-1.5 shadow-[var(--shadow-lg)] ring-1 ring-border-subtle ${className}`}
+      >
+        {emojis.map((emoji) => (
+          <button
+            key={emoji}
+            type="button"
+            role="menuitem"
+            onClick={() => onPick(emoji)}
+            className={`inline-flex size-9 items-center justify-center rounded-full text-xl transition-transform hover:scale-125 hover:bg-surface-sunken ${
+              chosen === emoji ? 'bg-surface-sunken ring-1 ring-border-base' : ''
+            }`}
+          >
+            {emoji}
+          </button>
+        ))}
+      </div>
+    </>
+  );
+}
+
+/** Words with what was looked for marked, as a search in WhatsApp shows it. */
+export function Marked({ text, term }: { text: string; term: string }) {
+  if (!term) return <>{text}</>;
+  const lower = text.toLowerCase();
+  const needle = term.toLowerCase();
+  const parts: ReactNode[] = [];
+  let from = 0;
+  for (let at = lower.indexOf(needle); at >= 0; at = lower.indexOf(needle, from)) {
+    parts.push(text.slice(from, at));
+    parts.push(
+      <mark key={at} className="rounded bg-yellow-300/80 px-0.5 text-inherit dark:bg-yellow-500/50">
+        {text.slice(at, at + term.length)}
+      </mark>,
+    );
+    from = at + term.length;
+  }
+  parts.push(text.slice(from));
+  return <>{parts}</>;
 }
 
 /** A photo opened over everything, as tapping one in WhatsApp does. */

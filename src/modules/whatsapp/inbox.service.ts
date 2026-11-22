@@ -2,6 +2,7 @@ import 'server-only';
 import { prisma } from '@/core/db/prisma';
 import { errors } from '@/core/errors/app-error';
 import * as settings from '@/modules/settings/settings.service';
+import { withReaction } from './reactions';
 import { createBotLogger } from './bot-issues';
 import { parseProfile } from './bot-profile';
 import { markSeen, pauseChat, readConversation, recordMessage } from './bot-store';
@@ -13,6 +14,7 @@ import {
   changePrivately,
   privateNumberAddress,
   replyPrivately,
+  reactPrivately,
   sendPrivateImage,
 } from './whatsapp.service';
 
@@ -145,6 +147,26 @@ export async function changeAnswer(
   });
   log.info('text' in change ? 'A message to a customer was edited' : 'A message to a customer was deleted', {
     by: actor.name,
+  });
+  return readConversation(conversationId);
+}
+
+/** A reaction from the private number on a message of the conversation; an empty emoji takes it off. */
+export async function reactAnswer(conversationId: string, messageId: string, emoji: string) {
+  const message = await prisma.botMessage.findFirst({
+    where: { id: messageId, conversationId },
+    include: { conversation: { select: { chat: true } } },
+  });
+  if (!message?.waId || message.deletedAt) throw errors.notFound('BotMessage', messageId);
+  try {
+    await reactPrivately(message.conversation.chat, message.waId, message.role !== 'customer', emoji);
+  } catch (error) {
+    log.warn('Could not react to a customer message', { error });
+    throw errors.precondition('WhatsApp did not take the reaction', 'errors.inboxSendFailed');
+  }
+  await prisma.botMessage.update({
+    where: { id: message.id },
+    data: { reactions: withReaction(message.reactions, 'me', emoji) },
   });
   return readConversation(conversationId);
 }

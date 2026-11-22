@@ -31,6 +31,7 @@ import {
 } from './accounts';
 import { clearSession, databaseAuthState, hasSession } from './auth-state';
 import { quotedStanzaId } from './wa-quote';
+import { withReaction } from './reactions';
 
 /**
  * The office's WhatsApp numbers, linked the way WhatsApp Web is: the manager
@@ -337,6 +338,21 @@ async function open(account: Account): Promise<void> {
       // The private number hears people writing to it, and nothing else.
       if (account === 'private') {
         if (!isPrivateChat(message.key.remoteJid)) continue;
+        // A reaction is kept on the message it is on: the customer's, or one put from the phone.
+        const reacted = normalizeMessageContent(message.message)?.reactionMessage;
+        if (reacted?.key?.id) {
+          const who = message.key.fromMe ? 'me' : 'them';
+          const waId = reacted.key.id;
+          void (async () => {
+            const target = await prisma.botMessage.findFirst({ where: { waId }, select: { id: true, reactions: true } });
+            if (!target) return;
+            await prisma.botMessage.update({
+              where: { id: target.id },
+              data: { reactions: withReaction(target.reactions, who, reacted.text ?? '') },
+            });
+          })().catch(() => undefined);
+          continue;
+        }
         // What this link sends itself arrives as "append": a "notify" of ours was typed on the phone.
         if (message.key.fromMe) {
           const typed = normalizeMessageContent(message.message);
@@ -1022,6 +1038,11 @@ export async function changePrivately(
     jid,
     'text' in change ? { text: change.text, edit: key } : { delete: key },
   );
+}
+
+/** A reaction from the private number on a message of a conversation; an empty emoji takes it off. */
+export async function reactPrivately(jid: string, waId: string, fromMe: boolean, emoji: string): Promise<void> {
+  await socketOf('private').sendMessage(jid, { react: { text: emoji, key: { remoteJid: jid, fromMe, id: waId } } });
 }
 
 export async function sendPrivateImage(

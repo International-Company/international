@@ -1,6 +1,7 @@
 import 'server-only';
 import { prisma } from '@/core/db/prisma';
 import { errors } from '@/core/errors/app-error';
+import { reactionsOf } from './reactions';
 import { changesAllowed } from './message-change';
 import { customerNames, shownName } from './chat-names';
 
@@ -228,6 +229,7 @@ export async function readConversation(id: string) {
           editedAt: true,
           deletedAt: true,
           ack: true,
+          reactions: true,
           createdAt: true,
         },
       },
@@ -244,10 +246,12 @@ export async function readConversation(id: string) {
     pausedUntil: row.pausedUntil,
     messages: row.messages
       .reverse()
-      .map(({ waId, imageId, mediaKind, editedAt, deletedAt, ...message }) => {
+      .map(({ waId, imageId, mediaKind, editedAt, deletedAt, reactions, ...message }) => {
         const kind = mediaKind ?? (imageId ? 'image' : null);
         return {
           ...message,
+          reactions: reactionsOf(reactions),
+          reactable: Boolean(waId) && !deletedAt,
           // Deleted for the customer: here only that it was, not what it said.
           text: deletedAt ? '' : message.text,
           // Kept before the kind was: every file then was a photo.

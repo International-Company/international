@@ -13,7 +13,11 @@ import {
   ArrowLeft,
   BadgeDollarSign,
   ChevronDown,
+  ChevronUp,
   Copy,
+  Forward,
+  Smile,
+  SmilePlus,
   Eye,
   Users,
   Headset,
@@ -39,7 +43,20 @@ import { Badge, Button, Card, EmptyState, PageHeader, Skeleton } from '@/ui/prim
 import { Field, Input, Textarea } from '@/ui/form';
 import { shrinkPhoto } from '@/ui/proof-photo';
 import { checkingLate, NoticePanel, STATUS_STYLE, type NoticeLine } from './notice-panel';
-import { Avatar, clockOf, colourOf, dayChip, dayKeyOf, Lightbox, listTime, Ticks } from './chat-ui';
+import {
+  Avatar,
+  clockOf,
+  colourOf,
+  dayChip,
+  dayKeyOf,
+  EMOJIS,
+  EmojiSheet,
+  Lightbox,
+  listTime,
+  Marked,
+  QUICK_REACTIONS,
+  Ticks,
+} from './chat-ui';
 
 interface ChatRow {
   id: string;
@@ -74,6 +91,9 @@ interface Message {
   deleted?: boolean;
   /** One of ours: how far it got — 2 sent, 3 delivered, 4 read. */
   ack?: number | null;
+  /** The reactions on it, and whether one can be put. */
+  reactions?: { emoji: string; count: number; mine: boolean }[];
+  reactable?: boolean;
   /** What may still be done to it: WhatsApp allows each only for a while. */
   editable?: boolean;
   deletable?: boolean;
@@ -420,6 +440,85 @@ function Conversations({
   const [viewing, setViewing] = useState<string | null>(null);
   /** On a touch screen: the message tapped, whose actions are shown beside it. */
   const [tapped, setTapped] = useState<string | null>(null);
+  /** The message whose reactions are open, and the emoji sheet beside the box. */
+  const [reactingTo, setReactingTo] = useState<string | null>(null);
+  const [emojiOpen, setEmojiOpen] = useState(false);
+  /** A message being sent on to another conversation, and where. */
+  const [forwarding, setForwarding] = useState<Message | null>(null);
+  const [forwardQuery, setForwardQuery] = useState('');
+  const [forwardingTo, setForwardingTo] = useState<string | null>(null);
+  /** Looking for words in this conversation: what, and which of the places found is shown. */
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [term, setTerm] = useState('');
+  const [hit, setHit] = useState(0);
+
+  /** A reaction put on, or the same one again taken off, as WhatsApp does. */
+  const react = async (message: Message, emoji: string) => {
+    setReactingTo(null);
+    if (!thread) return;
+    const current = message.reactions?.find((entry) => entry.mine)?.emoji ?? null;
+    try {
+      setThread(
+        await api.patch<Thread>(`${base}/${thread.id}`, {
+          messageId: message.id,
+          react: current === emoji ? '' : emoji,
+        }),
+      );
+    } catch (cause) {
+      failure(cause);
+    }
+  };
+
+  /** An emoji put where the cursor is in the box. */
+  const putEmoji = (emoji: string) => {
+    const field = box.current;
+    const at = field?.selectionStart ?? draft.length;
+    const end = field?.selectionEnd ?? at;
+    setDraft((current) => current.slice(0, at) + emoji + current.slice(end));
+    requestAnimationFrame(() => {
+      field?.focus();
+      field?.setSelectionRange(at + emoji.length, at + emoji.length);
+    });
+  };
+
+  /** Sent on to another conversation: its words, and its photo when it has one. */
+  const forwardTo = async (targetId: string) => {
+    if (!forwarding || forwardingTo) return;
+    setForwardingTo(targetId);
+    try {
+      let image: string | undefined;
+      if (forwarding.imageId && (forwarding.mediaKind ?? 'image') === 'image') {
+        const blob = await (await fetch(`/api/inbox/images/${forwarding.imageId}`)).blob();
+        image = await shrinkPhoto(new File([blob], 'photo.jpg', { type: blob.type || 'image/jpeg' }));
+      }
+      await api.post(`${base}/${targetId}`, { text: forwarding.text, ...(image ? { image } : {}) });
+      toast.success(t('inbox.forwarded'));
+      setForwarding(null);
+      void load();
+    } catch (cause) {
+      failure(cause);
+    } finally {
+      setForwardingTo(null);
+    }
+  };
+
+  const needle = term.trim().toLowerCase();
+  const hits = needle
+    ? (thread?.messages ?? []).filter((message) => !message.deleted && message.text.toLowerCase().includes(needle))
+    : [];
+  const shownHit = hits.length ? hits[Math.min(hit, hits.length - 1)] : undefined;
+  // The place found is brought into view, the newest first.
+  useEffect(() => {
+    if (!shownHit) return;
+    document.getElementById(`m-${shownHit.id}`)?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  }, [shownHit]);
+  useEffect(() => {
+    setHit(0);
+  }, [needle]);
+  useEffect(() => {
+    setSearchOpen(false);
+    setTerm('');
+  }, [selected]);
   /** Whether the conversation is read at its end; when not, what came since waits under a button. */
   const atEnd = useRef(true);
   const [below, setBelow] = useState(0);
@@ -852,6 +951,20 @@ function Conversations({
                     </p>
                   )}
                 </div>
+                <button
+                  type="button"
+                  aria-label={t('inbox.searchChat')}
+                  title={t('inbox.searchChat')}
+                  onClick={() => {
+                    setSearchOpen((open) => !open);
+                    setTerm('');
+                  }}
+                  className={`inline-flex size-10 shrink-0 items-center justify-center rounded-full hover:bg-surface-sunken ${
+                    searchOpen ? 'bg-surface-sunken text-content' : 'text-content-secondary'
+                  }`}
+                >
+                  <Search className="size-5" />
+                </button>
                 {thread.phone && (
                   <a
                     href={`https://wa.me/${thread.phone}`}
@@ -866,6 +979,51 @@ function Conversations({
                 )}
               </div>
 
+              {searchOpen && (
+                <div className="flex shrink-0 items-center gap-1.5 border-b border-border-subtle bg-surface px-2 py-1.5">
+                  <Input
+                    autoFocus
+                    value={term}
+                    onChange={(event) => setTerm(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' && hits.length) setHit((index) => (index + 1) % hits.length);
+                      if (event.key === 'Escape') setSearchOpen(false);
+                    }}
+                    placeholder={t('inbox.searchChatPlaceholder')}
+                    iconStart={<Search className="size-4" />}
+                    className="h-9"
+                  />
+                  <span className="shrink-0 px-1 text-xs tabular-nums text-content-tertiary">
+                    {needle ? `${hits.length ? hits.length - Math.min(hit, hits.length - 1) : 0}/${hits.length}` : ''}
+                  </span>
+                  <button
+                    type="button"
+                    aria-label={t('inbox.searchOlder')}
+                    disabled={hits.length < 2}
+                    onClick={() => setHit((index) => (index + 1) % hits.length)}
+                    className="inline-flex size-9 shrink-0 items-center justify-center rounded-full text-content-secondary hover:bg-surface-sunken disabled:opacity-40"
+                  >
+                    <ChevronUp className="size-5" />
+                  </button>
+                  <button
+                    type="button"
+                    aria-label={t('inbox.searchNewer')}
+                    disabled={hits.length < 2}
+                    onClick={() => setHit((index) => (index - 1 + hits.length) % hits.length)}
+                    className="inline-flex size-9 shrink-0 items-center justify-center rounded-full text-content-secondary hover:bg-surface-sunken disabled:opacity-40"
+                  >
+                    <ChevronDown className="size-5" />
+                  </button>
+                  <button
+                    type="button"
+                    aria-label={t('common.close')}
+                    onClick={() => setSearchOpen(false)}
+                    className="inline-flex size-9 shrink-0 items-center justify-center rounded-full text-content-secondary hover:bg-surface-sunken"
+                  >
+                    <X className="size-4" />
+                  </button>
+                </div>
+              )}
               {busy.get(thread.phone ?? '') && (
                 <p className="flex shrink-0 items-center gap-2 border-b border-warning/30 bg-warning-subtle px-3 py-2 text-xs font-semibold text-warning-text">
                   <Headset className="size-4 shrink-0" />
@@ -902,12 +1060,19 @@ function Conversations({
                           {dayChip(message.createdAt, locale, { today: t('inbox.today'), yesterday: t('inbox.yesterday') })}
                         </div>
                       )}
-                      <div className={`group flex items-start gap-1 ${mine ? 'flex-row-reverse' : ''} ${firstOfRun ? 'mt-2' : 'mt-0.5'}`}>
+                      <div
+                        id={`m-${message.id}`}
+                        className={`group relative flex items-start gap-1 ${mine ? 'flex-row-reverse' : ''} ${firstOfRun ? 'mt-2' : 'mt-0.5'} ${
+                          message.reactions?.length ? 'mb-3.5' : ''
+                        }`}
+                      >
                         <div
                           onClick={touch ? () => setTapped((current) => (current === message.id ? null : message.id)) : undefined}
                           className={`wa-bubble max-w-[85%] rounded-lg px-2 pb-1 pt-1 text-[14.5px] leading-snug sm:max-w-[65%] ${
                             mine ? 'wa-out' : 'wa-in'
-                          } ${firstOfRun ? (mine ? 'wa-tail-out rounded-se-none' : 'wa-tail-in rounded-ss-none') : ''}`}
+                          } ${firstOfRun ? (mine ? 'wa-tail-out rounded-se-none' : 'wa-tail-in rounded-ss-none') : ''} ${
+                            shownHit?.id === message.id ? 'ring-2 ring-yellow-400' : ''
+                          }`}
                         >
                           {firstOfRun && writer && (thread.group || mine) && (
                             <p className="mb-0.5 text-[12.5px] font-semibold" style={{ color: colourOf(writer) }}>
@@ -929,7 +1094,11 @@ function Conversations({
                           {message.deleted ? (
                             <span className="italic wa-meta">🚫 {t('inbox.deleted')}</span>
                           ) : (
-                            message.text && <span className="whitespace-pre-wrap break-words">{message.text}</span>
+                            message.text && (
+                              <span className="whitespace-pre-wrap break-words">
+                                <Marked text={message.text} term={needle ? term.trim() : ''} />
+                              </span>
+                            )
                           )}
                           {/* Time and ticks sit at the end of the last line, as WhatsApp sets them. */}
                           <span className="float-end ms-3 mt-1.5 inline-flex translate-y-0.5 items-center gap-1 text-[11px] leading-none wa-meta">
@@ -939,6 +1108,29 @@ function Conversations({
                             </span>
                             {mine && !message.deleted && <Ticks ack={message.ack} />}
                           </span>
+                          {/* Reactions sit on the bubble's lower edge, as WhatsApp draws them. */}
+                          {message.reactions && message.reactions.length > 0 && (
+                            <button
+                              type="button"
+                              disabled={readOnly || !message.reactable}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                setReactingTo(message.id);
+                              }}
+                              className={`absolute -bottom-3.5 ${mine ? 'end-2' : 'start-2'} inline-flex items-center gap-0.5 rounded-full bg-surface px-1.5 py-0.5 text-sm leading-none shadow ring-1 ring-border-subtle`}
+                            >
+                              {message.reactions.map((entry) => (
+                                <span key={entry.emoji} className={entry.mine ? 'drop-shadow' : ''}>
+                                  {entry.emoji}
+                                </span>
+                              ))}
+                              {message.reactions.reduce((sum, entry) => sum + entry.count, 0) > 1 && (
+                                <span className="ms-0.5 text-[11px] text-content-secondary tabular-nums">
+                                  {message.reactions.reduce((sum, entry) => sum + entry.count, 0)}
+                                </span>
+                              )}
+                            </button>
+                          )}
                         </div>
                         {/* What can be done to it: shown on hover, always there on a touch screen. */}
                         {!readOnly && !message.deleted && (!touch || tapped === message.id) && (
@@ -947,6 +1139,33 @@ function Conversations({
                               touch ? '' : 'opacity-0 group-hover:opacity-100 focus-within:opacity-100'
                             }`}
                           >
+                            {message.reactable && (
+                              <span className="relative">
+                                <button
+                                  type="button"
+                                  aria-label={t('inbox.react')}
+                                  title={t('inbox.react')}
+                                  onClick={() => setReactingTo(message.id)}
+                                  className="inline-flex size-7 items-center justify-center rounded-full bg-surface/80 text-content-secondary shadow-sm hover:text-content"
+                                >
+                                  <SmilePlus className="size-3.5" />
+                                </button>
+                              </span>
+                            )}
+                            {(message.text || (message.imageId && (message.mediaKind ?? 'image') === 'image')) && (
+                              <button
+                                type="button"
+                                aria-label={t('inbox.forward')}
+                                title={t('inbox.forward')}
+                                onClick={() => {
+                                  setForwardQuery('');
+                                  setForwarding(message);
+                                }}
+                                className="inline-flex size-7 items-center justify-center rounded-full bg-surface/80 text-content-secondary shadow-sm hover:text-content"
+                              >
+                                <Forward className="size-3.5" />
+                              </button>
+                            )}
                             {message.quotable && (
                               <button
                                 type="button"
@@ -998,6 +1217,15 @@ function Conversations({
                               </button>
                             )}
                           </span>
+                        )}
+                        {reactingTo === message.id && (
+                          <EmojiSheet
+                            emojis={QUICK_REACTIONS}
+                            chosen={message.reactions?.find((entry) => entry.mine)?.emoji ?? null}
+                            onPick={(emoji) => void react(message, emoji)}
+                            onClose={() => setReactingTo(null)}
+                            className={`grid-cols-6 ${mine ? 'end-10' : 'start-10'} -mt-12`}
+                          />
                         )}
                       </div>
                     </Fragment>
@@ -1058,7 +1286,24 @@ function Conversations({
                 )}
                 <div className="flex items-end gap-2">
                   {/* The box as WhatsApp draws it: one rounded field, the clip inside it. */}
-                  <div className="flex min-w-0 flex-1 items-end gap-1 rounded-3xl bg-surface px-1.5 py-1 shadow-sm ring-1 ring-border-subtle focus-within:ring-2 focus-within:ring-[var(--wa-accent)]">
+                  <div className="relative flex min-w-0 flex-1 items-end gap-1 rounded-3xl bg-surface px-1.5 py-1 shadow-sm ring-1 ring-border-subtle focus-within:ring-2 focus-within:ring-[var(--wa-accent)]">
+                  <button
+                    type="button"
+                    aria-label={t('inbox.emoji')}
+                    title={t('inbox.emoji')}
+                    onClick={() => setEmojiOpen((open) => !open)}
+                    className="inline-flex size-9 shrink-0 items-center justify-center rounded-full text-content-secondary hover:bg-surface-sunken hover:text-content"
+                  >
+                    <Smile className="size-5" />
+                  </button>
+                  {emojiOpen && (
+                    <EmojiSheet
+                      emojis={EMOJIS}
+                      onPick={putEmoji}
+                      onClose={() => setEmojiOpen(false)}
+                      className="bottom-full start-0 mb-2 max-h-64 w-[min(22rem,calc(100vw-2rem))] grid-cols-8 overflow-y-auto"
+                    />
+                  )}
                   <input
                     ref={picker}
                     type="file"
@@ -1138,6 +1383,57 @@ function Conversations({
         )}
       </div>
       <Lightbox src={viewing} onClose={() => setViewing(null)} label={t('inbox.photo')} />
+      <Dialog
+        open={forwarding !== null}
+        onClose={() => setForwarding(null)}
+        title={t('inbox.forwardTitle')}
+        description={forwarding?.text ? forwarding.text.slice(0, 120) : t('inbox.photo')}
+      >
+        <div className="space-y-2">
+          <Input
+            value={forwardQuery}
+            onChange={(event) => setForwardQuery(event.target.value)}
+            placeholder={t('inbox.search')}
+            iconStart={<Search className="size-4" />}
+          />
+          <ul className="max-h-[50vh] divide-y divide-border-subtle overflow-y-auto rounded-xl ring-1 ring-border-subtle">
+            {(rows ?? [])
+              .filter((row) => row.id !== thread?.id)
+              .filter((row) => {
+                const words = forwardQuery.trim();
+                if (!words) return true;
+                const digits = words.replace(/\D/g, '');
+                return (row.name ?? '').includes(words) || (Boolean(digits) && (row.phone ?? '').includes(digits));
+              })
+              .slice(0, 60)
+              .map((row) => (
+                <li key={row.id}>
+                  <button
+                    type="button"
+                    disabled={forwardingTo !== null}
+                    onClick={() => void forwardTo(row.id)}
+                    className="flex w-full items-center gap-3 px-3 py-2 text-start hover:bg-surface-sunken disabled:opacity-60"
+                  >
+                    <Avatar name={row.name} phone={row.phone} group={row.group} size="sm" />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-semibold text-content">
+                        {row.name ?? <span className="ltr-content tabular-nums">{phoneOf(row.phone)}</span>}
+                      </span>
+                      {row.name && row.phone && (
+                        <span className="ltr-content block text-xs tabular-nums text-content-tertiary">{phoneOf(row.phone)}</span>
+                      )}
+                    </span>
+                    {forwardingTo === row.id ? (
+                      <span className="size-4 animate-spin rounded-full border-2 border-border-base border-t-primary" />
+                    ) : (
+                      <Forward className="size-4 text-content-tertiary" />
+                    )}
+                  </button>
+                </li>
+              ))}
+          </ul>
+        </div>
+      </Dialog>
       <Dialog
         open={numberGroups !== null}
         onClose={() => setNumberGroups(null)}
