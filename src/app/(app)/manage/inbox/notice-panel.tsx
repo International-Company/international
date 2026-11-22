@@ -1,13 +1,15 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { CheckCircle2, Clock, RotateCcw, Search, Send, X, XCircle } from 'lucide-react';
+import Link from 'next/link';
+import { CheckCircle2, Clock, Receipt, RotateCcw, Search, Send, X, XCircle } from 'lucide-react';
 import { useLocale } from '@/i18n/provider';
 import { api, ApiError } from '@/lib/api-client';
 import { say } from '@/lib/failure';
 import { Button, Skeleton } from '@/ui/primitives';
 import { useToast } from '@/ui/overlay';
 import { cn } from '@/ui/utils';
+import { RemitForm } from './remit-form';
 
 /**
  * A remittance notice beside the customer's conversation, followed step by
@@ -46,6 +48,8 @@ export interface NoticeLine {
   decidedAt: string | null;
   decidedByName: string | null;
   note: string | null;
+  /** The remittance it was paid out as, once it is. */
+  transactionId?: string | null;
   createdAt: string;
   replyCount?: number;
 }
@@ -81,11 +85,14 @@ export function NoticePanel({
   noticeId,
   onClose,
   onChanged,
+  onDraft,
 }: {
   noticeId: string;
   onClose: () => void;
   /** Something changed that the notices' list should show. */
   onChanged: () => void;
+  /** Words for the customer, put in their conversation's box to be read over and sent. */
+  onDraft?: (chatId: string, text: string) => void;
 }) {
   const { t } = useLocale();
   const toast = useToast();
@@ -384,6 +391,7 @@ export function NoticePanel({
                   {t(`inbox.notice.status.${notice.status}`)}
                   {notice.decidedByName && <span className="font-normal text-content-tertiary">· {notice.decidedByName}</span>}
                 </span>
+                {!notice.transactionId && (
                 <button
                   type="button"
                   onClick={() => void act('reopen', { action: 'reopen' })}
@@ -392,6 +400,7 @@ export function NoticePanel({
                   <RotateCcw className="size-3.5" />
                   {t('inbox.notice.reopen')}
                 </button>
+                )}
               </div>
             ) : (
               <div className="grid grid-cols-2 gap-2">
@@ -415,12 +424,30 @@ export function NoticePanel({
                 </Button>
               </div>
             )}
-            {notice.status === 'CONFIRMED' && (
-              <p className="mt-2 rounded-lg bg-success-subtle/50 px-2.5 py-2 text-xs text-success-text">
-                {t('inbox.notice.nextStep')}
-              </p>
+            {notice.status === 'CONFIRMED' && notice.transactionId && (
+              <Link
+                href={`/manage/transactions/${notice.transactionId}`}
+                className="mt-2 flex items-center gap-2 rounded-lg bg-success-subtle/60 px-2.5 py-2 text-xs font-semibold text-success-text hover:underline"
+              >
+                <Receipt className="size-4" />
+                {t('inbox.remit.made')}
+              </Link>
             )}
           </section>
+        )}
+        {notice.status === 'CONFIRMED' && !notice.transactionId && (
+          <RemitForm
+            noticeId={notice.id}
+            network={notice.network}
+            amount={notice.amount}
+            currency={notice.currency}
+            customerName={notice.customerName}
+            onDone={(result) => {
+              setNotice(result.notice as NoticeDetail);
+              onChanged();
+              onDraft?.(notice.chatId, result.draft);
+            }}
+          />
         )}
       </div>
     </div>

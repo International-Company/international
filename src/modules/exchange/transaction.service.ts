@@ -141,8 +141,19 @@ export async function record(
   if (!isRemittance && input.fromCurrency === input.toCurrency) {
     throw errors.precondition('Both sides are the same currency', 'errors.sameCurrencyPair');
   }
-  // PayPal received is the one exception: dollars in, paid out in shekels or another.
-  if (isRemittance && input.type !== 'PAYPAL_IN' && input.fromCurrency !== input.toCurrency) {
+  /*
+   * A received remittance is the exception: dollars credited, paid out in
+   * shekels at the board — PayPal at the counter, any network from a notice
+   * taken on WhatsApp. The credit goes to its balance in its own currency and
+   * the payout leaves in its own, so the books balance either way; the remittance
+   * service decides which paths may convert. Sending stays one currency.
+   */
+  if (
+    isRemittance &&
+    input.type !== 'PAYPAL_IN' &&
+    input.type !== 'REMITTANCE_IN' &&
+    input.fromCurrency !== input.toCurrency
+  ) {
     throw errors.precondition(
       'A remittance settles in one currency on both sides',
       'errors.remittanceCurrencyMismatch',

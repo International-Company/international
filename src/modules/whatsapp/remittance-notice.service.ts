@@ -4,6 +4,10 @@ import { errors } from '@/core/errors/app-error';
 import { createLogger } from '@/core/logger/logger';
 import { customerNames, shownName } from './chat-names';
 import { answer, followGroup } from './teller-whatsapp.service';
+import { toDecimalString } from '@/core/money/money';
+import * as remittances from '@/modules/exchange/remittance.service';
+import { quoteExchange } from '@/modules/exchange/rates.service';
+import type { Actor } from '@/modules/exchange/transaction.service';
 
 const log = createLogger('whatsapp:notices');
 
@@ -141,6 +145,9 @@ export async function decideNotice(ownerId: string, id: string, decision: 'CONFI
 
 /** Back to checking: a decision taken by mistake. */
 export async function reopenNotice(ownerId: string, id: string) {
+  // Paid out already: what was decided stands with the remittance made from it.
+  const paid = await owned(ownerId, id);
+  if (paid.transactionId) throw errors.precondition('Already paid out', 'errors.noticeAlreadyPaid');
   const notice = await owned(ownerId, id);
   if (notice.transactionId) throw errors.conflict('This notice is already paid out', 'errors.noticeDecided');
   await prisma.remittanceNotice.update({
@@ -231,4 +238,112 @@ export async function listNotices(ownerId: string) {
     }),
   );
   return rows.map((row, index) => ({ ...noticeLine(row), replyCount: counts[index] ?? 0 }));
+}
+
+// ---------------------------------------------------------------------------
+// Paid out: a confirmed notice made the incoming remittance it is
+// ---------------------------------------------------------------------------
+
+/** What the form offers: where it came through, where it may be paid, in what money. */
+export async function remitOptions(ownerId: string, id: string) {
+  const notice = await owned(ownerId, id);
+  const [settings, currencies] = await Promise.all([
+    remittances.config(),
+    prisma.currency.findMany({
+      where: { isActive: true, kind: 'FIAT' },
+      orderBy: { sortOrder: 'asc' },
+      select: { code: true, nameAr: true, nameEn: true },
+    }),
+  ]);
+  // The correspondent the network's name points to, when the manager's list has it.
+  const word = NETWORK_WORDS[(notice.network as Network) ?? 'OTHER'];
+  const suggested =
+    settings.destinations.find((entry) => entry.includes(word.split(' ')[0]!)) ??
+    settings.destinations.find((entry) => word.includes(entry)) ??
+    null;
+  return {
+    destinations: settings.destinations,
+    channels: settings.transferChannels,
+    currencies,
+    suggested,
+  };
+}
+
+/** What a sum comes to in the money it is paid out in, at the board, as the counter prices it. */
+export async function quoteRemit(ownerId: string, id: string, amount: bigint, from: string, to: string) {
+  await owned(ownerId, id);
+  if (amount <= 0n || from === to) return { toAmount: amount, rate: 100_000_000n };
+  const quoted = await quoteExchange(from, to, amount, 'CASH');
+  return { toAmount: quoted.toAmount, rate: quoted.rate };
+}
+
+export interface RemitInput {
+  destination: string;
+  currency: string;
+  credited: bigint;
+  payCurrency: string;
+  paid: bigint;
+  /** Paid by transfer to the customer's bank or wallet; otherwise in notes at the counter. */
+  payoutChannel?: string | null;
+  payoutAccount?: string | null;
+  recipientName?: string | null;
+  recipientIdNumber?: string | null;
+}
+
+const figure = (value: bigint) => toDecimalString(value, 2).replace(/\.00$/, '');
+
+/**
+ * The remittance a confirmed notice is paid out as: received from the
+ * correspondent, paid to the customer at the board's rate, in notes or to their
+ * bank — which puts it on the bank desk with every other transfer to make. The
+ * notice's photo goes with it. Comes back with the words for the customer,
+ * for the teller to read over before they are sent.
+ */
+export async function remitNotice(ownerId: string, id: string, input: RemitInput, actor: Actor) {
+  const notice = await owned(ownerId, id);
+  if (notice.status !== 'CONFIRMED') {
+    throw errors.precondition('Only a confirmed notice is paid out', 'errors.noticeNotConfirmed');
+  }
+  if (notice.transactionId) throw errors.precondition('Already paid out', 'errors.noticeAlreadyPaid');
+  if (!actor.branchId) throw errors.precondition('No branch is assigned', 'errors.noBranch');
+
+  const image = await prisma.chatImage.findUnique({ where: { id: notice.imageId }, select: { data: true } });
+  const paypal = notice.network === 'PAYPAL';
+  const bank = Boolean(input.payoutChannel?.trim());
+  const posted = await remittances.receive(
+    {
+      currency: input.currency.toUpperCase(),
+      destination: paypal ? remittances.PAYPAL_DESTINATION : input.destination,
+      paypal,
+      convert: true,
+      branchId: actor.branchId,
+      counterpartyName: notice.customerName,
+      counterpartyPhone: notice.customerPhone,
+      notes: `إشعار واتساب — ${NETWORK_WORDS[notice.network as Network] ?? ''}`.trim(),
+      credited: input.credited,
+      paid: input.paid,
+      payCurrency: input.payCurrency.toUpperCase(),
+      notice: image ? Buffer.from(image.data).toString('base64') : null,
+      recipientName: input.recipientName?.trim() || notice.customerName,
+      recipientPhone: notice.customerPhone,
+      recipientIdNumber: input.recipientIdNumber?.trim() || null,
+      payoutBank: bank ? input.paid : null,
+      payoutChannel: bank ? input.payoutChannel!.trim() : null,
+      payoutAccount: bank ? input.payoutAccount?.trim() || null : null,
+    },
+    actor,
+  );
+  await prisma.remittanceNotice.update({ where: { id: notice.id }, data: { transactionId: posted.id } });
+  log.info('A notice was paid out as a remittance', { notice: notice.id });
+
+  const paidText = `${figure(input.paid)} ${input.payCurrency.toUpperCase()}`;
+  const draft = [
+    `تم استلام حوالتك ✅`,
+    `المبلغ: ${figure(input.credited)} ${input.currency.toUpperCase()}`,
+    bank
+      ? `سيتم تحويل ${paidText} إلى حسابك في ${input.payoutChannel!.trim()}${input.payoutAccount?.trim() ? ` (${input.payoutAccount.trim()})` : ''}`
+      : `المبلغ ${paidText} جاهز للاستلام من المكتب`,
+    `رقم المعاملة: ${posted.reference}`,
+  ].join('\n');
+  return { notice: await noticeDetail(ownerId, id), transaction: { id: posted.id, reference: posted.reference }, draft };
 }

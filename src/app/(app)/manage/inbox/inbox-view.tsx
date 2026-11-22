@@ -1804,6 +1804,16 @@ function Conversations({
                 noticeId={activeNotice}
                 onClose={() => setActiveNotice(null)}
                 onChanged={() => void loadNotices()}
+                onDraft={(chatId, text) => {
+                  // The customer's conversation, open, with the words in its box to read over.
+                  if (selected !== chatId) {
+                    setThread(null);
+                    setSelected(chatId);
+                  }
+                  setDraft(text);
+                  setActiveNotice(null);
+                  requestAnimationFrame(() => box.current?.focus());
+                }}
               />
             </Card>
           </div>

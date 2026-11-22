@@ -145,6 +145,11 @@ export interface ReceiveInput extends Common {
    * — shekels, mostly. `paid` is then in this currency.
    */
   payCurrency?: string | null;
+  /**
+   * Paid out in other money at the board's rate, whatever the network: a
+   * notice taken from WhatsApp is dollars in, shekels to the customer's bank.
+   */
+  convert?: boolean;
   /** What the sender paid abroad, in the money they paid it in — 1500 جنيه. For showing only. */
   sentAmount?: bigint | null;
   sentUnit?: string | null;
@@ -569,7 +574,7 @@ export async function receive(input: ReceiveInput, actor: Actor, db: DbClient = 
   // Paid out in other money: PayPal only, and the profit is read off the board.
   const payCurrency = input.payCurrency?.trim().toUpperCase() || input.currency;
   const converted = payCurrency !== input.currency;
-  if (converted && !input.paypal) {
+  if (converted && !input.paypal && !input.convert) {
     throw errors.precondition(
       'A remittance settles in one currency on both sides',
       'errors.remittanceCurrencyMismatch',
