@@ -337,12 +337,27 @@ export async function syncAllWallets(db: DbClient = prisma): Promise<SyncResult[
 // One transaction, by its hash
 // ---------------------------------------------------------------------------
 
-/** The hash as each chain writes it: EVM chains with `0x`, TRON without. */
-export function hashFamily(raw: string): { hash: string; networks: string[] } | null {
+/**
+ * The chains a hash may be on, as it was pasted. TRON writes its hashes bare;
+ * BNB Chain and Ethereum with `0x` — but a wallet or an exchange often shows
+ * those bare too, so a bare one is looked for on all three.
+ */
+export function hashFamilies(raw: string): { hash: string; networks: string[] }[] {
   const text = raw.trim().replace(/^.*\/(?:tx|transaction)\/([0-9a-fA-Fx]+).*$/, '$1');
-  if (/^0x[0-9a-fA-F]{64}$/.test(text)) return { hash: text.toLowerCase(), networks: ['BSC', 'ETHEREUM'] };
-  if (/^[0-9a-fA-F]{64}$/.test(text)) return { hash: text.toLowerCase(), networks: ['TRON'] };
-  return null;
+  if (/^0x[0-9a-fA-F]{64}$/.test(text)) return [{ hash: text.toLowerCase(), networks: ['BSC', 'ETHEREUM'] }];
+  if (/^[0-9a-fA-F]{64}$/.test(text)) {
+    const bare = text.toLowerCase();
+    return [
+      { hash: bare, networks: ['TRON'] },
+      { hash: `0x${bare}`, networks: ['BSC', 'ETHEREUM'] },
+    ];
+  }
+  return [];
+}
+
+/** The first chain a hash may be on — kept for what reads one. */
+export function hashFamily(raw: string): { hash: string; networks: string[] } | null {
+  return hashFamilies(raw)[0] ?? null;
 }
 
 /**
@@ -352,32 +367,45 @@ export function hashFamily(raw: string): { hash: string; networks: string[] } | 
  * A link pasted from an explorer is read for the hash inside it.
  */
 export async function findByHash(raw: string, db: DbClient = prisma): Promise<string[]> {
-  const family = hashFamily(raw);
-  if (!family) throw errors.precondition('Not a transaction hash', 'errors.txHashInvalid');
-
-  const wallets = await db.wallet.findMany({
-    where: { isActive: true, isCounterAddress: true, network: { in: family.networks } },
-  });
-  if (wallets.length === 0) throw errors.precondition('No counter address on that network', 'errors.txNoAddress');
+  const families = hashFamilies(raw);
+  if (families.length === 0) throw errors.precondition('Not a transaction hash', 'errors.txHashInvalid');
 
   let known = false;
   let reached = false;
-  for (const wallet of wallets) {
-    const provider = await providerForWallet(wallet, db);
-    if (!provider.fetchTransaction) continue;
-    reached = true;
-    const transfers = await provider.fetchTransaction(family.hash, wallet.address, wallet.contractAddress);
-    if (transfers === null) continue;
-    known = true;
-    for (const transfer of transfers) await ingestTransfer(wallet.id, { ...transfer, txHash: family.hash }, db);
+  let anyWallet = false;
+  let failed = false;
+  for (const family of families) {
+    const wallets = await db.wallet.findMany({
+      where: { isActive: true, isCounterAddress: true, network: { in: family.networks } },
+    });
+    if (wallets.length === 0) continue;
+    anyWallet = true;
+    for (const wallet of wallets) {
+      const provider = await providerForWallet(wallet, db);
+      if (!provider.fetchTransaction) continue;
+      reached = true;
+      // One chain not answering must not stop the next from being asked.
+      const transfers = await provider
+        .fetchTransaction(family.hash, wallet.address, wallet.contractAddress)
+        .catch((error) => {
+          log.warn('A chain did not answer a hash lookup', { network: wallet.network, error });
+          failed = true;
+          return null;
+        });
+      if (transfers === null) continue;
+      known = true;
+      for (const transfer of transfers) await ingestTransfer(wallet.id, { ...transfer, txHash: family.hash }, db);
+    }
+    const found = await db.chainTransaction.findMany({
+      where: { txHash: family.hash, direction: 'IN', walletId: { in: wallets.map((wallet) => wallet.id) } },
+      select: { id: true },
+    });
+    if (found.length > 0) return found.map((row) => row.id);
   }
-
-  const found = await db.chainTransaction.findMany({
-    where: { txHash: family.hash, direction: 'IN', walletId: { in: wallets.map((wallet) => wallet.id) } },
-    select: { id: true },
-  });
-  if (found.length > 0) return found.map((row) => row.id);
+  if (!anyWallet) throw errors.precondition('No counter address on that network', 'errors.txNoAddress');
   if (!reached) throw errors.precondition('That network cannot be asked by hash', 'errors.txNoAddress');
+  // Not known, but a chain did not answer: said so, rather than that the hash does not exist.
+  if (!known && failed) throw errors.precondition('The chain did not answer', 'errors.txChainBusy');
   if (!known) throw errors.precondition('The chain does not know that hash', 'errors.txNotFound');
   throw errors.precondition('That transaction did not pay a counter address', 'errors.txNotOurs');
 }

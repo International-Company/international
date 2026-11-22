@@ -3442,6 +3442,7 @@ const en = {
     txNoAddress: 'There is no counter address on that network',
     txNotFound: 'The chain does not know that hash — check it, or wait a moment',
     txNotOurs: 'That transaction did not pay any counter address',
+    txChainBusy: 'The network did not answer just now — try again in a moment',
     inboxBadNumber: 'Enter a valid number, like 0599123456 or +970599123456',
     inboxNoWhatsapp: 'That number has no WhatsApp',
     inboxDailyCeiling: "Today's limit of new conversations is reached ({count}). It can be changed in the WhatsApp settings",

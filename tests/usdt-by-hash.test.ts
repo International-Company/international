@@ -78,6 +78,20 @@ describe('a BEP-20 transfer found by its hash', () => {
   });
 });
 
+describe('a pasted hash', () => {
+  it('is looked for on TRON and on BNB Chain when it comes without 0x', async () => {
+    const { hashFamilies } = await import('../src/modules/usdt/sync.service.ts');
+    const bare = 'AB'.repeat(32);
+    assert.deepEqual(hashFamilies(bare), [
+      { hash: 'ab'.repeat(32), networks: ['TRON'] },
+      { hash: `0x${'ab'.repeat(32)}`, networks: ['BSC', 'ETHEREUM'] },
+    ]);
+    assert.deepEqual(hashFamilies(`0x${'cd'.repeat(32)}`), [{ hash: `0x${'cd'.repeat(32)}`, networks: ['BSC', 'ETHEREUM'] }]);
+    assert.equal(hashFamilies(`https://bscscan.com/tx/0x${'ef'.repeat(32)}`)[0]?.hash, `0x${'ef'.repeat(32)}`);
+    assert.deepEqual(hashFamilies('12345'), []);
+  });
+});
+
 describe('a TRC-20 transfer found by its hash', () => {
   it('writes an event address the way TRON does', () => {
     assert.equal(tronAddress('0xa614f803b6fd780986a42c78ec9c7f77e6ded13c'), 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t');
