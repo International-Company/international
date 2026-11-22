@@ -516,3 +516,95 @@
     animation: none;
   }
 }
+
+/* ---------------------------------------------------------------------------
+   The customers' WhatsApp: the colours and shapes people already read every
+   day, so a conversation here is read at a glance the way it is on the phone.
+--------------------------------------------------------------------------- */
+:root {
+  --wa-wall: #efeae2;
+  --wa-wall-dot: rgba(120, 100, 80, 0.07);
+  --wa-in: #ffffff;
+  --wa-out: #d9fdd3;
+  --wa-text: #111b21;
+  --wa-meta: #667781;
+  --wa-tick-read: #53bdeb;
+  --wa-chip: #ffffffe6;
+  --wa-accent: #00a884;
+}
+
+.dark {
+  --wa-wall: #0b141a;
+  --wa-wall-dot: rgba(255, 255, 255, 0.025);
+  --wa-in: #202c33;
+  --wa-out: #005c4b;
+  --wa-text: #e9edef;
+  --wa-meta: #8696a0;
+  --wa-tick-read: #53bdeb;
+  --wa-chip: #182229e6;
+  --wa-accent: #00a884;
+}
+
+.wa-wall {
+  background-color: var(--wa-wall);
+  background-image: radial-gradient(var(--wa-wall-dot) 1.2px, transparent 1.3px),
+    radial-gradient(var(--wa-wall-dot) 1.2px, transparent 1.3px);
+  background-size: 22px 22px;
+  background-position: 0 0, 11px 11px;
+}
+
+.wa-bubble {
+  position: relative;
+  color: var(--wa-text);
+  box-shadow: 0 1px 0.5px rgba(11, 20, 26, 0.13);
+}
+.wa-in {
+  background: var(--wa-in);
+}
+.wa-out {
+  background: var(--wa-out);
+}
+
+/* The little tail on the first message of a run, on the side it came from. */
+.wa-tail-in::before,
+.wa-tail-out::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  width: 8px;
+  height: 13px;
+}
+.wa-tail-in::before {
+  inset-inline-start: -8px;
+  background: var(--wa-in);
+  clip-path: polygon(0 0, 100% 0, 100% 100%);
+}
+.wa-tail-out::before {
+  inset-inline-end: -8px;
+  background: var(--wa-out);
+  clip-path: polygon(0 0, 100% 0, 0 100%);
+}
+[dir='rtl'] .wa-tail-in::before {
+  clip-path: polygon(0 0, 100% 0, 0 100%);
+}
+[dir='rtl'] .wa-tail-out::before {
+  clip-path: polygon(0 0, 100% 0, 100% 100%);
+}
+
+.wa-meta {
+  color: var(--wa-meta);
+}
+.wa-chip {
+  background: var(--wa-chip);
+  color: var(--wa-meta);
+  box-shadow: 0 1px 0.5px rgba(11, 20, 26, 0.13);
+}
+.wa-read {
+  color: var(--wa-tick-read);
+}
+.wa-accent-bg {
+  background: var(--wa-accent);
+}
+.wa-accent-text {
+  color: var(--wa-accent);
+}

@@ -1,6 +1,7 @@
 'use client';
 
 import {
+  Fragment,
   useCallback,
   useEffect,
   useRef,
@@ -11,6 +12,8 @@ import {
 import {
   ArrowLeft,
   BadgeDollarSign,
+  ChevronDown,
+  Copy,
   Eye,
   Users,
   Headset,
@@ -36,6 +39,7 @@ import { Badge, Button, Card, EmptyState, PageHeader, Skeleton } from '@/ui/prim
 import { Field, Input, Textarea } from '@/ui/form';
 import { shrinkPhoto } from '@/ui/proof-photo';
 import { checkingLate, NoticePanel, STATUS_STYLE, type NoticeLine } from './notice-panel';
+import { Avatar, clockOf, colourOf, dayChip, dayKeyOf, Lightbox, listTime, Ticks } from './chat-ui';
 
 interface ChatRow {
   id: string;
@@ -48,6 +52,9 @@ interface ChatRow {
   awaiting: boolean;
   /** A group the number is in, rather than one person. */
   group?: boolean;
+  /** The last message was ours, and how far it got. */
+  lastFromMe?: boolean;
+  lastAck?: number | null;
 }
 
 interface Message {
@@ -65,6 +72,8 @@ interface Message {
   /** Its words were changed after it went; it was deleted for the customer. */
   edited?: boolean;
   deleted?: boolean;
+  /** One of ours: how far it got — 2 sent, 3 delivered, 4 read. */
+  ack?: number | null;
   /** What may still be done to it: WhatsApp allows each only for a while. */
   editable?: boolean;
   deletable?: boolean;
@@ -82,7 +91,7 @@ interface Thread {
 const phoneOf = (phone: string | null) => (phone ? `+${phone}` : null);
 
 /** A file in a message: a photo to open, a sound or video to play, a document to save. */
-function MediaView({ message }: { message: Message }) {
+function MediaView({ message, onOpen }: { message: Message; onOpen: (src: string) => void }) {
   const { t } = useLocale();
   const src = `/api/inbox/images/${message.imageId}`;
   switch (message.mediaKind) {
@@ -101,7 +110,7 @@ function MediaView({ message }: { message: Message }) {
       return (
         <a
           href={src}
-          className="mb-1 flex items-center gap-2 rounded-xl bg-surface-sunken px-3 py-2 text-sm font-medium text-primary-text hover:underline"
+          className="mb-1 flex items-center gap-2 rounded-md bg-black/5 px-3 py-2.5 text-sm font-medium hover:underline dark:bg-white/5"
         >
           <FileText className="size-5 shrink-0" />
           {t('inbox.document')}
@@ -109,20 +118,15 @@ function MediaView({ message }: { message: Message }) {
       );
     default:
       return (
-        <a
-          href={src}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="-mx-1 -mt-0.5 mb-1 block"
-        >
+        <button type="button" onClick={() => onOpen(src)} className="-mx-1 -mt-0.5 mb-1 block w-[calc(100%+0.5rem)]">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={src}
             alt={t('inbox.photo')}
             loading="lazy"
-            className="max-h-72 w-full rounded-xl object-cover"
+            className="max-h-80 w-full min-w-[12rem] rounded-md object-cover"
           />
-        </a>
+        </button>
       );
   }
 }
@@ -131,13 +135,16 @@ function MediaView({ message }: { message: Message }) {
 function QuoteLine({ message, onClose }: { message: Message | null; onClose?: () => void }) {
   const { t } = useLocale();
   return (
-    <div className="mb-1 flex items-start gap-2 rounded-lg border-s-4 border-primary bg-surface-sunken/80 px-2 py-1 text-xs">
+    <div
+      className="mb-1 flex items-start gap-2 rounded-md border-s-4 bg-black/5 px-2 py-1 text-xs dark:bg-white/5"
+      style={{ borderInlineStartColor: colourOf(message?.authorName ?? message?.role ?? '') }}
+    >
       <span className="min-w-0 flex-1">
-        <span className="block font-semibold text-primary-text">
-          {message ? t(`inbox.role.${message.role}`) : t('inbox.quoteEarlier')}
+        <span className="block font-semibold" style={{ color: colourOf(message?.authorName ?? message?.role ?? '') }}>
+          {message ? (message.authorName ?? t(`inbox.role.${message.role}`)) : t('inbox.quoteEarlier')}
         </span>
         {message && (
-          <span className="line-clamp-2 text-content-secondary">
+          <span className="line-clamp-2 wa-meta">
             {message.text || (message.mediaKind ? t(`inbox.kind.${message.mediaKind}`) : '')}
           </span>
         )}
@@ -189,6 +196,7 @@ function Conversations({
 }) {
   const { t } = useLocale();
   const toast = useToast();
+  const { locale } = useLocale();
   const [rows, setRows] = useState<ChatRow[] | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [thread, setThread] = useState<Thread | null>(null);
@@ -408,18 +416,59 @@ function Conversations({
     return () => clearInterval(timer);
   }, [selected, read]);
 
-  const lastId = thread?.messages.at(-1)?.id;
+  /** A photo opened over everything. */
+  const [viewing, setViewing] = useState<string | null>(null);
+  /** On a touch screen: the message tapped, whose actions are shown beside it. */
+  const [tapped, setTapped] = useState<string | null>(null);
+  /** Whether the conversation is read at its end; when not, what came since waits under a button. */
+  const atEnd = useRef(true);
+  const [below, setBelow] = useState(0);
+  const [nearEnd, setNearEnd] = useState(true);
+  const toEnd = useCallback((smooth = false) => {
+    const list = scroller.current;
+    if (list) list.scrollTo({ top: list.scrollHeight, behavior: smooth ? 'smooth' : 'auto' });
+    atEnd.current = true;
+    setNearEnd(true);
+    setBelow(0);
+  }, []);
+  const onScroll = () => {
+    const list = scroller.current;
+    if (!list) return;
+    atEnd.current = list.scrollHeight - list.scrollTop - list.clientHeight < 120;
+    setNearEnd(atEnd.current);
+    if (atEnd.current) setBelow(0);
+  };
+
+  // A conversation opens at its end.
+  const openId = thread?.id;
   useEffect(() => {
-    // The conversation scrolls inside its own box, never the page under it. Photos
-    // load after it is drawn and push the end down, so it is followed once more.
-    const toEnd = () => {
-      const list = scroller.current;
-      if (list) list.scrollTop = list.scrollHeight;
-    };
+    if (!openId) return;
     toEnd();
-    const later = [setTimeout(toEnd, 400), setTimeout(toEnd, 1500)];
+    // Photos load after it is drawn and push the end down, so it is followed once more.
+    const later = [setTimeout(() => toEnd(), 400), setTimeout(() => toEnd(), 1500)];
     return () => later.forEach(clearTimeout);
-  }, [lastId]);
+  }, [openId, toEnd]);
+
+  // Something new: followed when reading at the end or when it is ours, else counted on the button.
+  const lastId = thread?.messages.at(-1)?.id;
+  const lastMine = thread?.messages.at(-1)?.role !== 'customer';
+  const seenLast = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (!lastId || seenLast.current === lastId) return;
+    const first = seenLast.current === undefined;
+    seenLast.current = lastId;
+    if (first) return;
+    if (atEnd.current || lastMine) {
+      toEnd(true);
+      const later = setTimeout(() => toEnd(), 500);
+      return () => clearTimeout(later);
+    }
+    setBelow((count) => count + 1);
+  }, [lastId, lastMine, toEnd]);
+  useEffect(() => {
+    seenLast.current = undefined;
+    setBelow(0);
+  }, [openId]);
 
   // The box grows with what is typed, up to a few lines, then scrolls.
   useEffect(() => {
@@ -702,18 +751,35 @@ function Conversations({
                     setPhoto(null);
                     setQuote(null);
                   }}
-                  className={`block w-full border-b border-border-subtle px-4 py-3 text-start transition-colors last:border-b-0 ${
-                    selected === row.id ? 'bg-primary-subtle' : 'hover:bg-surface-sunken'
+                  className={`flex w-full items-center gap-3 px-3 py-2.5 text-start transition-colors ${
+                    selected === row.id ? 'bg-surface-sunken' : 'hover:bg-surface-sunken/60'
                   }`}
                 >
+                  <Avatar name={row.name} phone={row.phone} group={row.group} />
+                  <span className="min-w-0 flex-1 border-b border-border-subtle pb-2.5">
                   <span className="flex items-center justify-between gap-2">
-                    <span className="flex min-w-0 items-center gap-1.5 truncate text-sm font-semibold text-content">
-                      {row.group && <Users className="size-4 shrink-0 text-primary-text" aria-label={t('inbox.group')} />}
+                    <span className="flex min-w-0 items-center gap-1.5 truncate text-[15px] font-semibold text-content">
                       {row.name ?? (
                         <span className="ltr-content tabular-nums">
                           {phoneOf(row.phone) ?? t('inbox.phoneHidden')}
                         </span>
                       )}
+                    </span>
+                    <span
+                      className={`shrink-0 text-[11px] tabular-nums ${row.unread > 0 ? 'font-semibold wa-accent-text' : 'text-content-tertiary'}`}
+                      title={when(row.lastMessageAt)}
+                    >
+                      {listTime(row.lastMessageAt, t('inbox.yesterday'))}
+                    </span>
+                  </span>
+                  <span className="mt-0.5 flex items-center justify-between gap-2">
+                    <span
+                      className={`flex min-w-0 items-center gap-1 truncate text-[13px] ${
+                        row.unread > 0 ? 'font-semibold text-content' : 'text-content-secondary'
+                      }`}
+                    >
+                      {row.lastFromMe && <Ticks ack={row.lastAck ?? null} className="shrink-0 wa-meta" />}
+                      <span className="truncate">{row.lastText}</span>
                     </span>
                     {busy.get(row.phone ?? '') ? (
                       <span
@@ -728,29 +794,17 @@ function Conversations({
                         </span>
                       </span>
                     ) : row.unread > 0 ? (
-                      <span className="inline-flex min-w-5 shrink-0 items-center justify-center rounded-full bg-success px-1.5 text-[11px] font-bold leading-5 text-white tabular-nums">
+                      <span className="inline-flex min-w-5 shrink-0 items-center justify-center rounded-full px-1.5 text-[11px] font-bold leading-5 text-white tabular-nums wa-accent-bg">
                         {row.unread > 99 ? '99+' : row.unread}
                       </span>
                     ) : (
-                      row.awaiting && <Badge tone="warning">{t('inbox.awaiting')}</Badge>
+                      row.awaiting && (
+                        <span className="shrink-0 rounded-full bg-warning-subtle px-1.5 py-px text-[10px] font-semibold text-warning-text">
+                          {t('inbox.awaiting')}
+                        </span>
+                      )
                     )}
                   </span>
-                  {row.name && row.phone && (
-                    <span className="mt-0.5 block text-[11px] text-content-tertiary">
-                      <span className="ltr-content inline-block tabular-nums">
-                        {phoneOf(row.phone)}
-                      </span>
-                    </span>
-                  )}
-                  <span
-                    className={`mt-1 block truncate text-xs ${
-                      row.unread > 0 ? 'font-semibold text-content' : 'text-content-secondary'
-                    }`}
-                  >
-                    {row.lastText}
-                  </span>
-                  <span className="mt-1 block text-xs tabular-nums text-content-tertiary">
-                    {when(row.lastMessageAt)}
                   </span>
                 </button>
               ))
@@ -772,7 +826,7 @@ function Conversations({
             </div>
           ) : (
             <>
-              <div className="flex shrink-0 items-center gap-2 border-b border-border-subtle px-2 py-2 sm:px-4">
+              <div className="flex shrink-0 items-center gap-2.5 border-b border-border-subtle bg-surface px-2 py-2 sm:px-4">
                 <button
                   type="button"
                   aria-label={t('inbox.back')}
@@ -781,6 +835,7 @@ function Conversations({
                 >
                   <ArrowLeft className="size-5 rtl:-scale-x-100" />
                 </button>
+                <Avatar name={thread.name} phone={thread.phone} group={thread.group} size="sm" />
                 <div className="min-w-0 flex-1 text-start">
                   <p className="truncate text-sm font-semibold text-content">
                     {thread.name ?? (
@@ -819,93 +874,160 @@ function Conversations({
                     : t('inbox.busyWith', { name: busy.get(thread.phone ?? '')!.name })}
                 </p>
               )}
+              <div className="relative flex min-h-0 flex-1 flex-col">
               <div
                 ref={scroller}
-                className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto overscroll-contain bg-surface-sunken p-3"
+                onScroll={onScroll}
+                className="wa-wall flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain px-3 pb-3 pt-1 sm:px-[5%]"
               >
-                {thread.messages.map((message) => (
-                  <div
-                    key={message.id}
-                    className={`group max-w-[88%] rounded-2xl px-3 py-2 text-sm sm:max-w-[75%] ${
-                      message.role === 'customer'
-                        ? 'self-start bg-surface text-content ring-1 ring-border-subtle'
-                        : message.role === 'staff'
-                          ? 'self-end bg-success-subtle text-content'
-                          : 'self-end bg-primary-subtle text-content'
-                    }`}
-                  >
-                    {message.quotedId !== undefined && message.quotedId !== null && (
-                      <QuoteLine
-                        message={
-                          thread.messages.find((other) => other.id === message.quotedId) ?? null
-                        }
-                      />
-                    )}
-                    {message.imageId && <MediaView message={message} />}
-                    {withNotices && message.imageId && message.role === 'customer' && !message.deleted && (
-                      <button
-                        type="button"
-                        onClick={() => void takeNotice(message.id)}
-                        className="mb-1 inline-flex items-center gap-1 rounded-full bg-primary-subtle px-2.5 py-1 text-[11px] font-bold text-primary-text hover:bg-primary/15"
-                      >
-                        <BadgeDollarSign className="size-3.5" />
-                        {t('inbox.notice.take')}
-                      </button>
-                    )}
-                    {message.deleted ? (
-                      <span className="italic text-content-tertiary">🚫 {t('inbox.deleted')}</span>
-                    ) : (
-                      message.text && (
-                        <span className="whitespace-pre-wrap break-words">{message.text}</span>
-                      )
-                    )}
-                    <span className="mt-1 flex items-center gap-1 text-[11px] text-content-tertiary">
-                      <span className="min-w-0 flex-1">
-                        {message.authorName
-                          ? message.authorName
-                          : t(`inbox.role.${message.role}`)}{' '}
-                        · <span className="tabular-nums">{when(message.createdAt)}</span>
-                        {message.edited && !message.deleted && <> · {t('inbox.edited')}</>}
-                      </span>
-                      {!readOnly && message.editable && (
-                        <button
-                          type="button"
-                          aria-label={t('inbox.edit')}
-                          title={t('inbox.edit')}
-                          onClick={() => setEditing({ id: message.id, text: message.text })}
-                          className="inline-flex size-6 shrink-0 items-center justify-center rounded-full text-content-tertiary hover:bg-surface-sunken hover:text-content sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100"
-                        >
-                          <Pencil className="size-3.5" />
-                        </button>
+                {thread.messages.map((message, index) => {
+                  const before = thread.messages[index - 1];
+                  const mine = message.role !== 'customer';
+                  const newDay = !before || dayKeyOf(before.createdAt) !== dayKeyOf(message.createdAt);
+                  // A run: one side, one writer, one day — only its first has the tail and the name.
+                  const firstOfRun =
+                    newDay ||
+                    !before ||
+                    before.role !== message.role ||
+                    (before.authorName ?? '') !== (message.authorName ?? '');
+                  const quoted =
+                    message.quotedId !== undefined && message.quotedId !== null
+                      ? (thread.messages.find((other) => other.id === message.quotedId) ?? null)
+                      : undefined;
+                  const writer = message.authorName ?? (message.role === 'bot' ? t('inbox.role.bot') : null);
+                  return (
+                    <Fragment key={message.id}>
+                      {newDay && (
+                        <div className="sticky top-1 z-10 my-2 self-center rounded-lg px-3 py-1 text-xs font-medium wa-chip">
+                          {dayChip(message.createdAt, locale, { today: t('inbox.today'), yesterday: t('inbox.yesterday') })}
+                        </div>
                       )}
-                      {!readOnly && message.deletable && (
-                        <button
-                          type="button"
-                          aria-label={t('inbox.delete')}
-                          title={t('inbox.delete')}
-                          onClick={() => setDeleting(message)}
-                          className="inline-flex size-6 shrink-0 items-center justify-center rounded-full text-content-tertiary hover:bg-surface-sunken hover:text-danger-text sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100"
+                      <div className={`group flex items-start gap-1 ${mine ? 'flex-row-reverse' : ''} ${firstOfRun ? 'mt-2' : 'mt-0.5'}`}>
+                        <div
+                          onClick={touch ? () => setTapped((current) => (current === message.id ? null : message.id)) : undefined}
+                          className={`wa-bubble max-w-[85%] rounded-lg px-2 pb-1 pt-1 text-[14.5px] leading-snug sm:max-w-[65%] ${
+                            mine ? 'wa-out' : 'wa-in'
+                          } ${firstOfRun ? (mine ? 'wa-tail-out rounded-se-none' : 'wa-tail-in rounded-ss-none') : ''}`}
                         >
-                          <Trash2 className="size-3.5" />
-                        </button>
-                      )}
-                      {!readOnly && message.quotable && (
-                        <button
-                          type="button"
-                          aria-label={t('inbox.quote')}
-                          title={t('inbox.quote')}
-                          onClick={() => {
-                            setQuote(message);
-                            box.current?.focus();
-                          }}
-                          className="inline-flex size-6 shrink-0 items-center justify-center rounded-full text-content-tertiary hover:bg-surface-sunken hover:text-content sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100"
-                        >
-                          <Reply className="size-3.5" />
-                        </button>
-                      )}
-                    </span>
-                  </div>
-                ))}
+                          {firstOfRun && writer && (thread.group || mine) && (
+                            <p className="mb-0.5 text-[12.5px] font-semibold" style={{ color: colourOf(writer) }}>
+                              {writer}
+                            </p>
+                          )}
+                          {quoted !== undefined && <QuoteLine message={quoted} />}
+                          {message.imageId && <MediaView message={message} onOpen={setViewing} />}
+                          {withNotices && message.imageId && message.role === 'customer' && !message.deleted && (
+                            <button
+                              type="button"
+                              onClick={() => void takeNotice(message.id)}
+                              className="mb-1 inline-flex items-center gap-1 rounded-full bg-primary-subtle px-2.5 py-1 text-[11px] font-bold text-primary-text hover:bg-primary/15"
+                            >
+                              <BadgeDollarSign className="size-3.5" />
+                              {t('inbox.notice.take')}
+                            </button>
+                          )}
+                          {message.deleted ? (
+                            <span className="italic wa-meta">🚫 {t('inbox.deleted')}</span>
+                          ) : (
+                            message.text && <span className="whitespace-pre-wrap break-words">{message.text}</span>
+                          )}
+                          {/* Time and ticks sit at the end of the last line, as WhatsApp sets them. */}
+                          <span className="float-end ms-3 mt-1.5 inline-flex translate-y-0.5 items-center gap-1 text-[11px] leading-none wa-meta">
+                            {message.edited && !message.deleted && <span>{t('inbox.edited')}</span>}
+                            <span className="tabular-nums" title={when(message.createdAt)}>
+                              {clockOf(message.createdAt)}
+                            </span>
+                            {mine && !message.deleted && <Ticks ack={message.ack} />}
+                          </span>
+                        </div>
+                        {/* What can be done to it: shown on hover, always there on a touch screen. */}
+                        {!readOnly && !message.deleted && (!touch || tapped === message.id) && (
+                          <span
+                            className={`flex shrink-0 items-center gap-0.5 self-center transition-opacity ${
+                              touch ? '' : 'opacity-0 group-hover:opacity-100 focus-within:opacity-100'
+                            }`}
+                          >
+                            {message.quotable && (
+                              <button
+                                type="button"
+                                aria-label={t('inbox.quote')}
+                                title={t('inbox.quote')}
+                                onClick={() => {
+                                  setQuote(message);
+                                  box.current?.focus();
+                                }}
+                                className="inline-flex size-7 items-center justify-center rounded-full bg-surface/80 text-content-secondary shadow-sm hover:text-content"
+                              >
+                                <Reply className="size-3.5" />
+                              </button>
+                            )}
+                            {message.text && (
+                              <button
+                                type="button"
+                                aria-label={t('inbox.copy')}
+                                title={t('inbox.copy')}
+                                onClick={() => {
+                                  void navigator.clipboard?.writeText(message.text);
+                                  toast.success(t('inbox.copied'));
+                                }}
+                                className="hidden size-7 items-center justify-center rounded-full bg-surface/80 text-content-secondary shadow-sm hover:text-content sm:inline-flex"
+                              >
+                                <Copy className="size-3.5" />
+                              </button>
+                            )}
+                            {message.editable && (
+                              <button
+                                type="button"
+                                aria-label={t('inbox.edit')}
+                                title={t('inbox.edit')}
+                                onClick={() => setEditing({ id: message.id, text: message.text })}
+                                className="inline-flex size-7 items-center justify-center rounded-full bg-surface/80 text-content-secondary shadow-sm hover:text-content"
+                              >
+                                <Pencil className="size-3.5" />
+                              </button>
+                            )}
+                            {message.deletable && (
+                              <button
+                                type="button"
+                                aria-label={t('inbox.delete')}
+                                title={t('inbox.delete')}
+                                onClick={() => setDeleting(message)}
+                                className="inline-flex size-7 items-center justify-center rounded-full bg-surface/80 text-content-secondary shadow-sm hover:text-danger-text"
+                              >
+                                <Trash2 className="size-3.5" />
+                              </button>
+                            )}
+                          </span>
+                        )}
+                      </div>
+                    </Fragment>
+                  );
+                })}
+              </div>
+              {/* Read further up: the way back down, with how many came since. */}
+              {below > 0 && (
+                <button
+                  type="button"
+                  onClick={() => toEnd(true)}
+                  aria-label={t('inbox.toLatest')}
+                  className="absolute bottom-3 end-3 inline-flex size-11 items-center justify-center rounded-full bg-surface text-content-secondary shadow-[var(--shadow-lg)] ring-1 ring-border-subtle hover:text-content"
+                >
+                  <ChevronDown className="size-5" />
+                  <span className="absolute -end-1 -top-1.5 inline-flex min-w-5 items-center justify-center rounded-full px-1 text-[11px] font-bold leading-5 text-white wa-accent-bg">
+                    {below}
+                  </span>
+                </button>
+              )}
+              {below === 0 && !nearEnd && (
+                <button
+                  type="button"
+                  onClick={() => toEnd(true)}
+                  aria-label={t('inbox.toLatest')}
+                  className="absolute bottom-3 end-3 inline-flex size-11 items-center justify-center rounded-full bg-surface text-content-secondary shadow-[var(--shadow-lg)] ring-1 ring-border-subtle hover:text-content"
+                >
+                  <ChevronDown className="size-5" />
+                </button>
+              )}
               </div>
 
               {readOnly ? (
@@ -914,7 +1036,7 @@ function Conversations({
                   {t('inbox.watchNoAnswer')}
                 </p>
               ) : (
-              <div className="shrink-0 space-y-1.5 border-t border-border-subtle p-2 sm:p-3">
+              <div className="shrink-0 space-y-1.5 border-t border-border-subtle bg-surface-sunken px-2 py-2 sm:px-3">
                 {quote && <QuoteLine message={quote} onClose={() => setQuote(null)} />}
                 {photo && (
                   <div className="relative inline-block">
@@ -935,6 +1057,8 @@ function Conversations({
                   </div>
                 )}
                 <div className="flex items-end gap-2">
+                  {/* The box as WhatsApp draws it: one rounded field, the clip inside it. */}
+                  <div className="flex min-w-0 flex-1 items-end gap-1 rounded-3xl bg-surface px-1.5 py-1 shadow-sm ring-1 ring-border-subtle focus-within:ring-2 focus-within:ring-[var(--wa-accent)]">
                   <input
                     ref={picker}
                     type="file"
@@ -950,7 +1074,7 @@ function Conversations({
                     aria-label={t('inbox.photoAdd')}
                     title={t('inbox.photoAdd')}
                     onClick={() => picker.current?.click()}
-                    className="inline-flex size-11 shrink-0 items-center justify-center rounded-xl text-content-secondary ring-1 ring-border-subtle hover:bg-surface-sunken"
+                    className="inline-flex size-9 shrink-0 items-center justify-center rounded-full text-content-secondary hover:bg-surface-sunken hover:text-content"
                   >
                     <ImagePlus className="size-5" />
                   </button>
@@ -964,18 +1088,23 @@ function Conversations({
                     maxLength={2000}
                     enterKeyHint={touch ? 'enter' : 'send'}
                     placeholder={t('inbox.placeholder')}
-                    className="min-h-11 flex-1 resize-none text-base sm:text-sm"
+                    className="min-h-9 flex-1 resize-none border-0 bg-transparent px-1.5 py-2 text-base shadow-none ring-0 focus:ring-0 focus-visible:ring-0 sm:text-[15px]"
                   />
-                  <Button
+                  </div>
+                  <button
+                    type="button"
                     aria-label={t('inbox.send')}
-                    icon={<SendHorizontal className="rtl:-scale-x-100" />}
-                    loading={sending}
-                    disabled={!draft.trim() && !photo}
+                    title={t('inbox.send')}
+                    disabled={sending || (!draft.trim() && !photo)}
                     onClick={() => void send()}
-                    className="h-11 shrink-0"
+                    className="inline-flex size-11 shrink-0 items-center justify-center rounded-full text-white shadow-sm transition-opacity disabled:opacity-40 wa-accent-bg"
                   >
-                    <span className="hidden sm:inline">{t('inbox.send')}</span>
-                  </Button>
+                    {sending ? (
+                      <span className="size-5 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+                    ) : (
+                      <SendHorizontal className="size-5 rtl:-scale-x-100" />
+                    )}
+                  </button>
                 </div>
                 <p className="hidden text-xs text-content-tertiary md:block">
                   {hint} {t('inbox.pasteHint')}
@@ -1008,6 +1137,7 @@ function Conversations({
           </div>
         )}
       </div>
+      <Lightbox src={viewing} onClose={() => setViewing(null)} label={t('inbox.photo')} />
       <Dialog
         open={numberGroups !== null}
         onClose={() => setNumberGroups(null)}

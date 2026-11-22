@@ -73,6 +73,8 @@ export async function recordMessage(
         mediaKind: extra.mediaKind ?? null,
         waId: extra.waId ?? null,
         quotedId: quoted?.id ?? null,
+        // Ours, and WhatsApp took it: one tick until it says more.
+        ack: !customer && extra.waId ? 2 : null,
       },
     }),
     prisma.botConversation.update({
@@ -184,7 +186,7 @@ export async function listConversations() {
       messages: {
         orderBy: { createdAt: 'desc' },
         take: 1,
-        select: { text: true, role: true, imageId: true, mediaKind: true, deletedAt: true },
+        select: { text: true, role: true, imageId: true, mediaKind: true, deletedAt: true, ack: true },
       },
     },
   });
@@ -199,6 +201,8 @@ export async function listConversations() {
     lastText: row.messages[0]?.deletedAt
       ? '🚫'
       : row.messages[0]?.text || mediaMark(row.messages[0]?.mediaKind, row.messages[0]?.imageId),
+    lastFromMe: Boolean(row.messages[0] && row.messages[0].role !== 'customer'),
+    lastAck: row.messages[0] && row.messages[0].role !== 'customer' ? (row.messages[0].ack ?? null) : null,
     // The customer spoke last: nobody, person or bot, has answered yet.
     awaiting: row.messages[0]?.role === 'customer',
     paused: Boolean(row.pausedUntil && row.pausedUntil > now),
@@ -223,6 +227,7 @@ export async function readConversation(id: string) {
           quotedId: true,
           editedAt: true,
           deletedAt: true,
+          ack: true,
           createdAt: true,
         },
       },

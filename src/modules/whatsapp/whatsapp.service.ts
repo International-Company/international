@@ -516,6 +516,25 @@ async function open(account: Account): Promise<void> {
     if (stale > 0) log.info('Old messages left unanswered', { account, count: stale });
   });
 
+  /*
+   * How far the private number's answers got — delivered, read — for the
+   * ticks in the inbox. Only a person's conversation on that number: the
+   * groups the office's numbers write in say nothing the inbox shows.
+   */
+  sock.ev.on('messages.update', (updates) => {
+    if (account !== 'private' || generation !== holder.generation) return;
+    for (const { key, update } of updates) {
+      const status = typeof update.status === 'number' ? update.status : null;
+      if (!status || status < 2 || !key.fromMe || !key.id || !key.remoteJid || key.remoteJid.endsWith('@g.us')) continue;
+      void prisma.botMessage
+        .updateMany({
+          where: { waId: key.id, role: { not: 'customer' }, OR: [{ ack: null }, { ack: { lt: status } }] },
+          data: { ack: status },
+        })
+        .catch(() => undefined);
+    }
+  });
+
   sock.ev.on('creds.update', () => {
     void saveCreds().catch((error) => log.error('Could not save the session', { error }));
   });

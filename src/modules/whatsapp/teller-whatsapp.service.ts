@@ -117,6 +117,8 @@ interface KeepExtra {
   /** In a group: the group's own name, and who wrote this message. */
   groupName?: string | null;
   authorName?: string | null;
+  /** How far one of ours got: 2 when WhatsApp took it. */
+  ack?: number | null;
 }
 
 /**
@@ -177,6 +179,7 @@ async function keep(
       mediaKind: extra.mediaKind ?? null,
       waId: extra.waId ?? null,
       quotedId: quoted?.id ?? null,
+      ack: fromMe ? (extra.ack ?? 2) : null,
     },
   });
   return row.id;
@@ -350,6 +353,25 @@ async function open(userId: string): Promise<void> {
           authorName: inGroup ? (message.pushName ?? null) : null,
         });
       })().catch((error) => log.warn('Could not keep a teller message', { error }));
+    }
+  });
+
+  /*
+   * How far the teller's own messages got — delivered, read — as WhatsApp
+   * reports it, for the ticks beside them. Only a person's conversation, and
+   * only forward: a late "delivered" never undoes "read".
+   */
+  sock.ev.on('messages.update', (updates) => {
+    if (generation !== holder.generation) return;
+    for (const { key, update } of updates) {
+      const status = typeof update.status === 'number' ? update.status : null;
+      if (!status || status < 2 || !key.fromMe || !key.id || !key.remoteJid || isJidGroup(key.remoteJid)) continue;
+      void prisma.tellerChatMessage
+        .updateMany({
+          where: { waId: key.id, fromMe: true, chat: { ownerId: userId }, OR: [{ ack: null }, { ack: { lt: status } }] },
+          data: { ack: status },
+        })
+        .catch(() => undefined);
     }
   });
 
@@ -535,7 +557,7 @@ export async function listChats(ownerId: string) {
       messages: {
         orderBy: { createdAt: 'desc' },
         take: 1,
-        select: { text: true, fromMe: true, imageId: true, mediaKind: true, deletedAt: true },
+        select: { text: true, fromMe: true, imageId: true, mediaKind: true, deletedAt: true, ack: true },
       },
     },
   });
@@ -550,6 +572,9 @@ export async function listChats(ownerId: string) {
       ? '🚫'
       : row.messages[0]?.text || mediaMark(row.messages[0]?.mediaKind, row.messages[0]?.imageId),
     group: row.chat.endsWith('@g.us'),
+    /** The last message was ours, and how far it got: the list shows its ticks. */
+    lastFromMe: Boolean(row.messages[0]?.fromMe),
+    lastAck: row.messages[0]?.fromMe ? (row.messages[0].ack ?? null) : null,
     // A group's talk is not a customer waiting on an answer.
     awaiting: row.messages[0] && !row.chat.endsWith('@g.us') ? !row.messages[0].fromMe : false,
   }));
@@ -680,6 +705,7 @@ export async function readChat(ownerId: string, id: string, options: { watching?
         quotedId: message.quotedId,
         quotable: Boolean(message.waId) && !deleted,
         authorName: message.authorName ?? null,
+        ack: message.fromMe ? (message.ack ?? null) : null,
         createdAt: message.createdAt,
         edited: Boolean(message.editedAt),
         deleted,

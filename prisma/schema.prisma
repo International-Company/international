@@ -2399,9 +2399,12 @@ model TellerChatMessage {
   /// When its words were changed from the system, and when it was deleted for the customer.
   editedAt  DateTime?
   deletedAt DateTime?
+  /// How far one of ours got, as WhatsApp reports it: 2 sent, 3 delivered, 4 read, 5 played.
+  ack       Int?
   createdAt DateTime   @default(now())
 
   @@index([chatId, createdAt])
+  @@index([waId])
   @@map("teller_chat_messages")
 }
 
@@ -2445,10 +2448,13 @@ model BotMessage {
   /// When its words were changed from the system, and when it was deleted for the customer.
   editedAt       DateTime?
   deletedAt      DateTime?
+  /// How far one of ours got, as WhatsApp reports it: 2 sent, 3 delivered, 4 read, 5 played.
+  ack            Int?
   createdAt      DateTime        @default(now())
 
   @@index([conversationId, createdAt])
   @@index([createdAt])
+  @@index([waId])
   @@map("bot_messages")
 }
 
