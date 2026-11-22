@@ -140,7 +140,32 @@ export class BscProvider implements ChainProvider {
     return `https://bscscan.com/tx/${txHash}`;
   }
 
+  /**
+   * A call to the node, asked once more after a moment when it did not answer:
+   * the free public node turns away a request now and then under load, and the
+   * next one goes through. A refusal the node means — a bad request, an
+   * archive it does not keep — is not asked again.
+   */
   private async call<T>(method: string, params: unknown[], url = this.rpcUrl): Promise<T> {
+    try {
+      return await this.callOnce<T>(method, params, url);
+    } catch (error) {
+      if (error instanceof Error && /BSC node: /.test(error.message)) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 800));
+      try {
+        return await this.callOnce<T>(method, params, url);
+      } catch (again) {
+        // Said with its reason, so a failing read in the log says why.
+        const reason =
+          (again as { cause?: { message?: string } })?.cause?.message ??
+          (again instanceof Error ? again.message : String(again));
+        log.warn('The BSC node did not answer twice', { method, reason: String(reason).slice(0, 200) });
+        throw again;
+      }
+    }
+  }
+
+  private async callOnce<T>(method: string, params: unknown[], url = this.rpcUrl): Promise<T> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 20_000);
     try {

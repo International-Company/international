@@ -208,6 +208,15 @@ async function ingestTransfer(
     if (existing.confirmations === transfer.confirmations && existing.status === status) {
       return 'UNCHANGED';
     }
+    /*
+     * Settled already, and still settled: the count of confirmations climbing
+     * after that changes nothing anyone acts on. TRON's is read off the
+     * transfer's age, so it rose on every read — a write, a sync-run row and a
+     * log line every few seconds for each settled transfer on the address.
+     */
+    if (existing.status === 'CONFIRMED' && status === 'CONFIRMED') {
+      return 'UNCHANGED';
+    }
 
     await db.chainTransaction.update({
       where: { id: existing.id },
