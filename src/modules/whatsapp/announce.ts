@@ -947,6 +947,16 @@ export function registerWhatsappSubscribers(): void {
     );
   });
 
+  // Put back to waiting from the bank desk: the ✅ the bot put on its messages taken off.
+  on('transaction.transferReopened', 'whatsapp-announce-reopened', async ({ transactionId }) => {
+    if (!(await settings.getBoolean('whatsapp.enabled')) || !isLinked()) return;
+    const deal = await prisma.transaction.findUnique({
+      where: { id: transactionId },
+      select: { reference: true, announcedChat: true, announcedMessageId: true, copyChat: true, copyMessageId: true },
+    });
+    if (deal) await markMessages(deal, '');
+  });
+
   /*
    * The payment put right. A cash remittance went out opening with what was
    * taken in notes: that line is rewritten while WhatsApp allows it, and

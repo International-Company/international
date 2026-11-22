@@ -1,8 +1,10 @@
 'use client';
 
-import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import {
+  ImageUp,
+  RotateCcw,
   ArrowRight,
   Check,
   CheckCircle2,
@@ -27,6 +29,7 @@ import { Button, Card, EmptyState, Skeleton } from '@/ui/primitives';
 import { Field, Input, Select } from '@/ui/form';
 import { Money } from '@/ui/display';
 import { ConfirmDialog, useToast } from '@/ui/overlay';
+import { shrinkPhoto } from '@/ui/proof-photo';
 import { cn } from '@/ui/utils';
 import { clockOf, dayKey, dayLabel } from './days';
 import { keyOf, stateOf, type Line, type LineState } from './desk-types';
@@ -166,6 +169,10 @@ export function TransferDetail({
   const [unforwarding, setUnforwarding] = useState(false);
   const [dropCopies, setDropCopies] = useState(true);
   const [unforwardBusy, setUnforwardBusy] = useState(false);
+  /** Sent by mistake, being put back to waiting; or its receipt being replaced. */
+  const [reopening, setReopening] = useState(false);
+  const [correcting, setCorrecting] = useState<'reopen' | 'receipt' | null>(null);
+  const receiptPicker = useRef<HTMLInputElement>(null);
   const key = line ? keyOf(line) : null;
 
   const failure = useCallback(
@@ -259,6 +266,40 @@ export function TransferDetail({
       </Card>
     );
   }
+
+  // Which of the desk's three it is, as the correction asks for it.
+  const deskKind = line.source === 'group' ? 'request' : line.source === 'tiktok' ? 'tiktok' : 'deal';
+
+  /** Marked sent by mistake: back to waiting. */
+  const reopen = async () => {
+    setCorrecting('reopen');
+    try {
+      await api.post('/api/bank/correct', { action: 'reopen', kind: deskKind, id: line.id });
+      toast.success(t('bankFix.reopened'));
+      setReopening(false);
+      onChanged?.();
+    } catch (cause) {
+      failure(cause);
+    } finally {
+      setCorrecting(null);
+    }
+  };
+
+  /** The right receipt in place of the one kept. */
+  const changeReceipt = async (file: File | undefined) => {
+    if (!file) return;
+    setCorrecting('receipt');
+    try {
+      const receipt = await shrinkPhoto(file);
+      await api.post('/api/bank/correct', { action: 'receipt', kind: deskKind, id: line.id, receipt });
+      toast.success(t('bankFix.receiptChanged'));
+      onChanged?.();
+    } catch (cause) {
+      failure(cause);
+    } finally {
+      setCorrecting(null);
+    }
+  };
 
   const addToList = async () => {
     if (!adding || !line.messageId) return;
@@ -954,10 +995,45 @@ export function TransferDetail({
               )}
 
               {detail.sentAt && (
-                <p className="text-center text-xs text-success-text">
-                  ✅ {t('bank.detailSentAt', { day: dayKey(detail.sentAt), time: clockOf(detail.sentAt) })}
-                  {detail.sentBy && <> · {detail.sentBy}</>}
-                </p>
+                <section className="space-y-2 rounded-2xl bg-success-subtle/40 p-3 ring-1 ring-success/30">
+                  <p className="text-center text-xs text-success-text">
+                    ✅ {t('bank.detailSentAt', { day: dayKey(detail.sentAt), time: clockOf(detail.sentAt) })}
+                    {detail.sentBy && <> · {detail.sentBy}</>}
+                  </p>
+                  {/* Put right after it was marked sent: the receipt, or the mark itself. */}
+                  {detail.source !== 'message' && (
+                    <div className="grid grid-cols-2 gap-2">
+                      <input
+                        ref={receiptPicker}
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={(event) => {
+                          void changeReceipt(event.target.files?.[0]);
+                          event.target.value = '';
+                        }}
+                      />
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        icon={<ImageUp />}
+                        loading={correcting === 'receipt'}
+                        onClick={() => receiptPicker.current?.click()}
+                      >
+                        {t('bankFix.changeReceipt')}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        icon={<RotateCcw />}
+                        onClick={() => setReopening(true)}
+                        className="text-warning-text"
+                      >
+                        {t('bankFix.reopen')}
+                      </Button>
+                    </div>
+                  )}
+                </section>
               )}
             </>
           )}
@@ -1065,6 +1141,17 @@ export function TransferDetail({
           </footer>
         )}
       <MessageTrace id={tracing} onClose={() => setTracing(null)} onOpen={setTracing} />
+      <ConfirmDialog
+        open={reopening}
+        onClose={() => setReopening(false)}
+        onConfirm={() => void reopen()}
+        title={t('bankFix.reopenTitle')}
+        message={t('bankFix.reopenHint')}
+        confirmLabel={t('bankFix.reopen')}
+        cancelLabel={t('common.cancel')}
+        tone="danger"
+        loading={correcting === 'reopen'}
+      />
       <ConfirmDialog
         open={unforwarding}
         onClose={() => setUnforwarding(false)}

@@ -41,6 +41,8 @@ export interface DomainEvents {
   /** How the customer paid was put right: notes, a transfer, or both. `wasCash` before. */
   /** The bank desk sent a deal's transfer; `proofId` is the bank's receipt, when given. */
   'transaction.transferSent': { transactionId: string; proofId: string | null; actorId: string };
+  /** A transfer marked sent by mistake, put back to waiting from the bank desk. */
+  'transaction.transferReopened': { transactionId: string };
   'transaction.intakeChanged': { transactionId: string; actorId: string; wasCash: boolean };
 
   'rate.changed': { baseCode: string; quoteCode: string; rateId: string; actorId: string };

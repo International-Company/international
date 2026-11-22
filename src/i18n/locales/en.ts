@@ -2486,6 +2486,14 @@ const en = {
       told: 'Customer told',
     },
   },
+  bankFix: {
+    changeReceipt: 'Change receipt',
+    receiptChanged: 'Receipt changed, and the right one sent to the group',
+    reopen: 'Back to waiting',
+    reopenTitle: 'Put this transfer back to waiting?',
+    reopenHint: 'It returns to waiting as if it had not been sent, and the ✅ the bot put on its message in the group is taken off. Nothing changes in the books; the action is recorded in your name.',
+    reopened: 'The transfer is waiting again',
+  },
   arrivals: {
     title: 'Arrived unasked',
     subtitle: '{count} transfer(s) on counter addresses that nobody has claimed',
@@ -3433,6 +3441,7 @@ const en = {
     backupCorrupt: 'The backup file failed its integrity check',
     backupVersion: 'This backup was made by an incompatible version',
     noBranch: 'No branch is configured',
+    notSentTransfer: 'This transfer is not marked sent',
     inboxTooMany: 'You have reached the limit',
     voiceInvalid: 'The recording is unusable or too long',
     voiceUnavailable: 'The server cannot send voice notes right now',
