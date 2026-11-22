@@ -84,6 +84,64 @@ export interface PayRecord {
   receiverInfo?: PayParty;
 }
 
+/** One row of the account's deposit history, as Binance lists it. */
+export interface DepositRecord {
+  id?: string;
+  amount: string;
+  coin: string;
+  network?: string;
+  /** 0 pending, 6 credited but not yet withdrawable, 1 done; others failed. */
+  status: number;
+  address?: string;
+  txId?: string;
+  insertTime?: number;
+  sourceAddress?: string;
+}
+
+/** What Binance writes in place of a hash when one of its own users paid. */
+const OFF_CHAIN = /^off-?chain transfer\s*(\d+)/i;
+
+/** The number Binance gives an off-chain transfer, or null for one that went over a chain. */
+export function offChainId(txId: string | null | undefined): string | null {
+  return OFF_CHAIN.exec(String(txId ?? '').trim())?.[1] ?? null;
+}
+
+/**
+ * A deposit paid from another Binance account to one of this account's deposit
+ * addresses, as a transfer on the office's account; null for anything else.
+ *
+ * Binance moves those inside itself — "Off-chain transfer 433778693577" where
+ * a hash would be — so no chain ever shows them, and the deposit address's
+ * chain watch never sees the money arrive. A deposit that did go over a chain
+ * is left out on purpose: the address's own watch reads it, and taking it here
+ * as well would offer the same coins to be paid out twice.
+ */
+export function depositToTransfer(record: DepositRecord, officeId: string, token: string): ChainTransfer | null {
+  if (record.coin?.toUpperCase() !== token.toUpperCase()) return null;
+  const id = offChainId(record.txId);
+  if (!id) return null;
+  // Failed or turned back: never money the office holds.
+  if (![0, 1, 6].includes(Number(record.status))) return null;
+  const amount = parseMoney(String(record.amount ?? '').trim());
+  if (amount <= 0n) return null;
+  const settled = Number(record.status) !== 0;
+  const network = record.network?.toUpperCase() || null;
+  return {
+    txHash: `Off-chain transfer ${id}`,
+    fromAddress: record.sourceAddress?.trim() || 'Binance',
+    toAddress: officeId,
+    amount,
+    tokenSymbol: token,
+    contractAddress: null,
+    blockNumber: null,
+    blockTimestamp: Number.isFinite(record.insertTime) ? new Date(record.insertTime!) : null,
+    confirmations: settled ? 1 : 0,
+    status: settled ? 'CONFIRMED' : 'PENDING',
+    networkFee: 0n,
+    memo: ['Binance off-chain', network, record.address ? `→ ${record.address}` : null].filter(Boolean).join(' · '),
+  };
+}
+
 interface AssetRow {
   asset: string;
   free?: string;
@@ -260,6 +318,28 @@ export class BinanceProvider implements ChainProvider {
     return body.data ?? [];
   }
 
+  private async depositWindow(token: string, startTime: number, endTime: number): Promise<DepositRecord[]> {
+    const rows = await this.signed<DepositRecord[]>('GET', '/sapi/v1/capital/deposit/hisrec', {
+      coin: token,
+      startTime,
+      endTime,
+      limit: 1000,
+      includeSource: 'true',
+    });
+    return Array.isArray(rows) ? rows : [];
+  }
+
+  /**
+   * An off-chain deposit named by the number Binance gave it — what the
+   * customer reads off their app in place of a hash — from the last 90 days.
+   */
+  async fetchOffChain(id: string, address: string, token = 'USDT'): Promise<ChainTransfer | null> {
+    const now = Date.now();
+    const rows = await this.depositWindow(token.toUpperCase(), now - 89 * DAY, now);
+    const record = rows.find((row) => offChainId(row.txId) === id);
+    return record ? depositToTransfer(record, address.trim(), token.toUpperCase()) : null;
+  }
+
   async fetchTransfers(
     address: string,
     contractAddress: string | null,
@@ -311,6 +391,23 @@ export class BinanceProvider implements ChainProvider {
     const transfers = records
       .map((record) => payToTransfer(record, address.trim(), token))
       .filter((transfer): transfer is ChainTransfer => transfer !== null);
+
+    /*
+     * And what other Binance users paid to the account's deposit addresses,
+     * which Binance keeps off every chain. One light call over the same span —
+     * Binance answers up to 90 days of deposits at once — and a failure of it
+     * does not lose the Pay history already read.
+     */
+    const since = cursor !== null ? cursor - OVERLAP_MS : now - (deep ? DEEP_LOOKBACK_MS : FIRST_LOOKBACK_MS);
+    try {
+      const deposits = await this.depositWindow(token, Math.max(since, now - 89 * DAY), now);
+      for (const record of deposits) {
+        const transfer = depositToTransfer(record, address.trim(), token);
+        if (transfer) transfers.push(transfer);
+      }
+    } catch (error) {
+      log.warn('Could not read the Binance deposit history', { error });
+    }
 
     return { transfers, cursor: String(Math.min(from, now)), hasMore: from < now };
   }

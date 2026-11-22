@@ -8,7 +8,7 @@ import * as audit from '@/modules/audit/audit.service';
 import * as notifications from '@/modules/notifications/notifications.service';
 import { nextReference } from '@/modules/sequence/reference';
 import * as settings from '@/modules/settings/settings.service';
-import { providerForWallet, type ChainTransfer } from './providers';
+import { BinanceProvider, providerForWallet, type ChainTransfer } from './providers';
 import { maskAddress } from './wallet.service';
 import { containsInsensitive } from '@/core/db/search';
 
@@ -367,6 +367,13 @@ export function hashFamily(raw: string): { hash: string; networks: string[] } | 
  * A link pasted from an explorer is read for the hash inside it.
  */
 export async function findByHash(raw: string, db: DbClient = prisma): Promise<string[]> {
+  /*
+   * Paid from another Binance account: no hash, only the number Binance gave
+   * it ("Off-chain Transfer 433778693577"), found in the account's deposits.
+   */
+  const offChain = /^\s*(?:off-?chain\s*transfer\s*)?(\d{6,20})\s*$/i.exec(raw)?.[1];
+  if (offChain) return findOffChain(offChain, db);
+
   const families = hashFamilies(raw);
   if (families.length === 0) throw errors.precondition('Not a transaction hash', 'errors.txHashInvalid');
 
@@ -408,6 +415,38 @@ export async function findByHash(raw: string, db: DbClient = prisma): Promise<st
   if (!known && failed) throw errors.precondition('The chain did not answer', 'errors.txChainBusy');
   if (!known) throw errors.precondition('The chain does not know that hash', 'errors.txNotFound');
   throw errors.precondition('That transaction did not pay a counter address', 'errors.txNotOurs');
+}
+
+/** An off-chain Binance deposit by its number: kept already, or read from the account now. */
+async function findOffChain(id: string, db: DbClient): Promise<string[]> {
+  const txHash = `Off-chain transfer ${id}`;
+  const wallets = await db.wallet.findMany({
+    where: { isActive: true, isCounterAddress: true, network: 'BINANCE' },
+  });
+  if (wallets.length === 0) throw errors.precondition('No Binance counter account', 'errors.txNoAddress');
+  const kept = () =>
+    db.chainTransaction.findMany({
+      where: { txHash, direction: 'IN', walletId: { in: wallets.map((wallet) => wallet.id) } },
+      select: { id: true },
+    });
+  const already = await kept();
+  if (already.length > 0) return already.map((row) => row.id);
+
+  let failed = false;
+  for (const wallet of wallets) {
+    const provider = await providerForWallet(wallet, db);
+    if (!(provider instanceof BinanceProvider)) continue;
+    const transfer = await provider.fetchOffChain(id, wallet.address, wallet.contractAddress || 'USDT').catch((error) => {
+      log.warn('Binance did not answer an off-chain lookup', { error });
+      failed = true;
+      return null;
+    });
+    if (transfer) await ingestTransfer(wallet.id, transfer, db);
+  }
+  const found = await kept();
+  if (found.length > 0) return found.map((row) => row.id);
+  if (failed) throw errors.precondition('Binance did not answer', 'errors.txChainBusy');
+  throw errors.precondition('Binance has no such deposit', 'errors.txNotFound');
 }
 
 /** Where an address or a transaction is shown in public, per chain. */

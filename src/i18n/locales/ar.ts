@@ -2523,7 +2523,7 @@ const ar: Dictionary = {
 
   receive: {
     hashLabel: 'ابحث بالـ Hash',
-    hashPlaceholder: 'ألصق رقم الحركة (Hash) أو رابطها من tronscan / bscscan',
+    hashPlaceholder: 'ألصق الـ Hash أو رابط tronscan / bscscan أو رقم Binance (Off-chain)',
     hashFind: 'ابحث وسجّل',
     hashFound: 'وُجدت الحركة',
     hashClaimed: 'هذه الحركة مسجّلة مسبقاً',

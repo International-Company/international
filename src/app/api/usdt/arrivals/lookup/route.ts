@@ -4,7 +4,7 @@ import { findByHash } from '@/modules/usdt/sync.service';
 
 const bodySchema = z.object({
   /** The hash the customer sends, or an explorer link carrying it. */
-  txHash: z.string().trim().min(10).max(300),
+  txHash: z.string().trim().min(6).max(300),
 });
 
 /**

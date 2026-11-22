@@ -127,10 +127,12 @@ describe('the Binance provider', () => {
       apiKey: 'key-2',
       apiSecret: 'secret-2',
     }).fetchTransfers(OFFICE, null, { cursor: String(now - 5 * 60_000) });
-    assert.equal(calls.length, 1);
-    assert.equal(calls[0]!.path, '/sapi/v1/pay/transactions');
+    const pay = calls.filter((call) => call.path === '/sapi/v1/pay/transactions');
+    assert.equal(pay.length, 1);
+    // And the deposit history once, for what other Binance users paid to the deposit addresses.
+    assert.equal(calls.filter((call) => call.path === '/sapi/v1/capital/deposit/hisrec').length, 1);
     // Ten minutes re-read behind the cursor.
-    assert.ok(Number(calls[0]!.params.get('startTime')) <= now - 15 * 60_000 + 1000);
+    assert.ok(Number(pay[0]!.params.get('startTime')) <= now - 15 * 60_000 + 1000);
     assert.deepEqual(
       page.transfers.map((transfer) => transfer.txHash),
       ['A'],
@@ -143,7 +145,7 @@ describe('the Binance provider', () => {
     const provider = new BinanceProvider({ apiKey: 'key-3', apiSecret: 'secret-3' });
     await provider.fetchTransfers(OFFICE, null, { cursor: String(Date.now()) });
     const again = await provider.fetchTransfers(OFFICE, null, { cursor: '42' });
-    assert.equal(calls.length, 1);
+    assert.equal(calls.filter((call) => call.path === '/sapi/v1/pay/transactions').length, 1);
     assert.equal(again.cursor, '42');
   });
 
@@ -163,8 +165,9 @@ describe('the Binance provider', () => {
       apiSecret: 'secret-4',
     }).fetchTransfers(OFFICE, null, { cursor: String(Date.now() - 60 * 60_000) });
     // Full, then its first half, then the half after it — nothing skipped.
-    assert.equal(calls.length, 3);
-    const [first, second, third] = calls.map((call) => call.params);
+    const pay = calls.filter((call) => call.path === '/sapi/v1/pay/transactions');
+    assert.equal(pay.length, 3);
+    const [first, second, third] = pay.map((call) => call.params);
     assert.equal(second!.get('startTime'), first!.get('startTime'));
     assert.ok(Number(second!.get('endTime')) < Number(first!.get('endTime')));
     assert.equal(Number(third!.get('startTime')), Number(second!.get('endTime')) + 1);

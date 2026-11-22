@@ -2524,7 +2524,7 @@ const en = {
 
   receive: {
     hashLabel: 'Find by hash',
-    hashPlaceholder: 'Paste the transaction hash, or its tronscan / bscscan link',
+    hashPlaceholder: 'Paste the hash, a tronscan / bscscan link, or a Binance off-chain number',
     hashFind: 'Find & record',
     hashFound: 'Transaction found',
     hashClaimed: 'This transaction is already recorded',
