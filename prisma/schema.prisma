@@ -2289,6 +2289,8 @@ model TransactionProof {
   data          Bytes
   createdById   String?
   createdAt     DateTime    @default(now())
+  /// The group message it was fetched from ("chat|waId"), so it is kept once.
+  sourceKey     String?     @unique
 
   @@index([transactionId])
   @@map("transaction_proofs")
@@ -2568,6 +2570,39 @@ model BotIssue {
 
 /// A message seen in a group the bank desk watches: kept for a fortnight or so,
 /// so the desk can follow its groups and pass messages on from the system.
+/// A receipt of a transfer on the bank desk that is not a deal — a group's request, a TikTok
+/// withdrawal — as many as were sent: from the desk, or fetched from a group it was answered in.
+model TransferReceipt {
+  id        String   @id @default(cuid())
+  /// request | tiktok
+  kind      String
+  refId     String
+  /// The photo, kept in chat_images.
+  imageId   String
+  /// The group message it was fetched from ("chat|waId"), so it is kept once.
+  sourceKey String?  @unique
+  createdAt DateTime @default(now())
+
+  @@index([kind, refId])
+  @@map("transfer_receipts")
+}
+
+/// A photo or file answering a message in any group the office's numbers are in, kept by what it
+/// answers: where a transfer's receipts are looked for again when the desk asks.
+model GroupReply {
+  id         String   @id @default(cuid())
+  chat       String
+  waId       String
+  /// The message it quotes.
+  quotedWaId String
+  mediaId    String
+  createdAt  DateTime @default(now())
+
+  @@unique([chat, waId])
+  @@index([chat, quotedWaId])
+  @@map("group_replies")
+}
+
 model GroupMessage {
   id          String   @id @default(cuid())
   chat        String

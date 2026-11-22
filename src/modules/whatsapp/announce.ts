@@ -2,6 +2,7 @@ import 'server-only';
 import { prisma } from '@/core/db/prisma';
 import { on } from '@/core/events/bus';
 import { SENT_MARK, sentWords } from './sent-words';
+import { receiptFiles } from '@/modules/bank/bank-receipts.service';
 import { toDecimalString } from '@/core/money/money';
 import { createBotLogger } from '@/modules/whatsapp/bot-issues';
 import { HOME_CURRENCY } from '@/lib/home-currency';
@@ -942,18 +943,24 @@ export function registerWhatsappSubscribers(): void {
     const chat = deal.copyChat ?? deal.announcedChat;
     const messageId = deal.copyChat ? deal.copyMessageId : deal.announcedMessageId;
     if (!chat || !messageId) return;
-    const proof = proofId
+    /*
+     * Every receipt it carries, the first with the words under it: a transfer
+     * paid in two parts is answered with both. Put right later (one receipt
+     * given), only that one goes.
+     */
+    const given = proofId
       ? await prisma.transactionProof.findUnique({ where: { id: proofId }, select: { data: true, mimeType: true } })
-      : await prisma.transactionProof.findFirst({
-          where: { transactionId, kind: 'TRANSFER' },
-          orderBy: { createdAt: 'desc' },
-          select: { data: true, mimeType: true },
-        });
+      : null;
+    const files = given ? [{ bytes: Buffer.from(given.data), mimeType: given.mimeType }] : await receiptFiles('deal', transactionId);
     const words = sentWords(deal.payoutAccount);
-    await (proof
-      ? sendImage(chat, Buffer.from(proof.data), words, sentStub(chat, messageId), proof.mimeType)
-      : replyToSent(chat, messageId, words)
-    ).catch((error) => log.warn('Could not answer a sent transfer in its group', { reference: deal.reference, error }));
+    try {
+      if (files.length === 0) await replyToSent(chat, messageId, words);
+      for (const [index, file] of files.entries()) {
+        await sendImage(chat, file.bytes, index === 0 ? words : '', sentStub(chat, messageId), file.mimeType);
+      }
+    } catch (error) {
+      log.warn('Could not answer a sent transfer in its group', { reference: deal.reference, error });
+    }
   });
 
   // Put back to waiting from the bank desk: the ✅ the bot put on its messages taken off.

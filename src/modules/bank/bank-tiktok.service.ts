@@ -7,6 +7,7 @@ import { readProofImage } from '@/modules/exchange/proof-image';
 import { keepMedia } from '@/modules/whatsapp/chat-images';
 import { reactTo, replyToSent, sendImage, sentStub } from '@/modules/whatsapp/whatsapp.service';
 import { sentWords } from '@/modules/whatsapp/sent-words';
+import { addReceipt, receiptFiles } from './bank-receipts.service';
 import type { Actor } from '@/modules/exchange/transaction.service';
 
 const log = createLogger('bank:tiktok');
@@ -214,29 +215,28 @@ export async function markTiktokSent(id: string, receipt: string | null, actor: 
   if (row.deletedAt || row.sentAt) {
     throw errors.conflict('This withdrawal is not waiting on a transfer', 'errors.notPendingTransfer');
   }
-  const kept = image ? await keepMedia(image, null) : null;
+  // The receipt given now joins those the groups it was passed on to answered it with.
+  if (image) await addReceipt('tiktok', id, image, { actorId: actor.id });
   await prisma.tiktokWithdrawal.update({
     where: { id },
-    data: { sentAt: new Date(), sentByName: actor.name, ...(kept ? { receiptId: kept.id } : {}) },
+    data: { sentAt: new Date(), sentByName: actor.name },
   });
   // Marked in the bank group as the deals' are, with the bank's receipt under it.
   if (row.bankChat && row.bankMessageId) {
     const chat = row.bankChat;
     const messageId = row.bankMessageId;
     await reactTo(chat, messageId, '✅').catch((error) => log.warn('Could not mark a TikTok transfer sent', { error }));
-    // The receipt given now, else the one already kept; the words alone when there is none.
-    const found =
-      image ??
-      (row.receiptId
-        ? await prisma.chatImage
-            .findUnique({ where: { id: row.receiptId }, select: { data: true, mimeType: true } })
-            .then((file) => (file ? { bytes: Buffer.from(file.data), mimeType: file.mimeType } : null))
-        : null);
+    // Every receipt it has, the first with the words under it; the words alone when there is none.
+    const files = await receiptFiles('tiktok', id);
     const words = sentWords(row.account);
-    await (found
-      ? sendImage(chat, found.bytes, words, sentStub(chat, messageId), found.mimeType)
-      : replyToSent(chat, messageId, words)
-    ).catch((error) => log.warn('Could not answer a TikTok transfer in its group', { error }));
+    try {
+      if (files.length === 0) await replyToSent(chat, messageId, words);
+      for (const [index, file] of files.entries()) {
+        await sendImage(chat, file.bytes, index === 0 ? words : '', sentStub(chat, messageId), file.mimeType);
+      }
+    } catch (error) {
+      log.warn('Could not answer a TikTok transfer in its group', { error });
+    }
   }
   log.info('A TikTok transfer was sent from the bank desk');
   return { id };

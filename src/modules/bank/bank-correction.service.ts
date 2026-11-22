@@ -156,7 +156,10 @@ export async function replaceReceipt(kind: DeskKind, id: string, receipt: string
   if (kind === 'request') {
     const row = await prisma.bankRequest.findUnique({ where: { id } });
     if (!row) throw errors.notFound('BankRequest', id);
+    // The right one in place of all it had.
+    await prisma.transferReceipt.deleteMany({ where: { kind: 'request', refId: id } });
     await prisma.bankRequest.update({ where: { id }, data: { receiptId: kept.id } });
+    await prisma.transferReceipt.create({ data: { kind: 'request', refId: id, imageId: kept.id } });
     if (row.status === 'SENT') {
       await answerInGroup(
         row.chat,
@@ -170,7 +173,9 @@ export async function replaceReceipt(kind: DeskKind, id: string, receipt: string
       select: { sentAt: true, deletedAt: true, bankChat: true, bankMessageId: true },
     });
     if (!row || row.deletedAt) throw errors.notFound('TiktokWithdrawal', id);
+    await prisma.transferReceipt.deleteMany({ where: { kind: 'tiktok', refId: id } });
     await prisma.tiktokWithdrawal.update({ where: { id }, data: { receiptId: kept.id } });
+    await prisma.transferReceipt.create({ data: { kind: 'tiktok', refId: id, imageId: kept.id } });
     if (row.sentAt && row.bankChat && row.bankMessageId) {
       await sendImage(row.bankChat, image.bytes, UPDATED, sentStub(row.bankChat, row.bankMessageId), image.mimeType).catch(
         (error) => log.warn('Could not send the right receipt to the group', { error }),

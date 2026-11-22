@@ -8,6 +8,7 @@ import { readProofImage } from '@/modules/exchange/proof-image';
 import { keepMedia } from '@/modules/whatsapp/chat-images';
 import { answerInGroup } from '@/modules/whatsapp/whatsapp.service';
 import { sentWords } from '@/modules/whatsapp/sent-words';
+import { addReceipt, receiptFiles } from './bank-receipts.service';
 import type { Actor } from '@/modules/exchange/transaction.service';
 import { readTransferRequest, type ReadRequest } from './transfer-request';
 
@@ -237,27 +238,30 @@ export async function markRequestSent(id: string, receipt: string | null, actor:
   if (row.status !== 'PENDING') {
     throw errors.conflict('This request is not waiting on a transfer', 'errors.notPendingTransfer');
   }
-  const kept = image ? await keepMedia(image, null) : null;
+  // The receipt given now joins those the groups it was passed on to answered it with.
+  if (image) await addReceipt('request', id, image, { actorId: actor.id });
   await prisma.bankRequest.update({
     where: { id },
-    data: { status: 'SENT', sentAt: new Date(), sentByName: actor.name, receiptId: kept?.id ?? row.receiptId },
+    data: { status: 'SENT', sentAt: new Date(), sentByName: actor.name },
   });
 
-  // The receipt given now, else the one the group it was passed on to answered it with.
-  const found =
-    image ??
-    (row.receiptId
-      ? await prisma.chatImage
-          .findUnique({ where: { id: row.receiptId }, select: { data: true, mimeType: true } })
-          .then((file) => (file ? { bytes: Buffer.from(file.data), mimeType: file.mimeType } : null))
-      : null);
+  // Answered with every receipt it has, the first with the words under it.
+  const files = await receiptFiles('request', id);
   const words = sentWords(row.account);
-  await answerInGroup(
-    row.chat,
-    { id: row.waId, author: row.senderJid, text: row.text },
-    found ? { image: found.bytes, mimetype: found.mimeType, caption: words } : { text: words },
-    '✅',
-  ).catch((error) => log.warn('Could not answer a transfer request in its group', { error }));
+  const quote = { id: row.waId, author: row.senderJid, text: row.text };
+  try {
+    if (files.length === 0) await answerInGroup(row.chat, quote, { text: words }, '✅');
+    for (const [index, file] of files.entries()) {
+      await answerInGroup(
+        row.chat,
+        quote,
+        { image: file.bytes, mimetype: file.mimeType, caption: index === 0 ? words : '' },
+        index === 0 ? '✅' : undefined,
+      );
+    }
+  } catch (error) {
+    log.warn('Could not answer a transfer request in its group', { error });
+  }
   log.info('A transfer request from a group was sent');
   return { id };
 }

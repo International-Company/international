@@ -10,6 +10,7 @@ import {
   type GroupSighting,
 } from '@/modules/whatsapp/whatsapp.service';
 import { markSent } from './bank.service';
+import { addReceipt } from './bank-receipts.service';
 import { bankGroup, executorGroups } from './group-feed.service';
 import { markedBy, markOf, wordsOf } from './group-marks';
 
@@ -268,33 +269,41 @@ async function onCopy(sighting: GroupSighting): Promise<void> {
   log.info('A transfer forwarded by hand on WhatsApp was found', { transfer: Boolean(found) });
 }
 
-/** A photo answering a transfer's message: kept as its receipt. */
+/**
+ * Where a transfer's receipts are answered: the transfers group, the groups
+ * that carry transfers out, and any group one was passed on to.
+ */
+async function transferGroup(chat: string): Promise<boolean> {
+  const [bank, executors] = await Promise.all([bankGroup(), executorGroups()]);
+  if (bank?.id === chat || executors.some((group) => group.id === chat)) return true;
+  return Boolean(await prisma.groupForward.findFirst({ where: { targetChat: chat }, select: { id: true } }));
+}
+
+/**
+ * A photo answering a transfer's message: one more of its receipts — a
+ * transfer paid in two parts has two — kept once by the message it came as.
+ * Every such photo in a transfer group is also kept by what it answers, so the
+ * desk can look for a transfer's receipts again later.
+ */
 async function onReply(sighting: GroupSighting): Promise<void> {
   if (!sighting.quoted || sighting.mediaKind !== 'image' || !sighting.download) return;
-  const found = await transferOf({ chat: sighting.chat, waId: sighting.quoted });
-  if (!found) return;
+  if (!(await transferGroup(sighting.chat))) return;
   const file = await sighting.download().catch(() => null);
   if (!file || !file.mimeType.startsWith('image/')) return;
 
-  if (found.kind === 'request' || found.kind === 'tiktok') {
-    const kept = await keepMedia(file, null);
-    if (!kept) return;
-    if (found.kind === 'request') {
-      await prisma.bankRequest.update({ where: { id: found.id }, data: { receiptId: kept.id } });
-    } else {
-      await prisma.tiktokWithdrawal.update({ where: { id: found.id }, data: { receiptId: kept.id } });
-    }
-  } else {
-    await prisma.transactionProof.create({
-      data: {
-        transactionId: found.id,
-        kind: 'TRANSFER',
-        mimeType: file.mimeType,
-        size: file.bytes.length,
-        data: new Uint8Array(file.bytes),
-      },
-    });
+  const kept = await keepMedia(file, null);
+  if (kept) {
+    await prisma.groupReply
+      .create({ data: { chat: sighting.chat, waId: sighting.waId, quotedWaId: sighting.quoted, mediaId: kept.id } })
+      .catch((error: { code?: string }) => {
+        if (error?.code !== 'P2002') throw error;
+      });
   }
+
+  const found = await transferOf({ chat: sighting.chat, waId: sighting.quoted });
+  if (!found) return;
+  const added = await addReceipt(found.kind, found.id, file, { sourceKey: `${sighting.chat}|${sighting.waId}` });
+  if (!added) return;
   log.info('A transfer receipt was taken from a reply in a group', { kind: found.kind });
 
   // The bank's receipt is the transfer done: sent, without waiting on a 👍.

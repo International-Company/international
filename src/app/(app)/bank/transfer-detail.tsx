@@ -34,6 +34,7 @@ import { cn } from '@/ui/utils';
 import { clockOf, dayKey, dayLabel } from './days';
 import { keyOf, stateOf, type Line, type LineState } from './desk-types';
 import { MessageTrace } from './message-trace';
+import { ReceiptsPanel } from './receipts-panel';
 import { BankMark } from './bank-view';
 import type { Group } from './forward-panel';
 
@@ -917,16 +918,6 @@ export function TransferDetail({
                   <p className="whitespace-pre-wrap rounded-xl bg-surface-sunken p-3 text-sm text-content">
                     {detail.message}
                   </p>
-                  {detail.receiptId && (
-                    <a href={`/api/bank/requests/${detail.id}/receipt`} target="_blank" rel="noopener noreferrer">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img
-                        src={`/api/bank/requests/${detail.id}/receipt`}
-                        alt=""
-                        className="mt-2 max-h-40 rounded-lg object-contain ring-1 ring-border-subtle"
-                      />
-                    </a>
-                  )}
                 </section>
               )}
 
@@ -973,14 +964,19 @@ export function TransferDetail({
               </Section>
               )}
 
+              {/* --- Its receipts: as many as it took, fetched from the groups too --- */}
+              {detail.source !== 'message' && (
+                <ReceiptsPanel kind={deskKind} id={detail.id} version={version} onChanged={onChanged} />
+              )}
+
               {/* --- Its photos --- */}
-              {(detail.proofs?.length ?? 0) > 0 && (
+              {(detail.proofs?.filter((proof) => proof.kind !== 'TRANSFER').length ?? 0) > 0 && (
                 <section className="rounded-2xl bg-surface p-3 ring-1 ring-border-subtle">
                   <h3 className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-content-tertiary">
                     {t('bank.detailPhotos')}
                   </h3>
                   <div className="grid grid-cols-3 gap-2">
-                    {detail.proofs!.map((proof) => (
+                    {detail.proofs!.filter((proof) => proof.kind !== 'TRANSFER').map((proof) => (
                       <a key={proof.id} href={proofUrl(proof.id)} target="_blank" rel="noopener noreferrer">
                         {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img
