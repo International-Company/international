@@ -2388,6 +2388,20 @@ model InboxLabel {
   @@map("inbox_labels")
 }
 
+/// A note the staff keep on a conversation, never sent: what the customer said on the phone, a warning.
+model InboxChatNote {
+  id         String   @id @default(cuid())
+  /// "bot:<id>" for the private number's, "teller:<id>" for a teller's own number's.
+  chatKey    String
+  authorId   String
+  authorName String
+  text       String
+  createdAt  DateTime @default(now())
+
+  @@index([chatKey, createdAt])
+  @@map("inbox_chat_notes")
+}
+
 /// How one person keeps one conversation: pinned, archived, left unread, labelled.
 model InboxChatMark {
   id           String   @id @default(cuid())

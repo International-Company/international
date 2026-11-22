@@ -48,6 +48,7 @@ import { Badge, Button, Card, EmptyState, PageHeader, Skeleton } from '@/ui/prim
 import { Field, Input, Textarea } from '@/ui/form';
 import { shrinkPhoto } from '@/ui/proof-photo';
 import { checkingLate, NoticePanel, STATUS_STYLE, type NoticeLine } from './notice-panel';
+import { CustomerPanel } from './customer-panel';
 import {
   Avatar,
   clockOf,
@@ -245,7 +246,13 @@ function Conversations({
   const [listView, setListView] = useState<'people' | 'waiting' | 'groups' | 'notices'>('people');
   /** The remittance notices, and the one open beside the conversation. */
   const [noticeRows, setNoticeRows] = useState<NoticeLine[]>([]);
-  const [activeNotice, setActiveNotice] = useState<string | null>(null);
+  const [activeNotice, setActiveNoticeRaw] = useState<string | null>(null);
+  /** Who the open conversation is with, beside it. */
+  const [profileOpen, setProfileOpen] = useState(false);
+  const setActiveNotice = (id: string | null) => {
+    setActiveNoticeRaw(id);
+    if (id) setProfileOpen(false);
+  };
   const [noticeNow, setNoticeNow] = useState(() => Date.now());
   const loadNotices = useCallback(async () => {
     if (!withNotices) return;
@@ -860,7 +867,7 @@ function Conversations({
       {header}
       <div
         className={`grid gap-4 md:grid-cols-[20rem_minmax(0,1fr)] lg:grid-cols-[21rem_minmax(0,1fr)] ${
-          activeNotice ? '2xl:grid-cols-[21rem_minmax(0,1fr)_24rem]' : ''
+          activeNotice || (profileOpen && thread) ? '2xl:grid-cols-[21rem_minmax(0,1fr)_24rem]' : ''
         }`}
       >
         {/* The list: the whole page on a phone, a column beside the conversation from a tablet. */}
@@ -1174,6 +1181,16 @@ function Conversations({
                 >
                   <ArrowLeft className="size-5 rtl:-scale-x-100" />
                 </button>
+                <button
+                  type="button"
+                  disabled={!scope}
+                  onClick={() => {
+                    setActiveNoticeRaw(null);
+                    setProfileOpen((open) => !open);
+                  }}
+                  title={scope ? t('inbox.profile.title') : undefined}
+                  className="flex min-w-0 flex-1 items-center gap-2.5 rounded-xl py-0.5 text-start enabled:hover:bg-surface-sunken/70"
+                >
                 <Avatar name={thread.name} phone={thread.phone} group={thread.group} size="sm" />
                 <div className="min-w-0 flex-1 text-start">
                   <p className="truncate text-sm font-semibold text-content">
@@ -1191,6 +1208,7 @@ function Conversations({
                     </p>
                   )}
                 </div>
+                </button>
                 <button
                   type="button"
                   aria-label={t('inbox.searchChat')}
@@ -1618,6 +1636,29 @@ function Conversations({
             </>
           )}
         </Card>
+        {!activeNotice && profileOpen && thread && scope && (
+          // As the notice: a drawer over the page until the screen has room for a third column.
+          <div className="fixed inset-0 z-50 flex justify-end 2xl:static 2xl:z-auto 2xl:block" role="dialog" aria-label={t('inbox.profile.title')}>
+            <button
+              type="button"
+              aria-label={t('common.close')}
+              onClick={() => setProfileOpen(false)}
+              className="absolute inset-0 bg-black/30 backdrop-blur-[1px] 2xl:hidden"
+            />
+            <Card className="relative flex h-full w-full flex-col overflow-hidden rounded-none p-0 pb-[env(safe-area-inset-bottom)] shadow-[var(--shadow-lg)] sm:max-w-md 2xl:h-[calc(100dvh-13.5rem)] 2xl:max-w-none 2xl:rounded-2xl 2xl:pb-0 2xl:shadow-none">
+              <CustomerPanel
+                scope={scope}
+                chatId={thread.id}
+                name={thread.name}
+                phone={thread.phone}
+                group={thread.group}
+                media={thread.messages.filter((message) => message.imageId && !message.deleted)}
+                onOpenPhoto={setViewing}
+                onClose={() => setProfileOpen(false)}
+              />
+            </Card>
+          </div>
+        )}
         {activeNotice && (
           // A drawer over the page (above the ticker) until the screen is wide enough for a third column.
           <div
