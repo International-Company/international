@@ -24,7 +24,7 @@ import { say } from '@/lib/failure';
 import { Button, Card, EmptyState, Skeleton } from '@/ui/primitives';
 import { ConfirmDialog, useToast } from '@/ui/overlay';
 import { Money } from '@/ui/display';
-import { ANY_DAY, DateRangePicker, inRange, keyOf as dayOf, type DayRange } from '@/ui/date-range-picker';
+import { DateRangePicker, inRange, keyOf as dayOf, type DayRange } from '@/ui/date-range-picker';
 import { cn } from '@/ui/utils';
 import { BankMark, lateness } from './bank-view';
 import { clockOf, dayKey, dayLabel } from './days';
@@ -150,14 +150,25 @@ export function BankTable({
     return () => clearInterval(timer);
   }, [load]);
 
-  const everything = useMemo(
-    () =>
-      [
-        ...((desk?.range ?? [...(desk?.waiting ?? []), ...(desk?.sent ?? [])]) as Line[]),
-        ...((desk?.others ?? []) as Line[]),
-      ].filter((line) => Boolean(searched) || inRange(dayKey(line.at), days)),
-    [desk, days, searched],
+  const onToday = days.from === today().from && days.to === today().to;
+  /** Still waiting from an earlier day, on today's list: it moves on with the days until it is sent. */
+  const carried = useCallback(
+    (line: Line) => onToday && !searched && dayKey(line.at) < (today().from ?? ''),
+    [onToday, searched],
   );
+
+  const everything = useMemo(() => {
+    const listed = [
+      ...((desk?.range ?? [...(desk?.waiting ?? []), ...(desk?.sent ?? [])]) as Line[]),
+      ...((desk?.others ?? []) as Line[]),
+    ].filter((line) => Boolean(searched) || inRange(dayKey(line.at), days));
+    if (!onToday || searched) return listed;
+    // Yesterday's unsent, and older: kept with the day they were recorded, waiting at the top of today.
+    const seen = new Set(listed.map(keyOf));
+    const older = ((desk?.waiting ?? []) as Line[]).filter((line) => carried(line) && !seen.has(keyOf(line)));
+    return [...older, ...listed];
+  }, [desk, days, searched, onToday, carried]);
+  const olderWaiting = everything.filter((line) => carried(line) && line.status === 'PENDING_TRANSFER' && !line.sentAt).length;
 
   // The figures across the top: how many, how many late, and what they come to.
   const figures = useMemo(() => {
@@ -215,9 +226,6 @@ export function BankTable({
         : new Date(b.sentAt ?? b.at).getTime() - new Date(a.sentAt ?? a.at).getTime();
     });
 
-  const onToday = days.from === today().from && days.to === today().to;
-  const olderWaiting =
-    onToday && !searched ? (desk?.waiting ?? []).filter((line) => dayKey(line.at) < (today().from ?? '')).length : 0;
 
   // Ticked: only those still waiting can be sent together.
   const pendingOf = (line: Line) => line.status === 'PENDING_TRANSFER' && !line.sentAt && line.source !== 'message';
@@ -525,10 +533,7 @@ export function BankTable({
               {olderWaiting > 0 && (
                 <button
                   type="button"
-                  onClick={() => {
-                    setDays(ANY_DAY);
-                    setShow('open');
-                  }}
+                  onClick={() => setShow('open')}
                   className="inline-flex items-center gap-1 rounded-full bg-warning-subtle px-2 py-0.5 text-warning-text"
                 >
                   <Clock className="size-3" />
@@ -620,10 +625,23 @@ export function BankTable({
                         </td>
                         <td className="whitespace-nowrap border-b border-border-subtle px-2 py-2">
                           <span className="block font-semibold tabular-nums text-content">{clockOf(line.at)}</span>
-                          {newDay && !onToday && (
-                            <span className="block text-[10px] text-content-tertiary">
-                              {dayLabel(dayKey(line.at), locale, { today: t('bank.period.today'), yesterday: t('bank.period.yesterday') })}
+                          {carried(line) ? (
+                            <span
+                              className="mt-0.5 inline-flex items-center gap-1 rounded-full bg-warning-subtle px-1.5 py-px text-[10px] font-semibold text-warning-text"
+                              title={new Date(line.at).toLocaleString(locale === 'ar' ? 'ar' : 'en-GB')}
+                            >
+                              <Clock className="size-2.5" />
+                              {t('bankTable.carried', {
+                                day: dayLabel(dayKey(line.at), locale, { today: t('bank.period.today'), yesterday: t('bank.period.yesterday') }),
+                              })}
                             </span>
+                          ) : (
+                            newDay &&
+                            !onToday && (
+                              <span className="block text-[10px] text-content-tertiary">
+                                {dayLabel(dayKey(line.at), locale, { today: t('bank.period.today'), yesterday: t('bank.period.yesterday') })}
+                              </span>
+                            )
                           )}
                         </td>
                         <td className="border-b border-border-subtle px-2 py-2">
@@ -713,6 +731,14 @@ export function BankTable({
                         <span className="block truncate font-bold text-content">{line.name ?? line.text ?? '—'}</span>
                         <span className="block truncate text-xs text-content-tertiary">
                           {line.channel ?? '—'} · {clockOf(line.at)}
+                          {carried(line) && (
+                            <span className="ms-1 font-semibold text-warning-text">
+                              ·{' '}
+                              {t('bankTable.carried', {
+                                day: dayLabel(dayKey(line.at), locale, { today: t('bank.period.today'), yesterday: t('bank.period.yesterday') }),
+                              })}
+                            </span>
+                          )}
                         </span>
                       </span>
                       {BigInt(line.amount || '0') > 0n && <Money value={line.amount} currency={line.currency} className="font-extrabold" />}
