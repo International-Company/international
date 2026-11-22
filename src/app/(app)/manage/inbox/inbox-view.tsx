@@ -285,6 +285,22 @@ function Conversations({
     }
   };
   const checkingCount = noticeRows.filter((row) => row.status === 'CHECKING' || row.status === 'NEW').length;
+  // Come from the remittance board: that notice, beside its conversation.
+  useEffect(() => {
+    if (!withNotices) return;
+    const params = new URLSearchParams(window.location.search);
+    const notice = params.get('notice');
+    const chat = params.get('chat');
+    if (!notice) return;
+    setListView('notices');
+    if (chat) setSelected(chat);
+    setActiveNotice(notice);
+    const url = new URL(window.location.href);
+    url.searchParams.delete('notice');
+    url.searchParams.delete('chat');
+    window.history.replaceState(window.history.state, '', url);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [withNotices]);
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
   const [photo, setPhoto] = useState<{ data: string; preview: string } | null>(null);

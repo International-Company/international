@@ -2,6 +2,7 @@ import {
   Bot,
   Landmark,
   MessageCircle,
+  Route,
   ArrowLeftRight,
   ArrowRightLeft,
   CalendarCheck,
@@ -49,4 +50,5 @@ export const NAV_ICONS: Record<IconName, LucideIcon> = {
   bot: Bot,
   bank: Landmark,
   inbox: MessageCircle,
+  track: Route,
 };

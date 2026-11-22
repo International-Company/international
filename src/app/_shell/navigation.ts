@@ -40,6 +40,7 @@ export type IconName =
   | 'bank'
   | 'bot'
   | 'inbox'
+  | 'track'
   | 'machine'
   | 'tiktok'
   | 'counter'
@@ -158,6 +159,13 @@ export const NAVIGATION: NavSection[] = [
         href: '/manage/inbox',
         labelKey: 'nav.inbox',
         icon: 'inbox',
+        permissions: ['customers.whatsapp'],
+      },
+      {
+        // The remittances taken from WhatsApp, each followed from notice to money paid.
+        href: '/manage/remittance-board',
+        labelKey: 'nav.remittanceBoard',
+        icon: 'track',
         permissions: ['customers.whatsapp'],
       },
       {
