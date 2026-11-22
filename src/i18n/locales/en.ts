@@ -2494,6 +2494,12 @@ const en = {
     reopenHint: 'It returns to waiting as if it had not been sent, and the ✅ the bot put on its message in the group is taken off. Nothing changes in the books; the action is recorded in your name.',
     reopened: 'The transfer is waiting again',
   },
+  bankSent: {
+    copy: 'Copy',
+    copied: 'Copied',
+    channel: 'Bank',
+    groupHint: 'On confirming, the bot answers the transfer in the bank transfers group with "{account} ✅ تم التحويل" and the receipt: the one pasted here, else the one the forwarded group answered with.',
+  },
   arrivals: {
     title: 'Arrived unasked',
     subtitle: '{count} transfer(s) on counter addresses that nobody has claimed',

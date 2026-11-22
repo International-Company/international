@@ -1,6 +1,7 @@
 import 'server-only';
 import { prisma } from '@/core/db/prisma';
 import { on } from '@/core/events/bus';
+import { SENT_MARK, sentWords } from './sent-words';
 import { toDecimalString } from '@/core/money/money';
 import { createBotLogger } from '@/modules/whatsapp/bot-issues';
 import { HOME_CURRENCY } from '@/lib/home-currency';
@@ -521,7 +522,7 @@ async function markMessages(deal: MarkedDeal, emoji: string): Promise<void> {
 export const CANCELLED_MARK = '❌';
 
 /** What the bot puts on a deal's message once its transfer was sent from the bank. */
-export const SENT_MARK = '✅';
+export { SENT_MARK, sentWords };
 
 /** What the bot puts on a deal's message once any of its details were changed. */
 export const EDITED_MARK = '🤳';
@@ -915,9 +916,13 @@ export function registerWhatsappSubscribers(): void {
   });
 
   /*
-   * A transfer sent from the bank desk. Its messages are marked, and the bank's
-   * receipt goes as a reply to the one that asked for the transfer: the copy in
-   * the transfers group when there is one, else the deal itself.
+   * A transfer sent from the bank desk. Its messages are marked, and it is
+   * answered under the one that asked for it — the copy in the transfers group
+   * when there is one, else the deal itself — with the number it went to and
+   * "تم التحويل", so whoever reads the group sees which one without opening
+   * it. The bank's receipt goes with it: the one given when it was marked
+   * sent, else the one already kept — as the group it was passed on to
+   * answered it with — and the words alone when there is none.
    */
   on('transaction.transferSent', 'whatsapp-announce-sent', async ({ transactionId, proofId }) => {
     if (!(await settings.getBoolean('whatsapp.enabled')) || !isLinked()) return;
@@ -925,6 +930,7 @@ export function registerWhatsappSubscribers(): void {
       where: { id: transactionId },
       select: {
         reference: true,
+        payoutAccount: true,
         announcedChat: true,
         announcedMessageId: true,
         copyChat: true,
@@ -933,18 +939,21 @@ export function registerWhatsappSubscribers(): void {
     });
     if (!deal) return;
     await markMessages(deal, SENT_MARK);
-    if (!proofId) return;
     const chat = deal.copyChat ?? deal.announcedChat;
     const messageId = deal.copyChat ? deal.copyMessageId : deal.announcedMessageId;
     if (!chat || !messageId) return;
-    const proof = await prisma.transactionProof.findUnique({
-      where: { id: proofId },
-      select: { data: true, mimeType: true },
-    });
-    if (!proof) return;
-    await sendImage(chat, Buffer.from(proof.data), `${SENT_MARK} تم التحويل`, sentStub(chat, messageId), proof.mimeType).catch(
-      (error) => log.warn('Could not send a transfer receipt', { reference: deal.reference, error }),
-    );
+    const proof = proofId
+      ? await prisma.transactionProof.findUnique({ where: { id: proofId }, select: { data: true, mimeType: true } })
+      : await prisma.transactionProof.findFirst({
+          where: { transactionId, kind: 'TRANSFER' },
+          orderBy: { createdAt: 'desc' },
+          select: { data: true, mimeType: true },
+        });
+    const words = sentWords(deal.payoutAccount);
+    await (proof
+      ? sendImage(chat, Buffer.from(proof.data), words, sentStub(chat, messageId), proof.mimeType)
+      : replyToSent(chat, messageId, words)
+    ).catch((error) => log.warn('Could not answer a sent transfer in its group', { reference: deal.reference, error }));
   });
 
   // Put back to waiting from the bank desk: the ✅ the bot put on its messages taken off.

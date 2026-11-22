@@ -5,7 +5,8 @@ import { errors } from '@/core/errors/app-error';
 import { createLogger } from '@/core/logger/logger';
 import { readProofImage } from '@/modules/exchange/proof-image';
 import { keepMedia } from '@/modules/whatsapp/chat-images';
-import { reactTo, sendImage, sentStub } from '@/modules/whatsapp/whatsapp.service';
+import { reactTo, replyToSent, sendImage, sentStub } from '@/modules/whatsapp/whatsapp.service';
+import { sentWords } from '@/modules/whatsapp/sent-words';
 import type { Actor } from '@/modules/exchange/transaction.service';
 
 const log = createLogger('bank:tiktok');
@@ -207,7 +208,7 @@ export async function markTiktokSent(id: string, receipt: string | null, actor: 
   if (typeof image === 'string') throw errors.precondition('That photo cannot be kept', image);
   const row = await prisma.tiktokWithdrawal.findUnique({
     where: { id },
-    select: { deletedAt: true, sentAt: true, bankChat: true, bankMessageId: true },
+    select: { deletedAt: true, sentAt: true, bankChat: true, bankMessageId: true, account: true, receiptId: true },
   });
   if (!row) throw errors.notFound('TiktokWithdrawal', id);
   if (row.deletedAt || row.sentAt) {
@@ -223,11 +224,19 @@ export async function markTiktokSent(id: string, receipt: string | null, actor: 
     const chat = row.bankChat;
     const messageId = row.bankMessageId;
     await reactTo(chat, messageId, '✅').catch((error) => log.warn('Could not mark a TikTok transfer sent', { error }));
-    if (image) {
-      await sendImage(chat, image.bytes, '✅ تم التحويل', sentStub(chat, messageId), image.mimeType).catch((error) =>
-        log.warn('Could not send a TikTok transfer’s receipt', { error }),
-      );
-    }
+    // The receipt given now, else the one already kept; the words alone when there is none.
+    const found =
+      image ??
+      (row.receiptId
+        ? await prisma.chatImage
+            .findUnique({ where: { id: row.receiptId }, select: { data: true, mimeType: true } })
+            .then((file) => (file ? { bytes: Buffer.from(file.data), mimeType: file.mimeType } : null))
+        : null);
+    const words = sentWords(row.account);
+    await (found
+      ? sendImage(chat, found.bytes, words, sentStub(chat, messageId), found.mimeType)
+      : replyToSent(chat, messageId, words)
+    ).catch((error) => log.warn('Could not answer a TikTok transfer in its group', { error }));
   }
   log.info('A TikTok transfer was sent from the bank desk');
   return { id };

@@ -7,6 +7,7 @@ import { transferChannels } from '@/modules/exchange/machine.service';
 import { readProofImage } from '@/modules/exchange/proof-image';
 import { keepMedia } from '@/modules/whatsapp/chat-images';
 import { answerInGroup } from '@/modules/whatsapp/whatsapp.service';
+import { sentWords } from '@/modules/whatsapp/sent-words';
 import type { Actor } from '@/modules/exchange/transaction.service';
 import { readTransferRequest, type ReadRequest } from './transfer-request';
 
@@ -239,14 +240,22 @@ export async function markRequestSent(id: string, receipt: string | null, actor:
   const kept = image ? await keepMedia(image, null) : null;
   await prisma.bankRequest.update({
     where: { id },
-    data: { status: 'SENT', sentAt: new Date(), sentByName: actor.name, receiptId: kept?.id ?? null },
+    data: { status: 'SENT', sentAt: new Date(), sentByName: actor.name, receiptId: kept?.id ?? row.receiptId },
   });
 
-  const words = '✅ تم التحويل';
+  // The receipt given now, else the one the group it was passed on to answered it with.
+  const found =
+    image ??
+    (row.receiptId
+      ? await prisma.chatImage
+          .findUnique({ where: { id: row.receiptId }, select: { data: true, mimeType: true } })
+          .then((file) => (file ? { bytes: Buffer.from(file.data), mimeType: file.mimeType } : null))
+      : null);
+  const words = sentWords(row.account);
   await answerInGroup(
     row.chat,
     { id: row.waId, author: row.senderJid, text: row.text },
-    image ? { image: image.bytes, mimetype: image.mimeType, caption: words } : { text: words },
+    found ? { image: found.bytes, mimetype: found.mimeType, caption: words } : { text: words },
     '✅',
   ).catch((error) => log.warn('Could not answer a transfer request in its group', { error }));
   log.info('A transfer request from a group was sent');
