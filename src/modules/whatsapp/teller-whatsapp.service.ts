@@ -16,6 +16,7 @@ import { prisma } from '@/core/db/prisma';
 import { errors } from '@/core/errors/app-error';
 import { createLogger } from '@/core/logger/logger';
 import * as settings from '@/modules/settings/settings.service';
+import { toVoiceNote } from './voice-note';
 import { reactionsOf, withReaction } from './reactions';
 import { isPrivateChat, TELLER_SESSION_PREFIX, tellerSessionPrefix } from './accounts';
 import { clearSession, databaseAuthState, hasSession } from './auth-state';
@@ -786,6 +787,44 @@ export async function answer(
   await keep(ownerId, row.chat, row.phone ? `${row.phone}@s.whatsapp.net` : null, true, words, {
     mediaId: imageId,
     mediaKind: imageId ? 'image' : null,
+    waId,
+    quotedWaId: target?.waId ?? null,
+  });
+  return readChat(ownerId, id);
+}
+
+/**
+ * A voice note recorded in the inbox, sent from the teller's number as one
+ * recorded on the phone is: the green note with the waveform, played on the
+ * customer's phone whatever it is.
+ */
+export async function answerVoice(ownerId: string, id: string, recording: Buffer, quoteId?: string) {
+  const row = await prisma.tellerChat.findFirst({ where: { id, ownerId } });
+  if (!row) throw errors.notFound('TellerChat', id);
+  const voice = await toVoiceNote(recording);
+  const target = quoteId
+    ? await prisma.tellerChatMessage.findFirst({
+        where: { id: quoteId, chatId: row.id, waId: { not: null } },
+        select: { waId: true, fromMe: true, text: true },
+      })
+    : null;
+  const quoted = target?.waId ? quoteOf(row.chat, target.waId, target.fromMe, target.text) : null;
+  let waId: string | null = null;
+  try {
+    const sent = await socketOf(ownerId).sendMessage(
+      row.chat,
+      { audio: voice, mimetype: 'audio/ogg; codecs=opus', ptt: true },
+      quoted ? { quoted } : undefined,
+    );
+    waId = sent?.key.id ?? null;
+  } catch (error) {
+    log.warn('A teller voice note was not sent', { error });
+    throw errors.precondition('WhatsApp did not take the message', 'errors.tellerSendFailed');
+  }
+  const kept = await keepMedia({ bytes: voice, mimeType: 'audio/ogg' }, ownerId);
+  await keep(ownerId, row.chat, row.phone ? `${row.phone}@s.whatsapp.net` : null, true, '', {
+    mediaId: kept?.id ?? null,
+    mediaKind: kept ? 'audio' : null,
     waId,
     quotedWaId: target?.waId ?? null,
   });

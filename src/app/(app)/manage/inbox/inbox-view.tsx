@@ -17,6 +17,7 @@ import {
   Copy,
   Archive,
   Forward,
+  Mic,
   MoreVertical,
   Pin,
   Tag,
@@ -544,6 +545,97 @@ function Conversations({
     setDraft(fillReply(reply.text, thread?.name ?? null));
     requestAnimationFrame(() => box.current?.focus());
   };
+
+  /*
+   * A voice note, recorded here and sent as the green note WhatsApp plays on
+   * every phone; the server makes it Opus in Ogg, whatever the browser
+   * recorded. Only from one's own number, which is what this inbox answers.
+   */
+  const canVoice = !readOnly && base === '/api/inbox/mine';
+  const [recordingSince, setRecordingSince] = useState<number | null>(null);
+  const [sendingVoice, setSendingVoice] = useState(false);
+  const [, setVoiceTick] = useState(0);
+  const recorder = useRef<MediaRecorder | null>(null);
+  const voiceChunks = useRef<Blob[]>([]);
+  const MAX_VOICE_MS = 3 * 60_000;
+  useEffect(() => {
+    if (recordingSince === null) return;
+    const timer = setInterval(() => {
+      setVoiceTick((tick) => tick + 1);
+      if (Date.now() - recordingSince > MAX_VOICE_MS) void stopVoice(true);
+    }, 500);
+    return () => clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recordingSince]);
+  const startVoice = async () => {
+    if (recorder.current || !navigator.mediaDevices?.getUserMedia) {
+      if (!navigator.mediaDevices?.getUserMedia) toast.error(t('errors.title'), t('inbox.voice.noMic'));
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mimeType = ['audio/ogg;codecs=opus', 'audio/webm;codecs=opus', 'audio/webm', 'audio/mp4'].find(
+        (type) => typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported(type),
+      );
+      const rec = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+      voiceChunks.current = [];
+      rec.ondataavailable = (event) => {
+        if (event.data.size > 0) voiceChunks.current.push(event.data);
+      };
+      rec.start(250);
+      recorder.current = rec;
+      setRecordingSince(Date.now());
+    } catch {
+      toast.error(t('errors.title'), t('inbox.voice.noMic'));
+    }
+  };
+  const stopVoice = (send: boolean) =>
+    new Promise<void>((done) => {
+      const rec = recorder.current;
+      if (!rec) return done();
+      recorder.current = null;
+      setRecordingSince(null);
+      rec.onstop = async () => {
+        rec.stream.getTracks().forEach((track) => track.stop());
+        const blob = new Blob(voiceChunks.current, { type: rec.mimeType || 'audio/webm' });
+        voiceChunks.current = [];
+        if (send && blob.size > 1500 && thread) {
+          setSendingVoice(true);
+          try {
+            const voice = await new Promise<string>((resolve, reject) => {
+              const reader = new FileReader();
+              reader.onload = () => resolve(String(reader.result).split(',')[1] ?? '');
+              reader.onerror = () => reject(reader.error);
+              reader.readAsDataURL(blob);
+            });
+            setThread(
+              await api.post<Thread>(`${base}/${thread.id}`, { voice, ...(quote ? { quoteId: quote.id } : {}) }),
+            );
+            setQuote(null);
+            void load();
+          } catch (cause) {
+            failure(cause);
+          } finally {
+            setSendingVoice(false);
+          }
+        }
+        done();
+      };
+      rec.stop();
+    });
+  // Leaving the conversation leaves the recording unsent.
+  useEffect(() => {
+    return () => {
+      if (recorder.current) void stopVoice(false);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected]);
+  const voiceClock = recordingSince
+    ? (() => {
+        const seconds = Math.floor((Date.now() - recordingSince) / 1000);
+        return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
+      })()
+    : '';
 
   /** Looking for words in this conversation: what, and which of the places found is shown. */
   const [searchOpen, setSearchOpen] = useState(false);
@@ -1552,6 +1644,23 @@ function Conversations({
                 )}
                 <div className="flex items-end gap-2">
                   {/* The box as WhatsApp draws it: one rounded field, the clip inside it. */}
+                  {recordingSince !== null || sendingVoice ? (
+                    <div className="flex h-11 min-w-0 flex-1 items-center gap-3 rounded-3xl bg-surface px-3 shadow-sm ring-1 ring-border-subtle">
+                      <button
+                        type="button"
+                        aria-label={t('inbox.voice.cancel')}
+                        title={t('inbox.voice.cancel')}
+                        disabled={sendingVoice}
+                        onClick={() => void stopVoice(false)}
+                        className="inline-flex size-9 shrink-0 items-center justify-center rounded-full text-content-secondary hover:bg-surface-sunken hover:text-danger-text disabled:opacity-40"
+                      >
+                        <Trash2 className="size-5" />
+                      </button>
+                      <span className={`size-2.5 shrink-0 rounded-full bg-red-500 ${sendingVoice ? '' : 'animate-pulse'}`} />
+                      <span className="text-sm font-semibold tabular-nums text-content">{sendingVoice ? t('inbox.voice.sending') : voiceClock}</span>
+                      <span className="truncate text-xs text-content-tertiary">{sendingVoice ? '' : t('inbox.voice.recording')}</span>
+                    </div>
+                  ) : (
                   <div className="relative flex min-w-0 flex-1 items-end gap-1 rounded-3xl bg-surface px-1.5 py-1 shadow-sm ring-1 ring-border-subtle focus-within:ring-2 focus-within:ring-[var(--wa-accent)]">
                   <button
                     type="button"
@@ -1613,12 +1722,29 @@ function Conversations({
                     className="min-h-9 flex-1 resize-none border-0 bg-transparent px-1.5 py-2 text-base shadow-none ring-0 focus:ring-0 focus-visible:ring-0 sm:text-[15px]"
                   />
                   </div>
+                  )}
+                  {canVoice && !draft.trim() && !photo && recordingSince === null ? (
+                    <button
+                      type="button"
+                      aria-label={t('inbox.voice.record')}
+                      title={t('inbox.voice.record')}
+                      disabled={sendingVoice}
+                      onClick={() => void startVoice()}
+                      className="inline-flex size-11 shrink-0 items-center justify-center rounded-full text-white shadow-sm transition-opacity disabled:opacity-40 wa-accent-bg"
+                    >
+                      {sendingVoice ? (
+                        <span className="size-5 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+                      ) : (
+                        <Mic className="size-5" />
+                      )}
+                    </button>
+                  ) : (
                   <button
                     type="button"
                     aria-label={t('inbox.send')}
                     title={t('inbox.send')}
-                    disabled={sending || (!draft.trim() && !photo)}
-                    onClick={() => void send()}
+                    disabled={sending || (recordingSince === null && !draft.trim() && !photo)}
+                    onClick={() => void (recordingSince !== null ? stopVoice(true) : send())}
                     className="inline-flex size-11 shrink-0 items-center justify-center rounded-full text-white shadow-sm transition-opacity disabled:opacity-40 wa-accent-bg"
                   >
                     {sending ? (
@@ -1627,6 +1753,7 @@ function Conversations({
                       <SendHorizontal className="size-5 rtl:-scale-x-100" />
                     )}
                   </button>
+                  )}
                 </div>
                 <p className="hidden text-xs text-content-tertiary md:block">
                   {hint} {t('inbox.pasteHint')}

@@ -63,8 +63,9 @@ RUN npm run build
 # --- Stage 3: runtime -------------------------------------------------------
 FROM node:24-bookworm-slim AS runner
 
+# ffmpeg makes a recording from the browser into a WhatsApp voice note (Opus in Ogg).
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends openssl ca-certificates \
+    && apt-get install -y --no-install-recommends openssl ca-certificates ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

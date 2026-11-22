@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { route } from '@/core/http/route';
-import { answer, changeMine, reactMine, readChat } from '@/modules/whatsapp/teller-whatsapp.service';
+import { answer, answerVoice, changeMine, reactMine, readChat } from '@/modules/whatsapp/teller-whatsapp.service';
 
 const paramsSchema = z.object({ id: z.string().min(1) });
 
@@ -17,15 +17,19 @@ const bodySchema = z
     image: z.string().min(1).max(6_000_000).optional(),
     /** A message of the conversation the answer quotes. */
     quoteId: z.string().min(1).max(40).optional(),
+    /** A voice note recorded on the screen (base64), in whatever the browser recorded. */
+    voice: z.string().min(1).max(4_500_000).optional(),
   })
-  .refine((body) => body.text || body.image, { message: 'Write the answer or add a photo' });
+  .refine((body) => body.text || body.image || body.voice, { message: 'Write the answer or add a photo' });
 
 export const POST = route<z.infer<typeof bodySchema>, unknown, z.infer<typeof paramsSchema>>({
   permissions: ['customers.whatsapp'],
   paramsSchema,
   bodySchema,
   handler: async ({ params, body, actor }) =>
-    answer(actor.id, params.id, body.text, body.image, body.quoteId),
+    body.voice
+      ? answerVoice(actor.id, params.id, Buffer.from(body.voice, 'base64'), body.quoteId)
+      : answer(actor.id, params.id, body.text, body.image, body.quoteId),
 });
 
 /** A message the teller sent, edited or deleted for the customer too. */

@@ -1093,6 +1093,13 @@ const en = {
     searchOlder: 'Older',
     searchNewer: 'Newer',
     archived: 'Archived',
+    voice: {
+      record: 'Record a voice note',
+      recording: 'Recording… press send when done',
+      sending: 'Sending…',
+      cancel: 'Discard recording',
+      noMic: 'The microphone is not allowed. Allow it in the browser settings.',
+    },
     profile: {
       title: 'Contact info',
       since: 'Writing to us since',
@@ -3367,6 +3374,8 @@ const en = {
     backupVersion: 'This backup was made by an incompatible version',
     noBranch: 'No branch is configured',
     inboxTooMany: 'You have reached the limit',
+    voiceInvalid: 'The recording is unusable or too long',
+    voiceUnavailable: 'The server cannot send voice notes right now',
     txHashInvalid: 'That is not a valid transaction hash',
     txNoAddress: 'There is no counter address on that network',
     txNotFound: 'The chain does not know that hash — check it, or wait a moment',

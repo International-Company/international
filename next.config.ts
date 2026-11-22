@@ -66,7 +66,9 @@ const nextConfig: NextConfig = {
             // `publickey-credentials-get` is left out of the deny list on
             // purpose: it is what a passkey sign-in needs, and naming it here
             // with an empty allowlist would switch fingerprint login off.
-            value: 'camera=(), microphone=(), geolocation=(), payment=()',
+            // The microphone is the app's own, for voice notes in the customers'
+            // WhatsApp; no page from anywhere else may ask for it.
+            value: 'camera=(), microphone=(self), geolocation=(), payment=()',
           },
         ],
       },
