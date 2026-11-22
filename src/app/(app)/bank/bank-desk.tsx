@@ -30,6 +30,8 @@ export function BankDesk() {
   /** Bumped when one part changed something: the others ask again. */
   const [version, setVersion] = useState(0);
   const [sending, setSending] = useState<Line | null>(null);
+  /** The transfer whose floating window was asked for from its row. */
+  const [floatingLine, setFloatingLine] = useState<Line | null>(null);
   /** The forward sheet: open, with the groups a quick button ticked. */
   const [forwarding, setForwarding] = useState<{ preset?: Group[] } | null>(null);
   /** The pinned executing groups. */
@@ -106,6 +108,7 @@ export function BankDesk() {
           selectedKey={selectedKey}
           onOpen={choose}
           onSend={setSending}
+          onFloat={setFloatingLine}
           onForward={(line, preset) => {
             choose(line);
             setForwarding({ preset });
@@ -163,6 +166,8 @@ export function BankDesk() {
         onForwarded={changed}
       />
       <MarkSentDialog line={sending} onClose={() => setSending(null)} onDone={changed} />
+      {/* The row's floating window: the fields above the bank's site, and sent from there. */}
+      <MarkSentDialog line={floatingLine} floatOnly onClose={() => setFloatingLine(null)} onDone={changed} />
     </div>
   );
 }

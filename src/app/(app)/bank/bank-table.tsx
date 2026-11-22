@@ -8,6 +8,7 @@ import {
   ClipboardList,
   Copy,
   CornerUpRight,
+  PictureInPicture2,
   FileQuestion,
   Hourglass,
   Inbox,
@@ -72,6 +73,7 @@ export function BankTable({
   selectedKey,
   onOpen,
   onSend,
+  onFloat,
   onForward,
   executors,
   version,
@@ -82,6 +84,8 @@ export function BankTable({
   onOpen: (line: Line) => void;
   /** Opens the "sent" confirmation for one transfer, with its receipt. */
   onSend: (line: Line) => void;
+  /** Opens the transfer's floating window, above the bank's site. */
+  onFloat?: (line: Line) => void;
   /** Opens the forward sheet for one transfer, with these groups ticked. */
   onForward: (line: Line, preset?: Group[]) => void;
   executors: Group[];
@@ -383,6 +387,20 @@ export function BankTable({
             className="inline-flex size-8 items-center justify-center rounded-lg text-primary-text ring-1 ring-border-subtle hover:bg-primary-subtle"
           >
             <CornerUpRight className="size-4" />
+          </button>
+        )}
+        {onFloat && (
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              onFloat(line);
+            }}
+            title={t('bankSent.floatRow')}
+            aria-label={t('bankSent.floatRow')}
+            className="inline-flex size-8 items-center justify-center rounded-lg bg-gradient-to-br from-violet-500 to-indigo-600 text-white shadow-sm ring-1 ring-indigo-700/20 transition hover:shadow-md hover:brightness-110 active:scale-95"
+          >
+            <PictureInPicture2 className="size-4" />
           </button>
         )}
         <button

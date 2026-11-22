@@ -2499,6 +2499,7 @@ const en = {
     floatHint: 'Opens the details in a small window that stays above every window, the Jawwal Pay site included',
     floatTitle: 'Make the transfer',
     floatBlocked: 'The browser blocked the floating window. Allow pop-ups for this site.',
+    floatRow: 'Floating window to make it',
     floatFoot: 'Paste the receipt here with Ctrl+V, then press sent',
     groupHintShort: 'On confirming, the bot answers in the bank transfers group with "{account} ✅ تم التحويل" and the receipt',
     receiptPick: 'Attach the receipt, or paste it with Ctrl+V',

@@ -128,10 +128,13 @@ export function MarkSentDialog({
   line,
   onClose,
   onDone,
+  floatOnly = false,
 }: {
   line: Line | null;
   onClose: () => void;
   onDone: () => void;
+  /** Straight to the floating window, from the row's own button, with no window here. */
+  floatOnly?: boolean;
 }) {
   const { t } = useLocale();
   const toast = useToast();
@@ -153,6 +156,16 @@ export function MarkSentDialog({
   const floatingRef = useRef<Window | null>(null);
   floatingRef.current = floating;
   useEffect(() => () => floatingRef.current?.close(), []);
+
+  // Asked for from the row: opened at once, while the press still counts as one.
+  const floatOnlyRef = useRef(floatOnly);
+  floatOnlyRef.current = floatOnly;
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+  useEffect(() => {
+    if (floatOnly && line && !floating) void openFloat();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [floatOnly, line]);
 
   // Closed here: the floating window goes with it.
   useEffect(() => {
@@ -220,7 +233,7 @@ export function MarkSentDialog({
    * own beside the bank's site. The program's styles go with it, so it looks
    * as it does here.
    */
-  const float = async () => {
+  const openFloat = async () => {
     if (floating) {
       floating.focus();
       return;
@@ -258,7 +271,10 @@ export function MarkSentDialog({
     win.document.title = t('bankSent.floatTitle');
     win.document.body.className = 'bg-surface text-content';
     win.document.body.style.margin = '0';
-    win.addEventListener('pagehide', () => setFloating(null));
+    win.addEventListener('pagehide', () => {
+      setFloating(null);
+      if (floatOnlyRef.current) onCloseRef.current();
+    });
     setFloating(win);
   };
 
@@ -274,7 +290,7 @@ export function MarkSentDialog({
   return (
     <>
       <Dialog
-        open={line !== null}
+        open={line !== null && !floatOnly}
         onClose={onClose}
         size="sm"
         title={t('bank.markSentTitle')}
@@ -284,7 +300,7 @@ export function MarkSentDialog({
               variant="ghost"
               size="sm"
               icon={<PictureInPicture2 />}
-              onClick={() => void float()}
+              onClick={() => void openFloat()}
               title={t('bankSent.floatHint')}
               className="me-auto"
             >
