@@ -1,20 +1,128 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { Check, ClipboardCheck, ClipboardPaste, Copy } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { Camera, Check, ClipboardCheck, Copy, PictureInPicture2, X } from 'lucide-react';
 import { useLocale } from '@/i18n/provider';
 import { api, ApiError } from '@/lib/api-client';
 import { say } from '@/lib/failure';
 import { Button } from '@/ui/primitives';
 import { Dialog, useToast } from '@/ui/overlay';
 import { Money } from '@/ui/display';
-import { PhotoField } from '@/ui/photo-field';
 import { shrinkPhoto } from '@/ui/proof-photo';
 import { plainFigure, type Line } from './desk-types';
 
+interface Field {
+  key: string;
+  label: string;
+  value: string;
+  mono: boolean;
+}
+
 /**
- * Sent from the bank: said so with the bank's receipt when there is one. A deal
- * is marked on the deal; a group's request is answered in its group.
+ * Something put on the clipboard from a window — this one, or the floating one
+ * beside the bank's site, whose own clipboard is the one that will take it
+ * while it has the focus. The old way where the browser refuses the new.
+ */
+function copyFrom(win: Window, value: string) {
+  const fallback = () => {
+    const field = win.document.createElement('textarea');
+    field.value = value;
+    field.style.position = 'fixed';
+    field.style.opacity = '0';
+    win.document.body.appendChild(field);
+    field.select();
+    try {
+      win.document.execCommand('copy');
+    } finally {
+      field.remove();
+    }
+  };
+  if (win.navigator.clipboard?.writeText) win.navigator.clipboard.writeText(value).catch(fallback);
+  else fallback();
+}
+
+/** The transfer's fields, each copied with a press, the last one copied ticked. */
+function Fields({ fields, copied, onCopy }: { fields: Field[]; copied: string | null; onCopy: (field: Field) => void }) {
+  const { t } = useLocale();
+  return (
+    <div className="overflow-hidden rounded-xl ring-1 ring-border-subtle">
+      {fields.map((field) => (
+        <button
+          key={field.key}
+          type="button"
+          onClick={() => onCopy(field)}
+          className={`flex w-full items-center gap-2 border-b border-border-subtle px-2.5 py-1.5 text-start transition-colors last:border-b-0 ${
+            copied === field.key ? 'bg-success-subtle/60' : 'hover:bg-surface-sunken'
+          }`}
+        >
+          <span className="w-12 shrink-0 text-[11px] text-content-tertiary">{field.label}</span>
+          <span
+            className={`min-w-0 flex-1 truncate text-sm font-bold text-content ${field.mono ? 'ltr-content font-mono tabular-nums' : ''}`}
+          >
+            {field.value}
+          </span>
+          <span
+            className={`inline-flex shrink-0 items-center gap-1 text-[11px] font-semibold ${
+              copied === field.key ? 'text-success-text' : 'text-primary-text'
+            }`}
+          >
+            {copied === field.key ? <ClipboardCheck className="size-3.5" /> : <Copy className="size-3.5" />}
+            {copied === field.key ? t('bankSent.copied') : t('bankSent.copy')}
+          </span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/** The receipt in one line: a press to choose it (or Ctrl+V), then its thumbnail. */
+function Receipt({ value, onChange, onPick }: { value: string | null; onChange: (photo: string | null) => void; onPick: (file: File | undefined) => void }) {
+  const { t } = useLocale();
+  const input = useRef<HTMLInputElement>(null);
+  return value ? (
+    <div className="flex items-center gap-2 rounded-xl bg-success-subtle/40 p-1.5 ring-1 ring-success/30">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={`data:image/jpeg;base64,${value}`} alt="" className="size-10 rounded-lg object-cover" />
+      <span className="flex-1 text-xs font-semibold text-success-text">{t('bankSent.receiptReady')}</span>
+      <button
+        type="button"
+        onClick={() => onChange(null)}
+        aria-label={t('common.remove')}
+        className="inline-flex size-7 items-center justify-center rounded-full text-content-tertiary hover:bg-surface hover:text-danger-text"
+      >
+        <X className="size-4" />
+      </button>
+    </div>
+  ) : (
+    <>
+      <input
+        ref={input}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={(event) => {
+          onPick(event.target.files?.[0]);
+          event.target.value = '';
+        }}
+      />
+      <button
+        type="button"
+        onClick={() => input.current?.click()}
+        className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-dashed border-border-strong px-3 py-2 text-xs font-semibold text-content-secondary hover:bg-surface-sunken"
+      >
+        <Camera className="size-4" />
+        {t('bankSent.receiptPick')}
+      </button>
+    </>
+  );
+}
+
+/**
+ * Sent from the bank: the transfer's fields to copy into the bank's or Jawwal
+ * Pay's site, its receipt, and the word that it went. The same in a floating
+ * window that stays above every other — the bank's site included — so the
+ * teller copies from it there and says it went without coming back.
  */
 export function MarkSentDialog({
   line,
@@ -31,6 +139,8 @@ export function MarkSentDialog({
   const [busy, setBusy] = useState(false);
   /** Which field was copied last, shown ticked so the teller sees what is on the clipboard. */
   const [copied, setCopied] = useState<string | null>(null);
+  /** The floating window, while it is open. */
+  const [floating, setFloating] = useState<Window | null>(null);
 
   useEffect(() => {
     if (line) {
@@ -39,27 +149,30 @@ export function MarkSentDialog({
     }
   }, [line]);
 
-  const copy = (key: string, value: string) => {
-    // The clipboard as the browser offers it, else the old way, which works where that is refused.
-    const fallback = () => {
-      const field = document.createElement('textarea');
-      field.value = value;
-      field.style.position = 'fixed';
-      field.style.opacity = '0';
-      document.body.appendChild(field);
-      field.select();
-      try {
-        document.execCommand('copy');
-      } finally {
-        field.remove();
-      }
-    };
-    if (navigator.clipboard?.writeText) navigator.clipboard.writeText(value).catch(fallback);
-    else fallback();
-    setCopied(key);
+  // Leaving the bank desk: the floating window does not stay behind empty.
+  const floatingRef = useRef<Window | null>(null);
+  floatingRef.current = floating;
+  useEffect(() => () => floatingRef.current?.close(), []);
+
+  // Closed here: the floating window goes with it.
+  useEffect(() => {
+    if (!line && floating) {
+      floating.close();
+      setFloating(null);
+    }
+  }, [line, floating]);
+
+  const pick = (file: File | undefined) => {
+    if (!file) return;
+    shrinkPhoto(file)
+      .then((photo) => {
+        setReceipt(photo);
+        toast.success(t('bankDesk.pasted'));
+      })
+      .catch(() => toast.error(t('errors.title'), t('errors.proofImageInvalid')));
   };
 
-  // A screenshot of the bank's receipt pasted with Ctrl+V lands here, without choosing a file.
+  // A screenshot of the receipt pasted with Ctrl+V — here, or in the floating window.
   useEffect(() => {
     if (!line) return;
     const paste = (event: ClipboardEvent) => {
@@ -68,16 +181,13 @@ export function MarkSentDialog({
         ?.getAsFile();
       if (!file) return;
       event.preventDefault();
-      shrinkPhoto(file)
-        .then((photo) => {
-          setReceipt(photo);
-          toast.success(t('bankDesk.pasted'));
-        })
-        .catch(() => toast.error(t('errors.title'), t('errors.proofImageInvalid')));
+      pick(file);
     };
-    document.addEventListener('paste', paste);
-    return () => document.removeEventListener('paste', paste);
-  }, [line, toast, t]);
+    const docs = [document, ...(floating ? [floating.document] : [])];
+    docs.forEach((doc) => doc.addEventListener('paste', paste));
+    return () => docs.forEach((doc) => doc.removeEventListener('paste', paste));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [line, floating]);
 
   const send = async () => {
     if (!line) return;
@@ -89,9 +199,8 @@ export function MarkSentDialog({
           : line.source === 'tiktok'
             ? `/api/bank/tiktok/${line.id}`
             : `/api/bank/${line.id}`,
-        {
-        receipt,
-      });
+        { receipt },
+      );
       toast.success(t('bank.sentDone'), line.reference);
       onDone();
       onClose();
@@ -105,79 +214,140 @@ export function MarkSentDialog({
     }
   };
 
+  /*
+   * The floating window: Chrome's and Edge's picture-in-picture for a page,
+   * which stays above every window and tab; elsewhere a small window of its
+   * own beside the bank's site. The program's styles go with it, so it looks
+   * as it does here.
+   */
+  const float = async () => {
+    if (floating) {
+      floating.focus();
+      return;
+    }
+    const pip = (window as unknown as {
+      documentPictureInPicture?: { requestWindow: (options: { width: number; height: number }) => Promise<Window> };
+    }).documentPictureInPicture;
+    let win: Window | null = null;
+    try {
+      win = pip ? await pip.requestWindow({ width: 340, height: 360 }) : window.open('', 'international-transfer', 'width=360,height=400');
+    } catch {
+      win = window.open('', 'international-transfer', 'width=360,height=400');
+    }
+    if (!win) {
+      toast.error(t('errors.title'), t('bankSent.floatBlocked'));
+      return;
+    }
+    for (const sheet of [...document.styleSheets]) {
+      try {
+        const style = win.document.createElement('style');
+        style.textContent = [...sheet.cssRules].map((rule) => rule.cssText).join('\n');
+        win.document.head.appendChild(style);
+      } catch {
+        if (sheet.href) {
+          const link = win.document.createElement('link');
+          link.rel = 'stylesheet';
+          link.href = sheet.href;
+          win.document.head.appendChild(link);
+        }
+      }
+    }
+    win.document.documentElement.dir = document.documentElement.dir;
+    win.document.documentElement.lang = document.documentElement.lang;
+    win.document.documentElement.className = document.documentElement.className;
+    win.document.title = t('bankSent.floatTitle');
+    win.document.body.className = 'bg-surface text-content';
+    win.document.body.style.margin = '0';
+    win.addEventListener('pagehide', () => setFloating(null));
+    setFloating(win);
+  };
+
+  const fields: Field[] = line
+    ? [
+        { key: 'account', label: t('bank.account'), value: line.account ?? '', mono: true },
+        { key: 'name', label: t('bank.name'), value: line.name ?? '', mono: false },
+        { key: 'amount', label: t('bank.amount'), value: plainFigure(line.amount), mono: true },
+        { key: 'channel', label: t('bankSent.channel'), value: line.channel ?? '', mono: false },
+      ].filter((field) => field.value)
+    : [];
+
   return (
-    <Dialog
-      open={line !== null}
-      onClose={onClose}
-      title={t('bank.markSentTitle')}
-      description={
-        line ? t('bank.markSentHint', { name: line.name ?? line.account ?? '', channel: line.channel ?? '' }) : ''
-      }
-      footer={
-        <>
-          <Button variant="secondary" onClick={onClose} disabled={busy}>
-            {t('common.cancel')}
-          </Button>
-          <Button variant="primary" loading={busy} icon={<Check />} onClick={() => void send()}>
-            {t('bank.markSentConfirm')}
-          </Button>
-        </>
-      }
-    >
-      {line && (
-        <div className="space-y-3">
-          <p className="text-center">
-            <Money value={line.amount} currency={line.currency} className="text-2xl font-bold" />
-          </p>
-          {/*
-            What the transfer is typed with outside the program — in Jawwal Pay
-            or the bank's site — each a press from the clipboard, in the order
-            the form asks for them.
-          */}
-          <div className="overflow-hidden rounded-2xl ring-1 ring-border-subtle">
-            {[
-              { key: 'account', label: t('bank.account'), value: line.account ?? '', mono: true },
-              { key: 'name', label: t('bank.name'), value: line.name ?? '', mono: false },
-              { key: 'amount', label: t('bank.amount'), value: plainFigure(line.amount), mono: true },
-              { key: 'channel', label: t('bankSent.channel'), value: line.channel ?? '', mono: false },
-            ]
-              .filter((field) => field.value)
-              .map((field) => (
-                <button
-                  key={field.key}
-                  type="button"
-                  onClick={() => copy(field.key, field.value)}
-                  className={`flex w-full items-center gap-3 border-b border-border-subtle px-3 py-2.5 text-start last:border-b-0 transition-colors ${
-                    copied === field.key ? 'bg-success-subtle/60' : 'hover:bg-surface-sunken'
-                  }`}
-                >
-                  <span className="w-16 shrink-0 text-xs text-content-tertiary">{field.label}</span>
-                  <span className={`min-w-0 flex-1 truncate text-base font-bold text-content ${field.mono ? 'ltr-content font-mono tabular-nums' : ''}`}>
-                    {field.value}
-                  </span>
-                  <span
-                    className={`inline-flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-xs font-semibold ${
-                      copied === field.key ? 'text-success-text' : 'text-primary-text'
-                    }`}
-                  >
-                    {copied === field.key ? <ClipboardCheck className="size-4" /> : <Copy className="size-4" />}
-                    {copied === field.key ? t('bankSent.copied') : t('bankSent.copy')}
-                  </span>
-                </button>
-              ))}
+    <>
+      <Dialog
+        open={line !== null}
+        onClose={onClose}
+        size="sm"
+        title={t('bank.markSentTitle')}
+        footer={
+          <div className="flex w-full items-center gap-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              icon={<PictureInPicture2 />}
+              onClick={() => void float()}
+              title={t('bankSent.floatHint')}
+              className="me-auto"
+            >
+              {t('bankSent.float')}
+            </Button>
+            <Button variant="secondary" size="sm" onClick={onClose} disabled={busy}>
+              {t('common.cancel')}
+            </Button>
+            <Button variant="primary" size="sm" loading={busy} icon={<Check />} onClick={() => void send()}>
+              {t('bank.markSentConfirm')}
+            </Button>
           </div>
-          <PhotoField label={t('bank.receipt')} attach={t('bank.receiptAttach')} value={receipt} onChange={setReceipt} />
-          {!receipt && (
-            <p className="flex items-center justify-center gap-1.5 text-center text-xs text-content-tertiary">
-              <ClipboardPaste className="size-3.5" />
-              {t('bankDesk.pasteHint')}
+        }
+      >
+        {line && (
+          <div className="space-y-2.5">
+            <p className="text-center">
+              <Money value={line.amount} currency={line.currency} className="text-xl font-bold" />
             </p>
-          )}
-          <p className="rounded-xl bg-surface-sunken px-3 py-2 text-[11px] leading-relaxed text-content-secondary">
-            {t('bankSent.groupHint', { account: line.account ?? '' })}
-          </p>
-        </div>
-      )}
-    </Dialog>
+            <Fields
+              fields={fields}
+              copied={copied}
+              onCopy={(field) => {
+                copyFrom(window, field.value);
+                setCopied(field.key);
+              }}
+            />
+            <Receipt value={receipt} onChange={setReceipt} onPick={pick} />
+            <p className="text-center text-[11px] leading-relaxed text-content-tertiary">
+              {t('bankSent.groupHintShort', { account: line.account ?? '' })}
+            </p>
+          </div>
+        )}
+      </Dialog>
+
+      {/* The same, floating above the bank's site. */}
+      {floating &&
+        line &&
+        createPortal(
+          <div className="flex min-h-screen flex-col gap-2 bg-surface p-2.5">
+            <div className="flex items-center justify-between gap-2">
+              <span className="min-w-0">
+                <span className="block truncate text-sm font-bold text-content">{line.name ?? line.account}</span>
+                <span className="block text-[11px] text-content-tertiary">{line.reference}</span>
+              </span>
+              <Money value={line.amount} currency={line.currency} className="shrink-0 text-lg font-extrabold" />
+            </div>
+            <Fields
+              fields={fields}
+              copied={copied}
+              onCopy={(field) => {
+                copyFrom(floating, field.value);
+                setCopied(field.key);
+              }}
+            />
+            <Receipt value={receipt} onChange={setReceipt} onPick={pick} />
+            <Button variant="primary" size="sm" loading={busy} icon={<Check />} onClick={() => void send()} className="w-full">
+              {t('bank.markSentConfirm')}
+            </Button>
+            <p className="text-center text-[10px] text-content-tertiary">{t('bankSent.floatFoot')}</p>
+          </div>,
+          floating.document.body,
+        )}
+    </>
   );
 }
