@@ -57,7 +57,7 @@ async function backTo(place: Place): Promise<Place[]> {
 }
 
 /** The transfer a message in a group stands for, if it stands for one where marks count. */
-async function transferOf(place: Place): Promise<Found | null> {
+export async function transferOf(place: Place): Promise<Found | null> {
   const chain = await backTo(place);
   // Not a copy the office passed on: only the bank group and the groups that carry transfers out.
   if (chain.length === 1) {

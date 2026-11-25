@@ -2604,6 +2604,19 @@ model TransferReceipt {
   @@map("transfer_receipts")
 }
 
+/// What the bot read off a photo in a group — a receipt, field by field — kept so it is read once.
+model MediaReading {
+  id        String   @id @default(cuid())
+  /// The photo, in chat_images.
+  mediaId   String
+  /// The fields read, as JSON.
+  fields    String
+  createdAt DateTime @default(now())
+
+  @@index([mediaId])
+  @@map("media_readings")
+}
+
 /// What one receipt of a transfer on the bank desk says was sent: the sum read off the photo by
 /// the bot, or written by hand — so a transfer paid in parts shows what is left.
 model TransferPayment {

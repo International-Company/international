@@ -21,6 +21,7 @@ import { api } from '@/lib/api-client';
 import { Skeleton } from '@/ui/primitives';
 import { cn } from '@/ui/utils';
 import { clockOf, dayKey, dayLabel } from './days';
+import { MessageDetail } from './message-detail';
 
 interface Point {
   id: string;
@@ -159,12 +160,16 @@ export function MessageTrace({
         onClick={onClose}
         className="absolute inset-0 bg-black/30 backdrop-blur-[1px]"
       />
-      <aside className="relative mt-2 flex max-h-[80vh] w-[calc(100%-1rem)] max-w-2xl animate-[trace-in_180ms_ease-out] flex-col overflow-hidden rounded-2xl bg-surface-sunken shadow-[0_24px_60px_-12px_rgb(0_0_0/0.45)] ring-1 ring-border-subtle sm:mt-4">
+      <aside className="relative mt-2 flex max-h-[90vh] w-[calc(100%-1rem)] max-w-3xl animate-[trace-in_180ms_ease-out] flex-col overflow-hidden rounded-2xl bg-surface-sunken shadow-[0_24px_60px_-12px_rgb(0_0_0/0.45)] ring-1 ring-border-subtle sm:mt-4">
         <style>{'@keyframes trace-in{from{opacity:0;transform:translateY(-16px)}to{opacity:1;transform:none}}'}</style>
         <header className="flex items-center justify-between gap-2 border-b border-border-subtle bg-surface p-4">
           <div>
-            <p className="text-base font-semibold text-content">{t('bankFeed.traceTitle')}</p>
-            <p className="text-xs text-content-tertiary">{t('bankFeed.traceHint')}</p>
+            <p className="text-base font-semibold text-content">{t('bankMsg.title')}</p>
+            <p className="text-xs text-content-tertiary">
+              {trace
+                ? `${who(trace.message)}${trace.message.senderPhone ? ` · +${trace.message.senderPhone}` : ''} · ${trace.message.group} · ${when(trace.message.at)}`
+                : t('bankMsg.hint')}
+            </p>
           </div>
           <button
             type="button"
@@ -187,6 +192,9 @@ export function MessageTrace({
             </div>
           ) : (
             <>
+            {/* --- The message in full: its photo, what it says, the transfer it belongs to --- */}
+            <MessageDetail id={trace.message.id} text={trace.message.text} fromMe={trace.message.fromMe} />
+            <h3 className="mb-2 px-1 text-[11px] font-bold uppercase tracking-wide text-content-tertiary">{t('bankMsg.path')}</h3>
             {(() => {
               /*
                * Who began it: the first message it was passed on from, when that was
