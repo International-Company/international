@@ -21,7 +21,7 @@ import { reactionsOf, withReaction } from './reactions';
 import { isPrivateChat, TELLER_SESSION_PREFIX, tellerSessionPrefix } from './accounts';
 import { clearSession, databaseAuthState, hasSession } from './auth-state';
 import { mediaMark } from './bot-store';
-import { keepImage, keepMedia, MAX_KEPT_MEDIA, readyImage } from './chat-images';
+import { keepImage, keepMedia, MAX_KEPT_MEDIA, readyImage, type MediaKind } from './chat-images';
 import { customerNames, shownName } from './chat-names';
 import { quoteOf, quotedStanzaId } from './wa-quote';
 import { changeRefusal, changesAllowed } from './message-change';
@@ -232,13 +232,34 @@ async function keepIncomingMedia(
     content.documentMessage ??
     null;
   if (!file || Number(file.fileLength ?? 0) > MAX_KEPT_MEDIA) return null;
-  const data = (await downloadMediaMessage(
-    message,
-    'buffer',
-    {},
-    { logger: quiet as never, reuploadRequest: sock.updateMediaMessage },
-  ).catch(() => null)) as Buffer | null;
-  if (!data) return null;
+  /*
+   * Fetched, and fetched again: a group's photo is not always on WhatsApp's
+   * servers the moment its message arrives, and a connection drops. A file
+   * that will not come is named in the log, so its cause can be found.
+   */
+  let data: Buffer | null = null;
+  let reason = '';
+  for (const wait of [0, 1_000, 3_000]) {
+    if (wait) await new Promise((resolve) => setTimeout(resolve, wait));
+    data = (await downloadMediaMessage(
+      message,
+      'buffer',
+      {},
+      { logger: quiet as never, reuploadRequest: sock.updateMediaMessage },
+    ).catch((error: unknown) => {
+      reason = error instanceof Error ? error.message : 'unknown';
+      return null;
+    })) as Buffer | null;
+    if (data && data.length > 0) break;
+  }
+  if (!data || data.length === 0) {
+    log.warn('A file in a teller message could not be fetched', {
+      kind: content.imageMessage ? 'image' : content.videoMessage ? 'video' : content.audioMessage ? 'audio' : 'document',
+      group: Boolean(message.key?.remoteJid?.endsWith('@g.us')),
+      reason: reason.slice(0, 160),
+    });
+    return null;
+  }
   return keepMedia(
     {
       bytes: data,
@@ -360,7 +381,18 @@ async function open(userId: string): Promise<void> {
       const fromMe = Boolean(message.key.fromMe);
       void (async () => {
         // A photo, voice note, video or document is shown; a sticker stays a clip.
-        const kept = media ? await keepIncomingMedia(message, content, sock, userId) : null;
+        let kept = media ? await keepIncomingMedia(message, content, sock, userId) : null;
+        // Not fetched on the teller's number: the office's own number, in the same group, may have kept it.
+        if (media && !kept && inGroup && message.key.id) {
+          await new Promise((resolve) => setTimeout(resolve, 4_000));
+          const seen = await prisma.groupMessage.findUnique({
+            where: { chat_waId: { chat, waId: message.key.id } },
+            select: { mediaId: true, mediaKind: true },
+          });
+          if (seen?.mediaId) {
+            kept = { id: seen.mediaId, kind: (seen.mediaKind as MediaKind | null) ?? 'image' };
+          }
+        }
         const text = kept ? (words ?? '') : words ? (media ? `📎 ${words}` : words) : '📎';
         await keep(userId, chat, inGroup ? null : phoneJid, fromMe, text, {
           mediaId: kept?.id ?? null,
