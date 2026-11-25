@@ -653,6 +653,14 @@ export function registerWhatsappSubscribers(): void {
   if (registered) return;
   registered = true;
 
+  // A remittance paid to the customer's bank, sent: the customer told with the receipt, on their own WhatsApp.
+  on('transaction.transferSent', 'whatsapp-remittance-told', async ({ transactionId }) => {
+    const { tellCustomerSent } = await import('./remittance-notice.service');
+    await tellCustomerSent(transactionId).catch((error) =>
+      log.warn('Could not tell a customer their remittance was sent', { error }),
+    );
+  });
+
   on('transaction.posted', 'whatsapp-announce-deal', async ({ transactionId, unannounced }) => {
     if (unannounced) return;
     await announceDeal(transactionId, {

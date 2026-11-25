@@ -203,6 +203,20 @@ export function BoardView({ everyone }: { everyone: boolean }) {
     [board, show, way, words, digits],
   );
   const opened = board?.lines.find((line) => line.id === open) ?? null;
+  /** The customer told with the receipt, by hand, for a remittance sent before it was done by itself. */
+  const [telling, setTelling] = useState(false);
+  const tell = async (id: string) => {
+    setTelling(true);
+    try {
+      await api.post('/api/inbox/board', { action: 'tell', id });
+      toast.success(t('remitBoard.told'));
+      void load();
+    } catch (cause) {
+      toast.error(t('errors.title'), cause instanceof ApiError ? say(t, cause.messageKey, cause.params) || cause.message : t('errors.generic'));
+    } finally {
+      setTelling(false);
+    }
+  };
   // Each step in the words of its way: sent out, the agent carries it out rather than checks it.
   const stageWord = (line: Line, stage: Stage | 'rejected') =>
     line.direction === 'OUT' ? t(`remitBoard.stageOut.${stage}`) : t(`remitBoard.stage.${stage}`);
@@ -569,6 +583,18 @@ export function BoardView({ everyone }: { everyone: boolean }) {
                 })}
               </ol>
 
+              {/* Sent to their bank, and not told yet: the receipt sent to them now. */}
+              {opened.stages.paid && !opened.stages.told && opened.deal?.bank && (
+                <button
+                  type="button"
+                  disabled={telling}
+                  onClick={() => void tell(opened.id)}
+                  className="flex w-full items-center justify-center gap-2 rounded-xl bg-success px-3 py-2.5 text-sm font-semibold text-white hover:bg-success/90 disabled:opacity-60"
+                >
+                  <Send className="size-4" />
+                  {telling ? t('remitBoard.telling') : t('remitBoard.tell')}
+                </button>
+              )}
               {opened.mine && (
                 <Link
                   href={`/manage/inbox?notice=${encodeURIComponent(opened.id)}&chat=${encodeURIComponent(opened.chatId)}`}

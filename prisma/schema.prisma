@@ -2358,6 +2358,9 @@ model RemittanceNotice {
   transactionId String?
   /// Paid in two currencies: the second remittance, beside the first.
   extraTransactionId String?
+  /// The customer told their transfer went, with its receipt: when, and for which deals (their ids, comma-joined).
+  customerToldAt  DateTime?
+  customerToldFor String?
   createdAt     DateTime  @default(now())
 
   @@index([ownerId, status, createdAt])

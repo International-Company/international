@@ -2507,6 +2507,9 @@ const en = {
     dismiss: 'Dismiss',
   },
   remitBoard: {
+    tell: 'Send the receipt to the customer',
+    telling: 'Sending…',
+    told: 'The receipt was sent to the customer on WhatsApp',
     title: 'Remittance board',
     subtitle: 'Every remittance notice from WhatsApp, followed from its arrival to the money reaching the customer and them being told.',
     search: 'Search by name, number or reference',
@@ -3635,6 +3638,8 @@ const en = {
     outgoingIncomplete: 'Write the beneficiary and the sum that reaches them first',
     remitSplitInvalid: 'The second part must be less than what was received',
     nothingLeft: 'Nothing is left of this transfer',
+    noticeNotPaid: 'No remittance was made from this notice yet',
+    customerToldAlready: 'The customer was told already, or the transfer is not sent yet',
     noticeAlreadyPaid: 'A remittance was already made from this notice',
     txHashInvalid: 'That is not a valid transaction hash',
     txNoAddress: 'There is no counter address on that network',

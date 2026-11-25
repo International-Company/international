@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { route } from '@/core/http/route';
 import { toJsonSafe } from '@/core/http/json';
 import { remittanceBoard } from '@/modules/whatsapp/remittance-board.service';
+import { tellCustomerByHand } from '@/modules/whatsapp/remittance-notice.service';
 
 /** The days asked for, as the browser's own midnight to midnight; none, today. */
 const querySchema = z.object({
@@ -26,4 +27,14 @@ export const GET = route<unknown, z.infer<typeof querySchema>>({
       ),
     );
   },
+});
+
+const tellSchema = z.object({ action: z.literal('tell'), id: z.string().min(1).max(40) });
+
+/** A remittance already sent: the customer told now, with the bank's receipt, on their own WhatsApp. */
+export const POST = route<z.infer<typeof tellSchema>>({
+  permissions: ['customers.whatsapp'],
+  bodySchema: tellSchema,
+  handler: async ({ actor, body }) =>
+    tellCustomerByHand(body.id, { id: actor.id, all: actor.permissions.includes('customers.whatsapp.monitor') }),
 });

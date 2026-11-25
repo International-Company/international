@@ -676,3 +676,72 @@ export async function passToCustomer(ownerId: string, id: string, replyId: strin
   await answer(ownerId, notice.chatId, caption, Buffer.from(image.data).toString('base64'));
   return noticeDetail(ownerId, id);
 }
+
+// ---------------------------------------------------------------------------
+// Paid by transfer: the customer told, with the bank's receipt
+// ---------------------------------------------------------------------------
+
+/**
+ * A remittance paid to the customer's bank, sent: they are written to in
+ * their own conversation, on the number they wrote from — the bank's receipt,
+ * and under it that it was done, to which account, and the deal's reference.
+ * Once: a conversation already carrying the reference is not written to again.
+ * Returns whether it was written.
+ */
+export async function tellCustomerSent(transactionId: string): Promise<boolean> {
+  const notice = await prisma.remittanceNotice.findFirst({
+    where: { OR: [{ transactionId }, { extraTransactionId: transactionId }], direction: 'IN' },
+  });
+  if (!notice) return false;
+  const deal = await prisma.transaction.findUnique({
+    where: { id: transactionId },
+    select: {
+      reference: true,
+      status: true,
+      transferConfirmedAt: true,
+      payoutBankAmount: true,
+      toCurrency: true,
+      payoutBankChannel: true,
+      payoutAccount: true,
+    },
+  });
+  if (!deal || !deal.transferConfirmedAt || deal.payoutBankAmount <= 0n) return false;
+  // Once: told of this deal already — kept on the notice, or, before that was kept, its reference in the conversation.
+  if ((notice.customerToldFor ?? '').split(',').includes(transactionId)) return false;
+  const already = await prisma.tellerChatMessage.findFirst({
+    where: { chatId: notice.chatId, fromMe: true, text: { contains: deal.reference } },
+    select: { id: true },
+  });
+  if (already) return false;
+
+  const { receiptFiles } = await import('@/modules/bank/bank-receipts.service');
+  const files = (await receiptFiles('deal', transactionId)).filter((file) => file.mimeType.startsWith('image/'));
+  const words = [
+    'تم التنفيذ ✅',
+    `تم تحويل ${figure(deal.payoutBankAmount)} ${deal.toCurrency}${deal.payoutBankChannel ? ` إلى حسابك في ${deal.payoutBankChannel}` : ''}${deal.payoutAccount ? ` (${deal.payoutAccount})` : ''}`,
+  ].join('\n');
+  const [first, ...rest] = files;
+  await answer(notice.ownerId, notice.chatId, words, first ? first.bytes.toString('base64') : undefined);
+  for (const file of rest) await answer(notice.ownerId, notice.chatId, '📎', file.bytes.toString('base64'));
+  await prisma.remittanceNotice.update({
+    where: { id: notice.id },
+    data: {
+      customerToldAt: new Date(),
+      customerToldFor: [...(notice.customerToldFor ?? '').split(',').filter(Boolean), transactionId].join(','),
+    },
+  });
+  log.info('A customer was told their remittance was sent', { notice: notice.id, receipts: files.length });
+  return true;
+}
+
+/** The same, asked for from the board, for a remittance already sent. */
+export async function tellCustomerByHand(noticeId: string, viewer: { id: string; all: boolean }) {
+  const notice = await prisma.remittanceNotice.findUnique({ where: { id: noticeId } });
+  if (!notice || (!viewer.all && notice.ownerId !== viewer.id)) throw errors.notFound('RemittanceNotice', noticeId);
+  const ids = [notice.transactionId, notice.extraTransactionId].filter((id): id is string => Boolean(id));
+  if (ids.length === 0) throw errors.precondition('No remittance was made from it yet', 'errors.noticeNotPaid');
+  let told = 0;
+  for (const id of ids) if (await tellCustomerSent(id)) told++;
+  if (told === 0) throw errors.precondition('The customer was told already, or the transfer is not sent yet', 'errors.customerToldAlready');
+  return { told };
+}

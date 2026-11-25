@@ -142,7 +142,10 @@ export async function remittanceBoard(
           ? deal.createdAt
           : null
       : null;
-    const toldAt = deal ? told.find((entry) => entry.chatId === row.chatId && entry.text.includes(deal.reference))?.createdAt ?? null : null;
+    // Told with the receipt — kept on the notice — or, before, written the deal's reference.
+    const toldAt =
+      row.customerToldAt ??
+      (deal ? (told.find((entry) => entry.chatId === row.chatId && entry.text.includes(deal.reference))?.createdAt ?? null) : null);
     const person = people.find((entry) => entry.id === row.ownerId);
 
     const stages: Partial<Record<Stage, { at: Date; by?: string | null; note?: string | null }>> = {
