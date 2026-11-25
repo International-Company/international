@@ -12,6 +12,8 @@ import {
   sendPassedOnImage,
   deleteSent,
   reactOn,
+  replyToSent,
+  answerInGroup,
   type GroupSighting,
 } from '@/modules/whatsapp/whatsapp.service';
 import type { Actor } from '@/modules/exchange/transaction.service';
@@ -629,4 +631,51 @@ export async function unforward(messageId: string, deleteCopies: boolean, actor:
   );
   log.info('A forward was taken back', { forwards: forwards.length, deleted });
   return { removed: forwards.length, deleted };
+}
+
+/** What the bot writes under a forwarded transfer to ask after it. */
+const INQUIRY = '❓ استعلام: هل تم تنفيذ هذا التحويل؟';
+
+/**
+ * A forwarded transfer asked after: in each group it was passed on to, the bot
+ * answers its copy there — "is it done?" — and marks the copy ❓, so whoever
+ * carries it out sees it. The desk keeps when, and by whom.
+ */
+export async function inquire(messageId: string, actor: Actor & { name: string }) {
+  requireDesk(actor);
+  const message = await prisma.groupMessage.findUnique({ where: { id: messageId } });
+  if (!message) throw errors.notFound('GroupMessage', messageId);
+  const forwards = await prisma.groupForward.findMany({
+    where: { sourceChat: message.chat, sourceWaId: message.waId, targetWaId: { not: null } },
+    orderBy: { createdAt: 'desc' },
+  });
+  // The latest copy in each group it went to.
+  const latest = forwards.filter((entry, index) => forwards.findIndex((other) => other.targetChat === entry.targetChat) === index);
+  if (latest.length === 0) throw errors.precondition('It was not passed on to any group', 'errors.notForwarded');
+
+  const name =
+    (await prisma.user.findUnique({ where: { id: actor.id }, select: { fullNameAr: true } }))?.fullNameAr || actor.name;
+  const asked: string[] = [];
+  for (const entry of latest) {
+    const chat = entry.targetChat;
+    const waId = entry.targetWaId!;
+    try {
+      // The office's own copy is answered as its own; one a person forwarded, quoting them.
+      const copy = await prisma.groupMessage.findUnique({ where: { chat_waId: { chat, waId } } });
+      const ours = copy ? copy.fromMe : Boolean(entry.auto || entry.byUserId) && !entry.reactor;
+      if (ours) {
+        await replyToSent(chat, waId, INQUIRY);
+        await reactOn(chat, { id: waId, fromMe: true, author: null }, '❓').catch(() => undefined);
+      } else {
+        await answerInGroup(chat, { id: waId, author: copy?.senderJid ?? null, text: copy?.text ?? '' }, { text: INQUIRY }, '❓');
+      }
+      await prisma.groupForward.update({ where: { id: entry.id }, data: { inquiredAt: new Date(), inquiredBy: name } });
+      asked.push(entry.targetName ?? chat);
+    } catch (error) {
+      log.warn('Could not ask after a forwarded transfer', { error });
+    }
+  }
+  if (asked.length === 0) throw errors.precondition('WhatsApp did not take the message', 'errors.inboxSendFailed');
+  log.info('A forwarded transfer was asked after', { groups: asked.length });
+  return { asked };
 }

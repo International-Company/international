@@ -335,7 +335,7 @@ export async function desk(
     ? await db.groupForward.findMany({
         where: { OR: refs.map((ref) => ({ sourceChat: ref.chat, sourceWaId: ref.waId })) },
         orderBy: { createdAt: 'asc' },
-        select: { sourceChat: true, sourceWaId: true, targetChat: true, targetName: true, auto: true, createdAt: true },
+        select: { sourceChat: true, sourceWaId: true, targetChat: true, targetName: true, auto: true, createdAt: true, inquiredAt: true, inquiredBy: true },
       })
     : [];
   const handedOn = (ref: { chat: string; waId: string } | null) =>
@@ -347,7 +347,12 @@ export async function desk(
               entry.sourceWaId === ref.waId &&
               (!entry.auto || executors.some((group) => group.id === entry.targetChat)),
           )
-          .map((entry) => ({ group: entry.targetName ?? entry.targetChat, at: entry.createdAt }))
+          .map((entry) => ({
+            group: entry.targetName ?? entry.targetChat,
+            at: entry.createdAt,
+            inquiredAt: entry.inquiredAt,
+            inquiredBy: entry.inquiredBy,
+          }))
       : [];
   const kindOf = (source: string | undefined) =>
     (source === 'group' ? 'request' : source === 'tiktok' ? 'tiktok' : 'deal') as 'deal' | 'request' | 'tiktok';

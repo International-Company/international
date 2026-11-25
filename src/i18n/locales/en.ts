@@ -2624,6 +2624,12 @@ const en = {
     quotedNotKept: 'The original message is not kept.',
     path: 'The message’s way',
   },
+  bankAsk: {
+    button: 'Ask after it',
+    hint: 'Ask after the transfer: the bot answers its copy in the group it went to "is it done?" and marks it ❓',
+    done: 'The question was sent',
+    asked: 'Asked {at}',
+  },
   bankRem: {
     tab: 'Remainders',
     card: 'Remainders',
@@ -3642,6 +3648,7 @@ const en = {
     outgoingIncomplete: 'Write the beneficiary and the sum that reaches them first',
     remitSplitInvalid: 'The second part must be less than what was received',
     nothingLeft: 'Nothing is left of this transfer',
+    notForwarded: 'This transfer was not passed on to any group',
     agentIsCustomer: 'The notice cannot go to the customer themself for checking',
     noticeNotPaid: 'No remittance was made from this notice yet',
     customerToldAlready: 'The customer was told already, or the transfer is not sent yet',

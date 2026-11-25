@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import {
+  CircleHelp,
   CheckCircle2,
   CheckSquare,
   Copy,
@@ -301,6 +302,30 @@ export function BankTable({
       return next;
     });
 
+  /** A forwarded transfer asked after in the group it went to: the bot answers its copy, marked ❓. */
+  const [inquiring, setInquiring] = useState<string | null>(null);
+  const inquire = async (line: Line) => {
+    if (!line.messageId) return;
+    setInquiring(keyOf(line));
+    try {
+      const result = await api.post<{ asked: string[] }>(`/api/bank/groups/messages/${line.messageId}/inquire`, {});
+      toast.success(t('bankAsk.done'), result.asked.join('، '));
+      onChanged();
+    } catch (cause) {
+      toast.error(
+        t('errors.title'),
+        cause instanceof ApiError ? say(t, cause.messageKey, cause.params) || cause.message : t('errors.generic'),
+      );
+    } finally {
+      setInquiring(null);
+    }
+  };
+  /** The last time it was asked after, as the line shows it. */
+  const askedOf = (line: Line) =>
+    (line.forwardedTo ?? [])
+      .filter((entry) => entry.inquiredAt)
+      .sort((a, b) => new Date(b.inquiredAt!).getTime() - new Date(a.inquiredAt!).getTime())[0] ?? null;
+
   const copy = (value: string, what: string) => {
     void navigator.clipboard?.writeText(value);
     toast.success(t('bank.copied'), what);
@@ -484,6 +509,21 @@ export function BankTable({
             className="inline-flex size-8 items-center justify-center rounded-lg text-content-tertiary transition-colors hover:bg-surface-sunken hover:text-primary-text"
           >
             <CornerUpRight className="size-4" />
+          </button>
+        )}
+        {state === 'forwarded' && line.messageId && (
+          <button
+            type="button"
+            disabled={inquiring === keyOf(line)}
+            onClick={(event) => {
+              event.stopPropagation();
+              void inquire(line);
+            }}
+            title={t('bankAsk.hint')}
+            aria-label={t('bankAsk.button')}
+            className="inline-flex size-8 items-center justify-center rounded-lg text-content-tertiary transition-colors hover:bg-warning-subtle hover:text-warning-text disabled:animate-pulse"
+          >
+            <CircleHelp className="size-4" />
           </button>
         )}
         {onFloat && (
@@ -809,6 +849,11 @@ export function BankTable({
                               {line.forwardedTo!.map((entry) => entry.group).join('، ')}
                             </span>
                           )}
+                          {askedOf(line) && stateOf(line) !== 'done' && (
+                            <span className="mt-0.5 block max-w-[9rem] truncate text-[10px] font-medium text-warning-text" title={askedOf(line)!.inquiredBy ?? ''}>
+                              ❓ {t('bankAsk.asked', { at: clockOf(askedOf(line)!.inquiredAt!) })}
+                            </span>
+                          )}
                         </td>
                         <td className="border-b border-border-subtle px-2 py-2" onClick={(event) => event.stopPropagation()}>
                           <Actions line={line} />
@@ -903,6 +948,11 @@ export function BankTable({
                             {(line.forwardedTo?.length ?? 0) > 0 && stateOf(line) !== 'done' && (
                               <span className="truncate text-[11px] text-primary-text">
                                 {line.forwardedTo!.map((entry) => entry.group).join('، ')}
+                              </span>
+                            )}
+                            {askedOf(line) && stateOf(line) !== 'done' && (
+                              <span className="shrink-0 text-[11px] font-medium text-warning-text">
+                                ❓ {clockOf(askedOf(line)!.inquiredAt!)}
                               </span>
                             )}
                           </span>

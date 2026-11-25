@@ -2701,6 +2701,9 @@ model GroupForward {
   /// Not sent by the bot: marked passed on by this member's ❤️ on the transfer.
   /// Their reaction taken off takes the mark back.
   reactor    String?
+  /// Asked after from the desk: the bot answered the copy "is it done?" and marked it ❓.
+  inquiredAt DateTime?
+  inquiredBy String?
   createdAt  DateTime @default(now())
 
   @@index([sourceChat, sourceWaId])

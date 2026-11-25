@@ -32,7 +32,7 @@ export interface Line {
   /** Recorded in the system, or asked in the group from outside the office — and by whom. */
   origin?: Origin;
   /** Passed on by a person, or to a group that carries transfers out. */
-  forwardedTo?: { group: string; at: string }[];
+  forwardedTo?: { group: string; at: string; inquiredAt?: string | null; inquiredBy?: string | null }[];
   /** A bare message: its words, whether it carried a file, and whether the bot reads a transfer in it. */
   text?: string;
   hasMedia?: boolean;
