@@ -107,6 +107,16 @@ const actionSchema = z.discriminatedUnion('action', [
     payoutAccount: z.string().max(80).nullish(),
     recipientName: z.string().max(200).nullish(),
     recipientIdNumber: z.string().max(40).nullish(),
+    /** Paid in a second currency too. */
+    second: z
+      .object({
+        credited: z.string().max(30),
+        payCurrency: z.string().min(2).max(8),
+        paid: z.string().max(30),
+        payoutChannel: z.string().max(80).nullish(),
+        payoutAccount: z.string().max(80).nullish(),
+      })
+      .nullish(),
   }),
 ]);
 
@@ -161,6 +171,15 @@ export const POST = route<z.infer<typeof actionSchema>, unknown, z.infer<typeof 
             payoutAccount: body.payoutAccount ?? null,
             recipientName: body.recipientName ?? null,
             recipientIdNumber: body.recipientIdNumber ?? null,
+            second: body.second
+              ? {
+                  credited: parseMoney(body.second.credited),
+                  payCurrency: body.second.payCurrency,
+                  paid: parseMoney(body.second.paid),
+                  payoutChannel: body.second.payoutChannel ?? null,
+                  payoutAccount: body.second.payoutAccount ?? null,
+                }
+              : null,
           },
           actor,
         ),

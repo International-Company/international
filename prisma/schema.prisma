@@ -2356,6 +2356,8 @@ model RemittanceNotice {
   note          String?
   /// The remittance it was paid out as, once it is.
   transactionId String?
+  /// Paid in two currencies: the second remittance, beside the first.
+  extraTransactionId String?
   createdAt     DateTime  @default(now())
 
   @@index([ownerId, status, createdAt])

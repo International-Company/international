@@ -1,5 +1,5 @@
 import 'server-only';
-import { prisma } from '@/core/db/prisma';
+import { prisma, withTransaction, type DbClient } from '@/core/db/prisma';
 import { errors } from '@/core/errors/app-error';
 import { createLogger } from '@/core/logger/logger';
 import { customerNames, shownName } from './chat-names';
@@ -9,6 +9,8 @@ import * as remittances from '@/modules/exchange/remittance.service';
 import { quoteExchange } from '@/modules/exchange/rates.service';
 import type { Actor } from '@/modules/exchange/transaction.service';
 import * as settings from '@/modules/settings/settings.service';
+import { createCustomer } from '@/modules/customers/customers.service';
+import { payoutsFor, remember } from '@/modules/usdt/recognition.service';
 
 const log = createLogger('whatsapp:notices');
 
@@ -395,12 +397,28 @@ export async function remitOptions(ownerId: string, id: string) {
     settings.destinations.find((entry) => entry.includes(word.split(' ')[0]!)) ??
     settings.destinations.find((entry) => word.includes(entry)) ??
     null;
+  const customer = await customerOf(notice.customerPhone);
   return {
     destinations: settings.destinations,
     channels: settings.transferChannels,
     currencies,
     suggested,
+    customer: customer
+      ? { id: customer.id, code: customer.code, name: customer.fullNameAr, idNumber: customer.nationalId }
+      : null,
+    payouts: customer ? await payoutsFor(customer.id) : [],
   };
+}
+
+/** The office's file for a phone, matched on its last nine digits as the chats' names are. */
+async function customerOf(phone: string | null | undefined, db: DbClient = prisma) {
+  const digits = phone?.replace(/\D/g, '') ?? '';
+  if (digits.length < 9) return null;
+  return db.customer.findFirst({
+    where: { phone: { endsWith: digits.slice(-9) } },
+    orderBy: { createdAt: 'asc' },
+    select: { id: true, code: true, fullNameAr: true, nationalId: true },
+  });
 }
 
 /** What a sum comes to in the money it is paid out in, at the board, as the counter prices it. */
@@ -422,6 +440,20 @@ export interface RemitInput {
   payoutAccount?: string | null;
   recipientName?: string | null;
   recipientIdNumber?: string | null;
+  /**
+   * Paid in a second currency too: this much of what was received is paid in
+   * other money — in notes or to an account — and the rest as above.
+   */
+  second?: RemitPart | null;
+}
+
+export interface RemitPart {
+  /** The share of what was received, in the money it was received in. */
+  credited: bigint;
+  payCurrency: string;
+  paid: bigint;
+  payoutChannel?: string | null;
+  payoutAccount?: string | null;
 }
 
 const figure = (value: bigint) => toDecimalString(value, 2).replace(/\.00$/, '');
@@ -440,48 +472,127 @@ export async function remitNotice(ownerId: string, id: string, input: RemitInput
   }
   if (notice.transactionId) throw errors.precondition('Already paid out', 'errors.noticeAlreadyPaid');
   if (!actor.branchId) throw errors.precondition('No branch is assigned', 'errors.noBranch');
+  const branchId = actor.branchId;
+
+  // Two currencies: the second takes its share of what was received, the first the rest.
+  const second = input.second && input.second.credited > 0n ? input.second : null;
+  if (second && (second.credited >= input.credited || second.paid <= 0n)) {
+    throw errors.precondition('The second part must be less than what was received', 'errors.remitSplitInvalid');
+  }
+  const first: RemitPart = {
+    credited: second ? input.credited - second.credited : input.credited,
+    payCurrency: input.payCurrency,
+    paid: input.paid,
+    payoutChannel: input.payoutChannel,
+    payoutAccount: input.payoutAccount,
+  };
 
   const image = notice.imageId
     ? await prisma.chatImage.findUnique({ where: { id: notice.imageId }, select: { data: true } })
     : null;
   const paypal = notice.network === 'PAYPAL';
-  const bank = Boolean(input.payoutChannel?.trim());
-  const posted = await remittances.receive(
-    {
-      currency: input.currency.toUpperCase(),
-      destination: paypal ? remittances.PAYPAL_DESTINATION : input.destination,
-      paypal,
-      convert: true,
-      branchId: actor.branchId,
-      counterpartyName: notice.customerName,
-      counterpartyPhone: notice.customerPhone,
-      notes: `إشعار واتساب — ${networkWord(notice.network)}`.trim(),
-      credited: input.credited,
-      paid: input.paid,
-      payCurrency: input.payCurrency.toUpperCase(),
-      notice: image ? Buffer.from(image.data).toString('base64') : null,
-      recipientName: input.recipientName?.trim() || notice.customerName,
-      recipientPhone: notice.customerPhone,
-      recipientIdNumber: input.recipientIdNumber?.trim() || null,
-      payoutBank: bank ? input.paid : null,
-      payoutChannel: bank ? input.payoutChannel!.trim() : null,
-      payoutAccount: bank ? input.payoutAccount?.trim() || null : null,
-    },
-    actor,
-  );
-  await prisma.remittanceNotice.update({ where: { id: notice.id }, data: { transactionId: posted.id } });
-  log.info('A notice was paid out as a remittance', { notice: notice.id });
+  const recipientName = input.recipientName?.trim() || notice.customerName;
+  const idNumber = input.recipientIdNumber?.trim() || null;
 
-  const paidText = `${figure(input.paid)} ${input.payCurrency.toUpperCase()}`;
+  const result = await withTransaction(async (tx) => {
+    /*
+     * The customer's file: the one their phone is already on, or a new one in
+     * their name — so every remittance they receive is found in one place.
+     */
+    let customer = await customerOf(notice.customerPhone, tx);
+    if (!customer && notice.customerPhone) {
+      const name = recipientName?.trim() || `+${notice.customerPhone}`;
+      const made = await createCustomer(
+        { fullNameEn: name, fullNameAr: name, phone: notice.customerPhone, branchId },
+        actor,
+        tx,
+      );
+      customer = { id: made.id, code: made.code, fullNameAr: made.fullNameAr, nationalId: made.nationalId };
+    }
+    // Their ID number, when the file has none and nobody else holds it.
+    if (customer && idNumber && !customer.nationalId) {
+      const holder = await tx.customer.findFirst({ where: { nationalId: idNumber }, select: { id: true } });
+      if (!holder) await tx.customer.update({ where: { id: customer.id }, data: { nationalId: idNumber } });
+    }
+
+    const post = (part: RemitPart, index: number) => {
+      const bank = Boolean(part.payoutChannel?.trim());
+      return remittances.receive(
+        {
+          currency: input.currency.toUpperCase(),
+          destination: paypal ? remittances.PAYPAL_DESTINATION : input.destination,
+          paypal,
+          convert: true,
+          branchId,
+          customerId: customer?.id ?? null,
+          counterpartyName: notice.customerName,
+          counterpartyPhone: notice.customerPhone,
+          notes: [`إشعار واتساب — ${networkWord(notice.network)}`, second ? `جزء ${index} من 2` : null]
+            .filter(Boolean)
+            .join(' — '),
+          credited: part.credited,
+          paid: part.paid,
+          payCurrency: part.payCurrency.toUpperCase(),
+          // The photo once, with the first.
+          notice: index === 1 && image ? Buffer.from(image.data).toString('base64') : null,
+          recipientName,
+          recipientPhone: notice.customerPhone,
+          recipientIdNumber: idNumber,
+          payoutBank: bank ? part.paid : null,
+          payoutChannel: bank ? part.payoutChannel!.trim() : null,
+          payoutAccount: bank ? part.payoutAccount?.trim() || null : null,
+        },
+        actor,
+        tx,
+      );
+    };
+    const one = await post(first, 1);
+    const two = second ? await post(second, 2) : null;
+
+    // The accounts used, remembered for their next remittance.
+    if (customer) {
+      for (const part of [first, second]) {
+        if (part?.payoutChannel?.trim() && part.payoutAccount?.trim()) {
+          await remember(
+            {
+              customerId: customer.id,
+              network: '',
+              address: null,
+              payout: { channel: part.payoutChannel, account: part.payoutAccount },
+            },
+            tx,
+          );
+        }
+      }
+    }
+    await tx.remittanceNotice.update({
+      where: { id: notice.id },
+      data: { transactionId: one.id, extraTransactionId: two?.id ?? null },
+    });
+    return { one, two };
+  });
+  log.info('A notice was paid out as a remittance', { notice: notice.id, parts: result.two ? 2 : 1 });
+
+  const line = (part: RemitPart) => {
+    const paidText = `${figure(part.paid)} ${part.payCurrency.toUpperCase()}`;
+    return part.payoutChannel?.trim()
+      ? `سيتم تحويل ${paidText} إلى حسابك في ${part.payoutChannel.trim()}${part.payoutAccount?.trim() ? ` (${part.payoutAccount.trim()})` : ''}`
+      : `المبلغ ${paidText} جاهز للاستلام من المكتب`;
+  };
   const draft = [
     `تم استلام حوالتك ✅`,
     `المبلغ: ${figure(input.credited)} ${input.currency.toUpperCase()}`,
-    bank
-      ? `سيتم تحويل ${paidText} إلى حسابك في ${input.payoutChannel!.trim()}${input.payoutAccount?.trim() ? ` (${input.payoutAccount.trim()})` : ''}`
-      : `المبلغ ${paidText} جاهز للاستلام من المكتب`,
-    `رقم المعاملة: ${posted.reference}`,
-  ].join('\n');
-  return { notice: await noticeDetail(ownerId, id), transaction: { id: posted.id, reference: posted.reference }, draft };
+    line(first),
+    second ? line(second) : null,
+    `رقم المعاملة: ${[result.one.reference, result.two?.reference].filter(Boolean).join(' + ')}`,
+  ]
+    .filter(Boolean)
+    .join('\n');
+  return {
+    notice: await noticeDetail(ownerId, id),
+    transaction: { id: result.one.id, reference: result.one.reference },
+    draft,
+  };
 }
 
 // ---------------------------------------------------------------------------
