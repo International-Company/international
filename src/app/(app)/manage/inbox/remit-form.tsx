@@ -65,10 +65,15 @@ export function RemitForm({
   const [saving, setSaving] = useState(false);
   const paypal = network === 'PAYPAL';
 
+  // A record that is not there is named, in the words the server gives it, so its cause can be found.
   const failure = (cause: unknown) =>
     toast.error(
       t('errors.title'),
-      cause instanceof ApiError ? say(t, cause.messageKey, cause.params) || cause.message : t('errors.generic'),
+      cause instanceof ApiError
+        ? [say(t, cause.messageKey, cause.params) || cause.message, cause.messageKey === 'errors.notFound' ? cause.message : null]
+            .filter(Boolean)
+            .join(' — ')
+        : t('errors.generic'),
     );
 
   useEffect(() => {

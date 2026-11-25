@@ -3471,6 +3471,7 @@ const en = {
     backupCorrupt: 'The backup file failed its integrity check',
     backupVersion: 'This backup was made by an incompatible version',
     noBranch: 'No branch is configured',
+    drawerMissing: 'There is no {kind} balance in {currency}. Open it from Drawers, then try again.',
     notSentTransfer: 'This transfer is not marked sent',
     inboxTooMany: 'You have reached the limit',
     voiceInvalid: 'The recording is unusable or too long',

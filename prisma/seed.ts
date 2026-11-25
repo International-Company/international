@@ -28,6 +28,8 @@ const CURRENCIES = [
   { code: 'ILS', nameEn: 'Israeli Shekel', nameAr: 'شيكل إسرائيلي', symbol: '₪', decimals: 2, kind: 'FIAT', isBase: true, sortOrder: 10 },
   { code: 'USD', nameEn: 'US Dollar', nameAr: 'دولار أمريكي', symbol: '$', decimals: 2, kind: 'FIAT', isBase: false, sortOrder: 20 },
   { code: 'JOD', nameEn: 'Jordanian Dinar', nameAr: 'دينار أردني', symbol: 'د.ا', decimals: 3, kind: 'FIAT', isBase: false, sortOrder: 30 },
+  // Remittances from Egypt arrive in pounds.
+  { code: 'EGP', nameEn: 'Egyptian Pound', nameAr: 'جنيه مصري', symbol: 'ج.م', decimals: 2, kind: 'FIAT', isBase: false, sortOrder: 35 },
   { code: 'USDT', nameEn: 'Tether USD', nameAr: 'تيثر USD', symbol: '₮', decimals: 2, kind: 'CRYPTO', isBase: false, sortOrder: 40 },
 ];
 

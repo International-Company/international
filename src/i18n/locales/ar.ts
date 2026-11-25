@@ -3469,6 +3469,7 @@ const ar: Dictionary = {
     backupCorrupt: 'فشل التحقق من سلامة ملف النسخة الاحتياطية',
     backupVersion: 'أُنشئت هذه النسخة بإصدار غير متوافق',
     noBranch: 'لا يوجد فرع مهيأ',
+    drawerMissing: 'لا يوجد رصيد «{kind}» بعملة {currency}. أنشئه من «الصناديق» ثم أعد المحاولة.',
     notSentTransfer: 'هذه الحركة ليست منفّذة',
     inboxTooMany: 'وصلت إلى الحد الأقصى',
     voiceInvalid: 'التسجيل غير صالح أو طويل جداً',

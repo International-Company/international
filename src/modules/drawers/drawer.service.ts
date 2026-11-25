@@ -314,7 +314,8 @@ async function applyMovement(tx: Tx, movement: Movement, actor: Actor): Promise<
      */
     (await ensureTellerDrawer(owner, movement.currency, kind, tx));
 
-  if (!drawer) throw errors.notFound('Drawer', `${movement.currency} ${kind}`);
+  // Said as the balance it is, so whoever reads it knows what to open in the drawers screen.
+  if (!drawer) throw errors.precondition(`No ${movement.currency} ${kind} balance`, 'errors.drawerMissing', { currency: movement.currency, kind });
   if (!drawer.isActive) {
     throw errors.precondition(
       `${describe(movement.currency, kind)} is closed`,
