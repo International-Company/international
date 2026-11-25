@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { Activity, Ban, MessagesSquare, SplitSquareHorizontal, Workflow, X } from 'lucide-react';
+import { Activity, Ban, MessagesSquare, Workflow, X } from 'lucide-react';
 import { useLocale } from '@/i18n/provider';
 import { api } from '@/lib/api-client';
 import { cn } from '@/ui/utils';
@@ -12,7 +12,6 @@ import { ForwardSheet, type Group } from './forward-panel';
 import { MarkSentDialog } from './mark-sent-dialog';
 import { TrackView } from './track-view';
 import { CancelledView } from './cancelled-view';
-import { RemaindersView } from './remainders-view';
 import { keyOf, type Line } from './desk-types';
 
 /**
@@ -25,7 +24,7 @@ import { keyOf, type Line } from './desk-types';
  */
 export function BankDesk() {
   const { t } = useLocale();
-  const [mode, setMode] = useState<'work' | 'remainders' | 'track' | 'watch' | 'cancelled'>('work');
+  const [mode, setMode] = useState<'work' | 'track' | 'watch' | 'cancelled'>('work');
   /** What is left of a transfer, being sent: with its receipt, or settled by hand. */
   const [executing, setExecuting] = useState<Line | null>(null);
   /** The floating window opened for what is left of one. */
@@ -110,7 +109,6 @@ export function BankDesk() {
         {(
           [
             { key: 'work', icon: <Workflow className="size-4" />, label: t('bankDesk.workTab') },
-            { key: 'remainders', icon: <SplitSquareHorizontal className="size-4" />, label: t('bankRem.tab') },
             { key: 'track', icon: <Activity className="size-4" />, label: t('bankTrack.tab') },
             { key: 'watch', icon: <MessagesSquare className="size-4" />, label: t('bankDesk.watchTab') },
             { key: 'cancelled', icon: <Ban className="size-4" />, label: t('bankCancelled.tab') },
@@ -135,21 +133,7 @@ export function BankDesk() {
         ))}
       </div>
 
-      {mode === 'remainders' ? (
-        <RemaindersView
-          version={version}
-          onOpen={(line) => {
-            choose(line);
-            setMode('work');
-          }}
-          onForward={(line) => {
-            choose(line);
-            setForwarding({});
-          }}
-          onExecute={setExecuting}
-          onFloat={setFloatingLeft}
-        />
-      ) : mode === 'cancelled' ? (
+      {mode === 'cancelled' ? (
         <CancelledView />
       ) : mode === 'watch' ? (
         <GroupFeed />
@@ -168,7 +152,8 @@ export function BankDesk() {
           onOpen={choose}
           onSend={setSending}
           onFloat={setFloatingLine}
-          onRemainders={() => setMode('remainders')}
+          onExecuteRemainder={setExecuting}
+          onFloatRemainder={setFloatingLeft}
           onFresh={(line) =>
             // The open transfer as the list now has it: what is left of it, where it stands.
             setSelected((current) => (current && JSON.stringify(current) !== JSON.stringify(line) ? line : current))

@@ -82,7 +82,8 @@ export function BankTable({
   onSend,
   onFloat,
   onFresh,
-  onRemainders,
+  onExecuteRemainder,
+  onFloatRemainder,
   onForward,
   executors,
   version,
@@ -95,8 +96,10 @@ export function BankTable({
   onSend: (line: Line) => void;
   /** Opens the transfer's floating window, above the bank's site. */
   onFloat?: (line: Line) => void;
-  /** The remainders' list, opened from its figure. */
-  onRemainders?: () => void;
+  /** What is left of one, sent: with its receipt, or settled by hand. */
+  onExecuteRemainder?: (line: Line) => void;
+  /** What is left of one, in the floating window. */
+  onFloatRemainder?: (line: Line) => void;
   /** The open transfer as the list read it again: what is left of it, where it stands. */
   onFresh?: (line: Line) => void;
   /** Opens the forward sheet for one transfer, with these groups ticked. */
@@ -108,6 +111,8 @@ export function BankTable({
   const { t, locale } = useLocale();
   const toast = useToast();
   const [desk, setDesk] = useState<Desk | null>(null);
+  /** What is left of the transfers of the last fortnight, open or closed: the remainders' figure and list. */
+  const [remains, setRemains] = useState<Line[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [days, setDays] = useState<DayRange>(today);
   const [query, setQuery] = useState('');
@@ -145,7 +150,12 @@ export function BankTable({
               ...(days.to ? { to: edge(days.to, true) } : {}),
             }).toString()}`
           : '';
-      setDesk(await api.get<Desk>(`/api/bank${asked}`));
+      const [read, left] = await Promise.all([
+        api.get<Desk>(`/api/bank${asked}`),
+        api.get<{ lines: Line[] }>('/api/bank/remainders').catch(() => null),
+      ]);
+      setDesk(read);
+      if (left) setRemains(left.lines);
     } catch (cause) {
       toast.error(
         t('errors.title'),
@@ -225,9 +235,7 @@ export function BankTable({
       })(),
       // Something left of it, sent in part or closed short: the remainders' figure.
       remain: (() => {
-        const lines = everything.filter(
-          (line) => line.paid && ['waiting', 'forwarded', 'done'].includes(stateOf(line)) && remainingOf(line.amount, line.paid) > 0n,
-        );
+        const lines = (remains ?? []).filter((line) => remainingOf(line.amount, line.paid) > 0n);
         const left = new Map<string, bigint>();
         for (const line of lines) left.set(line.currency, (left.get(line.currency) ?? 0n) + remainingOf(line.amount, line.paid));
         const top = [...left.entries()].sort((a, b) => (a[1] > b[1] ? -1 : 1))[0];
@@ -245,7 +253,7 @@ export function BankTable({
       })(),
       unsorted: everything.filter(unsorted).length,
     };
-  }, [everything, now]);
+  }, [everything, now, remains]);
 
   const banks = useMemo(() => {
     const totals = new Map<string, number>();
@@ -258,8 +266,8 @@ export function BankTable({
 
   const needle = query.trim().toLowerCase();
   const digits = needle.replace(/\D/g, '');
-  const rows = everything
-    .filter((line) => SHOWN[show].includes(stateOf(line)) && (show !== 'partial' || Boolean(line.paid)) && (show !== 'short' || remainingOf(line.amount, line.paid) > 0n && Boolean(line.paid)))
+  const rows = (show === 'remain' ? (remains ?? []).filter((line) => remainingOf(line.amount, line.paid) > 0n) : everything)
+    .filter((line) => show === 'remain' || SHOWN[show].includes(stateOf(line)) && (show !== 'partial' || Boolean(line.paid)) && (show !== 'short' || remainingOf(line.amount, line.paid) > 0n && Boolean(line.paid)))
     .filter((line) => show !== 'unsorted' || unsorted(line))
     .filter((line) => !channel || (line.channel ?? '—') === channel)
     .filter((line) => {
@@ -403,6 +411,52 @@ export function BankTable({
         </span>
       );
     }
+    if (line.paid && remainingOf(line.amount, line.paid) > 0n && (onExecuteRemainder || onFloatRemainder)) {
+      return (
+        <span className="flex items-center justify-end gap-1">
+          {line.messageId && (
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                onForward(line);
+              }}
+              title={t('bankRem.forward')}
+              aria-label={t('bankRem.forward')}
+              className="inline-flex size-8 items-center justify-center rounded-lg text-content-tertiary transition-colors hover:bg-surface-sunken hover:text-primary-text"
+            >
+              <CornerUpRight className="size-4" />
+            </button>
+          )}
+          {onFloatRemainder && (
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                onFloatRemainder(line);
+              }}
+              title={t('bankSent.floatRow')}
+              aria-label={t('bankSent.floatRow')}
+              className="inline-flex size-8 items-center justify-center rounded-lg text-content-tertiary transition-colors hover:bg-surface-sunken hover:text-primary-text"
+            >
+              <PictureInPicture2 className="size-4" />
+            </button>
+          )}
+          {onExecuteRemainder && (
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                onExecuteRemainder(line);
+              }}
+              className="inline-flex h-8 items-center whitespace-nowrap rounded-lg bg-warning-subtle px-3 text-xs font-semibold text-warning-text transition-colors hover:bg-warning hover:text-white"
+            >
+              {t('bankRem.execute')}
+            </button>
+          )}
+        </span>
+      );
+    }
     if (state !== 'waiting' && state !== 'forwarded') return null;
     return (
       <span className="flex items-center justify-end gap-1">
@@ -471,85 +525,59 @@ export function BankTable({
     );
   };
 
-  const Figure = ({ which, label, icon, tone }: { which: 'all' | 'waiting' | 'forwarded' | 'done'; label: string; icon: ReactNode; tone: string }) => {
-    const figure = figures[which];
-    const picked = show === which || (which === 'all' && show === 'all');
-    return (
-      <button
-        type="button"
-        onClick={() => setShow(which)}
-        aria-pressed={picked}
-        className={cn(
-          'flex min-w-0 items-center gap-3 rounded-2xl bg-surface p-3 text-start shadow-[var(--shadow-sm)] ring-1 transition',
-          picked ? 'ring-2 ring-primary' : 'ring-border-subtle hover:ring-primary/30',
-        )}
-      >
-        <span className={cn('flex size-10 shrink-0 items-center justify-center rounded-xl [&>svg]:size-5', tone)}>{icon}</span>
-        <span className="min-w-0">
-          <span className="block truncate text-[11px] font-semibold text-content-tertiary">{label}</span>
-          <span className="flex items-baseline gap-2">
-            <span className="text-xl font-extrabold tabular-nums text-content">{desk ? figure.count : '…'}</span>
-            {figure.late > 0 && which !== 'done' && (
-              <span className="rounded-full bg-danger px-1.5 text-[10px] font-bold text-white tabular-nums">{figure.late}</span>
-            )}
-          </span>
-          {figure.sum && (
-            <Money value={figure.sum.amount} currency={figure.sum.currency} className="block truncate text-[11px] text-content-tertiary" />
-          )}
-        </span>
-      </button>
-    );
-  };
-
   return (
     <div className="space-y-3">
-      {/* --- The day's figures, each a filter: one quiet strip --- */}
-      <div className="flex gap-px overflow-x-auto rounded-2xl bg-border-subtle ring-1 ring-border-subtle [scrollbar-width:none] lg:grid lg:grid-cols-7 lg:overflow-hidden">
+      {/* --- The day's figures, each a filter --- */}
+      <div className="-mx-1 flex gap-3 overflow-x-auto px-1 pb-1 [scrollbar-width:none] lg:mx-0 lg:grid lg:grid-cols-6 lg:overflow-visible lg:px-0 lg:pb-0">
         {(
           [
-            { key: 'all', label: t('bankTable.all'), dot: 'bg-content-tertiary', count: figures.all.count, late: figures.all.late, sum: figures.all.sum },
-            { key: 'waiting', label: t('bankDesk.state.waiting'), dot: 'bg-warning', count: figures.waiting.count, late: figures.waiting.late, sum: figures.waiting.sum },
-            { key: 'forwarded', label: t('bankDesk.state.forwarded'), dot: 'bg-primary', count: figures.forwarded.count, late: figures.forwarded.late, sum: figures.forwarded.sum },
-            { key: 'done', label: t('bankDesk.state.done'), dot: 'bg-success', count: figures.done.count, late: 0, sum: figures.done.sum },
-            { key: 'remain', label: t('bankRem.card'), dot: 'bg-warning', count: figures.remain.count, late: 0, sum: figures.remain.left, left: true, alert: figures.remain.count > 0, hint: t('bankRem.cardHint') },
-            { key: 'unsorted', label: t('bankTable.unsorted'), dot: 'bg-danger', count: figures.unsorted, late: 0, sum: null, alert: figures.unsorted > 0, hint: t('bankTable.unsortedHint') },
-          ] as { key: Show; label: string; dot: string; count: number; late: number; sum: { amount: string; currency: string } | null; left?: boolean; alert?: boolean; hint?: string }[]
+            { key: 'all', label: t('bankTable.all'), bar: 'bg-primary', count: figures.all.count, late: figures.all.late, sum: figures.all.sum },
+            { key: 'waiting', label: t('bankDesk.state.waiting'), bar: 'bg-warning', count: figures.waiting.count, late: figures.waiting.late, sum: figures.waiting.sum },
+            { key: 'forwarded', label: t('bankDesk.state.forwarded'), bar: 'bg-primary', count: figures.forwarded.count, late: figures.forwarded.late, sum: figures.forwarded.sum },
+            { key: 'done', label: t('bankDesk.state.done'), bar: 'bg-success', count: figures.done.count, late: 0, sum: figures.done.sum },
+            { key: 'remain', label: t('bankRem.card'), bar: 'bg-warning', count: figures.remain.count, late: 0, sum: figures.remain.left, left: true, tone: figures.remain.count > 0 ? 'text-warning-text' : undefined, hint: t('bankRem.cardHint') },
+            { key: 'unsorted', label: t('bankTable.unsorted'), bar: 'bg-danger', count: figures.unsorted, late: 0, sum: null, tone: figures.unsorted > 0 ? 'text-danger-text' : undefined, hint: t('bankTable.unsortedHint') },
+          ] as { key: Show; label: string; bar: string; count: number; late: number; sum: { amount: string; currency: string } | null; left?: boolean; tone?: string; hint?: string }[]
         ).map((stat) => {
           const picked = show === stat.key;
+          const whole = Math.max(figures.all.count, 1);
+          const share = stat.key === 'all' ? (figures.all.count ? 100 : 0) : Math.min(100, Math.round((stat.count / whole) * 100));
           return (
             <button
               key={stat.key}
               type="button"
-              onClick={() =>
-                // What is left has a list of its own.
-                stat.key === 'remain' && onRemainders ? onRemainders() : setShow(picked && stat.key !== 'all' ? 'all' : stat.key)
-              }
+              onClick={() => setShow(picked && stat.key !== 'all' ? 'all' : stat.key)}
               aria-pressed={picked}
               title={stat.hint}
               className={cn(
-                'relative min-w-[8.5rem] shrink-0 bg-surface px-4 py-3 text-start transition-colors hover:bg-surface-sunken/50 lg:min-w-0',
-                picked && 'bg-primary-subtle/30',
+                'group relative flex min-w-[10.5rem] shrink-0 flex-col rounded-2xl bg-surface p-4 text-start ring-1 transition-all duration-200 lg:min-w-0',
+                picked
+                  ? 'shadow-[0_8px_24px_-12px_rgb(37_99_235/0.45)] ring-2 ring-primary'
+                  : 'shadow-[0_1px_2px_rgb(15_23_42/0.05)] ring-border-subtle hover:-translate-y-0.5 hover:shadow-[0_10px_24px_-14px_rgb(15_23_42/0.3)]',
               )}
             >
-              <span className="flex items-center gap-1.5 truncate text-[11px] font-medium text-content-tertiary">
-                <span className={cn('size-1.5 shrink-0 rounded-full', stat.dot)} aria-hidden />
-                {stat.label}
-              </span>
-              <span className="mt-1 flex items-baseline gap-2">
-                <span className={cn('text-2xl font-bold tabular-nums tracking-tight', stat.alert ? 'text-danger-text' : 'text-content')}>
-                  {desk ? stat.count : '…'}
-                </span>
+              <span className="flex items-center justify-between gap-2">
+                <span className={cn('truncate text-[12px] font-medium', picked ? 'text-primary-text' : 'text-content-secondary')}>{stat.label}</span>
                 {stat.late > 0 && (
-                  <span className="text-[11px] font-semibold text-danger-text">{t('bankTable.lateCount', { count: stat.late })}</span>
+                  <span className="shrink-0 rounded-full bg-danger-subtle px-2 py-0.5 text-[10px] font-semibold tabular-nums text-danger-text">
+                    {t('bankTable.lateCount', { count: stat.late })}
+                  </span>
                 )}
               </span>
-              {stat.sum && (
-                <span className="mt-0.5 flex flex-wrap items-center gap-x-1 text-[11px] text-content-tertiary">
-                  {stat.left && t('bankParts.left')}
-                  <Money value={stat.sum.amount} currency={stat.sum.currency} />
-                </span>
-              )}
-              {picked && <span className="absolute inset-x-4 bottom-0 h-0.5 rounded-full bg-primary" aria-hidden />}
+              <span className={cn('mt-2.5 text-[30px] font-semibold leading-none tabular-nums tracking-tight', stat.tone ?? 'text-content')}>
+                {desk ? stat.count : '…'}
+              </span>
+              <span className="mt-2 flex min-h-[16px] flex-wrap items-center gap-x-1 text-[12px] text-content-tertiary">
+                {stat.sum && (
+                  <>
+                    {stat.left && t('bankParts.left')}
+                    <Money value={stat.sum.amount} currency={stat.sum.currency} />
+                  </>
+                )}
+              </span>
+              <span className="mt-3 block h-1 overflow-hidden rounded-full bg-surface-sunken" aria-hidden>
+                <span className={cn('block h-full rounded-full transition-all duration-500', stat.bar)} style={{ width: `${share}%` }} />
+              </span>
             </button>
           );
         })}
