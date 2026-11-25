@@ -528,7 +528,7 @@ export function BankTable({
   return (
     <div className="space-y-3">
       {/* --- The day's figures, each a filter --- */}
-      <div className="-mx-1 flex gap-3 overflow-x-auto px-1 pb-1 [scrollbar-width:none] lg:mx-0 lg:grid lg:grid-cols-6 lg:overflow-visible lg:px-0 lg:pb-0">
+      <div className="-mx-1 flex snap-x gap-3 overflow-x-auto px-1 pb-1 [scrollbar-width:none] sm:mx-0 sm:grid sm:grid-cols-3 sm:overflow-visible sm:px-0 sm:pb-0 xl:grid-cols-6">
         {(
           [
             { key: 'all', label: t('bankTable.all'), bar: 'bg-primary', count: figures.all.count, late: figures.all.late, sum: figures.all.sum },
@@ -550,7 +550,7 @@ export function BankTable({
               aria-pressed={picked}
               title={stat.hint}
               className={cn(
-                'group relative flex min-w-[10.5rem] shrink-0 flex-col rounded-2xl bg-surface p-4 text-start ring-1 transition-all duration-200 lg:min-w-0',
+                'group relative flex min-w-[9.5rem] shrink-0 snap-start flex-col rounded-2xl bg-surface p-3.5 text-start ring-1 transition-all duration-200 sm:min-w-0 sm:p-4',
                 picked
                   ? 'shadow-[0_8px_24px_-12px_rgb(37_99_235/0.45)] ring-2 ring-primary'
                   : 'shadow-[0_1px_2px_rgb(15_23_42/0.05)] ring-border-subtle hover:-translate-y-0.5 hover:shadow-[0_10px_24px_-14px_rgb(15_23_42/0.3)]',
@@ -564,7 +564,7 @@ export function BankTable({
                   </span>
                 )}
               </span>
-              <span className={cn('mt-2.5 text-[30px] font-semibold leading-none tabular-nums tracking-tight', stat.tone ?? 'text-content')}>
+              <span className={cn('mt-2.5 text-[26px] font-semibold leading-none tabular-nums tracking-tight sm:text-[30px]', stat.tone ?? 'text-content')}>
                 {desk ? stat.count : '…'}
               </span>
               <span className="mt-2 flex min-h-[16px] flex-wrap items-center gap-x-1 text-[12px] text-content-tertiary">
@@ -586,7 +586,7 @@ export function BankTable({
       <Card className="overflow-hidden p-0">
         {/* --- Finding: the search, the days, the bank, the rest of the group's talk --- */}
         <div className="flex flex-wrap items-center gap-2 border-b border-border-subtle p-2.5">
-          <label className="flex h-10 min-w-[14rem] flex-1 items-center gap-2 rounded-xl bg-surface-sunken px-3 ring-1 ring-border-subtle focus-within:ring-primary/40">
+          <label className="flex h-10 w-full min-w-0 items-center gap-2 rounded-xl bg-surface-sunken px-3 ring-1 ring-border-subtle focus-within:ring-primary/40 sm:w-auto sm:min-w-[14rem] sm:flex-1">
             <Search className="size-4 shrink-0 text-content-tertiary" />
             <input
               value={query}
@@ -680,7 +680,7 @@ export function BankTable({
           <EmptyState icon={<Inbox />} title={t('bank.emptyTitle')} description={t('bank.emptyBody')} />
         ) : (
           <>
-            <div className="hidden max-h-[calc(100dvh-22rem)] min-h-[20rem] overflow-auto md:block">
+            <div className="hidden max-h-[calc(100dvh-22rem)] min-h-[20rem] overflow-auto xl:block">
               <table className="w-full border-separate border-spacing-0 text-sm">
                 <thead className="sticky top-0 z-10 bg-surface-sunken text-[11px] font-semibold text-content-tertiary">
                   <tr>
@@ -703,7 +703,6 @@ export function BankTable({
                     <th className="border-b border-border-subtle px-2 py-2 text-start">{t('bank.name')}</th>
                     <th className="border-b border-border-subtle px-2 py-2 text-end">{t('bank.amount')}</th>
                     <th className="border-b border-border-subtle px-2 py-2 text-start">{t('bankTable.state')}</th>
-                    <th className="border-b border-border-subtle px-2 py-2 text-start">{t('bankTable.waited')}</th>
                     <th className="border-b border-border-subtle px-2 py-2" />
                   </tr>
                 </thead>
@@ -804,13 +803,13 @@ export function BankTable({
                         </td>
                         <td className="border-b border-border-subtle px-2 py-2">
                           {stateChip(line)}
+                          <span className="mt-0.5 block">{waitedChip(line)}</span>
                           {(line.forwardedTo?.length ?? 0) > 0 && stateOf(line) !== 'done' && (
                             <span className="mt-0.5 block max-w-[8rem] truncate text-[10px] text-primary-text">
                               {line.forwardedTo!.map((entry) => entry.group).join('، ')}
                             </span>
                           )}
                         </td>
-                        <td className="border-b border-border-subtle px-2 py-2">{waitedChip(line)}</td>
                         <td className="border-b border-border-subtle px-2 py-2" onClick={(event) => event.stopPropagation()}>
                           <Actions line={line} />
                         </td>
@@ -821,8 +820,8 @@ export function BankTable({
               </table>
             </div>
 
-            {/* --- On a phone: the same, as cards --- */}
-            <ul className="divide-y divide-border-subtle md:hidden">
+            {/* --- Narrower than the table: each transfer as a card, in lines --- */}
+            <ul className="divide-y divide-border-subtle xl:hidden">
               {rows.map((line) => {
                 const key = keyOf(line);
                 const late = lateness(line, now);
@@ -831,12 +830,12 @@ export function BankTable({
                     key={key}
                     onClick={() => onOpen(line)}
                     className={cn(
-                      'border-s-2 p-3',
+                      'cursor-pointer border-s-2 px-3 py-3 transition-colors sm:px-4',
                       late === 'veryLate' ? 'border-s-danger/70' : late === 'late' ? 'border-s-warning/70' : 'border-s-transparent',
-                      selectedKey === key && 'bg-primary-subtle/50',
+                      selectedKey === key ? 'bg-primary-subtle/50' : checked.has(key) ? 'bg-primary-subtle/30' : 'hover:bg-surface-sunken/60',
                     )}
                   >
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-start gap-3">
                       {pendingOf(line) && (
                         <button
                           type="button"
@@ -845,47 +844,73 @@ export function BankTable({
                             toggle(line);
                           }}
                           aria-label={t('bankTable.tick')}
+                          className="mt-2.5 shrink-0"
                         >
-                          {checked.has(key) ? <CheckSquare className="size-5 text-primary-text" /> : <Square className="size-5 text-content-tertiary" />}
+                          {checked.has(key) ? <CheckSquare className="size-[18px] text-primary-text" /> : <Square className="size-[18px] text-content-tertiary/70" />}
                         </button>
                       )}
-                      <BankMark line={line} className="size-8 text-[10px]" />
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate font-bold text-content">{line.name ?? line.text ?? '—'}</span>
-                        <span className="block truncate text-xs text-content-tertiary">
-                          {line.channel ?? '—'} · {clockOf(line.at)}
-                          {carried(line) && (
-                            <span className="ms-1 font-semibold text-warning-text">
-                              ·{' '}
-                              {t('bankTable.carried', {
-                                day: dayLabel(dayKey(line.at), locale, { today: t('bank.period.today'), yesterday: t('bank.period.yesterday') }),
-                              })}
-                            </span>
+                      <BankMark line={line} className="mt-0.5 size-10 text-[11px]" />
+                      <div className="min-w-0 flex-1">
+                        {/* To whom, and how much. */}
+                        <div className="flex items-baseline justify-between gap-3">
+                          <span className="min-w-0 truncate text-[15px] font-semibold text-content">
+                            {line.source === 'message' && !line.name
+                              ? (line.text ?? '').replace(/\s+/g, ' ').trim() || '📎'
+                              : (line.name ?? '—')}
+                          </span>
+                          {BigInt(line.amount || '0') > 0n && (
+                            <Money value={line.amount} currency={line.currency} className="shrink-0 text-[15px] font-bold tabular-nums text-content" />
                           )}
-                        </span>
-                      </span>
-                      {BigInt(line.amount || '0') > 0n && (
-                        <span className="shrink-0 text-end">
-                          <Money value={line.amount} currency={line.currency} className="font-extrabold" />
+                        </div>
+                        {/* Where, and since when. */}
+                        <div className="mt-1 flex items-start justify-between gap-3 text-[12px] leading-5 text-content-tertiary">
+                          <span className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5">
+                            {line.account && (
+                              <span onClick={(event) => event.stopPropagation()} className="-ms-1.5 shrink-0">
+                                <CopyCell value={line.account} label={t('bank.account')} className="font-mono text-[12px] font-medium text-content-secondary ltr-content">
+                                  {line.account}
+                                </CopyCell>
+                              </span>
+                            )}
+                            <span className="min-w-0">
+                              {line.channel ?? '—'} · <span className="tabular-nums">{clockOf(line.at)}</span>
+                              {carried(line) && (
+                                <span className="font-medium text-warning-text">
+                                  {' · '}
+                                  {t('bankTable.carried', {
+                                    day: dayLabel(dayKey(line.at), locale, { today: t('bank.period.today'), yesterday: t('bank.period.yesterday') }),
+                                  })}
+                                </span>
+                              )}
+                            </span>
+                          </span>
+                          <span className="shrink-0">{waitedChip(line)}</span>
+                        </div>
+                        {/* What is left of it, when sent in part. */}
+                        {line.paid && (
                           <PartsBar
                             amount={line.amount}
                             paid={line.paid}
                             currency={line.currency}
                             closed={stateOf(line) === 'done'}
-                            className="mt-0.5 w-28"
+                            className="mt-2 max-w-xs"
                           />
-                        </span>
-                      )}
-                    </div>
-                    <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                      <CopyCell value={line.account} label={t('bank.account')} className="bg-surface-sunken font-mono text-xs font-semibold ltr-content">
-                        {line.account}
-                      </CopyCell>
-                      {stateChip(line)}
-                      {waitedChip(line)}
-                      <span className="ms-auto" onClick={(event) => event.stopPropagation()}>
-                        <Actions line={line} />
-                      </span>
+                        )}
+                        {/* Where it stands, and what is done with it. */}
+                        <div className="mt-2.5 flex items-center justify-between gap-2">
+                          <span className="flex min-w-0 items-center gap-2">
+                            {stateChip(line)}
+                            {(line.forwardedTo?.length ?? 0) > 0 && stateOf(line) !== 'done' && (
+                              <span className="truncate text-[11px] text-primary-text">
+                                {line.forwardedTo!.map((entry) => entry.group).join('، ')}
+                              </span>
+                            )}
+                          </span>
+                          <span className="shrink-0" onClick={(event) => event.stopPropagation()}>
+                            <Actions line={line} />
+                          </span>
+                        </div>
+                      </div>
                     </div>
                   </li>
                 );
