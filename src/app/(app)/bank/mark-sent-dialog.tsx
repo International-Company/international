@@ -223,6 +223,7 @@ export function MarkSentDialog({
         kind: line.source === 'group' ? 'request' : line.source === 'tiktok' ? 'tiktok' : 'deal',
         id: line.id,
         receipt,
+        tell: true,
       });
       toast.success(t('bankParts.partKept'), t('bankParts.partKeptHint'));
       onDone();
@@ -253,7 +254,7 @@ export function MarkSentDialog({
         // With its receipt: kept on the transfer (closing it if open). Without: settled by hand.
         if (receipt) {
           if (open) await api.post(sentAt, { receipt });
-          else await api.post('/api/bank/receipts', { action: 'add', kind, id: line.id, receipt });
+          else await api.post('/api/bank/receipts', { action: 'add', kind, id: line.id, receipt, tell: true });
         } else {
           await api.post('/api/bank/payments', { kind, id: line.id });
           if (open) await api.post(sentAt, { receipt: null });

@@ -4,6 +4,9 @@ import { errors } from '@/core/errors/app-error';
 import { createLogger } from '@/core/logger/logger';
 import type { Actor } from '@/modules/exchange/transaction.service';
 import { keepMedia } from '@/modules/whatsapp/chat-images';
+import * as settings from '@/modules/settings/settings.service';
+import { answerInGroup, isLinked, sendImage, sentStub } from '@/modules/whatsapp/whatsapp.service';
+import { sentWords } from '@/modules/whatsapp/sent-words';
 
 const log = createLogger('bank:receipts');
 
@@ -149,11 +152,64 @@ export async function receiptFiles(kind: ReceiptKind, id: string, limit = 6): Pr
     .map((file) => ({ bytes: Buffer.from(file.data), mimeType: file.mimeType }));
 }
 
-export async function addReceiptByHand(kind: ReceiptKind, id: string, file: ReceiptFile, actor: Actor) {
+export async function addReceiptByHand(
+  kind: ReceiptKind,
+  id: string,
+  file: ReceiptFile,
+  actor: Actor,
+  options: { tell?: boolean } = {},
+) {
   requireDesk(actor);
   await exists(kind, id);
   await addReceipt(kind, id, file, { actorId: actor.id });
+  if (options.tell) await tellGroup(kind, id, file);
   return listReceipts(kind, id);
+}
+
+/**
+ * A receipt given at the desk's sending window, answered under the transfer's
+ * own message in its group: the photo, the number it went to and "تم التحويل".
+ */
+async function tellGroup(kind: ReceiptKind, id: string, file: ReceiptFile) {
+  if (!(await settings.getBoolean('whatsapp.enabled')) || !isLinked()) return;
+  try {
+    if (kind === 'request') {
+      const row = await prisma.bankRequest.findUnique({ where: { id } });
+      if (!row) return;
+      await answerInGroup(
+        row.chat,
+        { id: row.waId, author: row.senderJid, text: row.text },
+        { image: file.bytes, mimetype: file.mimeType, caption: sentWords(row.account) },
+      );
+      return;
+    }
+    let chat: string | null = null;
+    let messageId: string | null = null;
+    let account: string | null = null;
+    if (kind === 'deal') {
+      const deal = await prisma.transaction.findUnique({
+        where: { id },
+        select: { payoutAccount: true, copyChat: true, copyMessageId: true, announcedChat: true, announcedMessageId: true },
+      });
+      if (!deal) return;
+      chat = deal.copyChat ?? deal.announcedChat;
+      messageId = deal.copyChat ? deal.copyMessageId : deal.announcedMessageId;
+      account = deal.payoutAccount;
+    } else {
+      const row = await prisma.tiktokWithdrawal.findUnique({
+        where: { id },
+        select: { account: true, bankChat: true, bankMessageId: true },
+      });
+      if (!row) return;
+      chat = row.bankChat;
+      messageId = row.bankMessageId;
+      account = row.account;
+    }
+    if (!chat || !messageId) return;
+    await sendImage(chat, file.bytes, sentWords(account), sentStub(chat, messageId), file.mimeType);
+  } catch (error) {
+    log.warn('Could not answer a transfer with its receipt in its group', { kind, error });
+  }
 }
 
 export async function removeReceipt(kind: ReceiptKind, id: string, receiptId: string, actor: Actor) {

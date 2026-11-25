@@ -23,7 +23,7 @@ export const GET = route<unknown, z.infer<typeof which>>({
 
 const bodySchema = z.discriminatedUnion('action', [
   /** One more, chosen or pasted at the desk, shrunk by the screen, as base64. */
-  z.object({ action: z.literal('add'), kind, id: z.string().min(1).max(40), receipt: z.string().min(1).max(6_000_000) }),
+  z.object({ action: z.literal('add'), kind, id: z.string().min(1).max(40), receipt: z.string().min(1).max(6_000_000), tell: z.boolean().optional() }),
   /** Looked for again in the groups it was answered in. */
   z.object({ action: z.literal('collect'), kind, id: z.string().min(1).max(40) }),
 ]);
@@ -35,7 +35,7 @@ export const POST = route<z.infer<typeof bodySchema>>({
     if (body.action === 'collect') return toJsonSafe(await collectReceipts(body.kind, body.id, actor));
     const image = readProofImage(body.receipt);
     if (typeof image === 'string') throw errors.precondition('That photo cannot be kept', image);
-    return toJsonSafe(await addReceiptByHand(body.kind, body.id, image, actor));
+    return toJsonSafe(await addReceiptByHand(body.kind, body.id, image, actor, { tell: body.tell }));
   },
 });
 
