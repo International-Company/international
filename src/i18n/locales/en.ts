@@ -2624,6 +2624,12 @@ const en = {
     quotedNotKept: 'The original message is not kept.',
     path: 'The message’s way',
   },
+  bankLog: {
+    pending: 'Under way',
+    count: '{count} transfers',
+    beneficiary: 'Beneficiary',
+    reference: 'Reference & time',
+  },
   bankAsk: {
     button: 'Ask after it',
     hint: 'Ask after the transfer: the bot answers its copy in the group it went to "is it done?" and marks it ❓',

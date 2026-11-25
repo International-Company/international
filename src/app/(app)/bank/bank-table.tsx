@@ -47,6 +47,15 @@ const STATE_DOT: Record<LineState, string> = {
   message: 'bg-content-tertiary',
 };
 
+/** Where a transfer stands, as a bank's log writes it: a soft pill. */
+const STATE_PILL: Record<LineState, string> = {
+  waiting: 'bg-warning-subtle/70 text-warning-text',
+  forwarded: 'bg-primary-subtle/70 text-primary-text',
+  done: 'bg-success-subtle/70 text-success-text',
+  reversed: 'bg-danger-subtle/70 text-danger-text',
+  message: 'bg-surface-sunken text-content-secondary',
+};
+
 type Show = 'all' | 'open' | 'waiting' | 'forwarded' | 'done' | 'messages' | 'unsorted' | 'partial' | 'short' | 'remain';
 
 /**
@@ -287,6 +296,47 @@ export function BankTable({
         : new Date(b.sentAt ?? b.at).getTime() - new Date(a.sentAt ?? a.at).getTime();
     });
 
+
+  /*
+   * As a bank's log reads: what is still under way at the top, then what went,
+   * a day at a time — each with how many and what they came to.
+   */
+  const underWay = (line: Line) => stateOf(line) === 'waiting' || stateOf(line) === 'forwarded';
+  const sections: { key: string; title: string; lines: Line[] }[] = [];
+  const pendingRows = rows.filter(underWay);
+  if (pendingRows.length) sections.push({ key: 'pending', title: t('bankLog.pending'), lines: pendingRows });
+  for (const line of rows.filter((entry) => !underWay(entry))) {
+    const day = dayKey(line.sentAt ?? line.at);
+    let section = sections.find((entry) => entry.key === day);
+    if (!section) {
+      section = {
+        key: day,
+        title: dayLabel(day, locale, { today: t('bank.period.today'), yesterday: t('bank.period.yesterday') }),
+        lines: [],
+      };
+      sections.push(section);
+    }
+    section.lines.push(line);
+  }
+  /** A section's sum, in the money most of it is in; others counted beside it. */
+  const sumOf = (lines: Line[]) => {
+    const sums = new Map<string, bigint>();
+    for (const line of lines) if (line.currency) sums.set(line.currency, (sums.get(line.currency) ?? 0n) + BigInt(line.amount || '0'));
+    return [...sums.entries()].sort((a, b) => (a[1] > b[1] ? -1 : 1));
+  };
+  const SectionTotal = ({ lines }: { lines: Line[] }) => {
+    const sums = sumOf(lines);
+    return (
+      <span className="flex items-center gap-2 text-[11px] font-medium text-content-tertiary">
+        <span>{t('bankLog.count', { count: lines.length })}</span>
+        {sums.slice(0, 2).map(([currency, amount]) => (
+          <span key={currency} className="ltr-content tabular-nums text-content-secondary">
+            <Money value={amount.toString()} currency={currency} />
+          </span>
+        ))}
+      </span>
+    );
+  };
 
   // Ticked: only those still waiting can be sent together.
   const pendingOf = (line: Line) => line.status === 'PENDING_TRANSFER' && !line.sentAt && line.source !== 'message';
@@ -554,7 +604,7 @@ export function BankTable({
             onSend(line);
           }}
           title={t('bank.markSent')}
-          className="inline-flex h-8 items-center rounded-lg bg-success-subtle px-3 text-xs font-semibold text-success-text transition-colors hover:bg-success hover:text-white"
+          className="inline-flex h-8 items-center whitespace-nowrap rounded-lg bg-success-subtle px-3 text-xs font-semibold text-success-text transition-colors hover:bg-success hover:text-white"
         >
           {t('bankTable.done')}
         </button>
@@ -565,7 +615,7 @@ export function BankTable({
   const stateChip = (line: Line) => {
     const state = stateOf(line);
     return (
-      <span className="inline-flex items-center gap-1.5 whitespace-nowrap text-[12px] font-medium text-content-secondary">
+      <span className={cn('inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-medium', STATE_PILL[state])}>
         <span className={cn('size-1.5 rounded-full', STATE_DOT[state])} aria-hidden />
         {t(STATE_STYLE[state].key)}
       </span>
@@ -727,11 +777,12 @@ export function BankTable({
           <EmptyState icon={<Inbox />} title={t('bank.emptyTitle')} description={t('bank.emptyBody')} />
         ) : (
           <>
+            {/* --- The log, where a table fits: under way first, then day by day --- */}
             <div className="hidden max-h-[calc(100dvh-22rem)] min-h-[20rem] overflow-auto xl:block">
               <table className="w-full border-separate border-spacing-0 text-sm">
-                <thead className="sticky top-0 z-10 bg-surface-sunken text-[11px] font-semibold text-content-tertiary">
+                <thead className="sticky top-0 z-20 bg-surface text-[11px] font-medium text-content-tertiary">
                   <tr>
-                    <th className="w-10 border-b border-border-subtle px-2 py-2">
+                    <th className="h-10 w-11 border-b border-border-subtle ps-4">
                       <button
                         type="button"
                         onClick={() =>
@@ -744,235 +795,268 @@ export function BankTable({
                         {allTicked ? <CheckSquare className="size-4 text-primary-text" /> : <Square className="size-4" />}
                       </button>
                     </th>
-                    <th className="border-b border-border-subtle px-2 py-2 text-start">{t('bankTable.time')}</th>
-                    <th className="border-b border-border-subtle px-2 py-2 text-start">{t('bankTable.bank')}</th>
-                    <th className="border-b border-border-subtle px-2 py-2 text-start">{t('bank.account')}</th>
-                    <th className="border-b border-border-subtle px-2 py-2 text-start">{t('bank.name')}</th>
-                    <th className="border-b border-border-subtle px-2 py-2 text-end">{t('bank.amount')}</th>
-                    <th className="border-b border-border-subtle px-2 py-2 text-start">{t('bankTable.state')}</th>
-                    <th className="border-b border-border-subtle px-2 py-2" />
+                    <th className="border-b border-border-subtle px-3 text-start">{t('bankLog.beneficiary')}</th>
+                    <th className="border-b border-border-subtle px-3 text-start">{t('bankTable.bank')}</th>
+                    <th className="border-b border-border-subtle px-3 text-start">{t('bankLog.reference')}</th>
+                    <th className="border-b border-border-subtle px-3 text-start">{t('bankTable.state')}</th>
+                    <th className="border-b border-border-subtle px-3 text-end">{t('bank.amount')}</th>
+                    <th className="border-b border-border-subtle pe-4" />
                   </tr>
                 </thead>
-                <tbody>
-                  {rows.map((line, index) => {
-                    const key = keyOf(line);
-                    const late = lateness(line, now);
-                    const newDay = searched || index === 0 || dayKey(rows[index - 1]!.at) !== dayKey(line.at);
-                    return (
-                      <tr
-                        key={key}
-                        onClick={() => onOpen(line)}
-                        className={cn(
-                          'cursor-pointer transition-colors',
-                          selectedKey === key ? 'bg-primary-subtle/60' : checked.has(key) ? 'bg-primary-subtle/30' : 'hover:bg-surface-sunken/70',
+                {sections.map((section) => (
+                  <tbody key={section.key}>
+                    <tr>
+                      <td colSpan={7} className="sticky top-10 z-10 border-b border-border-subtle bg-surface-sunken/90 px-4 py-2 backdrop-blur">
+                        <span className="flex items-center justify-between gap-3">
+                          <span className="text-[12px] font-semibold text-content-secondary">
+                            {section.key === 'pending' ? (
+                          <span className="inline-flex items-center gap-2">
+                            <span className="relative flex size-2">
+                              <span className="absolute inline-flex size-full animate-ping rounded-full bg-warning/60" />
+                              <span className="relative inline-flex size-2 rounded-full bg-warning" />
+                            </span>
+                            {section.title}
+                          </span>
+                        ) : (
+                          section.title
                         )}
-                      >
-                        <td
+                          </span>
+                          <SectionTotal lines={section.lines} />
+                        </span>
+                      </td>
+                    </tr>
+                    {section.lines.map((line) => {
+                      const key = keyOf(line);
+                      const late = lateness(line, now);
+                      return (
+                        <tr
+                          key={key}
+                          onClick={() => onOpen(line)}
                           className={cn(
-                            'border-b border-s-2 border-border-subtle px-2 py-2.5',
-                            late === 'veryLate' ? 'border-s-danger/70' : late === 'late' ? 'border-s-warning/70' : 'border-s-transparent',
+                            'group/row cursor-pointer transition-colors',
+                            selectedKey === key ? 'bg-primary-subtle/50' : checked.has(key) ? 'bg-primary-subtle/25' : 'hover:bg-surface-sunken/60',
                           )}
-                          onClick={(event) => event.stopPropagation()}
                         >
-                          {pendingOf(line) && (
-                            <button type="button" onClick={() => toggle(line)} aria-label={t('bankTable.tick')} className="inline-flex">
-                              {checked.has(key) ? <CheckSquare className="size-4 text-primary-text" /> : <Square className="size-4 text-content-tertiary" />}
-                            </button>
-                          )}
-                        </td>
-                        <td className="whitespace-nowrap border-b border-border-subtle px-2 py-2">
-                          <span className="block font-semibold tabular-nums text-content">{clockOf(line.at)}</span>
-                          {carried(line) ? (
-                            <span
-                              className="mt-0.5 block text-[10px] font-medium text-warning-text"
-                              title={new Date(line.at).toLocaleString(locale === 'ar' ? 'ar' : 'en-GB')}
-                            >
-                              {t('bankTable.carried', {
-                                day: dayLabel(dayKey(line.at), locale, { today: t('bank.period.today'), yesterday: t('bank.period.yesterday') }),
-                              })}
-                            </span>
-                          ) : (
-                            newDay &&
-                            !onToday && (
-                              <span className="block text-[10px] text-content-tertiary">
-                                {dayLabel(dayKey(line.at), locale, { today: t('bank.period.today'), yesterday: t('bank.period.yesterday') })}
-                              </span>
-                            )
-                          )}
-                        </td>
-                        <td className="border-b border-border-subtle px-2 py-2">
-                          <span className="flex min-w-0 items-center gap-2">
-                            <BankMark line={line} className="size-7 text-[10px]" />
-                            <span className="min-w-0">
-                              <span className="block max-w-[9rem] truncate font-semibold text-content">{line.channel ?? '—'}</span>
-                              <span className="block max-w-[9rem] truncate text-[10px] text-content-tertiary">{line.kind}</span>
-                            </span>
-                          </span>
-                        </td>
-                        <td className="border-b border-border-subtle px-1 py-2">
-                          <CopyCell value={line.account} label={t('bank.account')} className="font-mono font-semibold tabular-nums ltr-content">
-                            {line.account}
-                          </CopyCell>
-                        </td>
-                        <td className="max-w-[14rem] border-b border-border-subtle px-1 py-2">
-                          {line.source === 'message' && !line.name ? (
-                            // A message not read: its words, as they came, to know it before opening it.
-                            <span className="line-clamp-2 whitespace-pre-line px-1.5 text-xs text-content-secondary">
-                              {(line.text ?? '').replace(/\n\s*\n+/g, '\n').trim() || '📎'}
-                            </span>
-                          ) : (
-                            <CopyCell value={line.name} label={t('bank.name')} className="font-semibold text-content">
-                              {line.name}
-                            </CopyCell>
-                          )}
-                        </td>
-                        <td className="border-b border-border-subtle px-1 py-2 text-end">
-                          {BigInt(line.amount || '0') > 0n ? (
-                            <>
-                              <CopyCell
-                                value={plainFigure(line.paid ? remainingOf(line.amount, line.paid).toString() : line.amount)}
-                                label={line.paid ? t('bankParts.left') : t('bank.amount')}
-                                className="font-bold"
-                              >
-                                <Money value={line.amount} currency={line.currency} />
-                              </CopyCell>
-                              <PartsBar
-                                amount={line.amount}
-                                paid={line.paid}
-                                currency={line.currency}
-                                closed={stateOf(line) === 'done'}
-                                className="ms-auto mt-0.5 max-w-[9rem]"
-                              />
-                            </>
-                          ) : (
-                            <span className="text-content-tertiary">—</span>
-                          )}
-                        </td>
-                        <td className="border-b border-border-subtle px-2 py-2">
-                          {stateChip(line)}
-                          <span className="mt-0.5 block">{waitedChip(line)}</span>
-                          {(line.forwardedTo?.length ?? 0) > 0 && stateOf(line) !== 'done' && (
-                            <span className="mt-0.5 block max-w-[8rem] truncate text-[10px] text-primary-text">
-                              {line.forwardedTo!.map((entry) => entry.group).join('، ')}
-                            </span>
-                          )}
-                          {askedOf(line) && stateOf(line) !== 'done' && (
-                            <span className="mt-0.5 block max-w-[9rem] truncate text-[10px] font-medium text-warning-text" title={askedOf(line)!.inquiredBy ?? ''}>
-                              ❓ {t('bankAsk.asked', { at: clockOf(askedOf(line)!.inquiredAt!) })}
-                            </span>
-                          )}
-                        </td>
-                        <td className="border-b border-border-subtle px-2 py-2" onClick={(event) => event.stopPropagation()}>
-                          <Actions line={line} />
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-
-            {/* --- Narrower than the table: each transfer as a card, in lines --- */}
-            <ul className="divide-y divide-border-subtle xl:hidden">
-              {rows.map((line) => {
-                const key = keyOf(line);
-                const late = lateness(line, now);
-                return (
-                  <li
-                    key={key}
-                    onClick={() => onOpen(line)}
-                    className={cn(
-                      'cursor-pointer border-s-2 px-3 py-3 transition-colors sm:px-4',
-                      late === 'veryLate' ? 'border-s-danger/70' : late === 'late' ? 'border-s-warning/70' : 'border-s-transparent',
-                      selectedKey === key ? 'bg-primary-subtle/50' : checked.has(key) ? 'bg-primary-subtle/30' : 'hover:bg-surface-sunken/60',
-                    )}
-                  >
-                    <div className="flex items-start gap-3">
-                      {pendingOf(line) && (
-                        <button
-                          type="button"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            toggle(line);
-                          }}
-                          aria-label={t('bankTable.tick')}
-                          className="mt-2.5 shrink-0"
-                        >
-                          {checked.has(key) ? <CheckSquare className="size-[18px] text-primary-text" /> : <Square className="size-[18px] text-content-tertiary/70" />}
-                        </button>
-                      )}
-                      <BankMark line={line} className="mt-0.5 size-10 text-[11px]" />
-                      <div className="min-w-0 flex-1">
-                        {/* To whom, and how much. */}
-                        <div className="flex items-baseline justify-between gap-3">
-                          <span className="min-w-0 truncate text-[15px] font-semibold text-content">
-                            {line.source === 'message' && !line.name
-                              ? (line.text ?? '').replace(/\s+/g, ' ').trim() || '📎'
-                              : (line.name ?? '—')}
-                          </span>
-                          {BigInt(line.amount || '0') > 0n && (
-                            <Money value={line.amount} currency={line.currency} className="shrink-0 text-[15px] font-bold tabular-nums text-content" />
-                          )}
-                        </div>
-                        {/* Where, and since when. */}
-                        <div className="mt-1 flex items-start justify-between gap-3 text-[12px] leading-5 text-content-tertiary">
-                          <span className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5">
-                            {line.account && (
-                              <span onClick={(event) => event.stopPropagation()} className="-ms-1.5 shrink-0">
-                                <CopyCell value={line.account} label={t('bank.account')} className="font-mono text-[12px] font-medium text-content-secondary ltr-content">
-                                  {line.account}
-                                </CopyCell>
-                              </span>
+                          <td
+                            className={cn(
+                              'border-b border-s-2 border-border-subtle py-3 ps-4',
+                              late === 'veryLate' ? 'border-s-danger/70' : late === 'late' ? 'border-s-warning/70' : 'border-s-transparent',
                             )}
-                            <span className="min-w-0">
-                              {line.channel ?? '—'} · <span className="tabular-nums">{clockOf(line.at)}</span>
+                            onClick={(event) => event.stopPropagation()}
+                          >
+                            {pendingOf(line) && (
+                              <button type="button" onClick={() => toggle(line)} aria-label={t('bankTable.tick')} className="inline-flex">
+                                {checked.has(key) ? <CheckSquare className="size-4 text-primary-text" /> : <Square className="size-4 text-content-tertiary/70" />}
+                              </button>
+                            )}
+                          </td>
+                          {/* The beneficiary: their name, and the account it goes to. */}
+                          <td className="max-w-[17rem] border-b border-border-subtle px-3 py-3">
+                            <span className="flex min-w-0 items-center gap-3">
+                              <BankMark line={line} className="size-9 text-[11px]" />
+                              <span className="min-w-0">
+                                {line.source === 'message' && !line.name ? (
+                                  <span className="line-clamp-2 whitespace-pre-line text-xs text-content-secondary">
+                                    {(line.text ?? '').replace(/\n\s*\n+/g, '\n').trim() || '📎'}
+                                  </span>
+                                ) : (
+                                  <CopyCell value={line.name} label={t('bank.name')} className="-ms-1.5 font-semibold text-content">
+                                    {line.name}
+                                  </CopyCell>
+                                )}
+                                {line.account && (
+                                  <CopyCell value={line.account} label={t('bank.account')} className="-ms-1.5 font-mono text-[12px] tabular-nums text-content-tertiary ltr-content">
+                                    {line.account}
+                                  </CopyCell>
+                                )}
+                              </span>
+                            </span>
+                          </td>
+                          {/* The bank, and what kind of transfer. */}
+                          <td className="border-b border-border-subtle px-3 py-3">
+                            <span className="block max-w-[10rem] truncate font-medium text-content">{line.channel ?? '—'}</span>
+                            <span className="block max-w-[10rem] truncate text-[11px] text-content-tertiary">{line.kind}</span>
+                          </td>
+                          {/* Its reference, and when. */}
+                          <td className="whitespace-nowrap border-b border-border-subtle px-3 py-3">
+                            <span className={cn('block max-w-[11rem] truncate text-[12px] text-content-secondary', /^[A-Z]{2,}-/.test(line.reference) && 'font-mono ltr-content')}>{line.reference}</span>
+                            <span className="block text-[11px] tabular-nums text-content-tertiary">
+                              {clockOf(line.at)}
                               {carried(line) && (
-                                <span className="font-medium text-warning-text">
-                                  {' · '}
+                                <span className="ms-1.5 font-medium text-warning-text">
+                                  ·{' '}
                                   {t('bankTable.carried', {
                                     day: dayLabel(dayKey(line.at), locale, { today: t('bank.period.today'), yesterday: t('bank.period.yesterday') }),
                                   })}
                                 </span>
                               )}
                             </span>
-                          </span>
-                          <span className="shrink-0">{waitedChip(line)}</span>
-                        </div>
-                        {/* What is left of it, when sent in part. */}
-                        {line.paid && (
-                          <PartsBar
-                            amount={line.amount}
-                            paid={line.paid}
-                            currency={line.currency}
-                            closed={stateOf(line) === 'done'}
-                            className="mt-2 max-w-xs"
-                          />
-                        )}
-                        {/* Where it stands, and what is done with it. */}
-                        <div className="mt-2.5 flex items-center justify-between gap-2">
-                          <span className="flex min-w-0 items-center gap-2">
+                          </td>
+                          {/* Where it stands. */}
+                          <td className="border-b border-border-subtle px-3 py-3">
                             {stateChip(line)}
-                            {(line.forwardedTo?.length ?? 0) > 0 && stateOf(line) !== 'done' && (
-                              <span className="truncate text-[11px] text-primary-text">
-                                {line.forwardedTo!.map((entry) => entry.group).join('، ')}
-                              </span>
+                            <span className="mt-1 flex flex-wrap items-center gap-x-2 text-[11px]">
+                              {waitedChip(line)}
+                              {(line.forwardedTo?.length ?? 0) > 0 && stateOf(line) !== 'done' && (
+                                <span className="max-w-[9rem] truncate text-primary-text">→ {line.forwardedTo!.map((entry) => entry.group).join('، ')}</span>
+                              )}
+                              {askedOf(line) && stateOf(line) !== 'done' && (
+                                <span className="font-medium text-warning-text" title={askedOf(line)!.inquiredBy ?? ''}>
+                                  ❓ {clockOf(askedOf(line)!.inquiredAt!)}
+                                </span>
+                              )}
+                            </span>
+                          </td>
+                          {/* The sum: copied as what is left when sent in part. */}
+                          <td className="border-b border-border-subtle px-3 py-3 text-end">
+                            {BigInt(line.amount || '0') > 0n ? (
+                              <>
+                                <CopyCell
+                                  value={plainFigure(line.paid ? remainingOf(line.amount, line.paid).toString() : line.amount)}
+                                  label={line.paid ? t('bankParts.left') : t('bank.amount')}
+                                  className="text-[15px] font-semibold tabular-nums text-content"
+                                >
+                                  <Money value={line.amount} currency={line.currency} />
+                                </CopyCell>
+                                <PartsBar
+                                  amount={line.amount}
+                                  paid={line.paid}
+                                  currency={line.currency}
+                                  closed={stateOf(line) === 'done'}
+                                  className="ms-auto mt-1 max-w-[9rem]"
+                                />
+                              </>
+                            ) : (
+                              <span className="text-content-tertiary">—</span>
                             )}
-                            {askedOf(line) && stateOf(line) !== 'done' && (
-                              <span className="shrink-0 text-[11px] font-medium text-warning-text">
-                                ❓ {clockOf(askedOf(line)!.inquiredAt!)}
-                              </span>
-                            )}
-                          </span>
-                          <span className="shrink-0" onClick={(event) => event.stopPropagation()}>
+                          </td>
+                          <td className="border-b border-border-subtle py-3 pe-4 ps-2" onClick={(event) => event.stopPropagation()}>
                             <Actions line={line} />
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                ))}
+              </table>
+            </div>
+
+            {/* --- Narrower: the same log, each transfer a card --- */}
+            <div className="xl:hidden">
+              {sections.map((section) => (
+                <section key={section.key}>
+                  <div className="sticky top-0 z-10 flex items-center justify-between gap-3 border-b border-border-subtle bg-surface-sunken/90 px-4 py-2 backdrop-blur">
+                    <span className="text-[12px] font-semibold text-content-secondary">
+                      {section.key === 'pending' ? (
+                          <span className="inline-flex items-center gap-2">
+                            <span className="relative flex size-2">
+                              <span className="absolute inline-flex size-full animate-ping rounded-full bg-warning/60" />
+                              <span className="relative inline-flex size-2 rounded-full bg-warning" />
+                            </span>
+                            {section.title}
                           </span>
-                        </div>
-                      </div>
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
+                        ) : (
+                          section.title
+                        )}
+                    </span>
+                    <SectionTotal lines={section.lines} />
+                  </div>
+                  <ul className="divide-y divide-border-subtle">
+                    {section.lines.map((line) => {
+                      const key = keyOf(line);
+                      const late = lateness(line, now);
+                      return (
+                        <li
+                          key={key}
+                          onClick={() => onOpen(line)}
+                          className={cn(
+                            'cursor-pointer border-s-2 px-3 py-3 transition-colors sm:px-4',
+                            late === 'veryLate' ? 'border-s-danger/70' : late === 'late' ? 'border-s-warning/70' : 'border-s-transparent',
+                            selectedKey === key ? 'bg-primary-subtle/50' : checked.has(key) ? 'bg-primary-subtle/25' : 'hover:bg-surface-sunken/60',
+                          )}
+                        >
+                          <div className="flex items-start gap-3">
+                            {pendingOf(line) && (
+                              <button
+                                type="button"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  toggle(line);
+                                }}
+                                aria-label={t('bankTable.tick')}
+                                className="mt-2.5 shrink-0"
+                              >
+                                {checked.has(key) ? <CheckSquare className="size-[18px] text-primary-text" /> : <Square className="size-[18px] text-content-tertiary/70" />}
+                              </button>
+                            )}
+                            <BankMark line={line} className="mt-0.5 size-10 text-[11px]" />
+                            <div className="min-w-0 flex-1">
+                              {/* To whom, and how much. */}
+                              <div className="flex items-baseline justify-between gap-3">
+                                <span className="min-w-0 truncate text-[15px] font-semibold text-content">
+                                  {line.source === 'message' && !line.name
+                                    ? (line.text ?? '').replace(/\s+/g, ' ').trim() || '📎'
+                                    : (line.name ?? '—')}
+                                </span>
+                                {BigInt(line.amount || '0') > 0n && (
+                                  <Money value={line.amount} currency={line.currency} className="shrink-0 text-[15px] font-semibold tabular-nums text-content" />
+                                )}
+                              </div>
+                              {/* The account, the bank, the reference and when. */}
+                              <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-[12px] leading-5 text-content-tertiary">
+                                {line.account && (
+                                  <span onClick={(event) => event.stopPropagation()} className="-ms-1.5">
+                                    <CopyCell value={line.account} label={t('bank.account')} className="font-mono text-[12px] text-content-secondary ltr-content">
+                                      {line.account}
+                                    </CopyCell>
+                                  </span>
+                                )}
+                                <span>{line.channel ?? '—'}</span>
+                                <span aria-hidden>·</span>
+                                <span className="tabular-nums">{clockOf(line.at)}</span>
+                                {carried(line) && (
+                                  <span className="font-medium text-warning-text">
+                                    ·{' '}
+                                    {t('bankTable.carried', {
+                                      day: dayLabel(dayKey(line.at), locale, { today: t('bank.period.today'), yesterday: t('bank.period.yesterday') }),
+                                    })}
+                                  </span>
+                                )}
+                              </div>
+                              {line.paid && (
+                                <PartsBar
+                                  amount={line.amount}
+                                  paid={line.paid}
+                                  currency={line.currency}
+                                  closed={stateOf(line) === 'done'}
+                                  className="mt-2 max-w-xs"
+                                />
+                              )}
+                              {/* Where it stands, and what is done with it. */}
+                              <div className="mt-2.5 flex items-center justify-between gap-2">
+                                <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[11px]">
+                                  {stateChip(line)}
+                                  {waitedChip(line)}
+                                  {(line.forwardedTo?.length ?? 0) > 0 && stateOf(line) !== 'done' && (
+                                    <span className="max-w-[10rem] truncate text-primary-text">→ {line.forwardedTo!.map((entry) => entry.group).join('، ')}</span>
+                                  )}
+                                  {askedOf(line) && stateOf(line) !== 'done' && (
+                                    <span className="font-medium text-warning-text">❓ {clockOf(askedOf(line)!.inquiredAt!)}</span>
+                                  )}
+                                </span>
+                                <span className="shrink-0" onClick={(event) => event.stopPropagation()}>
+                                  <Actions line={line} />
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </section>
+              ))}
+            </div>
           </>
         )}
       </Card>
