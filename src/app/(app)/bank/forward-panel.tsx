@@ -19,25 +19,40 @@ const spoken = (scaled: bigint) => {
   return `${whole!.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}${fraction ? `.${fraction}` : ''}`;
 };
 
+/** A money's name as the groups write it. */
+const MONEY_WORD: Record<string, string> = { ILS: 'شيكل', USD: 'دولار', JOD: 'دينار', EUR: 'يورو', EGP: 'جنيه' };
+
+const UNIT = 100_000_000n;
+
 /**
- * The transfer's words with only what is left of it: the full sum where it is
- * written changed to what is left — or, not written in them, what is left at
- * their end — so the group that carries it out sends no more than that.
+ * The transfer's words with only what is left of it: the sum where it is
+ * written changed to what is left, written the same way — "6741 شيكل" becomes
+ * "1429 شيكل", "6,741.54" becomes "1,429.54" — or, not written in them, what is
+ * left at their end in their manner. The group that carries it out sees no
+ * other sum, so it sends no more than that.
  */
 function leftWords(text: string, left: { amount: string; paid: string; currency: string }): string {
   const total = BigInt(left.amount || '0');
   const rest = total - BigInt(left.paid || '0');
   if (rest <= 0n) return text;
-  const whole = plainFigure(total.toString());
-  // The full sum as it may be written: 1000, 1,000, 1000.00 — a number on its own, not part of an account.
-  const [digits, fraction] = whole.split('.');
-  const grouped = digits!.replace(/(?=(?:[0-9]{3})+$)(?!^)/g, ',?');
-  // No backslashes: [0-9] and [.] read the same however the line is written.
-  const decimals = fraction ? '[.]' + fraction + '0*' : '(?:[.]0+)?';
-  const pattern = new RegExp('(?<![0-9.,])' + grouped + decimals + '(?![0-9,]|[.][0-9])', 'g');
-  // Only what is left, where the sum is written; not written in it, what is left closes the message.
-  const replaced = text.replace(pattern, plainFigure(rest.toString()));
-  return replaced !== text ? replaced : `${text.trimEnd()}\n${spoken(rest)} ${left.currency}`;
+  const restWhole = (rest / UNIT).toString();
+  const withCommas = (digits: string) => digits.replace(/(?=(?:[0-9]{3})+$)(?!^)/g, ',');
+  // The sum as it may be written: its whole part (cut, or rounded), with or without its fraction and commas.
+  const wholes = [...new Set([(total / UNIT).toString(), ((total + UNIT / 2n) / UNIT).toString()])];
+  let replaced = text;
+  for (const digits of wholes) {
+    const grouped = digits.replace(/(?=(?:[0-9]{3})+$)(?!^)/g, ',?');
+    // No backslashes: [0-9] and [.] read the same however the line is written. Not part of an account or a longer number.
+    const pattern = new RegExp('(?<![0-9.,])' + grouped + '(?:[.][0-9]+)?(?![0-9,]|[.][0-9])', 'g');
+    replaced = replaced.replace(pattern, (found) => {
+      const plain = found.includes('.') ? plainFigure(rest.toString()) : restWhole;
+      if (!found.includes(',')) return plain;
+      const [head, tail] = plain.split('.');
+      return tail ? `${withCommas(head!)}.${tail}` : withCommas(head!);
+    });
+    if (replaced !== text) return replaced;
+  }
+  return `${text.trimEnd()}\n${restWhole} ${MONEY_WORD[left.currency] ?? left.currency}`;
 }
 
 export interface Group {
