@@ -189,12 +189,8 @@ export async function sendForCheck(ownerId: string, id: string, agentChat: strin
   if (!image) throw errors.notFound('ChatImage', notice.imageId ?? '');
 
   const amount = notice.amount ? ` · ${Number(notice.amount) / 1e8} ${notice.currency ?? ''}`.trimEnd() : '';
-  const caption = [
-    `🔍 للتشييك — ${networkWord(notice.network)}${amount}`,
-    notice.customerName || notice.customerPhone ? `العميل: ${notice.customerName ?? ''} ${notice.customerPhone ? `+${notice.customerPhone}` : ''}`.trim() : null,
-  ]
-    .filter(Boolean)
-    .join('\n');
+  // The agent checks the notice, not the customer: their name and number stay with the office.
+  const caption = `🔍 للتشييك — ${networkWord(notice.network)}${amount}`;
 
   await answer(ownerId, followed.id, caption, Buffer.from(image.data).toString('base64'));
   // The message it went as: the newest the teller's number wrote there, carrying a photo.
