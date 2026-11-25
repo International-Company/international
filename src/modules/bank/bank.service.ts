@@ -588,3 +588,44 @@ export async function cancelledLog(actor: Actor, range: { from: Date; to: Date }
   );
   return { rows };
 }
+
+/**
+ * The desk's pulse: a few figures that change whenever anything on the desk
+ * does — a transfer recorded, sent, reversed or forwarded, a request asked or
+ * taken off, a receipt kept or read, a word in the bank group. Asked every few
+ * seconds by the open desk, so it shows what changed at once; each figure is
+ * read from an index or a small table, so asking is cheap.
+ */
+export async function deskPulse(actor: Actor, db: DbClient = prisma): Promise<string> {
+  requireDesk(actor);
+  const bank = await bankGroup();
+  const [waiting, newest, requests, requestSent, payments, forwards, tiktok, talk] = await Promise.all([
+    db.transaction.count({ where: { status: 'PENDING_TRANSFER' } }),
+    db.transaction.aggregate({ _max: { createdAt: true }, where: { status: { in: ['PENDING_TRANSFER', 'POSTED', 'REVERSED'] } } }),
+    db.bankRequest.groupBy({ by: ['status'], _count: { _all: true }, _max: { createdAt: true } }),
+    db.bankRequest.aggregate({ _max: { sentAt: true, dismissedAt: true } }),
+    db.transferPayment.aggregate({ _count: { _all: true }, _max: { updatedAt: true } }),
+    db.groupForward.aggregate({ _count: { _all: true }, _max: { createdAt: true } }),
+    db.tiktokWithdrawal.aggregate({ _count: { _all: true }, _max: { sentAt: true, deletedAt: true, createdAt: true } }),
+    bank ? db.groupMessage.aggregate({ where: { chat: bank.id }, _max: { createdAt: true } }) : null,
+  ]);
+  const at = (value: Date | null | undefined) => value?.getTime() ?? 0;
+  return [
+    waiting,
+    at(newest._max.createdAt),
+    ...requests
+      .sort((a, b) => a.status.localeCompare(b.status))
+      .map((row) => `${row.status}:${row._count._all}:${at(row._max.createdAt)}`),
+    at(requestSent._max.sentAt),
+    at(requestSent._max.dismissedAt),
+    payments._count._all,
+    at(payments._max.updatedAt),
+    forwards._count._all,
+    at(forwards._max.createdAt),
+    tiktok._count._all,
+    at(tiktok._max.sentAt),
+    at(tiktok._max.deletedAt),
+    at(tiktok._max.createdAt),
+    at(talk?._max.createdAt),
+  ].join('|');
+}

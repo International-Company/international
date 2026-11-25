@@ -77,6 +77,7 @@ export function BankTable({
   onOpen,
   onSend,
   onFloat,
+  onFresh,
   onForward,
   executors,
   version,
@@ -89,6 +90,8 @@ export function BankTable({
   onSend: (line: Line) => void;
   /** Opens the transfer's floating window, above the bank's site. */
   onFloat?: (line: Line) => void;
+  /** The open transfer as the list read it again: what is left of it, where it stands. */
+  onFresh?: (line: Line) => void;
   /** Opens the forward sheet for one transfer, with these groups ticked. */
   onForward: (line: Line, preset?: Group[]) => void;
   executors: Group[];
@@ -175,6 +178,13 @@ export function BankTable({
     const older = ((desk?.waiting ?? []) as Line[]).filter((line) => carried(line) && !seen.has(keyOf(line)));
     return [...older, ...listed];
   }, [desk, days, searched, onToday, carried]);
+  // The open transfer handed back as it is now, each time the list is read again.
+  useEffect(() => {
+    if (!selectedKey || !onFresh) return;
+    const fresh = everything.find((line) => keyOf(line) === selectedKey);
+    if (fresh) onFresh(fresh);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [everything, selectedKey]);
   const olderWaiting = everything.filter((line) => carried(line) && line.status === 'PENDING_TRANSFER' && !line.sentAt).length;
 
   // The figures across the top: how many, how many late, and what they come to.

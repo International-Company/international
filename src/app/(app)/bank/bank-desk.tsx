@@ -47,6 +47,40 @@ export function BankDesk() {
 
   const changed = useCallback(() => setVersion((value) => value + 1), []);
 
+  /*
+   * Live: the desk's pulse asked every two seconds while the page is in view.
+   * Anything changed — sent, a receipt kept or read, a new transfer, a forward
+   * — and every part of the desk reads again at once.
+   */
+  useEffect(() => {
+    let last: string | null = null;
+    let asking = false;
+    const ask = async () => {
+      if (asking || document.hidden) return;
+      asking = true;
+      try {
+        const { pulse } = await api.get<{ pulse: string }>('/api/bank/pulse');
+        if (last !== null && pulse !== last) changed();
+        last = pulse;
+      } catch {
+        // The next beat asks again.
+      } finally {
+        asking = false;
+      }
+    };
+    void ask();
+    const timer = setInterval(() => void ask(), 2_000);
+    // Back to the page: asked at once, not on the next beat.
+    const back = () => {
+      if (!document.hidden) void ask();
+    };
+    document.addEventListener('visibilitychange', back);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener('visibilitychange', back);
+    };
+  }, [changed]);
+
   // The opened transfer closes with Escape, unless a dialog over it is open.
   useEffect(() => {
     if (!selected || forwarding || sending) return;
@@ -102,6 +136,7 @@ export function BankDesk() {
       ) : mode === 'track' ? (
         // Opened from the watch: the transfer in full, in the desk.
         <TrackView
+          version={version}
           onOpen={(line) => {
             choose(line);
             setMode('work');
@@ -113,6 +148,10 @@ export function BankDesk() {
           onOpen={choose}
           onSend={setSending}
           onFloat={setFloatingLine}
+          onFresh={(line) =>
+            // The open transfer as the list now has it: what is left of it, where it stands.
+            setSelected((current) => (current && JSON.stringify(current) !== JSON.stringify(line) ? line : current))
+          }
           onForward={(line, preset) => {
             choose(line);
             setForwarding({ preset });

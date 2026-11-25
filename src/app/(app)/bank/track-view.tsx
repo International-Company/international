@@ -100,7 +100,7 @@ type Show = 'all' | 'open' | 'late' | 'done';
 
 const minutesBetween = (from: string, to: number) => Math.max(0, (to - new Date(from).getTime()) / 60_000);
 
-export function TrackView({ onOpen }: { onOpen: (line: Line) => void }) {
+export function TrackView({ onOpen, version = 0 }: { onOpen: (line: Line) => void; version?: number }) {
   const { t, locale } = useLocale();
   const [data, setData] = useState<Track | null>(null);
   const [failed, setFailed] = useState(false);
@@ -133,7 +133,8 @@ export function TrackView({ onOpen }: { onOpen: (line: Line) => void }) {
       setLoading(false);
       setNow(Date.now());
     }
-  }, [days]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [days, version]);
 
   // Live: asked again every little while, and the clocks tick between.
   useEffect(() => {
