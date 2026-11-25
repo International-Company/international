@@ -25,6 +25,7 @@ import { say } from '@/lib/failure';
 import { Button, Card, EmptyState, Skeleton } from '@/ui/primitives';
 import { ConfirmDialog, useToast } from '@/ui/overlay';
 import { Money } from '@/ui/display';
+import { PartsBar, remainingOf } from './parts';
 import { DateRangePicker, inRange, keyOf as dayOf, type DayRange } from '@/ui/date-range-picker';
 import { cn } from '@/ui/utils';
 import { BankMark, lateness } from './bank-view';
@@ -690,9 +691,16 @@ export function BankTable({
                         </td>
                         <td className="border-b border-border-subtle px-1 py-2 text-end">
                           {BigInt(line.amount || '0') > 0n ? (
-                            <CopyCell value={plainFigure(line.amount)} label={t('bank.amount')} className="font-bold">
-                              <Money value={line.amount} currency={line.currency} />
-                            </CopyCell>
+                            <>
+                              <CopyCell
+                                value={plainFigure(line.paid ? remainingOf(line.amount, line.paid).toString() : line.amount)}
+                                label={line.paid ? t('bankParts.left') : t('bank.amount')}
+                                className="font-bold"
+                              >
+                                <Money value={line.amount} currency={line.currency} />
+                              </CopyCell>
+                              <PartsBar amount={line.amount} paid={line.paid} currency={line.currency} className="ms-auto mt-0.5 max-w-[9rem]" />
+                            </>
                           ) : (
                             <span className="text-content-tertiary">—</span>
                           )}
@@ -759,7 +767,12 @@ export function BankTable({
                           )}
                         </span>
                       </span>
-                      {BigInt(line.amount || '0') > 0n && <Money value={line.amount} currency={line.currency} className="font-extrabold" />}
+                      {BigInt(line.amount || '0') > 0n && (
+                        <span className="shrink-0 text-end">
+                          <Money value={line.amount} currency={line.currency} className="font-extrabold" />
+                          <PartsBar amount={line.amount} paid={line.paid} currency={line.currency} className="mt-0.5 w-28" />
+                        </span>
+                      )}
                     </div>
                     <div className="mt-2 flex flex-wrap items-center gap-1.5">
                       <CopyCell value={line.account} label={t('bank.account')} className="bg-surface-sunken font-mono text-xs font-semibold ltr-content">

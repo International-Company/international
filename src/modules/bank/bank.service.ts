@@ -8,6 +8,7 @@ import { BANK_EXECUTE } from './bank-desk';
 import { forDesk, searchRequests } from './bank-request.service';
 import { searchTiktok, tiktokForDesk } from './bank-tiktok.service';
 import { bankGroup, executorGroups, watched } from './group-feed.service';
+import { paidSoFar, syncPayments } from './transfer-payments.service';
 import { readTransferRequest } from './transfer-request';
 import { transferChannels } from '@/modules/exchange/machine.service';
 import { readProofImage } from '@/modules/exchange/proof-image';
@@ -348,10 +349,21 @@ export async function desk(
           )
           .map((entry) => ({ group: entry.targetName ?? entry.targetChat, at: entry.createdAt }))
       : [];
-  const withMessage = <T extends { messageRef: { chat: string; waId: string } | null }>(line: T) => {
+  const kindOf = (source: string | undefined) =>
+    (source === 'group' ? 'request' : source === 'tiktok' ? 'tiktok' : 'deal') as 'deal' | 'request' | 'tiktok';
+  const open = [...lists.waiting, ...(lists.range ?? [])].filter((line) => line.status === 'PENDING_TRANSFER');
+  const paid = await paidSoFar(
+    open.map((line) => ({ kind: kindOf((line as { source?: string }).source), id: line.id, currency: line.currency })),
+  );
+  const withMessage = <T extends { id: string; status: string; messageRef: { chat: string; waId: string } | null }>(line: T) => {
     const { messageRef, ...rest } = line;
     return {
       ...rest,
+      /** Sent so far of a transfer paid in parts, while it waits. */
+      paid:
+        line.status === 'PENDING_TRANSFER'
+          ? (paid.get(`${kindOf((line as { source?: string }).source)}:${line.id}`) ?? null)
+          : null,
       messageId:
         (messageRef &&
           kept.find((row) => row.chat === messageRef.chat && row.waId === messageRef.waId)?.id) ??
@@ -475,6 +487,7 @@ export async function markSent(
       select: { id: true },
     });
     proofId = proof.id;
+    void syncPayments('deal', id).catch(() => undefined);
   }
 
   log.info('A transfer was sent from the bank desk', { reference: result.reference });

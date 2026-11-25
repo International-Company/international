@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Camera, Check, ClipboardCheck, Copy, PictureInPicture2, X } from 'lucide-react';
+import { Camera, Check, ClipboardCheck, Copy, PictureInPicture2, SplitSquareHorizontal, X } from 'lucide-react';
 import { useLocale } from '@/i18n/provider';
 import { api, ApiError } from '@/lib/api-client';
 import { say } from '@/lib/failure';
@@ -11,6 +11,7 @@ import { Dialog, useToast } from '@/ui/overlay';
 import { Money } from '@/ui/display';
 import { shrinkPhoto } from '@/ui/proof-photo';
 import { plainFigure, type Line } from './desk-types';
+import { PartsBar, remainingOf } from './parts';
 
 interface Field {
   key: string;
@@ -202,6 +203,34 @@ export function MarkSentDialog({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [line, floating]);
 
+  /*
+   * A part sent, the transfer left open: its receipt kept, read by the bot for
+   * the sum, and the group told what is left. It closes on "sent" alone.
+   */
+  const [partBusy, setPartBusy] = useState(false);
+  const sendPart = async () => {
+    if (!line || !receipt) return;
+    setPartBusy(true);
+    try {
+      await api.post('/api/bank/receipts', {
+        action: 'add',
+        kind: line.source === 'group' ? 'request' : line.source === 'tiktok' ? 'tiktok' : 'deal',
+        id: line.id,
+        receipt,
+      });
+      toast.success(t('bankParts.partKept'), t('bankParts.partKeptHint'));
+      onDone();
+      onClose();
+    } catch (cause) {
+      toast.error(
+        t('errors.title'),
+        cause instanceof ApiError ? say(t, cause.messageKey, cause.params) || cause.message : t('errors.generic'),
+      );
+    } finally {
+      setPartBusy(false);
+    }
+  };
+
   const send = async () => {
     if (!line) return;
     setBusy(true);
@@ -282,7 +311,10 @@ export function MarkSentDialog({
     ? [
         { key: 'account', label: t('bank.account'), value: line.account ?? '', mono: true },
         { key: 'name', label: t('bank.name'), value: line.name ?? '', mono: false },
-        { key: 'amount', label: t('bank.amount'), value: plainFigure(line.amount), mono: true },
+        // Paid in parts: what is left is what is sent next.
+        line.paid
+          ? { key: 'amount', label: t('bankParts.left'), value: plainFigure(remainingOf(line.amount, line.paid).toString()), mono: true }
+          : { key: 'amount', label: t('bank.amount'), value: plainFigure(line.amount), mono: true },
         { key: 'channel', label: t('bankSent.channel'), value: line.channel ?? '', mono: false },
       ].filter((field) => field.value)
     : [];
@@ -306,8 +338,16 @@ export function MarkSentDialog({
             >
               {t('bankSent.float')}
             </Button>
-            <Button variant="secondary" size="sm" onClick={onClose} disabled={busy}>
-              {t('common.cancel')}
+            <Button
+              variant="secondary"
+              size="sm"
+              icon={<SplitSquareHorizontal />}
+              loading={partBusy}
+              disabled={!receipt || busy}
+              title={receipt ? t('bankParts.partHint') : t('bankParts.partNeedsReceipt')}
+              onClick={() => void sendPart()}
+            >
+              {t('bankParts.part')}
             </Button>
             <Button variant="primary" size="sm" loading={busy} icon={<Check />} onClick={() => void send()}>
               {t('bank.markSentConfirm')}
@@ -317,9 +357,10 @@ export function MarkSentDialog({
       >
         {line && (
           <div className="space-y-2.5">
-            <p className="text-center">
+            <div className="text-center">
               <Money value={line.amount} currency={line.currency} className="text-xl font-bold" />
-            </p>
+              <PartsBar amount={line.amount} paid={line.paid} currency={line.currency} size="lg" className="mx-auto mt-1.5 max-w-[14rem] text-start" />
+            </div>
             <Fields
               fields={fields}
               copied={copied}
@@ -346,7 +387,10 @@ export function MarkSentDialog({
                 <span className="block truncate text-sm font-bold text-content">{line.name ?? line.account}</span>
                 <span className="block text-[11px] text-content-tertiary">{line.reference}</span>
               </span>
-              <Money value={line.amount} currency={line.currency} className="shrink-0 text-lg font-extrabold" />
+              <span className="shrink-0 text-end">
+                <Money value={line.amount} currency={line.currency} className="text-lg font-extrabold" />
+                <PartsBar amount={line.amount} paid={line.paid} currency={line.currency} className="mt-0.5 w-28" />
+              </span>
             </div>
             <Fields
               fields={fields}
@@ -357,9 +401,21 @@ export function MarkSentDialog({
               }}
             />
             <Receipt value={receipt} onChange={setReceipt} onPick={pick} />
-            <Button variant="primary" size="sm" loading={busy} icon={<Check />} onClick={() => void send()} className="w-full">
-              {t('bank.markSentConfirm')}
-            </Button>
+            <div className="grid grid-cols-2 gap-1.5">
+              <Button
+                variant="secondary"
+                size="sm"
+                icon={<SplitSquareHorizontal />}
+                loading={partBusy}
+                disabled={!receipt || busy}
+                onClick={() => void sendPart()}
+              >
+                {t('bankParts.part')}
+              </Button>
+              <Button variant="primary" size="sm" loading={busy} icon={<Check />} onClick={() => void send()}>
+                {t('bank.markSentConfirm')}
+              </Button>
+            </div>
             <p className="text-center text-[10px] text-content-tertiary">{t('bankSent.floatFoot')}</p>
           </div>,
           floating.document.body,

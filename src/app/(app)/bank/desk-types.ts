@@ -25,6 +25,8 @@ export interface Line {
   by: string | null;
   sentAt: string | null;
   sentBy: string | null;
+  /** Sent so far of a transfer paid in parts, while it waits (scaled by 1e8). */
+  paid?: string | null;
   /** Its message in the bank group, as the groups' panel kept it. */
   messageId?: string | null;
   /** Recorded in the system, or asked in the group from outside the office — and by whom. */

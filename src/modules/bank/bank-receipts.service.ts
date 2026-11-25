@@ -58,6 +58,7 @@ export async function addReceipt(
       },
       select: { id: true },
     });
+    readLater(kind, id);
     return proof.id;
   }
   const kept = await keepMedia(file, null);
@@ -72,7 +73,15 @@ export async function addReceipt(
   } else {
     await prisma.tiktokWithdrawal.updateMany({ where: { id, receiptId: null }, data: { receiptId: kept.id } });
   }
+  readLater(kind, id);
   return row.id;
+}
+
+/** The new receipt read for its sum in the background; loaded late, as the payments read receipts too. */
+function readLater(kind: ReceiptKind, id: string) {
+  void import('./transfer-payments.service')
+    .then((payments) => payments.syncPayments(kind, id))
+    .catch((error) => log.warn('Could not start reading a receipt', { error }));
 }
 
 /** Every receipt the transfer carries, oldest first, as the desk shows them. */

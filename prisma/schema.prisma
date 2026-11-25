@@ -2604,6 +2604,32 @@ model TransferReceipt {
   @@map("transfer_receipts")
 }
 
+/// What one receipt of a transfer on the bank desk says was sent: the sum read off the photo by
+/// the bot, or written by hand — so a transfer paid in parts shows what is left.
+model TransferPayment {
+  id          String    @id @default(cuid())
+  /// deal | request | tiktok
+  kind        String
+  refId       String
+  /// The receipt read: a deal's TRANSFER proof, a transfer receipt, or "own:<imageId>".
+  receiptId   String
+  /// READING | READ | UNREAD | EDITED
+  status      String    @default("READING")
+  amount      BigInt?
+  currency    String?
+  account     String?
+  name        String?
+  editedByName String?
+  /// When the group was told what was sent and what is left.
+  announcedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([kind, refId])
+  @@index([receiptId])
+  @@map("transfer_payments")
+}
+
 /// A photo or file answering a message in any group the office's numbers are in, kept by what it
 /// answers: where a transfer's receipts are looked for again when the desk asks.
 model GroupReply {
