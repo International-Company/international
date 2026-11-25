@@ -44,11 +44,11 @@ export function PartsBar({
         className={cn(
           'flex flex-wrap items-center gap-x-1.5 font-bold',
           size === 'lg' ? 'text-sm' : 'text-[10px]',
-          closed ? 'text-danger-text' : left > 0n ? 'text-warning-text' : 'text-success-text',
+          left > 0n ? 'text-warning-text' : 'text-success-text',
         )}
       >
-        <span className={cn('rounded-full px-1.5 py-px', closed ? 'bg-danger-subtle' : 'bg-warning-subtle')}>
-          {closed ? t('bankParts.closedShort') : left > 0n ? t('bankParts.partial') : t('bankParts.complete')}
+        <span className="rounded-full bg-warning-subtle px-1.5 py-px">
+          {left > 0n ? t('bankParts.partial') : t('bankParts.complete')}
         </span>
         {left > 0n && (
           <span className="ltr-content inline-flex items-center gap-1">
@@ -58,7 +58,7 @@ export function PartsBar({
       </span>
       <span className={cn('mt-1 block overflow-hidden rounded-full bg-surface-sunken', size === 'lg' ? 'h-2' : 'h-1')}>
         <span
-          className={cn('block h-full rounded-full', closed ? 'bg-danger' : left > 0n ? 'bg-warning' : 'bg-success')}
+          className={cn('block h-full rounded-full', left > 0n ? 'bg-warning' : 'bg-success')}
           style={{ width: `${share}%` }}
         />
       </span>

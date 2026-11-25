@@ -118,7 +118,8 @@ export function syncPayments(kind: ReceiptKind, id: string): Promise<void> {
       prisma.transferPayment.findMany({ where: { kind, refId: id } }),
     ]);
     const ids = new Set(receipts.map((receipt) => receipt.id));
-    const gone = rows.filter((row) => !ids.has(row.receiptId));
+    // A part settled by hand has no receipt: it stays.
+    const gone = rows.filter((row) => !row.receiptId.startsWith('manual:') && !ids.has(row.receiptId));
     if (gone.length) await prisma.transferPayment.deleteMany({ where: { id: { in: gone.map((row) => row.id) } } });
     const toRead: string[] = [];
     for (const receipt of receipts) {
@@ -339,4 +340,35 @@ export async function hasPartBefore(kind: ReceiptKind, id: string, receiptId: st
       where: { kind, refId: id, receiptId: { not: receiptId }, amount: { not: null } },
     })) > 0
   );
+}
+
+/**
+ * What is left of a transfer, settled by hand: sent some other way, with no
+ * receipt to read. Kept as a part of its own, by whom, so the sums add up and
+ * the remainder leaves the list.
+ */
+export async function settleRemainder(kind: ReceiptKind, id: string, actor: Actor & { name: string }) {
+  requireDesk(actor);
+  const target = await targetOf(kind, id);
+  if (!target) throw errors.notFound('Transfer', id);
+  const rows = await prisma.transferPayment.findMany({ where: { kind, refId: id } });
+  const left = target.total - paidOf(rows, target.currency);
+  if (left <= 0n) throw errors.conflict('Nothing is left of this transfer', 'errors.nothingLeft');
+  const name =
+    (await prisma.user.findUnique({ where: { id: actor.id }, select: { fullNameAr: true } }))?.fullNameAr || actor.name;
+  await prisma.transferPayment.create({
+    data: {
+      kind,
+      refId: id,
+      receiptId: `manual:${Date.now()}`,
+      status: 'EDITED',
+      amount: left,
+      currency: target.currency,
+      editedByName: name,
+      // Settled by hand: the group is not told of it as a part.
+      announcedAt: new Date(),
+    },
+  });
+  log.info('What was left of a transfer was settled by hand', { kind });
+  return paymentSummary(kind, id, actor);
 }

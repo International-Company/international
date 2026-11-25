@@ -46,7 +46,7 @@ const STATE_DOT: Record<LineState, string> = {
   message: 'bg-content-tertiary',
 };
 
-type Show = 'all' | 'open' | 'waiting' | 'forwarded' | 'done' | 'messages' | 'unsorted' | 'partial' | 'short';
+type Show = 'all' | 'open' | 'waiting' | 'forwarded' | 'done' | 'messages' | 'unsorted' | 'partial' | 'short' | 'remain';
 
 /**
  * A message of the bank group that looks like a transfer — it carries an
@@ -66,6 +66,7 @@ const SHOWN: Record<Show, LineState[]> = {
   unsorted: ['message'],
   partial: ['waiting', 'forwarded'],
   short: ['done'],
+  remain: ['waiting', 'forwarded', 'done'],
 };
 
 const today = (): DayRange => {
@@ -81,6 +82,7 @@ export function BankTable({
   onSend,
   onFloat,
   onFresh,
+  onRemainders,
   onForward,
   executors,
   version,
@@ -93,6 +95,8 @@ export function BankTable({
   onSend: (line: Line) => void;
   /** Opens the transfer's floating window, above the bank's site. */
   onFloat?: (line: Line) => void;
+  /** The remainders' list, opened from its figure. */
+  onRemainders?: () => void;
   /** The open transfer as the list read it again: what is left of it, where it stands. */
   onFresh?: (line: Line) => void;
   /** Opens the forward sheet for one transfer, with these groups ticked. */
@@ -218,6 +222,16 @@ export function BankTable({
         for (const line of open) left.set(line.currency, (left.get(line.currency) ?? 0n) + remainingOf(line.amount, line.paid));
         const top = [...left.entries()].sort((a, b) => (a[1] > b[1] ? -1 : 1))[0];
         return { count: open.length, left: top ? { currency: top[0], amount: top[1].toString() } : null };
+      })(),
+      // Something left of it, sent in part or closed short: the remainders' figure.
+      remain: (() => {
+        const lines = everything.filter(
+          (line) => line.paid && ['waiting', 'forwarded', 'done'].includes(stateOf(line)) && remainingOf(line.amount, line.paid) > 0n,
+        );
+        const left = new Map<string, bigint>();
+        for (const line of lines) left.set(line.currency, (left.get(line.currency) ?? 0n) + remainingOf(line.amount, line.paid));
+        const top = [...left.entries()].sort((a, b) => (a[1] > b[1] ? -1 : 1))[0];
+        return { count: lines.length, left: top ? { currency: top[0], amount: top[1].toString() } : null };
       })(),
       // Marked sent, but its receipts come to less than its sum.
       short: (() => {
@@ -497,8 +511,7 @@ export function BankTable({
             { key: 'waiting', label: t('bankDesk.state.waiting'), dot: 'bg-warning', count: figures.waiting.count, late: figures.waiting.late, sum: figures.waiting.sum },
             { key: 'forwarded', label: t('bankDesk.state.forwarded'), dot: 'bg-primary', count: figures.forwarded.count, late: figures.forwarded.late, sum: figures.forwarded.sum },
             { key: 'done', label: t('bankDesk.state.done'), dot: 'bg-success', count: figures.done.count, late: 0, sum: figures.done.sum },
-            { key: 'partial', label: t('bankParts.card'), dot: 'bg-warning', count: figures.partial.count, late: 0, sum: figures.partial.left, left: true, hint: t('bankParts.cardHint') },
-            { key: 'short', label: t('bankParts.shortCard'), dot: 'bg-danger', count: figures.short.count, late: 0, sum: figures.short.left, left: true, alert: figures.short.count > 0, hint: t('bankParts.shortHint') },
+            { key: 'remain', label: t('bankRem.card'), dot: 'bg-warning', count: figures.remain.count, late: 0, sum: figures.remain.left, left: true, alert: figures.remain.count > 0, hint: t('bankRem.cardHint') },
             { key: 'unsorted', label: t('bankTable.unsorted'), dot: 'bg-danger', count: figures.unsorted, late: 0, sum: null, alert: figures.unsorted > 0, hint: t('bankTable.unsortedHint') },
           ] as { key: Show; label: string; dot: string; count: number; late: number; sum: { amount: string; currency: string } | null; left?: boolean; alert?: boolean; hint?: string }[]
         ).map((stat) => {
@@ -507,7 +520,10 @@ export function BankTable({
             <button
               key={stat.key}
               type="button"
-              onClick={() => setShow(picked && stat.key !== 'all' ? 'all' : stat.key)}
+              onClick={() =>
+                // What is left has a list of its own.
+                stat.key === 'remain' && onRemainders ? onRemainders() : setShow(picked && stat.key !== 'all' ? 'all' : stat.key)
+              }
               aria-pressed={picked}
               title={stat.hint}
               className={cn(

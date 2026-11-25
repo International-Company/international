@@ -130,7 +130,13 @@ export function MarkSentDialog({
   onClose,
   onDone,
   floatOnly = false,
+  remainder = false,
 }: {
+  /**
+   * What is left of it, sent now: its receipt joins the transfer's, or — with
+   * none — it is settled by hand; the transfer closes with it if still open.
+   */
+  remainder?: boolean;
   line: Line | null;
   onClose: () => void;
   onDone: () => void;
@@ -235,14 +241,26 @@ export function MarkSentDialog({
     if (!line) return;
     setBusy(true);
     try {
-      await api.post(
+      const sentAt =
         line.source === 'group'
           ? `/api/bank/requests/${line.id}`
           : line.source === 'tiktok'
             ? `/api/bank/tiktok/${line.id}`
-            : `/api/bank/${line.id}`,
-        { receipt },
-      );
+            : `/api/bank/${line.id}`;
+      const open = line.status === 'PENDING_TRANSFER' && !line.sentAt;
+      const kind = line.source === 'group' ? 'request' : line.source === 'tiktok' ? 'tiktok' : 'deal';
+      if (remainder) {
+        // With its receipt: kept on the transfer (closing it if open). Without: settled by hand.
+        if (receipt) {
+          if (open) await api.post(sentAt, { receipt });
+          else await api.post('/api/bank/receipts', { action: 'add', kind, id: line.id, receipt });
+        } else {
+          await api.post('/api/bank/payments', { kind, id: line.id });
+          if (open) await api.post(sentAt, { receipt: null });
+        }
+      } else {
+        await api.post(sentAt, { receipt });
+      }
       toast.success(t('bank.sentDone'), line.reference);
       onDone();
       onClose();
@@ -325,7 +343,7 @@ export function MarkSentDialog({
         open={line !== null && !floatOnly}
         onClose={onClose}
         size="sm"
-        title={t('bank.markSentTitle')}
+        title={remainder ? t('bankRem.executeTitle') : t('bank.markSentTitle')}
         footer={
           <div className="flex w-full items-center gap-2">
             <Button
@@ -350,7 +368,7 @@ export function MarkSentDialog({
               {t('bankParts.part')}
             </Button>
             <Button variant="primary" size="sm" loading={busy} icon={<Check />} onClick={() => void send()}>
-              {t('bank.markSentConfirm')}
+              {remainder ? (receipt ? t('bankRem.executeConfirm') : t('bankRem.settleConfirm')) : t('bank.markSentConfirm')}
             </Button>
           </div>
         }
@@ -371,7 +389,11 @@ export function MarkSentDialog({
             />
             <Receipt value={receipt} onChange={setReceipt} onPick={pick} />
             <p className="text-center text-[11px] leading-relaxed text-content-tertiary">
-              {t('bankSent.groupHintShort', { account: line.account ?? '' })}
+              {remainder
+                ? receipt
+                  ? t('bankRem.executeHint')
+                  : t('bankRem.settleHint')
+                : t('bankSent.groupHintShort', { account: line.account ?? '' })}
             </p>
           </div>
         )}
@@ -413,7 +435,7 @@ export function MarkSentDialog({
                 {t('bankParts.part')}
               </Button>
               <Button variant="primary" size="sm" loading={busy} icon={<Check />} onClick={() => void send()}>
-                {t('bank.markSentConfirm')}
+                {remainder ? (receipt ? t('bankRem.executeConfirm') : t('bankRem.settleConfirm')) : t('bank.markSentConfirm')}
               </Button>
             </div>
             <p className="text-center text-[10px] text-content-tertiary">{t('bankSent.floatFoot')}</p>

@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { route } from '@/core/http/route';
 import { toJsonSafe } from '@/core/http/json';
 import { parseMoney } from '@/core/money/money';
-import { editPayment, paymentSummary } from '@/modules/bank/transfer-payments.service';
+import { editPayment, paymentSummary, settleRemainder } from '@/modules/bank/transfer-payments.service';
 
 const DESK = ['bank.execute', 'exchange.transfer.confirm'];
 const which = z.object({ kind: z.enum(['deal', 'request', 'tiktok']), id: z.string().min(1).max(40) });
@@ -22,4 +22,11 @@ export const PATCH = route<z.infer<typeof editSchema>>({
   bodySchema: editSchema,
   handler: async ({ body, actor }) =>
     toJsonSafe(await editPayment(body.paymentId, body.amount?.trim() ? parseMoney(body.amount) : null, actor)),
+});
+
+/** What is left of a transfer, settled by hand: sent some other way, with no receipt. */
+export const POST = route<z.infer<typeof which>>({
+  anyPermission: DESK,
+  bodySchema: which,
+  handler: async ({ body, actor }) => toJsonSafe(await settleRemainder(body.kind, body.id, actor)),
 });

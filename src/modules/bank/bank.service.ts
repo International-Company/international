@@ -647,3 +647,20 @@ export async function deskPulse(actor: Actor, db: DbClient = prisma): Promise<st
     at(talk?._max.createdAt),
   ].join('|');
 }
+
+/**
+ * The remainders: every transfer of the days asked for — waiting, or already
+ * marked sent — whose receipts come to less than its sum, as the desk's lines,
+ * so each can be passed on and sent like a transfer of its own.
+ */
+export async function remainders(actor: Actor, range: { from: Date; to: Date }, db: DbClient = prisma) {
+  const read = await desk(actor, db, range);
+  const seen = new Set<string>();
+  const lines = [...read.waiting, ...(read.range ?? [])].filter((line) => {
+    const key = `${(line as { source?: string }).source ?? 'deal'}:${line.id}`;
+    if (seen.has(key) || line.status === 'REVERSED' || !line.paid) return false;
+    seen.add(key);
+    return line.paid < line.amount;
+  });
+  return { group: read.group, lines };
+}
