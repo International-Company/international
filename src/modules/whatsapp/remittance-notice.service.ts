@@ -182,8 +182,7 @@ export async function sendForCheck(ownerId: string, id: string, agentChat: strin
   if (notice.status === 'CONFIRMED' || notice.status === 'REJECTED') {
     throw errors.conflict('This notice is already decided', 'errors.noticeDecided');
   }
-  const followed = await followGroup(ownerId, agentChat, true);
-  if (!followed.id) throw errors.precondition('That group cannot be used', 'errors.tellerSendFailed');
+  const followed = await agentConversation(ownerId, agentChat, notice.chatId);
   if (notice.direction === 'OUT') return sendOutgoing(ownerId, notice, agentChat, followed.id);
   const image = notice.imageId ? await prisma.chatImage.findUnique({ where: { id: notice.imageId } }) : null;
   if (!image) throw errors.notFound('ChatImage', notice.imageId ?? '');
@@ -199,12 +198,12 @@ export async function sendForCheck(ownerId: string, id: string, agentChat: strin
     orderBy: { createdAt: 'desc' },
     select: { id: true },
   });
-  const group = await prisma.tellerChat.findUnique({ where: { id: followed.id }, select: { name: true } });
+  const group = await prisma.tellerChat.findUnique({ where: { id: followed.id }, select: { name: true, phone: true } });
   await prisma.remittanceNotice.update({
     where: { id },
     data: {
       agentChat,
-      agentName: group?.name ?? null,
+      agentName: group?.name ?? (group?.phone ? `+${group.phone}` : null),
       sentMessageId: sent?.id ?? null,
       sentAt: new Date(),
       status: 'CHECKING',
@@ -212,6 +211,25 @@ export async function sendForCheck(ownerId: string, id: string, agentChat: strin
   });
   log.info('A remittance notice was sent for checking');
   return noticeDetail(ownerId, id);
+}
+
+/**
+ * Where a notice goes to be checked: one of the number's groups — followed, so
+ * its answers are read — or one person, in the conversation the teller already
+ * has with them. Never the customer's own conversation.
+ */
+async function agentConversation(ownerId: string, agentChat: string, customerChatId: string): Promise<{ id: string }> {
+  if (agentChat.endsWith('@g.us')) {
+    const followed = await followGroup(ownerId, agentChat, true);
+    if (!followed.id) throw errors.precondition('That group cannot be used', 'errors.tellerSendFailed');
+    return { id: followed.id };
+  }
+  const person = await prisma.tellerChat.findFirst({ where: { ownerId, chat: agentChat }, select: { id: true } });
+  if (!person) throw errors.notFound('TellerChat', agentChat);
+  if (person.id === customerChatId) {
+    throw errors.precondition('The customer cannot check their own notice', 'errors.agentIsCustomer');
+  }
+  return person;
 }
 
 const figureOf = (value: bigint | null, currency: string | null) =>
@@ -246,10 +264,10 @@ async function sendOutgoing(
     orderBy: { createdAt: 'desc' },
     select: { id: true },
   });
-  const group = await prisma.tellerChat.findUnique({ where: { id: groupChatId }, select: { name: true } });
+  const group = await prisma.tellerChat.findUnique({ where: { id: groupChatId }, select: { name: true, phone: true } });
   await prisma.remittanceNotice.update({
     where: { id: notice.id },
-    data: { agentChat, agentName: group?.name ?? null, sentMessageId: sent?.id ?? null, sentAt: new Date(), status: 'CHECKING' },
+    data: { agentChat, agentName: group?.name ?? (group?.phone ? `+${group.phone}` : null), sentMessageId: sent?.id ?? null, sentAt: new Date(), status: 'CHECKING' },
   });
   log.info('An outgoing remittance was sent to its agent');
   return noticeDetail(ownerId, notice.id);

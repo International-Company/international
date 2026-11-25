@@ -258,6 +258,9 @@ export function NoticePanel({
   const toast = useToast();
   const [notice, setNotice] = useState<NoticeDetail | null>(null);
   const [groups, setGroups] = useState<NumberGroup[] | null>(null);
+  /** Checked with a group, or with one person in their own conversation. */
+  const [agentKind, setAgentKind] = useState<'group' | 'person'>('group');
+  const [people, setPeople] = useState<{ chat: string; name: string | null; phone: string | null; id: string }[] | null>(null);
   const [groupQuery, setGroupQuery] = useState('');
   const [agent, setAgent] = useState('');
   const [amount, setAmount] = useState('');
@@ -290,6 +293,23 @@ export function NoticePanel({
     void read().then((found) => {
       if (!found) return;
       setAmount(found.amount ? String(Number(found.amount) / 1e8) : '');
+      const remembered =
+        found.agentChat ??
+        (() => {
+          try {
+            return window.localStorage.getItem(LAST_AGENT_KEY) ?? '';
+          } catch {
+            return '';
+          }
+        })();
+      // A person's conversation remembered: the people's list, read now.
+      if (remembered && !remembered.endsWith('@g.us')) {
+        setAgentKind('person');
+        api
+          .get<{ id: string; chat: string; name: string | null; phone: string | null; group: boolean }[]>('/api/inbox/mine')
+          .then((chats) => setPeople(chats.filter((chat) => !chat.group)))
+          .catch(() => setPeople([]));
+      }
       setAgent(found.agentChat ?? (() => {
         try {
           return window.localStorage.getItem(LAST_AGENT_KEY) ?? '';
@@ -359,6 +379,15 @@ export function NoticePanel({
   const late = notice.status === 'CHECKING' ? checkingLate(notice.sentAt, now) : 'ok';
   const minutes = notice.sentAt ? Math.max(0, Math.round((now - new Date(notice.sentAt).getTime()) / 60_000)) : 0;
   const shownGroups = (groups ?? []).filter((group) => !groupQuery.trim() || group.name.includes(groupQuery.trim()));
+  const needle = groupQuery.trim();
+  const needleDigits = needle.replace(/[^0-9]/g, '');
+  const shownPeople = (people ?? []).filter(
+    (person) =>
+      person.id !== notice.chatId &&
+      (!needle ||
+        (person.name ?? '').includes(needle) ||
+        (Boolean(needleDigits) && (person.phone ?? '').includes(needleDigits))),
+  );
   const replies = [...notice.replies.quoted, ...notice.replies.since];
 
   return (
@@ -452,16 +481,60 @@ export function NoticePanel({
           <h4 className="text-[11px] font-semibold text-content-tertiary">② {t('inbox.notice.stepCheck')}</h4>
           {!decided && (
             <>
+              <div className="grid grid-cols-2 gap-1 rounded-lg bg-surface-sunken p-1">
+                {(['group', 'person'] as const).map((kind) => (
+                  <button
+                    key={kind}
+                    type="button"
+                    aria-pressed={agentKind === kind}
+                    onClick={() => {
+                      setAgentKind(kind);
+                      setGroupQuery('');
+                      if (kind === 'person' && people === null) {
+                        api
+                          .get<{ id: string; chat: string; name: string | null; phone: string | null; group: boolean }[]>('/api/inbox/mine')
+                          .then((chats) => setPeople(chats.filter((chat) => !chat.group)))
+                          .catch(() => setPeople([]));
+                      }
+                    }}
+                    className={cn(
+                      'h-8 rounded-md text-[12px] font-semibold transition-colors',
+                      agentKind === kind ? 'bg-surface text-content shadow-sm' : 'text-content-tertiary hover:text-content-secondary',
+                    )}
+                  >
+                    {t(kind === 'group' ? 'inbox.notice.agentGroups' : 'inbox.notice.agentPeople')}
+                  </button>
+                ))}
+              </div>
               <label className="flex h-9 items-center gap-2 rounded-lg bg-surface-sunken px-2.5 ring-1 ring-border-subtle">
                 <Search className="size-3.5 text-content-tertiary" />
                 <input
                   value={groupQuery}
                   onChange={(event) => setGroupQuery(event.target.value)}
-                  placeholder={t('inbox.notice.findGroup')}
+                  placeholder={t(agentKind === 'group' ? 'inbox.notice.findGroup' : 'inbox.notice.findPerson')}
                   className="min-w-0 flex-1 bg-transparent text-xs outline-none"
                 />
               </label>
-              {groups === null ? (
+              {agentKind === 'person' ? (
+                people === null ? (
+                  <Skeleton className="h-9" />
+                ) : (
+                  <select
+                    value={agent}
+                    onChange={(event) => setAgent(event.target.value)}
+                    className="h-10 w-full rounded-lg bg-surface-sunken px-2 text-sm font-semibold outline-none ring-1 ring-border-subtle"
+                    aria-label={t('inbox.notice.agentPerson')}
+                  >
+                    <option value="">{t('inbox.notice.agentPerson')}</option>
+                    {shownPeople.map((person) => (
+                      <option key={person.id} value={person.chat}>
+                        {person.name ?? (person.phone ? `+${person.phone}` : person.chat)}
+                        {person.name && person.phone ? ` · +${person.phone}` : ''}
+                      </option>
+                    ))}
+                  </select>
+                )
+              ) : groups === null ? (
                 <Skeleton className="h-9" />
               ) : (
                 <select

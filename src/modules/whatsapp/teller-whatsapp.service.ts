@@ -583,6 +583,8 @@ export async function listChats(ownerId: string) {
   const records = await customerNames(rows.map((row) => row.phone));
   return rows.map((row) => ({
     id: row.id,
+    /** WhatsApp's address for it: a person's, to send a notice to for checking. */
+    chat: row.chat,
     phone: row.phone,
     name: shownName(row.phone, row.name, records),
     unread: row.unread,
