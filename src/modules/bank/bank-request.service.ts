@@ -101,7 +101,11 @@ export async function addByHand(
   const row = existing
     ? await prisma.bankRequest.update({
         where: { id: existing.id },
-        data: { ...data, status: existing.status === 'DISMISSED' ? 'PENDING' : existing.status },
+        data: {
+          ...data,
+          status: existing.status === 'DISMISSED' ? 'PENDING' : existing.status,
+          ...(existing.status === 'DISMISSED' ? { dismissedAt: null, dismissedByName: null } : {}),
+        },
       })
     : await prisma.bankRequest.create({
         data: {
@@ -306,7 +310,17 @@ export async function dismiss(id: string, actor: Actor) {
   if (row.status === 'SENT') {
     throw errors.conflict('This request was already sent', 'errors.notPendingTransfer');
   }
-  await prisma.bankRequest.update({ where: { id }, data: { status: 'DISMISSED' } });
+  await prisma.bankRequest.update({
+    where: { id },
+    data: {
+      status: 'DISMISSED',
+      dismissedAt: new Date(),
+      // The name as the desk reads it, in Arabic when there is one.
+      dismissedByName:
+        (await prisma.user.findUnique({ where: { id: actor.id }, select: { fullNameAr: true } }))?.fullNameAr ||
+        actor.name,
+    },
+  });
   return { id };
 }
 

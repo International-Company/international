@@ -481,3 +481,97 @@ export async function markSent(
   emitAsync('transaction.transferSent', { transactionId: id, proofId, actorId: actor.id });
   return result;
 }
+
+/**
+ * What was cancelled on the desk, newest first: the counter's transfers that
+ * were reversed — by whom, when and why — and the groups' requests taken off
+ * the list, by whom and when (those taken off before this was kept say no one).
+ */
+export async function cancelledLog(actor: Actor, range: { from: Date; to: Date }, db: DbClient = prisma) {
+  requireDesk(actor);
+  // Every transfer reversed, whether or not it had reached the bank group yet.
+  const [reversals, dismissed] = await Promise.all([
+    db.transaction.findMany({
+      where: {
+        createdAt: { gte: range.from, lte: range.to },
+        reversalOf: { payoutBankAmount: { gt: 0n } },
+        // A deal moved to another teller is reversed and recorded again under them: not a cancellation.
+        NOT: { reverseReason: { startsWith: 'نقل إلى ' } },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 500,
+      select: {
+        id: true,
+        reference: true,
+        createdAt: true,
+        reverseReason: true,
+        createdBy: { select: { fullNameAr: true, fullNameEn: true } },
+        reversalOf: { select: SELECT },
+      },
+    }),
+    db.bankRequest.findMany({
+      where: {
+        status: 'DISMISSED',
+        OR: [
+          { dismissedAt: { gte: range.from, lte: range.to } },
+          // Taken off before the time was kept: by when they were asked.
+          { dismissedAt: null, createdAt: { gte: range.from, lte: range.to } },
+        ],
+      },
+      orderBy: [{ dismissedAt: 'desc' }, { createdAt: 'desc' }],
+      take: 500,
+    }),
+  ]);
+  const groups = await watched();
+  const groupName = (chat: string) => groups.find((group) => group.id === chat)?.name ?? null;
+
+  const rows = [
+    ...reversals
+      .filter((row) => row.reversalOf)
+      .map((row) => {
+        const deal = row.reversalOf!;
+        return {
+          key: `deal:${deal.id}`,
+          kind: 'deal' as const,
+          id: deal.id,
+          reference: deal.reference,
+          name: deal.recipientName ?? deal.counterpartyName ?? deal.customer?.fullNameAr ?? null,
+          account: deal.payoutAccount,
+          channel: deal.payoutBankChannel,
+          amount: deal.payoutBankAmount,
+          currency: deal.toCurrency,
+          madeAt: deal.createdAt,
+          /** Sent from the bank before it was reversed: the money had already left. */
+          wasSent: Boolean(deal.transferConfirmedAt),
+          cancelledAt: row.createdAt,
+          cancelledBy: row.createdBy?.fullNameAr ?? null,
+          cancelledByEn: row.createdBy?.fullNameEn ?? null,
+          reason: row.reverseReason,
+          reversal: row.reference,
+          group: null as string | null,
+        };
+      }),
+    ...dismissed.map((row) => ({
+      key: `request:${row.id}`,
+      kind: 'request' as const,
+      id: row.id,
+      reference: null as string | null,
+      name: row.name ?? row.senderName,
+      account: row.account,
+      channel: row.channel,
+      amount: row.amount,
+      currency: row.currency,
+      madeAt: row.createdAt,
+      wasSent: false,
+      cancelledAt: row.dismissedAt,
+      cancelledBy: row.dismissedByName,
+      cancelledByEn: row.dismissedByName,
+      reason: null as string | null,
+      reversal: null as string | null,
+      group: groupName(row.chat),
+    })),
+  ].sort(
+    (a, b) => (b.cancelledAt ?? b.madeAt).getTime() - (a.cancelledAt ?? a.madeAt).getTime(),
+  );
+  return { rows };
+}

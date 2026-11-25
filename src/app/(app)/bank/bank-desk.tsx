@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { Activity, MessagesSquare, Workflow, X } from 'lucide-react';
+import { Activity, Ban, MessagesSquare, Workflow, X } from 'lucide-react';
 import { useLocale } from '@/i18n/provider';
 import { api } from '@/lib/api-client';
 import { cn } from '@/ui/utils';
@@ -11,6 +11,7 @@ import { TransferDetail } from './transfer-detail';
 import { ForwardSheet, type Group } from './forward-panel';
 import { MarkSentDialog } from './mark-sent-dialog';
 import { TrackView } from './track-view';
+import { CancelledView } from './cancelled-view';
 import { keyOf, type Line } from './desk-types';
 
 /**
@@ -23,7 +24,7 @@ import { keyOf, type Line } from './desk-types';
  */
 export function BankDesk() {
   const { t } = useLocale();
-  const [mode, setMode] = useState<'work' | 'track' | 'watch'>('work');
+  const [mode, setMode] = useState<'work' | 'track' | 'watch' | 'cancelled'>('work');
   const [selected, setSelected] = useState<Line | null>(null);
   /** The chosen line's key: set before the list has the line, when a message was just added as a request. */
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
@@ -72,6 +73,7 @@ export function BankDesk() {
             { key: 'work', icon: <Workflow className="size-4" />, label: t('bankDesk.workTab') },
             { key: 'track', icon: <Activity className="size-4" />, label: t('bankTrack.tab') },
             { key: 'watch', icon: <MessagesSquare className="size-4" />, label: t('bankDesk.watchTab') },
+            { key: 'cancelled', icon: <Ban className="size-4" />, label: t('bankCancelled.tab') },
           ] as const
         ).map((option) => (
           <button
@@ -93,7 +95,9 @@ export function BankDesk() {
         ))}
       </div>
 
-      {mode === 'watch' ? (
+      {mode === 'cancelled' ? (
+        <CancelledView />
+      ) : mode === 'watch' ? (
         <GroupFeed />
       ) : mode === 'track' ? (
         // Opened from the watch: the transfer in full, in the desk.

@@ -2692,6 +2692,9 @@ model BankRequest {
   addedByName String?
   sentAt      DateTime?
   sentByName  String?
+  /// Taken off the list: when, and by whom.
+  dismissedAt     DateTime?
+  dismissedByName String?
   /// The bank's receipt, kept in chat_images.
   receiptId   String?
   createdAt   DateTime  @default(now())

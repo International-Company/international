@@ -786,6 +786,18 @@ const en = {
       photos: 'Photos and files',
     },
   },
+  bankCancelled: {
+    tab: 'Cancelled',
+    search: 'Search by name, account, reference or reason',
+    kind: { all: 'All', deal: 'Reversed deal', request: 'Removed request' },
+    everyone: 'Everyone',
+    made: 'Recorded {at}',
+    unknownBy: 'Unknown (before the log)',
+    wasSent: 'Had been sent',
+    reason: 'Reason',
+    none: 'Nothing was cancelled in these days',
+    noneHint: 'Reversed deals and requests removed from the list show here, with who did it and when.',
+  },
   bankTrack: {
     tab: 'Tracking',
     total: 'Total',
