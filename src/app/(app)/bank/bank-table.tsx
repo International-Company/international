@@ -2,22 +2,14 @@
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import {
-  AlertTriangle,
   CheckCircle2,
   CheckSquare,
-  Clock,
-  ClipboardList,
   Copy,
   CornerUpRight,
   PictureInPicture2,
-  FileQuestion,
-  Hourglass,
   Inbox,
-  ListChecks,
-  MessageSquare,
   RefreshCw,
   Search,
-  SplitSquareHorizontal,
   Square,
   X,
 } from 'lucide-react';
@@ -44,6 +36,15 @@ import type { Group } from './forward-panel';
  * ticked and sent together. A row opened shows the transfer in full beside the
  * table. Today's, unless other days are asked for; a search looks in every day.
  */
+
+/** Where a transfer stands, as one small dot. */
+const STATE_DOT: Record<LineState, string> = {
+  waiting: 'bg-warning',
+  forwarded: 'bg-primary',
+  done: 'bg-success',
+  reversed: 'bg-danger',
+  message: 'bg-content-tertiary',
+};
 
 type Show = 'all' | 'open' | 'waiting' | 'forwarded' | 'done' | 'messages' | 'unsorted' | 'partial' | 'short';
 
@@ -328,10 +329,7 @@ export function BankTable({
     const state = stateOf(line);
     if (state === 'done' || state === 'reversed') {
       return line.sentAt ? (
-        <span className="inline-flex items-center gap-1 whitespace-nowrap text-[11px] text-success-text tabular-nums">
-          <CheckCircle2 className="size-3" />
-          {clockOf(line.sentAt)}
-        </span>
+        <span className="whitespace-nowrap text-[11px] tabular-nums text-content-tertiary">✓ {clockOf(line.sentAt)}</span>
       ) : null;
     }
     if (state === 'message') return null;
@@ -339,15 +337,14 @@ export function BankTable({
     return (
       <span
         className={cn(
-          'inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-bold tabular-nums',
+          'whitespace-nowrap text-[12px] tabular-nums',
           late === 'veryLate'
-            ? 'bg-danger text-white'
+            ? 'font-semibold text-danger-text'
             : late === 'late'
-              ? 'bg-warning text-white'
-              : 'bg-surface-sunken text-content-secondary',
+              ? 'font-semibold text-warning-text'
+              : 'text-content-tertiary',
         )}
       >
-        <Clock className="size-3" />
         {waitedFor(minutesSince(line.at, now))}
       </span>
     );
@@ -363,12 +360,12 @@ export function BankTable({
         }}
         title={`${t('bankTable.copy')} ${label}`}
         className={cn(
-          'group/copy inline-flex max-w-full items-center gap-1.5 rounded-md px-1.5 py-1 text-start hover:bg-primary-subtle',
+          'group/copy inline-flex max-w-full items-center gap-1.5 rounded-md px-1.5 py-1 text-start transition-colors hover:bg-primary-subtle/60',
           className,
         )}
       >
         <span className="min-w-0 truncate">{children}</span>
-        <Copy className="size-3.5 shrink-0 text-content-tertiary opacity-40 group-hover/copy:text-primary-text group-hover/copy:opacity-100" />
+        <Copy className="size-3 shrink-0 text-primary-text opacity-0 transition-opacity group-hover/copy:opacity-70" />
       </button>
     ) : (
       <span className="px-1.5 text-content-tertiary">—</span>
@@ -385,9 +382,8 @@ export function BankTable({
               event.stopPropagation();
               onOpen(line);
             }}
-            className="inline-flex h-8 items-center gap-1 rounded-lg px-2.5 text-xs font-bold text-warning-text ring-1 ring-warning/40 hover:bg-warning-subtle"
+            className="inline-flex h-8 items-center rounded-lg bg-warning-subtle px-3 text-xs font-semibold text-warning-text transition-colors hover:bg-warning hover:text-white"
           >
-            <ClipboardList className="size-4" />
             {t('bankFeed.addToList')}
           </button>
         </span>
@@ -404,7 +400,7 @@ export function BankTable({
               onForward(line, [executors[0]!]);
             }}
             title={t('bankTable.forwardTo', { group: executors[0].name })}
-            className="inline-flex size-8 items-center justify-center rounded-lg text-primary-text ring-1 ring-border-subtle hover:bg-primary-subtle"
+            className="inline-flex size-8 items-center justify-center rounded-lg text-content-tertiary transition-colors hover:bg-surface-sunken hover:text-primary-text"
           >
             <CornerUpRight className="size-4" />
           </button>
@@ -417,7 +413,7 @@ export function BankTable({
               onForward(line);
             }}
             title={t('bankDesk.forwardTab')}
-            className="inline-flex size-8 items-center justify-center rounded-lg text-primary-text ring-1 ring-border-subtle hover:bg-primary-subtle"
+            className="inline-flex size-8 items-center justify-center rounded-lg text-content-tertiary transition-colors hover:bg-surface-sunken hover:text-primary-text"
           >
             <CornerUpRight className="size-4" />
           </button>
@@ -431,7 +427,7 @@ export function BankTable({
             }}
             title={t('bankSent.floatRow')}
             aria-label={t('bankSent.floatRow')}
-            className="inline-flex size-8 items-center justify-center rounded-lg bg-gradient-to-br from-violet-500 to-indigo-600 text-white shadow-sm ring-1 ring-indigo-700/20 transition hover:shadow-md hover:brightness-110 active:scale-95"
+            className="inline-flex size-8 items-center justify-center rounded-lg text-content-tertiary transition-colors hover:bg-surface-sunken hover:text-primary-text"
           >
             <PictureInPicture2 className="size-4" />
           </button>
@@ -443,10 +439,9 @@ export function BankTable({
             onSend(line);
           }}
           title={t('bank.markSent')}
-          className="inline-flex h-8 items-center gap-1 rounded-lg bg-success px-2.5 text-xs font-bold text-white hover:bg-success/90"
+          className="inline-flex h-8 items-center rounded-lg bg-success-subtle px-3 text-xs font-semibold text-success-text transition-colors hover:bg-success hover:text-white"
         >
-          <CheckCircle2 className="size-4" />
-          <span className="hidden xl:inline">{t('bankTable.done')}</span>
+          {t('bankTable.done')}
         </button>
       </span>
     );
@@ -455,8 +450,8 @@ export function BankTable({
   const stateChip = (line: Line) => {
     const state = stateOf(line);
     return (
-      <span className={cn('inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-bold', STATE_STYLE[state].chip)}>
-        <span className="size-1.5 rounded-full bg-current" aria-hidden />
+      <span className="inline-flex items-center gap-1.5 whitespace-nowrap text-[12px] font-medium text-content-secondary">
+        <span className={cn('size-1.5 rounded-full', STATE_DOT[state])} aria-hidden />
         {t(STATE_STYLE[state].key)}
       </span>
     );
@@ -494,81 +489,54 @@ export function BankTable({
 
   return (
     <div className="space-y-3">
-      {/* --- The day's figures, each a filter --- */}
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-7">
-        <Figure which="all" label={t('bankTable.all')} icon={<ListChecks />} tone="bg-surface-sunken text-content-secondary" />
-        <Figure which="waiting" label={t('bankDesk.state.waiting')} icon={<Hourglass />} tone="bg-warning-subtle text-warning-text" />
-        <Figure which="forwarded" label={t('bankDesk.state.forwarded')} icon={<CornerUpRight />} tone="bg-primary-subtle text-primary-text" />
-        <Figure which="done" label={t('bankDesk.state.done')} icon={<CheckCircle2 />} tone="bg-success-subtle text-success-text" />
-        <button
-          type="button"
-          onClick={() => setShow(show === 'partial' ? 'all' : 'partial')}
-          aria-pressed={show === 'partial'}
-          title={t('bankParts.cardHint')}
-          className={cn(
-            'flex min-w-0 items-center gap-3 rounded-2xl bg-surface p-3 text-start shadow-[var(--shadow-sm)] ring-1 transition',
-            show === 'partial' ? 'ring-2 ring-warning' : 'ring-border-subtle hover:ring-warning/30',
-          )}
-        >
-          <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-warning-subtle text-warning-text [&>svg]:size-5">
-            <SplitSquareHorizontal />
-          </span>
-          <span className="min-w-0">
-            <span className="block truncate text-[11px] font-semibold text-content-tertiary">{t('bankParts.card')}</span>
-            <span className="text-xl font-extrabold tabular-nums text-content">{desk ? figures.partial.count : '…'}</span>
-            {figures.partial.left && (
-              <span className="flex flex-wrap items-center gap-x-1 text-[11px] text-warning-text">
-                {t('bankParts.left')}
-                <Money value={figures.partial.left.amount} currency={figures.partial.left.currency} />
+      {/* --- The day's figures, each a filter: one quiet strip --- */}
+      <div className="flex gap-px overflow-x-auto rounded-2xl bg-border-subtle ring-1 ring-border-subtle [scrollbar-width:none] lg:grid lg:grid-cols-7 lg:overflow-hidden">
+        {(
+          [
+            { key: 'all', label: t('bankTable.all'), dot: 'bg-content-tertiary', count: figures.all.count, late: figures.all.late, sum: figures.all.sum },
+            { key: 'waiting', label: t('bankDesk.state.waiting'), dot: 'bg-warning', count: figures.waiting.count, late: figures.waiting.late, sum: figures.waiting.sum },
+            { key: 'forwarded', label: t('bankDesk.state.forwarded'), dot: 'bg-primary', count: figures.forwarded.count, late: figures.forwarded.late, sum: figures.forwarded.sum },
+            { key: 'done', label: t('bankDesk.state.done'), dot: 'bg-success', count: figures.done.count, late: 0, sum: figures.done.sum },
+            { key: 'partial', label: t('bankParts.card'), dot: 'bg-warning', count: figures.partial.count, late: 0, sum: figures.partial.left, left: true, hint: t('bankParts.cardHint') },
+            { key: 'short', label: t('bankParts.shortCard'), dot: 'bg-danger', count: figures.short.count, late: 0, sum: figures.short.left, left: true, alert: figures.short.count > 0, hint: t('bankParts.shortHint') },
+            { key: 'unsorted', label: t('bankTable.unsorted'), dot: 'bg-danger', count: figures.unsorted, late: 0, sum: null, alert: figures.unsorted > 0, hint: t('bankTable.unsortedHint') },
+          ] as { key: Show; label: string; dot: string; count: number; late: number; sum: { amount: string; currency: string } | null; left?: boolean; alert?: boolean; hint?: string }[]
+        ).map((stat) => {
+          const picked = show === stat.key;
+          return (
+            <button
+              key={stat.key}
+              type="button"
+              onClick={() => setShow(picked && stat.key !== 'all' ? 'all' : stat.key)}
+              aria-pressed={picked}
+              title={stat.hint}
+              className={cn(
+                'relative min-w-[8.5rem] shrink-0 bg-surface px-4 py-3 text-start transition-colors hover:bg-surface-sunken/50 lg:min-w-0',
+                picked && 'bg-primary-subtle/30',
+              )}
+            >
+              <span className="flex items-center gap-1.5 truncate text-[11px] font-medium text-content-tertiary">
+                <span className={cn('size-1.5 shrink-0 rounded-full', stat.dot)} aria-hidden />
+                {stat.label}
               </span>
-            )}
-          </span>
-        </button>
-        <button
-          type="button"
-          onClick={() => setShow(show === 'short' ? 'all' : 'short')}
-          aria-pressed={show === 'short'}
-          title={t('bankParts.shortHint')}
-          className={cn(
-            'flex min-w-0 items-center gap-3 rounded-2xl bg-surface p-3 text-start shadow-[var(--shadow-sm)] ring-1 transition',
-            show === 'short' ? 'ring-2 ring-danger' : figures.short.count > 0 ? 'ring-danger/40' : 'ring-border-subtle hover:ring-danger/30',
-          )}
-        >
-          <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-danger-subtle text-danger-text [&>svg]:size-5">
-            <AlertTriangle />
-          </span>
-          <span className="min-w-0">
-            <span className="block truncate text-[11px] font-semibold text-content-tertiary">{t('bankParts.shortCard')}</span>
-            <span className={cn('text-xl font-extrabold tabular-nums', figures.short.count > 0 ? 'text-danger-text' : 'text-content')}>
-              {desk ? figures.short.count : '…'}
-            </span>
-            {figures.short.left && (
-              <span className="flex flex-wrap items-center gap-x-1 text-[11px] text-danger-text">
-                {t('bankParts.left')}
-                <Money value={figures.short.left.amount} currency={figures.short.left.currency} />
+              <span className="mt-1 flex items-baseline gap-2">
+                <span className={cn('text-2xl font-bold tabular-nums tracking-tight', stat.alert ? 'text-danger-text' : 'text-content')}>
+                  {desk ? stat.count : '…'}
+                </span>
+                {stat.late > 0 && (
+                  <span className="text-[11px] font-semibold text-danger-text">{t('bankTable.lateCount', { count: stat.late })}</span>
+                )}
               </span>
-            )}
-          </span>
-        </button>
-        <button
-          type="button"
-          onClick={() => setShow(show === 'unsorted' ? 'all' : 'unsorted')}
-          aria-pressed={show === 'unsorted'}
-          title={t('bankTable.unsortedHint')}
-          className={cn(
-            'flex min-w-0 items-center gap-3 rounded-2xl bg-surface p-3 text-start shadow-[var(--shadow-sm)] ring-1 transition',
-            show === 'unsorted' ? 'ring-2 ring-danger' : 'ring-border-subtle hover:ring-danger/30',
-          )}
-        >
-          <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-danger-subtle text-danger-text [&>svg]:size-5">
-            <FileQuestion />
-          </span>
-          <span className="min-w-0">
-            <span className="block truncate text-[11px] font-semibold text-content-tertiary">{t('bankTable.unsorted')}</span>
-            <span className="text-xl font-extrabold tabular-nums text-content">{desk ? figures.unsorted : '…'}</span>
-            <span className="block truncate text-[11px] text-content-tertiary">{t('bankTable.unsortedSub')}</span>
-          </span>
-        </button>
+              {stat.sum && (
+                <span className="mt-0.5 flex flex-wrap items-center gap-x-1 text-[11px] text-content-tertiary">
+                  {stat.left && t('bankParts.left')}
+                  <Money value={stat.sum.amount} currency={stat.sum.currency} />
+                </span>
+              )}
+              {picked && <span className="absolute inset-x-4 bottom-0 h-0.5 rounded-full bg-primary" aria-hidden />}
+            </button>
+          );
+        })}
       </div>
 
       <Card className="overflow-hidden p-0">
@@ -611,7 +579,6 @@ export function BankTable({
               show === 'messages' ? 'bg-primary-subtle text-primary-text ring-primary/30' : 'text-content-secondary ring-border-subtle hover:bg-surface-sunken',
             )}
           >
-            <MessageSquare className="size-4" />
             {t('bankDesk.show.messages')}
             <span className="tabular-nums opacity-70">{figures.messages}</span>
           </button>
@@ -635,9 +602,8 @@ export function BankTable({
                 <button
                   type="button"
                   onClick={() => setShow('open')}
-                  className="inline-flex items-center gap-1 rounded-full bg-warning-subtle px-2 py-0.5 text-warning-text"
+                  className="inline-flex items-center gap-1 rounded-full bg-warning-subtle/70 px-2 py-0.5 text-warning-text"
                 >
-                  <Clock className="size-3" />
                   {t('bank.olderWaiting', { count: olderWaiting })}
                 </button>
               )}
@@ -713,8 +679,8 @@ export function BankTable({
                       >
                         <td
                           className={cn(
-                            'border-b border-s-4 border-border-subtle px-2 py-2',
-                            late === 'veryLate' ? 'border-s-danger' : late === 'late' ? 'border-s-warning' : 'border-s-transparent',
+                            'border-b border-s-2 border-border-subtle px-2 py-2.5',
+                            late === 'veryLate' ? 'border-s-danger/70' : late === 'late' ? 'border-s-warning/70' : 'border-s-transparent',
                           )}
                           onClick={(event) => event.stopPropagation()}
                         >
@@ -728,10 +694,9 @@ export function BankTable({
                           <span className="block font-semibold tabular-nums text-content">{clockOf(line.at)}</span>
                           {carried(line) ? (
                             <span
-                              className="mt-0.5 inline-flex items-center gap-1 rounded-full bg-warning-subtle px-1.5 py-px text-[10px] font-semibold text-warning-text"
+                              className="mt-0.5 block text-[10px] font-medium text-warning-text"
                               title={new Date(line.at).toLocaleString(locale === 'ar' ? 'ar' : 'en-GB')}
                             >
-                              <Clock className="size-2.5" />
                               {t('bankTable.carried', {
                                 day: dayLabel(dayKey(line.at), locale, { today: t('bank.period.today'), yesterday: t('bank.period.yesterday') }),
                               })}
@@ -822,8 +787,8 @@ export function BankTable({
                     key={key}
                     onClick={() => onOpen(line)}
                     className={cn(
-                      'border-s-4 p-3',
-                      late === 'veryLate' ? 'border-s-danger' : late === 'late' ? 'border-s-warning' : 'border-s-transparent',
+                      'border-s-2 p-3',
+                      late === 'veryLate' ? 'border-s-danger/70' : late === 'late' ? 'border-s-warning/70' : 'border-s-transparent',
                       selectedKey === key && 'bg-primary-subtle/50',
                     )}
                   >

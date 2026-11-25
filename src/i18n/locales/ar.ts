@@ -840,6 +840,7 @@ const ar: Dictionary = {
     noPost: 'لم تصل القروب',
   },
   bankTable: {
+    lateCount: '{count} متأخرة',
     unsorted: 'غير مرتّبة',
     unsortedSub: 'لم يستطع البوت قراءتها',
     unsortedHint: 'رسائل في مجموعة البنك فيها رقم حساب أو هاتف لكن بصيغة لم يقرأها البوت — أضفها للقائمة بضغطة.',

@@ -63,6 +63,23 @@ export function bankColor(channel: string | null): string {
   for (const char of channel.replace(/\s+/g, '')) hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
   return BANK_COLORS[hash % BANK_COLORS.length]!;
 }
+/** The same colours, soft: a tint behind the letters, the letters in the colour. */
+const BANK_SOFT = [
+  'bg-sky-500/12 text-sky-700 dark:text-sky-300',
+  'bg-violet-500/12 text-violet-700 dark:text-violet-300',
+  'bg-emerald-500/12 text-emerald-700 dark:text-emerald-300',
+  'bg-amber-500/15 text-amber-700 dark:text-amber-300',
+  'bg-rose-500/12 text-rose-700 dark:text-rose-300',
+  'bg-teal-500/12 text-teal-700 dark:text-teal-300',
+  'bg-indigo-500/12 text-indigo-700 dark:text-indigo-300',
+  'bg-fuchsia-500/12 text-fuchsia-700 dark:text-fuchsia-300',
+  'bg-orange-500/12 text-orange-700 dark:text-orange-300',
+  'bg-cyan-600/12 text-cyan-700 dark:text-cyan-300',
+];
+function bankSoft(channel: string | null): string {
+  if (!channel) return 'bg-slate-500/10 text-slate-600 dark:text-slate-300';
+  return BANK_SOFT[BANK_COLORS.indexOf(bankColor(channel))]!;
+}
 /** A bank's mark: the first letter of each of its first two words. */
 export function bankInitials(channel: string | null): string {
   if (!channel) return '—';
@@ -92,8 +109,8 @@ export function BankMark({ line, className }: { line: Pick<Line, 'channel' | 'so
   return (
     <span
       className={cn(
-        'flex size-9 shrink-0 items-center justify-center rounded-full text-[11px] font-bold text-white',
-        bankColor(line.channel),
+        'flex size-9 shrink-0 items-center justify-center rounded-full text-[11px] font-bold',
+        bankSoft(line.channel),
         className,
       )}
       aria-hidden
