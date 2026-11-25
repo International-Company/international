@@ -510,9 +510,22 @@ export async function trace(messageId: string, actor: Actor) {
 export async function media(id: string, actor: Actor) {
   requireDesk(actor);
   const row = await prisma.chatImage.findUnique({ where: { id } });
-  // Only a file of a group message: the inbox's own files are not the desk's.
-  const owned = row ? await prisma.groupMessage.count({ where: { mediaId: id } }) : 0;
-  if (!row || owned === 0) throw errors.notFound('ChatImage', id);
+  /*
+   * Only the desk's files: a group message's, or a transfer's receipt — given
+   * at the desk, or answered in a group. The inbox's own files are not the desk's.
+   */
+  const owned = row
+    ? (
+        await Promise.all([
+          prisma.groupMessage.count({ where: { mediaId: id } }),
+          prisma.transferReceipt.count({ where: { imageId: id } }),
+          prisma.groupReply.count({ where: { mediaId: id } }),
+          prisma.bankRequest.count({ where: { receiptId: id } }),
+          prisma.tiktokWithdrawal.count({ where: { receiptId: id } }),
+        ])
+      ).some((count) => count > 0)
+    : false;
+  if (!row || !owned) throw errors.notFound('ChatImage', id);
   return row;
 }
 

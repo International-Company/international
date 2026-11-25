@@ -2603,6 +2603,7 @@ const en = {
     partKeptHint: 'The bot is reading the sum and will tell the group what is left',
   },
   bankReceipts: {
+    open: 'Open the receipt',
     title: 'Receipts',
     none: 'No receipts yet. Add them, or fetch them from the groups the transfer was passed on to.',
     add: 'Add receipt',

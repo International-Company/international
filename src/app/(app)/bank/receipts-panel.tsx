@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { AlertTriangle, ImagePlus, Loader2, Pencil, RefreshCw, Receipt, Users, X } from 'lucide-react';
+import { AlertTriangle, ImagePlus, Loader2, Maximize2, Pencil, RefreshCw, Receipt, Trash2, Users, X } from 'lucide-react';
 import { useLocale } from '@/i18n/provider';
 import { api, ApiError } from '@/lib/api-client';
 import { say } from '@/lib/failure';
@@ -11,6 +11,7 @@ import { shrinkPhoto } from '@/ui/proof-photo';
 import { Money } from '@/ui/display';
 import { cn } from '@/ui/utils';
 import { PartsBar } from './parts';
+import { Lightbox } from '../manage/inbox/chat-ui';
 
 interface Receipt {
   id: string;
@@ -68,6 +69,8 @@ export function ReceiptsPanel({
   const [receipts, setReceipts] = useState<Receipt[] | null>(null);
   const [busy, setBusy] = useState<'add' | 'collect' | null>(null);
   const [removing, setRemoving] = useState<Receipt | null>(null);
+  /** A receipt opened over everything. */
+  const [viewing, setViewing] = useState<string | null>(null);
   const picker = useRef<HTMLInputElement>(null);
 
   const failure = useCallback(
@@ -229,80 +232,117 @@ export function ReceiptsPanel({
       {receipts === null ? null : receipts.length === 0 ? (
         <p className="mb-2 text-xs text-content-tertiary">{t('bankReceipts.none')}</p>
       ) : (
-        <div className="mb-2 grid grid-cols-3 gap-2">
-          {receipts.map((receipt) => (
-            <div key={receipt.id} className="group relative">
-              <a href={receipt.url} target="_blank" rel="noopener noreferrer" className="block">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={receipt.url} alt="" className="aspect-square w-full rounded-lg object-cover ring-1 ring-border-subtle" />
-              </a>
-              {receipt.fromGroup && (
-                <span
-                  title={t('bankReceipts.fromGroup')}
-                  className="absolute bottom-1 start-1 inline-flex items-center gap-0.5 rounded-full bg-black/60 px-1.5 py-px text-[9px] font-semibold text-white"
+        <div className="mb-2 grid grid-cols-2 gap-2.5">
+          {receipts.map((receipt, index) => {
+            const payment = paymentOf(receipt);
+            const wrong = payment?.accountMatches === false;
+            return (
+              <figure
+                key={receipt.id}
+                className={cn(
+                  'group relative overflow-hidden rounded-xl bg-surface ring-1 transition-shadow hover:shadow-md',
+                  wrong ? 'ring-2 ring-danger' : 'ring-border-subtle',
+                )}
+              >
+                {/* The receipt itself, whole: opened over everything on a press. */}
+                <button
+                  type="button"
+                  onClick={() => setViewing(receipt.url)}
+                  className="relative block w-full bg-[repeating-linear-gradient(45deg,var(--color-surface-sunken)_0_8px,transparent_8px_16px)]"
+                  aria-label={t('bankReceipts.open')}
                 >
-                  <Users className="size-2.5" />
-                  {t('bankReceipts.group')}
-                </span>
-              )}
-              {(() => {
-                const payment = paymentOf(receipt);
-                if (!payment) return null;
-                return (
-                  <span className="absolute inset-x-1 top-1 flex flex-col items-start gap-0.5">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={receipt.url}
+                    alt=""
+                    loading="lazy"
+                    onError={(event) => {
+                      event.currentTarget.style.visibility = 'hidden';
+                    }}
+                    className="mx-auto aspect-[3/4] w-full object-contain transition-transform group-hover:scale-[1.02]"
+                  />
+                  <span className="absolute start-1.5 top-1.5 inline-flex size-5 items-center justify-center rounded-full bg-black/60 text-[10px] font-bold text-white">
+                    {index + 1}
+                  </span>
+                  {receipt.fromGroup && (
+                    <span
+                      title={t('bankReceipts.fromGroup')}
+                      className="absolute bottom-1.5 start-1.5 inline-flex items-center gap-0.5 rounded-full bg-black/60 px-1.5 py-px text-[9px] font-semibold text-white"
+                    >
+                      <Users className="size-2.5" />
+                      {t('bankReceipts.group')}
+                    </span>
+                  )}
+                  <span className="absolute inset-0 hidden items-center justify-center bg-black/25 text-white group-hover:flex">
+                    <Maximize2 className="size-6 drop-shadow" />
+                  </span>
+                </button>
+
+                {/* What it says was sent: read by the bot, or written by hand. */}
+                <figcaption className="flex items-center gap-1.5 border-t border-border-subtle px-2 py-1.5">
+                  {payment ? (
                     <button
                       type="button"
                       title={t('bankParts.editHint')}
                       onClick={() => setEditing({ id: payment.id, value: payment.amount ? plain(payment.amount) : '' })}
                       className={cn(
-                        'inline-flex max-w-full items-center gap-1 rounded-full px-1.5 py-px text-[10px] font-bold shadow',
+                        'inline-flex min-w-0 flex-1 items-center gap-1 rounded-lg px-1.5 py-1 text-start text-xs font-extrabold transition-colors hover:bg-surface-sunken',
                         payment.status === 'READING'
-                          ? 'bg-surface text-content-tertiary'
+                          ? 'text-content-tertiary'
                           : payment.amount
                             ? payment.otherMoney
-                              ? 'bg-warning text-white'
-                              : 'bg-success text-white'
-                            : 'bg-surface text-warning-text',
+                              ? 'text-warning-text'
+                              : 'text-success-text'
+                            : 'text-warning-text',
                       )}
                     >
                       {payment.status === 'READING' ? (
                         <>
-                          <Loader2 className="size-2.5 animate-spin" />
-                          {t('bankParts.reading')}
+                          <Loader2 className="size-3.5 shrink-0 animate-spin" />
+                          <span className="truncate font-semibold">{t('bankParts.reading')}</span>
                         </>
                       ) : payment.amount ? (
-                        <span className="ltr-content truncate">
-                          {plain(payment.amount)} {payment.currency ?? summary?.currency ?? ''}
-                        </span>
+                        <>
+                          <span className="ltr-content truncate tabular-nums">
+                            {plain(payment.amount)} {payment.currency ?? summary?.currency ?? ''}
+                          </span>
+                          <Pencil className="size-3 shrink-0 opacity-0 group-hover:opacity-60" />
+                        </>
                       ) : (
                         <>
-                          <Pencil className="size-2.5" />
-                          {t('bankParts.unread')}
+                          <Pencil className="size-3.5 shrink-0" />
+                          <span className="truncate">{t('bankParts.unread')}</span>
                         </>
                       )}
                     </button>
-                    {payment.accountMatches === false && (
-                      <span
-                        title={payment.account ?? ''}
-                        className="inline-flex items-center gap-0.5 rounded-full bg-danger px-1.5 py-px text-[9px] font-bold text-white shadow"
-                      >
-                        <AlertTriangle className="size-2.5" />
-                        {t('bankParts.otherAccount')}
-                      </span>
-                    )}
-                  </span>
-                );
-              })()}
-              <button
-                type="button"
-                onClick={() => setRemoving(receipt)}
-                aria-label={t('bankReceipts.remove')}
-                className="absolute -end-1.5 -top-1.5 inline-flex size-6 items-center justify-center rounded-full bg-surface text-content-tertiary shadow ring-1 ring-border-subtle hover:text-danger-text sm:opacity-0 sm:group-hover:opacity-100"
-              >
-                <X className="size-3.5" />
-              </button>
-            </div>
-          ))}
+                  ) : (
+                    <span className="flex-1" />
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setRemoving(receipt)}
+                    aria-label={t('bankReceipts.remove')}
+                    title={t('bankReceipts.remove')}
+                    className="inline-flex size-7 shrink-0 items-center justify-center rounded-lg text-content-tertiary hover:bg-danger-subtle hover:text-danger-text"
+                  >
+                    <Trash2 className="size-3.5" />
+                  </button>
+                </figcaption>
+                {wrong && (
+                  <p
+                    title={payment?.account ?? ''}
+                    className="flex items-center gap-1 bg-danger px-2 py-1 text-[10px] font-bold text-white"
+                  >
+                    <AlertTriangle className="size-3 shrink-0" />
+                    <span className="truncate">
+                      {t('bankParts.otherAccount')}
+                      {payment?.account && <span className="ltr-content font-mono"> · {payment.account}</span>}
+                    </span>
+                  </p>
+                )}
+              </figure>
+            );
+          })}
         </div>
       )}
 
@@ -354,6 +394,8 @@ export function ReceiptsPanel({
           </button>
         </div>
       )}
+
+      <Lightbox src={viewing} onClose={() => setViewing(null)} label={t('bankReceipts.title')} />
 
       <ConfirmDialog
         open={removing !== null}
