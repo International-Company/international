@@ -20,9 +20,9 @@ const spoken = (scaled: bigint) => {
 };
 
 /**
- * The transfer's words with only what is left of it: a line saying so at the
- * top, and the full sum where it is written changed to what is left — so the
- * group that carries it out sends no more than that.
+ * The transfer's words with only what is left of it: the full sum where it is
+ * written changed to what is left — or, not written in them, what is left at
+ * their end — so the group that carries it out sends no more than that.
  */
 function leftWords(text: string, left: { amount: string; paid: string; currency: string }): string {
   const total = BigInt(left.amount || '0');
@@ -35,8 +35,9 @@ function leftWords(text: string, left: { amount: string; paid: string; currency:
   // No backslashes: [0-9] and [.] read the same however the line is written.
   const decimals = fraction ? '[.]' + fraction + '0*' : '(?:[.]0+)?';
   const pattern = new RegExp('(?<![0-9.,])' + grouped + decimals + '(?![0-9,]|[.][0-9])', 'g');
+  // Only what is left, where the sum is written; not written in it, what is left closes the message.
   const replaced = text.replace(pattern, plainFigure(rest.toString()));
-  return [`🔁 المتبقي فقط: ${spoken(rest)} ${left.currency} (من أصل ${spoken(total)})`, replaced].join('\n');
+  return replaced !== text ? replaced : `${text.trimEnd()}\n${spoken(rest)} ${left.currency}`;
 }
 
 export interface Group {
