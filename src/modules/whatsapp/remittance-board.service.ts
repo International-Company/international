@@ -125,9 +125,15 @@ export async function remittanceBoard(
       (group && row.sentAt
         ? groupTalk.find((entry) => entry.chatId === group.id && entry.createdAt >= row.sentAt!)
         : undefined);
-    const bank = Boolean(deal && deal.payoutBankAmount > 0n);
+    const out = row.direction === 'OUT';
+    const bank = Boolean(!out && deal && deal.payoutBankAmount > 0n);
+    // Sent out, it is done once recorded: the customer paid, the agent carried it out.
     const paidAt = deal
-      ? bank
+      ? out
+        ? deal.status === 'POSTED'
+          ? deal.createdAt
+          : null
+        : bank
         ? deal.transferConfirmedAt
         : deal.status === 'POSTED'
           ? deal.createdAt
@@ -188,6 +194,10 @@ export async function remittanceBoard(
       customerName: row.customerName,
       customerPhone: row.customerPhone,
       network: row.network,
+      direction: out ? ('OUT' as const) : ('IN' as const),
+      beneficiaryName: row.beneficiaryName,
+      deliverAmount: row.deliverAmount,
+      deliverCurrency: row.deliverCurrency,
       amount: row.amount,
       currency: row.currency,
       agentName: row.agentName,
@@ -224,6 +234,8 @@ export async function remittanceBoard(
     lines,
     summary: {
       total: lines.length,
+      incoming: lines.filter((line) => line.direction === 'IN').length,
+      outgoing: lines.filter((line) => line.direction === 'OUT').length,
       new: count('new'),
       checking: count('checking'),
       confirmed: count('confirmed'),

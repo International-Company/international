@@ -8,6 +8,7 @@ import { toDecimalString } from '@/core/money/money';
 import * as remittances from '@/modules/exchange/remittance.service';
 import { quoteExchange } from '@/modules/exchange/rates.service';
 import type { Actor } from '@/modules/exchange/transaction.service';
+import * as settings from '@/modules/settings/settings.service';
 
 const log = createLogger('whatsapp:notices');
 
@@ -25,15 +26,30 @@ const log = createLogger('whatsapp:notices');
  * Every notice is the teller's own, as the conversation it came from is.
  */
 
-export const NETWORKS = ['WESTERN', 'MONEYGRAM', 'PAYPAL', 'OTHER'] as const;
-export type Network = (typeof NETWORKS)[number];
+/** The methods the screen says in its own language; anything else in the list is a name, shown as written. */
+export const BUILT_IN_NETWORKS = ['WESTERN', 'MONEYGRAM', 'PAYPAL', 'RIA', 'USDT', 'BANK', 'OTHER'];
+export type Network = string;
 
-const NETWORK_WORDS: Record<Network, string> = {
+const NETWORK_WORDS: Record<string, string> = {
   WESTERN: 'ويسترن يونيون',
   MONEYGRAM: 'موني غرام',
   PAYPAL: 'باي بال',
+  RIA: 'ريا',
+  USDT: 'USDT',
+  BANK: 'حوالة بنكية',
   OTHER: 'حوالة',
 };
+
+/** A method in words, for what is written in a group. */
+export const networkWord = (network: string | null | undefined) =>
+  (network && NETWORK_WORDS[network]) || network || 'حوالة';
+
+/** The methods offered on a remittance taken from a chat, as the settings list them. */
+export async function noticeNetworks(): Promise<string[]> {
+  const raw = await settings.getString('remittance.noticeNetworks').catch(() => '');
+  const list = [...new Set(raw.split(',').map((entry) => entry.trim()).filter(Boolean))];
+  return list.length ? list : BUILT_IN_NETWORKS;
+}
 
 async function owned(ownerId: string, id: string) {
   const row = await prisma.remittanceNotice.findFirst({ where: { id, ownerId } });
@@ -68,17 +84,84 @@ export async function createNotice(ownerId: string, messageId: string) {
   return { id: row.id };
 }
 
+/**
+ * A remittance the customer sends, opened from their conversation: who it is
+ * for and what reaches them are written in, their payment's photo chosen from
+ * the conversation when they paid by transfer.
+ */
+export async function createOutgoing(ownerId: string, chatId: string) {
+  const chat = await prisma.tellerChat.findFirst({ where: { id: chatId, ownerId } });
+  if (!chat) throw errors.notFound('TellerChat', chatId);
+  const records = await customerNames([chat.phone]);
+  const row = await prisma.remittanceNotice.create({
+    data: {
+      ownerId,
+      chatId: chat.id,
+      direction: 'OUT',
+      network: (await noticeNetworks())[0] ?? 'OTHER',
+      customerName: shownName(chat.phone, chat.name, records),
+      customerPhone: chat.phone,
+      intakeMethod: 'CASH',
+    },
+  });
+  return { id: row.id };
+}
+
 /** What the teller read off it: the network, the sum, a note. */
 export async function updateNotice(
   ownerId: string,
   id: string,
-  input: { network?: Network; amount?: bigint | null; currency?: string | null; note?: string | null },
+  input: {
+    network?: Network;
+    amount?: bigint | null;
+    currency?: string | null;
+    note?: string | null;
+    beneficiaryName?: string | null;
+    beneficiaryPhone?: string | null;
+    beneficiaryAccount?: string | null;
+    destination?: string | null;
+    deliverAmount?: bigint | null;
+    deliverCurrency?: string | null;
+    intakeMethod?: string | null;
+    intakeChannel?: string | null;
+    /** A photo of the conversation taken as the customer's payment. */
+    photoMessageId?: string | null;
+  },
 ) {
-  await owned(ownerId, id);
+  const notice = await owned(ownerId, id);
+  if (input.network && !(await noticeNetworks()).includes(input.network) && input.network !== notice.network) {
+    throw errors.validation([{ path: 'network', message: 'Not a method the settings offer' }]);
+  }
+  const text = (value: string | null | undefined, max: number) =>
+    value === undefined ? undefined : value?.trim().slice(0, max) || null;
+  let imageId: string | null | undefined;
+  if (input.photoMessageId !== undefined) {
+    imageId = input.photoMessageId
+      ? ((
+          await prisma.tellerChatMessage.findFirst({
+            where: { id: input.photoMessageId, chatId: notice.chatId, imageId: { not: null } },
+            select: { imageId: true },
+          })
+        )?.imageId ?? undefined)
+      : null;
+  }
   await prisma.remittanceNotice.update({
     where: { id },
     data: {
       ...(input.network ? { network: input.network } : {}),
+      ...(text(input.beneficiaryName, 120) !== undefined ? { beneficiaryName: text(input.beneficiaryName, 120) } : {}),
+      ...(text(input.beneficiaryPhone, 40) !== undefined ? { beneficiaryPhone: text(input.beneficiaryPhone, 40) } : {}),
+      ...(text(input.beneficiaryAccount, 80) !== undefined ? { beneficiaryAccount: text(input.beneficiaryAccount, 80) } : {}),
+      ...(text(input.destination, 120) !== undefined ? { destination: text(input.destination, 120) } : {}),
+      ...(input.deliverAmount !== undefined
+        ? { deliverAmount: input.deliverAmount && input.deliverAmount > 0n ? input.deliverAmount : null }
+        : {}),
+      ...(input.deliverCurrency !== undefined ? { deliverCurrency: input.deliverCurrency?.trim().toUpperCase() || null } : {}),
+      ...(input.intakeMethod !== undefined
+        ? { intakeMethod: ['CASH', 'BANK', 'SPLIT'].includes(input.intakeMethod ?? '') ? input.intakeMethod : null }
+        : {}),
+      ...(text(input.intakeChannel, 80) !== undefined ? { intakeChannel: text(input.intakeChannel, 80) } : {}),
+      ...(imageId !== undefined ? { imageId } : {}),
       ...(input.amount !== undefined ? { amount: input.amount && input.amount > 0n ? input.amount : null } : {}),
       ...(input.currency !== undefined ? { currency: input.currency?.trim().toUpperCase() || null } : {}),
       ...(input.note !== undefined ? { note: input.note?.trim().slice(0, 500) || null } : {}),
@@ -99,12 +182,13 @@ export async function sendForCheck(ownerId: string, id: string, agentChat: strin
   }
   const followed = await followGroup(ownerId, agentChat, true);
   if (!followed.id) throw errors.precondition('That group cannot be used', 'errors.tellerSendFailed');
-  const image = await prisma.chatImage.findUnique({ where: { id: notice.imageId } });
-  if (!image) throw errors.notFound('ChatImage', notice.imageId);
+  if (notice.direction === 'OUT') return sendOutgoing(ownerId, notice, agentChat, followed.id);
+  const image = notice.imageId ? await prisma.chatImage.findUnique({ where: { id: notice.imageId } }) : null;
+  if (!image) throw errors.notFound('ChatImage', notice.imageId ?? '');
 
   const amount = notice.amount ? ` · ${Number(notice.amount) / 1e8} ${notice.currency ?? ''}`.trimEnd() : '';
   const caption = [
-    `🔍 للتشييك — ${NETWORK_WORDS[notice.network as Network] ?? 'حوالة'}${amount}`,
+    `🔍 للتشييك — ${networkWord(notice.network)}${amount}`,
     notice.customerName || notice.customerPhone ? `العميل: ${notice.customerName ?? ''} ${notice.customerPhone ? `+${notice.customerPhone}` : ''}`.trim() : null,
   ]
     .filter(Boolean)
@@ -130,6 +214,47 @@ export async function sendForCheck(ownerId: string, id: string, agentChat: strin
   });
   log.info('A remittance notice was sent for checking');
   return noticeDetail(ownerId, id);
+}
+
+const figureOf = (value: bigint | null, currency: string | null) =>
+  value ? `${toDecimalString(value, 2).replace(/\.00$/, '')} ${currency ?? ''}`.trim() : null;
+
+/**
+ * Sent out: the details the agent carries it out with, written to their group —
+ * who it is for, their number and account, where, and what reaches them.
+ */
+async function sendOutgoing(
+  ownerId: string,
+  notice: Awaited<ReturnType<typeof owned>>,
+  agentChat: string,
+  groupChatId: string,
+) {
+  if (!notice.beneficiaryName?.trim() || !notice.deliverAmount) {
+    throw errors.precondition('Write who it is for and how much reaches them', 'errors.outgoingIncomplete');
+  }
+  const text = [
+    `📤 حوالة للتنفيذ — ${networkWord(notice.network)}`,
+    notice.destination ? `الوجهة: ${notice.destination}` : null,
+    `المستفيد: ${notice.beneficiaryName}`,
+    notice.beneficiaryPhone ? `الهاتف: ${notice.beneficiaryPhone}` : null,
+    notice.beneficiaryAccount ? `الحساب: ${notice.beneficiaryAccount}` : null,
+    `المبلغ: ${figureOf(notice.deliverAmount, notice.deliverCurrency)}`,
+  ]
+    .filter(Boolean)
+    .join('\n');
+  await answer(ownerId, groupChatId, text);
+  const sent = await prisma.tellerChatMessage.findFirst({
+    where: { chatId: groupChatId, fromMe: true },
+    orderBy: { createdAt: 'desc' },
+    select: { id: true },
+  });
+  const group = await prisma.tellerChat.findUnique({ where: { id: groupChatId }, select: { name: true } });
+  await prisma.remittanceNotice.update({
+    where: { id: notice.id },
+    data: { agentChat, agentName: group?.name ?? null, sentMessageId: sent?.id ?? null, sentAt: new Date(), status: 'CHECKING' },
+  });
+  log.info('An outgoing remittance was sent to its agent');
+  return noticeDetail(ownerId, notice.id);
 }
 
 /** The teller's word on it: confirmed by the agent, or not. */
@@ -200,6 +325,15 @@ function noticeLine(row: Awaited<ReturnType<typeof owned>>) {
     customerName: row.customerName,
     customerPhone: row.customerPhone,
     network: row.network,
+    direction: row.direction,
+    beneficiaryName: row.beneficiaryName,
+    beneficiaryPhone: row.beneficiaryPhone,
+    beneficiaryAccount: row.beneficiaryAccount,
+    destination: row.destination,
+    deliverAmount: row.deliverAmount,
+    deliverCurrency: row.deliverCurrency,
+    intakeMethod: row.intakeMethod,
+    intakeChannel: row.intakeChannel,
     amount: row.amount,
     currency: row.currency,
     agentChat: row.agentChat,
@@ -217,7 +351,7 @@ function noticeLine(row: Awaited<ReturnType<typeof owned>>) {
 /** One notice in full, with what the agent has said so far. */
 export async function noticeDetail(ownerId: string, id: string) {
   const row = await owned(ownerId, id);
-  return { ...noticeLine(row), replies: await agentReplies(row) };
+  return { ...noticeLine(row), replies: await agentReplies(row), networks: await noticeNetworks() };
 }
 
 /** The teller's notices, newest first: those still being checked, then the rest of the last days. */
@@ -256,7 +390,7 @@ export async function remitOptions(ownerId: string, id: string) {
     }),
   ]);
   // The correspondent the network's name points to, when the manager's list has it.
-  const word = NETWORK_WORDS[(notice.network as Network) ?? 'OTHER'];
+  const word = networkWord(notice.network);
   const suggested =
     settings.destinations.find((entry) => entry.includes(word.split(' ')[0]!)) ??
     settings.destinations.find((entry) => word.includes(entry)) ??
@@ -307,7 +441,9 @@ export async function remitNotice(ownerId: string, id: string, input: RemitInput
   if (notice.transactionId) throw errors.precondition('Already paid out', 'errors.noticeAlreadyPaid');
   if (!actor.branchId) throw errors.precondition('No branch is assigned', 'errors.noBranch');
 
-  const image = await prisma.chatImage.findUnique({ where: { id: notice.imageId }, select: { data: true } });
+  const image = notice.imageId
+    ? await prisma.chatImage.findUnique({ where: { id: notice.imageId }, select: { data: true } })
+    : null;
   const paypal = notice.network === 'PAYPAL';
   const bank = Boolean(input.payoutChannel?.trim());
   const posted = await remittances.receive(
@@ -319,7 +455,7 @@ export async function remitNotice(ownerId: string, id: string, input: RemitInput
       branchId: actor.branchId,
       counterpartyName: notice.customerName,
       counterpartyPhone: notice.customerPhone,
-      notes: `إشعار واتساب — ${NETWORK_WORDS[notice.network as Network] ?? ''}`.trim(),
+      notes: `إشعار واتساب — ${networkWord(notice.network)}`.trim(),
       credited: input.credited,
       paid: input.paid,
       payCurrency: input.payCurrency.toUpperCase(),
@@ -346,4 +482,90 @@ export async function remitNotice(ownerId: string, id: string, input: RemitInput
     `رقم المعاملة: ${posted.reference}`,
   ].join('\n');
   return { notice: await noticeDetail(ownerId, id), transaction: { id: posted.id, reference: posted.reference }, draft };
+}
+
+// ---------------------------------------------------------------------------
+// Sent out: the remittance recorded once the agent carried it out
+// ---------------------------------------------------------------------------
+
+export interface RemitOutInput {
+  destination: string;
+  currency: string;
+  /** What the customer paid in all, commission included. */
+  collected: bigint;
+  /** What the agent charges for it, when known. */
+  cost: bigint | null;
+  /** Paid by transfer into one of the office's accounts — all of it, or this much and the rest in notes. */
+  intakeChannel?: string | null;
+  intakeTransfer?: bigint | null;
+}
+
+/**
+ * The outgoing remittance a carried-out request is, recorded: the customer's
+ * money in — in notes, by transfer, or both — and the agent owed for it. The
+ * photo of the customer's payment goes with it. Comes back with words for the
+ * customer, for the teller to read over before they are sent.
+ */
+export async function remitOutNotice(ownerId: string, id: string, input: RemitOutInput, actor: Actor) {
+  const notice = await owned(ownerId, id);
+  if (notice.direction !== 'OUT') throw errors.precondition('Not an outgoing remittance', 'errors.noticeNotConfirmed');
+  if (notice.status !== 'CONFIRMED') {
+    throw errors.precondition('Only one the agent carried out is recorded', 'errors.noticeNotConfirmed');
+  }
+  if (notice.transactionId) throw errors.precondition('Already recorded', 'errors.noticeAlreadyPaid');
+  if (!actor.branchId) throw errors.precondition('No branch is assigned', 'errors.noBranch');
+
+  const image = notice.imageId
+    ? await prisma.chatImage.findUnique({ where: { id: notice.imageId }, select: { data: true } })
+    : null;
+  const paypal = notice.network === 'PAYPAL';
+  const posted = await remittances.send(
+    {
+      currency: input.currency.toUpperCase(),
+      destination: paypal ? remittances.PAYPAL_DESTINATION : input.destination,
+      paypal,
+      branchId: actor.branchId,
+      counterpartyName: notice.customerName,
+      counterpartyPhone: notice.customerPhone,
+      notes: [`واتساب — ${networkWord(notice.network)}`, notice.beneficiaryName ? `المستفيد: ${notice.beneficiaryName}` : null]
+        .filter(Boolean)
+        .join(' — '),
+      collected: input.collected,
+      cost: input.cost,
+      intakeChannel: input.intakeChannel?.trim() || null,
+      intakeTransfer: input.intakeChannel?.trim() && input.intakeTransfer ? input.intakeTransfer : null,
+      deliveredAmount: notice.deliverAmount,
+      deliveredUnit: notice.deliverCurrency,
+      proof: image ? Buffer.from(image.data).toString('base64') : null,
+    },
+    actor,
+  );
+  await prisma.remittanceNotice.update({ where: { id: notice.id }, data: { transactionId: posted.id } });
+  log.info('An outgoing remittance was recorded from a chat', { notice: notice.id });
+
+  const draft = [
+    'تم إرسال حوالتك ✅',
+    notice.beneficiaryName ? `المستفيد: ${notice.beneficiaryName}` : null,
+    figureOf(notice.deliverAmount, notice.deliverCurrency) ? `المبلغ: ${figureOf(notice.deliverAmount, notice.deliverCurrency)}` : null,
+    `رقم المعاملة: ${posted.reference}`,
+  ]
+    .filter(Boolean)
+    .join('\n');
+  return { notice: await noticeDetail(ownerId, id), transaction: { id: posted.id, reference: posted.reference }, draft };
+}
+
+/**
+ * A photo the agent answered with — the receipt, the remittance's code —
+ * passed to the customer in their own conversation.
+ */
+export async function passToCustomer(ownerId: string, id: string, replyId: string) {
+  const notice = await owned(ownerId, id);
+  const replies = await agentReplies(notice);
+  const reply = [...replies.quoted, ...replies.since].find((entry) => entry.id === replyId);
+  if (!reply?.imageId) throw errors.notFound('TellerChatMessage', replyId);
+  const image = await prisma.chatImage.findUnique({ where: { id: reply.imageId }, select: { data: true } });
+  if (!image) throw errors.notFound('ChatImage', reply.imageId);
+  const caption = notice.direction === 'OUT' ? 'إيصال حوالتك ✅' : 'إشعار حوالتك ✅';
+  await answer(ownerId, notice.chatId, caption, Buffer.from(image.data).toString('base64'));
+  return noticeDetail(ownerId, id);
 }

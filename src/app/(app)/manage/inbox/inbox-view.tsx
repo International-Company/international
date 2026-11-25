@@ -48,7 +48,7 @@ import { ConfirmDialog, Dialog, useToast } from '@/ui/overlay';
 import { Badge, Button, Card, EmptyState, PageHeader, Skeleton } from '@/ui/primitives';
 import { Field, Input, Textarea } from '@/ui/form';
 import { shrinkPhoto } from '@/ui/proof-photo';
-import { checkingLate, NoticePanel, STATUS_STYLE, type NoticeLine } from './notice-panel';
+import { checkingLate, networkLabel, NoticePanel, STATUS_STYLE, type NoticeLine } from './notice-panel';
 import { CustomerPanel } from './customer-panel';
 import {
   Avatar,
@@ -275,6 +275,20 @@ function Conversations({
   const takeNotice = async (messageId: string) => {
     try {
       const { id } = await api.post<{ id: string }>('/api/inbox/mine/notices', { messageId });
+      setActiveNotice(id);
+      void loadNotices();
+    } catch (cause) {
+      toast.error(
+        t('errors.title'),
+        cause instanceof ApiError ? say(t, cause.messageKey, cause.params) || cause.message : t('errors.generic'),
+      );
+    }
+  };
+  /** A remittance the customer sends, opened from their conversation beside it. */
+  const openOutgoing = async (chatId: string) => {
+    try {
+      const { id } = await api.post<{ id: string }>('/api/inbox/mine/notices', { chatId, direction: 'OUT' });
+      setProfileOpen(false);
       setActiveNotice(id);
       void loadNotices();
     } catch (cause) {
@@ -1035,13 +1049,19 @@ function Conversations({
                         late === 'veryLate' ? 'border-s-danger' : late === 'late' ? 'border-s-warning' : 'border-s-transparent'
                       } ${activeNotice === row.id ? 'bg-primary-subtle' : 'hover:bg-surface-sunken'}`}
                     >
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img
-                        src={`/api/inbox/images/${row.imageId}`}
-                        alt=""
-                        loading="lazy"
-                        className="size-11 shrink-0 rounded-lg bg-surface-sunken object-cover ring-1 ring-border-subtle"
-                      />
+                      {row.imageId ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={`/api/inbox/images/${row.imageId}`}
+                          alt=""
+                          loading="lazy"
+                          className="size-11 shrink-0 rounded-lg bg-surface-sunken object-cover ring-1 ring-border-subtle"
+                        />
+                      ) : (
+                        <span className="inline-flex size-11 shrink-0 items-center justify-center rounded-lg bg-surface-sunken text-lg ring-1 ring-border-subtle">
+                          {row.direction === 'OUT' ? '📤' : '📥'}
+                        </span>
+                      )}
                       <span className="min-w-0 flex-1">
                         <span className="flex items-center justify-between gap-2">
                           <span className="truncate text-sm font-semibold text-content">
@@ -1053,8 +1073,17 @@ function Conversations({
                         </span>
                         <span className="mt-0.5 flex items-center justify-between gap-2 text-xs text-content-secondary">
                           <span className="truncate">
-                            {t(`inbox.notice.network.${row.network}`)}
-                            {row.amount && ` · ${Number(row.amount) / 1e8} ${row.currency ?? ''}`}
+                            <span
+                              className={`me-1 rounded px-1 text-[10px] font-bold ${
+                                row.direction === 'OUT' ? 'bg-primary-subtle text-primary-text' : 'bg-success-subtle text-success-text'
+                              }`}
+                            >
+                              {t(row.direction === 'OUT' ? 'inbox.out.short' : 'inbox.out.inShort')}
+                            </span>
+                            {networkLabel(t, row.network)}
+                            {row.direction === 'OUT'
+                              ? row.deliverAmount && ` · ${Number(row.deliverAmount) / 1e8} ${row.deliverCurrency ?? ''}`
+                              : row.amount && ` · ${Number(row.amount) / 1e8} ${row.currency ?? ''}`}
                           </span>
                           {(row.replyCount ?? 0) > 0 && (
                             <span className="shrink-0 rounded-full bg-primary px-1.5 text-[10px] font-bold text-white">
@@ -1317,6 +1346,17 @@ function Conversations({
                   )}
                 </div>
                 </button>
+                {withNotices && !thread.group && (
+                  <button
+                    type="button"
+                    title={t('inbox.out.open')}
+                    onClick={() => void openOutgoing(thread.id)}
+                    className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-lg bg-primary-subtle px-2.5 text-xs font-bold text-primary-text hover:bg-primary/15"
+                  >
+                    <SendHorizontal className="size-4 rtl:-scale-x-100" />
+                    <span className="hidden sm:inline">{t('inbox.out.open')}</span>
+                  </button>
+                )}
                 <button
                   type="button"
                   aria-label={t('inbox.searchChat')}
@@ -1818,6 +1858,15 @@ function Conversations({
             <Card className="relative flex h-full w-full flex-col overflow-hidden rounded-none p-0 pb-[env(safe-area-inset-bottom)] shadow-[var(--shadow-lg)] sm:max-w-md 2xl:h-[calc(100dvh-13.5rem)] 2xl:max-w-none 2xl:rounded-2xl 2xl:pb-0 2xl:shadow-none">
               <NoticePanel
                 noticeId={activeNotice}
+                photos={
+                  thread
+                    ? thread.messages
+                        .filter((message) => message.imageId && message.role === 'customer' && !message.deleted && (message.mediaKind ?? 'image') === 'image')
+                        .map((message) => ({ id: message.id, imageId: message.imageId! }))
+                        .slice(-12)
+                        .reverse()
+                    : []
+                }
                 onClose={() => setActiveNotice(null)}
                 onChanged={() => void loadNotices()}
                 onDraft={(chatId, text) => {

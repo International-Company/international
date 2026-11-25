@@ -270,6 +270,15 @@ export const SETTINGS: SettingDefinition[] = [
       'مفصولة بفواصل، من تسعيرة المراسل. يختار التلر واحدة وتُثبَّت على الحوالة. حذف اسم يمنع عرضه ويترك الحوالات المرسلة إليه كما سُجّلت.',
   },
   {
+    key: 'remittance.noticeNetworks', category: 'machine', type: 'string',
+    defaultValue: 'WESTERN,MONEYGRAM,PAYPAL,RIA,USDT,BANK,OTHER',
+    labelEn: 'Remittance methods in the customer inbox', labelAr: 'طرق الحوالات في واتساب العملاء',
+    descriptionEn:
+      'Comma-separated, offered on a remittance taken from a chat, in or out. WESTERN, MONEYGRAM, PAYPAL, RIA, USDT, BANK and OTHER are shown in the screen\'s language; any other name — an agent, a country — is shown as written.',
+    descriptionAr:
+      'مفصولة بفواصل، تظهر على الحوالة المأخوذة من المحادثة، واردة أو صادرة. WESTERN وMONEYGRAM وPAYPAL وRIA وUSDT وBANK وOTHER تظهر بلغة الشاشة، وأي اسم آخر — وكيل أو دولة — يظهر كما كُتب.',
+  },
+  {
     key: 'exchange.priceException.minutes', category: 'machine', type: 'number', defaultValue: 10,
     labelEn: 'A broken price lives for', labelAr: 'مدة صلاحية كسر السعر',
     descriptionEn:

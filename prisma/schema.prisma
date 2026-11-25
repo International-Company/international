@@ -2322,13 +2322,25 @@ model RemittanceNotice {
   id            String    @id @default(cuid())
   /// The teller whose number the customer wrote to.
   ownerId       String
-  /// The customer's conversation, and the photo of the notice in it.
+  /// The customer's conversation, and the photo of the notice in it — or, sent out, of their payment (none in notes).
   chatId        String
   messageId     String?
-  imageId       String
+  imageId       String?
   customerName  String?
   customerPhone String?
-  /// WESTERN | MONEYGRAM | PAYPAL | OTHER
+  /// IN: a remittance arriving for the customer. OUT: one the customer sends, carried out by the agent.
+  direction     String    @default("IN")
+  /// Sent out: who it is for, where, and what reaches them.
+  beneficiaryName    String?
+  beneficiaryPhone   String?
+  beneficiaryAccount String?
+  destination        String?
+  deliverAmount      BigInt?
+  deliverCurrency    String?
+  /// Sent out: how the customer paid — CASH, BANK, or SPLIT — and into which of the office's accounts.
+  intakeMethod       String?
+  intakeChannel      String?
+  /// From the settings' list of methods: WESTERN, MONEYGRAM, PAYPAL, RIA, USDT, BANK, OTHER, or a name.
   network       String    @default("WESTERN")
   amount        BigInt?
   currency      String?

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
-import { CheckCircle2, Clock, Receipt, RotateCcw, Search, Send, X, XCircle } from 'lucide-react';
+import { CheckCircle2, Clock, Forward, Receipt, RotateCcw, Search, Send, X, XCircle } from 'lucide-react';
 import { useLocale } from '@/i18n/provider';
 import { api, ApiError } from '@/lib/api-client';
 import { say } from '@/lib/failure';
@@ -10,6 +10,7 @@ import { Button, Skeleton } from '@/ui/primitives';
 import { useToast } from '@/ui/overlay';
 import { cn } from '@/ui/utils';
 import { RemitForm } from './remit-form';
+import { RemitOutForm } from './remit-out-form';
 
 /**
  * A remittance notice beside the customer's conversation, followed step by
@@ -18,8 +19,13 @@ import { RemitForm } from './remit-form';
  * confirmed or rejected. Paying it out is the next step, not this one.
  */
 
-export const NOTICE_NETWORKS = ['WESTERN', 'MONEYGRAM', 'PAYPAL', 'OTHER'] as const;
-export type NoticeNetwork = (typeof NOTICE_NETWORKS)[number];
+/** The methods the screen names in its own language; any other the settings add is shown as written. */
+export const NOTICE_NETWORKS = ['WESTERN', 'MONEYGRAM', 'PAYPAL', 'RIA', 'USDT', 'BANK', 'OTHER'];
+export type NoticeNetwork = string;
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export const networkLabel = (t: (key: any) => string, network: string) =>
+  NOTICE_NETWORKS.includes(network) ? t(`inbox.notice.network.${network}`) : network;
 export type NoticeStatus = 'NEW' | 'CHECKING' | 'CONFIRMED' | 'REJECTED';
 
 interface Reply {
@@ -35,7 +41,17 @@ export interface NoticeLine {
   id: string;
   chatId: string;
   messageId: string | null;
-  imageId: string;
+  imageId: string | null;
+  /** IN: a notice the customer received abroad. OUT: a remittance the customer sends. */
+  direction: 'IN' | 'OUT';
+  beneficiaryName: string | null;
+  beneficiaryPhone: string | null;
+  beneficiaryAccount: string | null;
+  destination: string | null;
+  deliverAmount: string | null;
+  deliverCurrency: string | null;
+  intakeMethod: string | null;
+  intakeChannel: string | null;
   customerName: string | null;
   customerPhone: string | null;
   network: NoticeNetwork;
@@ -56,6 +72,147 @@ export interface NoticeLine {
 
 interface NoticeDetail extends NoticeLine {
   replies: { quoted: Reply[]; since: Reply[] };
+  networks: string[];
+}
+
+/** A photo of the customer's in their conversation, offered as the payment's. */
+export interface ChatPhoto {
+  id: string;
+  imageId: string;
+}
+
+const field =
+  'h-10 w-full rounded-lg bg-surface-sunken px-3 text-sm outline-none ring-1 ring-border-subtle focus:ring-primary disabled:opacity-70';
+
+/**
+ * Sent out: who it is for and what reaches them, written in, and how the
+ * customer paid — with the photo of their transfer chosen from the conversation.
+ */
+function OutDetails({
+  notice,
+  photos,
+  disabled,
+  patch,
+}: {
+  notice: NoticeDetail;
+  photos: ChatPhoto[];
+  disabled: boolean;
+  patch: (body: Record<string, unknown>) => Promise<void>;
+}) {
+  const { t } = useLocale();
+  const [form, setForm] = useState(() => ({
+    beneficiaryName: notice.beneficiaryName ?? '',
+    beneficiaryPhone: notice.beneficiaryPhone ?? '',
+    beneficiaryAccount: notice.beneficiaryAccount ?? '',
+    destination: notice.destination ?? '',
+    deliverAmount: notice.deliverAmount ? String(Number(notice.deliverAmount) / 1e8) : '',
+  }));
+  const text = (key: keyof typeof form, label: string, ltr = false) => (
+    <label className="block space-y-1">
+      <span className="text-[11px] font-semibold text-content-tertiary">{label}</span>
+      <input
+        dir={ltr ? 'ltr' : undefined}
+        value={form[key]}
+        disabled={disabled}
+        onChange={(event) =>
+          setForm((current) => ({
+            ...current,
+            [key]: key === 'deliverAmount' ? event.target.value.replace(/[^\d.]/g, '') : event.target.value,
+          }))
+        }
+        onBlur={() => {
+          const was =
+            key === 'deliverAmount'
+              ? notice.deliverAmount
+                ? String(Number(notice.deliverAmount) / 1e8)
+                : ''
+              : (notice[key] ?? '');
+          if (form[key] !== was) void patch({ [key]: form[key] || null, ...(key === 'deliverAmount' ? { deliverCurrency: notice.deliverCurrency ?? 'USD' } : {}) });
+        }}
+        className={field}
+      />
+    </label>
+  );
+  const method = notice.intakeMethod ?? 'CASH';
+  return (
+    <div className="space-y-2">
+      {text('beneficiaryName', t('inbox.out.beneficiaryName'))}
+      <div className="grid grid-cols-2 gap-2">
+        {text('beneficiaryPhone', t('inbox.out.beneficiaryPhone'), true)}
+        {text('destination', t('inbox.out.destination'))}
+      </div>
+      {text('beneficiaryAccount', t('inbox.out.beneficiaryAccount'), true)}
+      <div className="grid grid-cols-[1fr_6rem] items-end gap-2">
+        {text('deliverAmount', t('inbox.out.deliverAmount'), true)}
+        <select
+          value={notice.deliverCurrency ?? 'USD'}
+          disabled={disabled}
+          onChange={(event) => void patch({ deliverCurrency: event.target.value, deliverAmount: form.deliverAmount || null })}
+          className="h-10 rounded-lg bg-surface-sunken px-2 text-sm font-semibold outline-none ring-1 ring-border-subtle"
+        >
+          {['USD', 'EUR', 'ILS', 'JOD', 'EGP', 'GBP', 'USDT'].map((code) => (
+            <option key={code} value={code}>
+              {code}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <p className="pt-1 text-[11px] font-semibold text-content-tertiary">{t('inbox.out.intake')}</p>
+      <div className="grid grid-cols-3 gap-1 rounded-lg bg-surface-sunken p-1">
+        {(['CASH', 'BANK', 'SPLIT'] as const).map((entry) => (
+          <button
+            key={entry}
+            type="button"
+            disabled={disabled}
+            onClick={() => void patch({ intakeMethod: entry })}
+            className={cn(
+              'h-8 rounded-md text-[11px] font-semibold transition-colors',
+              method === entry ? 'bg-surface text-content shadow-sm' : 'text-content-tertiary hover:text-content-secondary',
+            )}
+          >
+            {t(`inbox.out.intakeMethod.${entry}`)}
+          </button>
+        ))}
+      </div>
+      {method !== 'CASH' && (
+        <div className="space-y-1.5">
+          <p className="text-[11px] font-semibold text-content-tertiary">
+            {t('inbox.out.paymentPhoto')} · <span className="font-normal">{t('inbox.out.paymentPhotoHint')}</span>
+          </p>
+          {photos.length === 0 && !notice.imageId ? (
+            <p className="rounded-lg bg-surface-sunken px-2.5 py-2 text-xs text-content-tertiary">{t('inbox.out.noPhotos')}</p>
+          ) : (
+            <div className="flex gap-1.5 overflow-x-auto pb-1">
+              {notice.imageId && !photos.some((photo) => photo.imageId === notice.imageId) && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={`/api/inbox/images/${notice.imageId}`}
+                  alt=""
+                  className="size-16 shrink-0 rounded-lg object-cover ring-2 ring-primary"
+                />
+              )}
+              {photos.map((photo) => (
+                <button
+                  key={photo.id}
+                  type="button"
+                  disabled={disabled}
+                  onClick={() => void patch({ photoMessageId: notice.imageId === photo.imageId ? null : photo.id })}
+                  className={cn(
+                    'size-16 shrink-0 overflow-hidden rounded-lg ring-1 ring-border-subtle',
+                    notice.imageId === photo.imageId && 'ring-2 ring-primary',
+                  )}
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={`/api/inbox/images/${photo.imageId}`} alt="" className="size-full object-cover" />
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
 }
 
 interface NumberGroup {
@@ -83,11 +240,14 @@ export const STATUS_STYLE: Record<NoticeStatus, string> = {
 
 export function NoticePanel({
   noticeId,
+  photos = [],
   onClose,
   onChanged,
   onDraft,
 }: {
   noticeId: string;
+  /** The customer's photos in the conversation, newest first: the payment's is chosen from them. */
+  photos?: ChatPhoto[];
   onClose: () => void;
   /** Something changed that the notices' list should show. */
   onChanged: () => void;
@@ -175,6 +335,7 @@ export function NoticePanel({
     }
   };
 
+  const out = notice?.direction === 'OUT';
   const send = async () => {
     if (!agent) return;
     try {
@@ -182,7 +343,7 @@ export function NoticePanel({
     } catch {
       // Only a convenience.
     }
-    await act('send', { action: 'send', agentChat: agent }, t('inbox.notice.sent'));
+    await act('send', { action: 'send', agentChat: agent }, t(out ? 'inbox.out.sent' : 'inbox.notice.sent'));
   };
 
   if (!notice) {
@@ -204,7 +365,7 @@ export function NoticePanel({
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border-subtle px-3 py-2.5">
         <span className="min-w-0">
-          <span className="block text-sm font-bold text-content">{t('inbox.notice.title')}</span>
+          <span className="block text-sm font-bold text-content">{t(out ? 'inbox.out.title' : 'inbox.notice.title')}</span>
           <span className="block truncate text-[11px] text-content-tertiary">
             {notice.customerName ?? (notice.customerPhone ? `+${notice.customerPhone}` : '')}
           </span>
@@ -227,31 +388,38 @@ export function NoticePanel({
       <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3">
         {/* ① The notice. */}
         <section className="space-y-2 rounded-xl bg-surface p-3 ring-1 ring-border-subtle">
-          <h4 className="text-[11px] font-semibold text-content-tertiary">① {t('inbox.notice.stepNotice')}</h4>
-          <a href={`/api/inbox/images/${notice.imageId}`} target="_blank" rel="noopener noreferrer" className="block">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={`/api/inbox/images/${notice.imageId}`}
-              alt={t('inbox.notice.photo')}
-              className="max-h-56 w-full rounded-lg bg-surface-sunken object-contain ring-1 ring-border-subtle"
-            />
-          </a>
-          <div className="grid grid-cols-4 gap-1 rounded-lg bg-surface-sunken p-1">
-            {NOTICE_NETWORKS.map((network) => (
+          <h4 className="text-[11px] font-semibold text-content-tertiary">
+            ① {t(out ? 'inbox.out.stepDetails' : 'inbox.notice.stepNotice')}
+          </h4>
+          {!out && notice.imageId && (
+            <a href={`/api/inbox/images/${notice.imageId}`} target="_blank" rel="noopener noreferrer" className="block">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={`/api/inbox/images/${notice.imageId}`}
+                alt={t('inbox.notice.photo')}
+                className="max-h-56 w-full rounded-lg bg-surface-sunken object-contain ring-1 ring-border-subtle"
+              />
+            </a>
+          )}
+          <div className="flex flex-wrap gap-1 rounded-lg bg-surface-sunken p-1">
+            {[...new Set([...(notice.networks ?? NOTICE_NETWORKS), notice.network])].map((network) => (
               <button
                 key={network}
                 type="button"
                 disabled={decided}
                 onClick={() => void patch({ network })}
                 className={cn(
-                  'h-8 rounded-md text-[11px] font-semibold transition-colors',
+                  'h-8 min-w-[4.5rem] flex-1 rounded-md px-2 text-[11px] font-semibold transition-colors',
                   notice.network === network ? 'bg-surface text-content shadow-sm' : 'text-content-tertiary hover:text-content-secondary',
                 )}
               >
-                {t(`inbox.notice.network.${network}`)}
+                {networkLabel(t, network)}
               </button>
             ))}
           </div>
+          {out ? (
+            <OutDetails key={notice.id} notice={notice} photos={photos} disabled={decided} patch={patch} />
+          ) : (
           <div className="grid grid-cols-[1fr_6rem] gap-2">
             <input
               dir="ltr"
@@ -269,13 +437,14 @@ export function NoticePanel({
               onChange={(event) => void patch({ currency: event.target.value, amount: amount || null })}
               className="h-10 rounded-lg bg-surface-sunken px-2 text-sm font-semibold outline-none ring-1 ring-border-subtle"
             >
-              {['USD', 'EUR', 'ILS', 'JOD', 'GBP'].map((code) => (
+              {['USD', 'EUR', 'ILS', 'JOD', 'EGP', 'GBP', 'USDT'].map((code) => (
                 <option key={code} value={code}>
                   {code}
                 </option>
               ))}
             </select>
           </div>
+          )}
         </section>
 
         {/* ② Checked with the agent. */}
@@ -316,7 +485,9 @@ export function NoticePanel({
                 disabled={!agent}
                 onClick={() => void send()}
               >
-                {notice.sentAt ? t('inbox.notice.sendAgain') : t('inbox.notice.send')}
+                {notice.sentAt
+                  ? t(out ? 'inbox.out.sendAgain' : 'inbox.notice.sendAgain')
+                  : t(out ? 'inbox.out.send' : 'inbox.notice.send')}
               </Button>
             </>
           )}
@@ -369,6 +540,19 @@ export function NoticePanel({
                       </a>
                     )}
                     <span className="whitespace-pre-wrap break-words">{reply.text}</span>
+                    {reply.imageId && !reply.fromMe && (
+                      <button
+                        type="button"
+                        disabled={busy === `pass-${reply.id}`}
+                        onClick={() =>
+                          void act(`pass-${reply.id}`, { action: 'pass', replyId: reply.id }, t('inbox.notice.passed'))
+                        }
+                        className="mt-1 inline-flex items-center gap-1 rounded-full bg-primary px-2.5 py-1 text-[11px] font-bold text-white hover:bg-primary/90 disabled:opacity-60"
+                      >
+                        <Forward className="size-3.5" />
+                        {t('inbox.notice.passToCustomer')}
+                      </button>
+                    )}
                   </div>
                 ))
               )}
@@ -411,7 +595,7 @@ export function NoticePanel({
                   onClick={() => void act('CONFIRMED', { action: 'decide', decision: 'CONFIRMED' }, t('inbox.notice.confirmed'))}
                   className="bg-success hover:bg-success/90"
                 >
-                  {t('inbox.notice.confirm')}
+                  {t(out ? 'inbox.out.done' : 'inbox.notice.confirm')}
                 </Button>
                 <Button
                   variant="secondary"
@@ -420,7 +604,7 @@ export function NoticePanel({
                   onClick={() => void act('REJECTED', { action: 'decide', decision: 'REJECTED' }, t('inbox.notice.rejected'))}
                   className="text-danger-text"
                 >
-                  {t('inbox.notice.reject')}
+                  {t(out ? 'inbox.out.notDone' : 'inbox.notice.reject')}
                 </Button>
               </div>
             )}
@@ -435,7 +619,20 @@ export function NoticePanel({
             )}
           </section>
         )}
-        {notice.status === 'CONFIRMED' && !notice.transactionId && (
+        {notice.status === 'CONFIRMED' && !notice.transactionId && out && (
+          <RemitOutForm
+            noticeId={notice.id}
+            network={notice.network}
+            intakeMethod={notice.intakeMethod}
+            intakeChannel={notice.intakeChannel}
+            onDone={(result) => {
+              setNotice(result.notice as NoticeDetail);
+              onChanged();
+              onDraft?.(notice.chatId, result.draft);
+            }}
+          />
+        )}
+        {notice.status === 'CONFIRMED' && !notice.transactionId && !out && (
           <RemitForm
             noticeId={notice.id}
             network={notice.network}

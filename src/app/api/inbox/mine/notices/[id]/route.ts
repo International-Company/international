@@ -5,8 +5,9 @@ import { errors } from '@/core/errors/app-error';
 import { toJsonSafe } from '@/core/http/json';
 import {
   decideNotice,
-  NETWORKS,
   noticeDetail,
+  passToCustomer,
+  remitOutNotice,
   quoteRemit,
   remitNotice,
   remitOptions,
@@ -25,10 +26,19 @@ export const GET = route<unknown, unknown, z.infer<typeof paramsSchema>>({
 });
 
 const patchSchema = z.object({
-  network: z.enum(NETWORKS).optional(),
+  network: z.string().trim().min(1).max(40).optional(),
   amount: z.string().max(30).nullish(),
   currency: z.string().max(8).nullish(),
   note: z.string().max(500).nullish(),
+  beneficiaryName: z.string().max(120).nullish(),
+  beneficiaryPhone: z.string().max(40).nullish(),
+  beneficiaryAccount: z.string().max(80).nullish(),
+  destination: z.string().max(120).nullish(),
+  deliverAmount: z.string().max(30).nullish(),
+  deliverCurrency: z.string().max(8).nullish(),
+  intakeMethod: z.enum(['CASH', 'BANK', 'SPLIT']).nullish(),
+  intakeChannel: z.string().max(80).nullish(),
+  photoMessageId: z.string().max(40).nullish(),
 });
 
 /** What the teller read off the notice. */
@@ -43,6 +53,20 @@ export const PATCH = route<z.infer<typeof patchSchema>, unknown, z.infer<typeof 
         body.amount === undefined ? undefined : body.amount?.trim() ? parseMoney(body.amount) : null,
       currency: body.currency,
       note: body.note,
+      beneficiaryName: body.beneficiaryName,
+      beneficiaryPhone: body.beneficiaryPhone,
+      beneficiaryAccount: body.beneficiaryAccount,
+      destination: body.destination,
+      deliverAmount:
+        body.deliverAmount === undefined
+          ? undefined
+          : body.deliverAmount?.trim()
+            ? parseMoney(body.deliverAmount)
+            : null,
+      deliverCurrency: body.deliverCurrency,
+      intakeMethod: body.intakeMethod,
+      intakeChannel: body.intakeChannel,
+      photoMessageId: body.photoMessageId,
     }),
 });
 
@@ -50,6 +74,18 @@ const actionSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('send'), agentChat: z.string().min(5).max(120) }),
   z.object({ action: z.literal('decide'), decision: z.enum(['CONFIRMED', 'REJECTED']) }),
   z.object({ action: z.literal('reopen') }),
+  /** A photo the agent answered with, passed to the customer. */
+  z.object({ action: z.literal('pass'), replyId: z.string().min(1).max(40) }),
+  /** Sent out and carried out: the outgoing remittance recorded. */
+  z.object({
+    action: z.literal('remitOut'),
+    destination: z.string().max(120).default(''),
+    currency: z.string().min(2).max(8),
+    collected: z.string().max(30),
+    cost: z.string().max(30).nullish(),
+    intakeChannel: z.string().max(80).nullish(),
+    intakeTransfer: z.string().max(30).nullish(),
+  }),
   /** What the payout form offers. */
   z.object({ action: z.literal('options') }),
   /** A sum in the money it is paid out in, at the board. */
@@ -82,6 +118,27 @@ export const POST = route<z.infer<typeof actionSchema>, unknown, z.infer<typeof 
   handler: async ({ params, body, actor, session }) => {
     if (body.action === 'send') return sendForCheck(actor.id, params.id, body.agentChat);
     if (body.action === 'options') return remitOptions(actor.id, params.id);
+    if (body.action === 'pass') return toJsonSafe(await passToCustomer(actor.id, params.id, body.replyId));
+    if (body.action === 'remitOut') {
+      if (!['exchange.remittance.use', 'exchange.transaction.create'].every((name) => actor.permissions.includes(name))) {
+        throw errors.forbidden('exchange.remittance.use');
+      }
+      return toJsonSafe(
+        await remitOutNotice(
+          actor.id,
+          params.id,
+          {
+            destination: body.destination,
+            currency: body.currency,
+            collected: parseMoney(body.collected),
+            cost: body.cost?.trim() ? parseMoney(body.cost) : null,
+            intakeChannel: body.intakeChannel ?? null,
+            intakeTransfer: body.intakeTransfer?.trim() ? parseMoney(body.intakeTransfer) : null,
+          },
+          actor,
+        ),
+      );
+    }
     if (body.action === 'quote') {
       return toJsonSafe(await quoteRemit(actor.id, params.id, parseMoney(body.amount || '0'), body.from, body.to));
     }

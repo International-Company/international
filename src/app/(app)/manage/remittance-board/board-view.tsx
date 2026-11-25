@@ -30,6 +30,7 @@ import { Input } from '@/ui/form';
 import { DateText, Money } from '@/ui/display';
 import { DateRangePicker, keyOf as dayOf, type DayRange } from '@/ui/date-range-picker';
 import { cn } from '@/ui/utils';
+import { networkLabel } from '../inbox/notice-panel';
 
 type Stage = 'received' | 'sent' | 'answered' | 'decided' | 'remitted' | 'paid' | 'told';
 type State = 'new' | 'checking' | 'confirmed' | 'remitted' | 'done' | 'rejected';
@@ -37,7 +38,11 @@ type State = 'new' | 'checking' | 'confirmed' | 'remitted' | 'done' | 'rejected'
 interface Line {
   id: string;
   chatId: string;
-  imageId: string;
+  imageId: string | null;
+  direction: 'IN' | 'OUT';
+  beneficiaryName: string | null;
+  deliverAmount: string | null;
+  deliverCurrency: string | null;
   owner: { id: string; nameAr: string; nameEn: string };
   mine: boolean;
   customerName: string | null;
@@ -69,6 +74,8 @@ interface Board {
   lines: Line[];
   summary: {
     total: number;
+    incoming: number;
+    outgoing: number;
     new: number;
     checking: number;
     confirmed: number;
@@ -130,6 +137,7 @@ export function BoardView({ everyone }: { everyone: boolean }) {
   const [days, setDays] = useState<DayRange>(today);
   const [owner, setOwner] = useState('');
   const [show, setShow] = useState<'all' | State | 'late'>('all');
+  const [way, setWay] = useState<'all' | 'IN' | 'OUT'>('all');
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -169,6 +177,7 @@ export function BoardView({ everyone }: { everyone: boolean }) {
   const rows = useMemo(
     () =>
       (board?.lines ?? [])
+        .filter((line) => way === 'all' || line.direction === way)
         .filter((line) =>
           show === 'all'
             ? true
@@ -178,7 +187,7 @@ export function BoardView({ everyone }: { everyone: boolean }) {
         )
         .filter((line) => {
           if (!words) return true;
-          if ((line.customerName ?? '').includes(words) || (line.deal?.reference ?? '').includes(words.toUpperCase())) return true;
+          if ((line.customerName ?? '').includes(words) || (line.beneficiaryName ?? '').includes(words) || (line.deal?.reference ?? '').includes(words.toUpperCase())) return true;
           return Boolean(digits) && ((line.customerPhone ?? '').includes(digits) || (line.deal?.account ?? '').includes(digits));
         })
         // What still waits first, the longest waiting on top; then the finished, newest first.
@@ -188,9 +197,12 @@ export function BoardView({ everyone }: { everyone: boolean }) {
           if (openA !== openB) return openA ? -1 : 1;
           return openA ? (b.waited ?? 0) - (a.waited ?? 0) : new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
         }),
-    [board, show, words, digits],
+    [board, show, way, words, digits],
   );
   const opened = board?.lines.find((line) => line.id === open) ?? null;
+  // Each step in the words of its way: sent out, the agent carries it out rather than checks it.
+  const stageWord = (line: Line, stage: Stage | 'rejected') =>
+    line.direction === 'OUT' ? t(`remitBoard.stageOut.${stage}`) : t(`remitBoard.stage.${stage}`);
   const summary = board?.summary;
 
   const card = (key: 'all' | State | 'late', label: string, value: number, icon: ReactNode, tone: string) => (
@@ -234,6 +246,27 @@ export function BoardView({ everyone }: { everyone: boolean }) {
               placeholder={t('remitBoard.search')}
               iconStart={<Search className="size-4" />}
             />
+          </div>
+          <div className="flex h-10 items-center gap-1 rounded-xl bg-surface-sunken p-1 ring-1 ring-border-subtle">
+            {(['all', 'IN', 'OUT'] as const).map((entry) => (
+              <button
+                key={entry}
+                type="button"
+                aria-pressed={way === entry}
+                onClick={() => setWay(entry)}
+                className={cn(
+                  'h-8 rounded-lg px-3 text-xs font-bold transition-colors',
+                  way === entry ? 'bg-surface text-content shadow-sm' : 'text-content-tertiary hover:text-content-secondary',
+                )}
+              >
+                {t(`remitBoard.way.${entry}`)}
+                {entry !== 'all' && summary && (
+                  <span className="ms-1 tabular-nums text-content-tertiary">
+                    {entry === 'IN' ? summary.incoming : summary.outgoing}
+                  </span>
+                )}
+              </button>
+            ))}
           </div>
           <DateRangePicker value={days} onChange={setDays} className="h-10" />
           {everyone && (
@@ -306,19 +339,34 @@ export function BoardView({ everyone }: { everyone: boolean }) {
                 >
                   <span className="hidden text-sm font-semibold tabular-nums text-content md:block">{clock(line.createdAt)}</span>
                   <span className="flex min-w-0 items-center gap-2.5">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={`/api/inbox/images/${line.imageId}`}
-                      alt=""
-                      loading="lazy"
-                      className="size-10 shrink-0 rounded-lg bg-surface-sunken object-cover ring-1 ring-border-subtle"
-                    />
+                    {line.imageId ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={`/api/inbox/images/${line.imageId}`}
+                        alt=""
+                        loading="lazy"
+                        className="size-10 shrink-0 rounded-lg bg-surface-sunken object-cover ring-1 ring-border-subtle"
+                      />
+                    ) : (
+                      <span className="inline-flex size-10 shrink-0 items-center justify-center rounded-lg bg-surface-sunken text-base ring-1 ring-border-subtle">
+                        {line.direction === 'OUT' ? '📤' : '📥'}
+                      </span>
+                    )}
                     <span className="min-w-0">
                       <span className="block truncate text-sm font-bold text-content">
                         {line.customerName ?? (line.customerPhone ? `+${line.customerPhone}` : '—')}
                       </span>
                       <span className="block truncate text-[11px] text-content-tertiary">
-                        {t(`inbox.notice.network.${line.network as 'WESTERN'}`)}
+                        <span
+                          className={cn(
+                            'me-1 rounded px-1 text-[10px] font-bold',
+                            line.direction === 'OUT' ? 'bg-primary-subtle text-primary-text' : 'bg-success-subtle text-success-text',
+                          )}
+                        >
+                          {t(line.direction === 'OUT' ? 'inbox.out.short' : 'inbox.out.inShort')}
+                        </span>
+                        {networkLabel(t, line.network)}
+                        {line.direction === 'OUT' && line.beneficiaryName && ` → ${line.beneficiaryName}`}
                         {everyone && ` · ${locale === 'ar' ? line.owner.nameAr : line.owner.nameEn}`}
                         <span className="md:hidden"> · {clock(line.createdAt)}</span>
                       </span>
@@ -329,7 +377,16 @@ export function BoardView({ everyone }: { everyone: boolean }) {
                       <span className="ltr-content flex flex-wrap items-baseline gap-x-1 font-semibold tabular-nums text-content">
                         <Money value={line.deal.fromAmount} currency={line.deal.fromCurrency} />
                         <span className="text-content-tertiary">→</span>
-                        <Money value={line.deal.toAmount} currency={line.deal.toCurrency} />
+                        {/* Sent out: what reaches the beneficiary, not what the agent is owed. */}
+                        {line.direction === 'OUT' && line.deliverAmount ? (
+                          <Money value={line.deliverAmount} currency={line.deliverCurrency ?? ''} />
+                        ) : (
+                          <Money value={line.deal.toAmount} currency={line.deal.toCurrency} />
+                        )}
+                      </span>
+                    ) : line.direction === 'OUT' && line.deliverAmount ? (
+                      <span className="ltr-content font-semibold tabular-nums text-content">
+                        <Money value={line.deliverAmount} currency={line.deliverCurrency ?? ''} />
                       </span>
                     ) : line.amount ? (
                       <span className="ltr-content font-semibold tabular-nums text-content">
@@ -351,7 +408,7 @@ export function BoardView({ everyone }: { everyone: boolean }) {
                       return (
                         <span key={stage} className="flex flex-1 items-center last:flex-none">
                           <span
-                            title={`${t(`remitBoard.stage.${stage}`)}${done ? ` · ${clock(line.stages[stage]!.at)}` : ''}`}
+                            title={`${stageWord(line, stage)}${done ? ` · ${clock(line.stages[stage]!.at)}` : ''}`}
                             className={cn(
                               'inline-flex size-6 shrink-0 items-center justify-center rounded-full',
                               done
@@ -415,7 +472,8 @@ export function BoardView({ everyone }: { everyone: boolean }) {
                   {opened.customerName ?? (opened.customerPhone ? `+${opened.customerPhone}` : '—')}
                 </span>
                 <span className="block text-[11px] text-content-tertiary">
-                  {t(`inbox.notice.network.${opened.network as 'WESTERN'}`)} · {locale === 'ar' ? opened.owner.nameAr : opened.owner.nameEn}
+                  {t(opened.direction === 'OUT' ? 'inbox.out.short' : 'inbox.out.inShort')} · {networkLabel(t, opened.network)}
+                  {opened.beneficiaryName && ` → ${opened.beneficiaryName}`} · {locale === 'ar' ? opened.owner.nameAr : opened.owner.nameEn}
                 </span>
               </span>
               <button
@@ -428,10 +486,12 @@ export function BoardView({ everyone }: { everyone: boolean }) {
               </button>
             </div>
             <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3">
-              <a href={`/api/inbox/images/${opened.imageId}`} target="_blank" rel="noopener noreferrer" className="block">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={`/api/inbox/images/${opened.imageId}`} alt="" className="max-h-64 w-full rounded-xl bg-surface object-contain ring-1 ring-border-subtle" />
-              </a>
+              {opened.imageId && (
+                <a href={`/api/inbox/images/${opened.imageId}`} target="_blank" rel="noopener noreferrer" className="block">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={`/api/inbox/images/${opened.imageId}`} alt="" className="max-h-64 w-full rounded-xl bg-surface object-contain ring-1 ring-border-subtle" />
+                </a>
+              )}
 
               {opened.deal && (
                 <div className="space-y-1 rounded-xl bg-surface p-3 text-sm ring-1 ring-border-subtle">
@@ -478,7 +538,7 @@ export function BoardView({ everyone }: { everyone: boolean }) {
                       <span className="min-w-0 flex-1">
                         <span className="flex items-center justify-between gap-2">
                           <span className={cn('text-sm font-semibold', done ? 'text-content' : 'text-content-tertiary')}>
-                            {stage === 'decided' && opened.state === 'rejected' ? t('remitBoard.stage.rejected') : t(`remitBoard.stage.${stage}`)}
+                            {stage === 'decided' && opened.state === 'rejected' ? stageWord(opened, 'rejected') : stageWord(opened, stage)}
                           </span>
                           {done && (
                             <span className="shrink-0 text-[11px] tabular-nums text-content-tertiary">
