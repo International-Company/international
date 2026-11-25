@@ -18,7 +18,7 @@ import { useLocale } from '@/i18n/provider';
 import { api, ApiError } from '@/lib/api-client';
 import { say } from '@/lib/failure';
 import { Button, Card, EmptyState, Skeleton } from '@/ui/primitives';
-import { ConfirmDialog, useToast } from '@/ui/overlay';
+import { ConfirmDialog, Dialog, useToast } from '@/ui/overlay';
 import { Money } from '@/ui/display';
 import { PartsBar, remainingOf } from './parts';
 import { DateRangePicker, inRange, keyOf as dayOf, type DayRange } from '@/ui/date-range-picker';
@@ -304,12 +304,19 @@ export function BankTable({
 
   /** A forwarded transfer asked after in the group it went to: the bot answers its copy, marked ❓. */
   const [inquiring, setInquiring] = useState<string | null>(null);
-  const inquire = async (line: Line) => {
-    if (!line.messageId) return;
+  /** The transfer being asked after, and the words to ask it with. */
+  const [asking, setAsking] = useState<{ line: Line; text: string } | null>(null);
+  const inquire = (line: Line) => setAsking({ line, text: t('bankAsk.default') });
+  const sendInquiry = async () => {
+    if (!asking?.line.messageId) return;
+    const line = asking.line;
     setInquiring(keyOf(line));
     try {
-      const result = await api.post<{ asked: string[] }>(`/api/bank/groups/messages/${line.messageId}/inquire`, {});
+      const result = await api.post<{ asked: string[] }>(`/api/bank/groups/messages/${line.messageId}/inquire`, {
+        text: asking.text,
+      });
       toast.success(t('bankAsk.done'), result.asked.join('، '));
+      setAsking(null);
       onChanged();
     } catch (cause) {
       toast.error(
@@ -517,7 +524,7 @@ export function BankTable({
             disabled={inquiring === keyOf(line)}
             onClick={(event) => {
               event.stopPropagation();
-              void inquire(line);
+              inquire(line);
             }}
             title={t('bankAsk.hint')}
             aria-label={t('bankAsk.button')}
@@ -990,6 +997,64 @@ export function BankTable({
           </button>
         </div>
       )}
+
+      {/* Asking after a forwarded transfer: the words are the person's own. */}
+      <Dialog
+        open={asking !== null}
+        onClose={() => setAsking(null)}
+        size="sm"
+        title={t('bankAsk.title')}
+        description={
+          asking
+            ? `${asking.line.name ?? asking.line.account ?? ''} · ${(asking.line.forwardedTo ?? []).map((entry) => entry.group).join('، ')}`
+            : undefined
+        }
+        footer={
+          <div className="flex w-full items-center justify-end gap-2">
+            <Button variant="secondary" size="sm" onClick={() => setAsking(null)} disabled={inquiring !== null}>
+              {t('common.cancel')}
+            </Button>
+            <Button
+              variant="primary"
+              size="sm"
+              loading={inquiring !== null}
+              disabled={!asking?.text.trim()}
+              onClick={() => void sendInquiry()}
+            >
+              {t('bankAsk.send')}
+            </Button>
+          </div>
+        }
+      >
+        {asking && (
+          <div className="space-y-2.5">
+            <textarea
+              autoFocus
+              rows={3}
+              maxLength={1000}
+              value={asking.text}
+              onChange={(event) => setAsking({ ...asking, text: event.target.value })}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) void sendInquiry();
+              }}
+              className="w-full resize-none rounded-xl bg-surface-sunken p-3 text-sm text-content outline-none ring-1 ring-border-subtle focus:ring-2 focus:ring-primary/50"
+            />
+            <div className="flex flex-wrap gap-1.5">
+              {(['q1', 'q2', 'q3', 'q4'] as const).map((key) => (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => setAsking({ ...asking, text: t(`bankAsk.ready.${key}`) })}
+                  className="rounded-full bg-surface-sunken px-2.5 py-1 text-[12px] font-medium text-content-secondary ring-1 ring-border-subtle transition-colors hover:bg-primary-subtle hover:text-primary-text"
+                >
+                  {t(`bankAsk.ready.${key}`)}
+                </button>
+              ))}
+            </div>
+            <p className="text-[11px] text-content-tertiary">{t('bankAsk.sendHint')}</p>
+          </div>
+        )}
+      </Dialog>
 
       <ConfirmDialog
         open={confirming}

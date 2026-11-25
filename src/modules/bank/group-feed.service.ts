@@ -641,8 +641,9 @@ const INQUIRY = '❓ استعلام: هل تم تنفيذ هذا التحويل�
  * answers its copy there — "is it done?" — and marks the copy ❓, so whoever
  * carries it out sees it. The desk keeps when, and by whom.
  */
-export async function inquire(messageId: string, actor: Actor & { name: string }) {
+export async function inquire(messageId: string, actor: Actor & { name: string }, words?: string | null) {
   requireDesk(actor);
+  const text = words?.trim().slice(0, 1000) || INQUIRY;
   const message = await prisma.groupMessage.findUnique({ where: { id: messageId } });
   if (!message) throw errors.notFound('GroupMessage', messageId);
   const forwards = await prisma.groupForward.findMany({
@@ -664,10 +665,10 @@ export async function inquire(messageId: string, actor: Actor & { name: string }
       const copy = await prisma.groupMessage.findUnique({ where: { chat_waId: { chat, waId } } });
       const ours = copy ? copy.fromMe : Boolean(entry.auto || entry.byUserId) && !entry.reactor;
       if (ours) {
-        await replyToSent(chat, waId, INQUIRY);
+        await replyToSent(chat, waId, text);
         await reactOn(chat, { id: waId, fromMe: true, author: null }, '❓').catch(() => undefined);
       } else {
-        await answerInGroup(chat, { id: waId, author: copy?.senderJid ?? null, text: copy?.text ?? '' }, { text: INQUIRY }, '❓');
+        await answerInGroup(chat, { id: waId, author: copy?.senderJid ?? null, text: copy?.text ?? '' }, { text }, '❓');
       }
       await prisma.groupForward.update({ where: { id: entry.id }, data: { inquiredAt: new Date(), inquiredBy: name } });
       asked.push(entry.targetName ?? chat);

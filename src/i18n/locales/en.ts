@@ -2629,6 +2629,16 @@ const en = {
     hint: 'Ask after the transfer: the bot answers its copy in the group it went to "is it done?" and marks it ❓',
     done: 'The question was sent',
     asked: 'Asked {at}',
+    title: 'Ask after the transfer',
+    default: '❓ Has this transfer been sent?',
+    send: 'Send the question',
+    sendHint: 'The bot answers the transfer’s copy in the group it went to with these words and marks it ❓. (Ctrl+Enter to send)',
+    ready: {
+      q1: '❓ Is it done?',
+      q2: '📎 Please send the receipt',
+      q3: '⏳ When will it be sent?',
+      q4: '⚡ Please hurry',
+    },
   },
   bankRem: {
     tab: 'Remainders',
