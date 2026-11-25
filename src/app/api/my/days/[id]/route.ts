@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { route } from '@/core/http/route';
 import * as activity from '@/modules/exchange/activity.service';
+import { withDealParts } from '@/modules/bank/transfer-payments.service';
 
 const paramsSchema = z.object({ id: z.string().min(1) });
 const querySchema = z.object({
@@ -19,9 +20,9 @@ export const GET = route<unknown, z.infer<typeof querySchema>, z.infer<typeof pa
   paramsSchema,
   querySchema,
   handler: async ({ params, query, actor }) => ({
-    entries: await activity.dayEntries(
-      { dayId: params.id, tellerId: query.tellerId || null },
-      actor,
+    // A transfer paid in part carries what is left of it.
+    entries: await withDealParts(
+      await activity.dayEntries({ dayId: params.id, tellerId: query.tellerId || null }, actor),
     ),
   }),
 });

@@ -2582,6 +2582,8 @@ const en = {
   },
   bankParts: {
     partial: 'Partial',
+    card: 'Sent in part',
+    cardHint: 'Transfers part-sent and waiting on the rest',
     complete: 'Fully sent',
     left: 'Left',
     sentSoFar: 'Sent so far:',

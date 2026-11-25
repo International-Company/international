@@ -274,3 +274,37 @@ export async function paidSoFar(lines: { kind: ReceiptKind; id: string; currency
   }
   return paid;
 }
+
+/**
+ * What was sent so far of deals still waiting on their transfer, by deal: for
+ * the pages that show a deal outside the bank desk — the transactions, a
+ * teller's day, the remittance board. Only those paid in part.
+ */
+export async function dealParts(ids: string[]) {
+  const parts = new Map<string, { total: bigint; paid: bigint; remaining: bigint; currency: string }>();
+  const unique = [...new Set(ids)].filter(Boolean);
+  if (unique.length === 0) return parts;
+  const deals = await prisma.transaction.findMany({
+    where: { id: { in: unique }, status: 'PENDING_TRANSFER', payoutBankAmount: { gt: 0n } },
+    select: { id: true, payoutBankAmount: true, toCurrency: true },
+  });
+  if (deals.length === 0) return parts;
+  const paid = await paidSoFar(deals.map((deal) => ({ kind: 'deal' as const, id: deal.id, currency: deal.toCurrency })));
+  for (const deal of deals) {
+    const sum = paid.get(`deal:${deal.id}`);
+    if (!sum) continue;
+    parts.set(deal.id, {
+      total: deal.payoutBankAmount,
+      paid: sum,
+      remaining: deal.payoutBankAmount > sum ? deal.payoutBankAmount - sum : 0n,
+      currency: deal.toCurrency,
+    });
+  }
+  return parts;
+}
+
+/** The same, put on each row as `parts` — null where nothing was sent yet. */
+export async function withDealParts<T extends { id: string }>(rows: T[]) {
+  const parts = await dealParts(rows.map((row) => row.id));
+  return rows.map((row) => ({ ...row, parts: parts.get(row.id) ?? null }));
+}

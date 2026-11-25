@@ -26,6 +26,7 @@ import {
   type LedgerDay,
 } from '@/app/_activity/daily-ledger';
 import { MyCashLedger } from '../machine/my-cash-ledger';
+import { PartsBar } from '../../bank/parts';
 
 /**
  * «أيام العمل» — one day at a time, chosen from a calendar.
@@ -548,6 +549,9 @@ function EntryRow({ entry, time, how }: { entry: DayEntry; time: string; how: Ho
         ) : bank ? (
           entry.transferConfirmedAt ? (
             <Badge tone="success">{t('ledgerDays.state.sent')}</Badge>
+          ) : entry.parts ? (
+            // Paid in part at the bank: how much is left.
+            <PartsBar amount={entry.parts.total} paid={entry.parts.paid} currency={entry.parts.currency} className="w-32" />
           ) : (
             <Badge tone="warning">{t('ledgerDays.state.pending')}</Badge>
           )

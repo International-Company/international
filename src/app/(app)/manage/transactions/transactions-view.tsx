@@ -12,6 +12,7 @@ import { DateText, Money, StatusBadge, TransactionTypeBadge } from '@/ui/display
 import { useToast } from '@/ui/overlay';
 import { TRANSACTION_STATUSES, TRANSACTION_TYPES } from '@/modules/exchange/transaction-types';
 import { debounce } from '@/ui/utils';
+import { PartsBar } from '../../bank/parts';
 
 interface TransactionRow {
   id: string;
@@ -26,6 +27,8 @@ interface TransactionRow {
   valueDate: string;
   customer: { id: string; code: string; fullNameEn: string; fullNameAr: string } | null;
   createdBy: { id: string; fullNameEn: string; fullNameAr: string };
+  /** A transfer paid in part: what was sent, and what is left. */
+  parts?: { total: string; paid: string; remaining: string; currency: string } | null;
 }
 
 interface ListResponse {
@@ -152,7 +155,14 @@ export function TransactionsView({
       key: 'status',
       header: t('common.status'),
       sortKey: 'status',
-      cell: (row) => <StatusBadge status={row.status} />,
+      cell: (row) => (
+        <span className="inline-block min-w-[7rem]">
+          <StatusBadge status={row.status} />
+          {row.parts && (
+            <PartsBar amount={row.parts.total} paid={row.parts.paid} currency={row.parts.currency} className="mt-1" />
+          )}
+        </span>
+      ),
     },
     {
       key: 'createdAt',

@@ -16,6 +16,7 @@ import {
   MessageSquare,
   RefreshCw,
   Search,
+  SplitSquareHorizontal,
   Square,
   X,
 } from 'lucide-react';
@@ -43,7 +44,7 @@ import type { Group } from './forward-panel';
  * table. Today's, unless other days are asked for; a search looks in every day.
  */
 
-type Show = 'all' | 'open' | 'waiting' | 'forwarded' | 'done' | 'messages' | 'unsorted';
+type Show = 'all' | 'open' | 'waiting' | 'forwarded' | 'done' | 'messages' | 'unsorted' | 'partial';
 
 /**
  * A message of the bank group that looks like a transfer — it carries an
@@ -61,6 +62,7 @@ const SHOWN: Record<Show, LineState[]> = {
   done: ['done', 'reversed'],
   messages: ['message'],
   unsorted: ['message'],
+  partial: ['waiting', 'forwarded'],
 };
 
 const today = (): DayRange => {
@@ -196,6 +198,14 @@ export function BankTable({
       done: of(['done']),
       all: of(['waiting', 'forwarded', 'done']),
       messages: everything.filter((line) => stateOf(line) === 'message').length,
+      // Sent in part and still open: how many, and what is left of them, in the money most of it is in.
+      partial: (() => {
+        const open = everything.filter((line) => line.paid && ['waiting', 'forwarded'].includes(stateOf(line)));
+        const left = new Map<string, bigint>();
+        for (const line of open) left.set(line.currency, (left.get(line.currency) ?? 0n) + remainingOf(line.amount, line.paid));
+        const top = [...left.entries()].sort((a, b) => (a[1] > b[1] ? -1 : 1))[0];
+        return { count: open.length, left: top ? { currency: top[0], amount: top[1].toString() } : null };
+      })(),
       unsorted: everything.filter(unsorted).length,
     };
   }, [everything, now]);
@@ -212,7 +222,7 @@ export function BankTable({
   const needle = query.trim().toLowerCase();
   const digits = needle.replace(/\D/g, '');
   const rows = everything
-    .filter((line) => SHOWN[show].includes(stateOf(line)))
+    .filter((line) => SHOWN[show].includes(stateOf(line)) && (show !== 'partial' || Boolean(line.paid)))
     .filter((line) => show !== 'unsorted' || unsorted(line))
     .filter((line) => !channel || (line.channel ?? '—') === channel)
     .filter((line) => {
@@ -463,11 +473,35 @@ export function BankTable({
   return (
     <div className="space-y-3">
       {/* --- The day's figures, each a filter --- */}
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
         <Figure which="all" label={t('bankTable.all')} icon={<ListChecks />} tone="bg-surface-sunken text-content-secondary" />
         <Figure which="waiting" label={t('bankDesk.state.waiting')} icon={<Hourglass />} tone="bg-warning-subtle text-warning-text" />
         <Figure which="forwarded" label={t('bankDesk.state.forwarded')} icon={<CornerUpRight />} tone="bg-primary-subtle text-primary-text" />
         <Figure which="done" label={t('bankDesk.state.done')} icon={<CheckCircle2 />} tone="bg-success-subtle text-success-text" />
+        <button
+          type="button"
+          onClick={() => setShow(show === 'partial' ? 'all' : 'partial')}
+          aria-pressed={show === 'partial'}
+          title={t('bankParts.cardHint')}
+          className={cn(
+            'flex min-w-0 items-center gap-3 rounded-2xl bg-surface p-3 text-start shadow-[var(--shadow-sm)] ring-1 transition',
+            show === 'partial' ? 'ring-2 ring-warning' : 'ring-border-subtle hover:ring-warning/30',
+          )}
+        >
+          <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-warning-subtle text-warning-text [&>svg]:size-5">
+            <SplitSquareHorizontal />
+          </span>
+          <span className="min-w-0">
+            <span className="block truncate text-[11px] font-semibold text-content-tertiary">{t('bankParts.card')}</span>
+            <span className="text-xl font-extrabold tabular-nums text-content">{desk ? figures.partial.count : '…'}</span>
+            {figures.partial.left && (
+              <span className="flex items-center gap-1 truncate text-[11px] text-warning-text">
+                {t('bankParts.left')}
+                <Money value={figures.partial.left.amount} currency={figures.partial.left.currency} />
+              </span>
+            )}
+          </span>
+        </button>
         <button
           type="button"
           onClick={() => setShow(show === 'unsorted' ? 'all' : 'unsorted')}

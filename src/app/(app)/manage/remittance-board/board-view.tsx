@@ -31,6 +31,7 @@ import { DateText, Money } from '@/ui/display';
 import { DateRangePicker, keyOf as dayOf, type DayRange } from '@/ui/date-range-picker';
 import { cn } from '@/ui/utils';
 import { networkLabel } from '../inbox/notice-panel';
+import { PartsBar } from '../../bank/parts';
 
 type Stage = 'received' | 'sent' | 'answered' | 'decided' | 'remitted' | 'paid' | 'told';
 type State = 'new' | 'checking' | 'confirmed' | 'remitted' | 'done' | 'rejected';
@@ -63,6 +64,8 @@ interface Line {
     toAmount: string;
     toCurrency: string;
     bank: boolean;
+    /** Its transfer paid in part: what was sent, and what is left. */
+    parts?: { total: string; paid: string; remaining: string; currency: string } | null;
     channel: string | null;
     account: string | null;
   } | null;
@@ -397,6 +400,14 @@ export function BoardView({ everyone }: { everyone: boolean }) {
                     )}
                     {line.deal && (
                       <span className="ltr-content block truncate font-mono text-[10px] text-content-tertiary">{line.deal.reference}</span>
+                    )}
+                    {line.deal?.parts && (
+                      <PartsBar
+                        amount={line.deal.parts.total}
+                        paid={line.deal.parts.paid}
+                        currency={line.deal.parts.currency}
+                        className="mt-1 max-w-[10rem]"
+                      />
                     )}
                   </span>
                   {/* The track: each step lit once it is done, the one it waits on pulsing. */}

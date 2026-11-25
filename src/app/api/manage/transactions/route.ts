@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { route } from '@/core/http/route';
 import * as transactions from '@/modules/exchange/transaction.service';
+import { withDealParts } from '@/modules/bank/transfer-payments.service';
 import {
   isCategory,
   isTransactionStatus,
@@ -28,10 +29,10 @@ export const GET = route<unknown, z.infer<typeof querySchema>>({
   handler: async ({ query, actor }) => {
     if (query.recent) {
       const type = query.type && isTransactionType(query.type) ? query.type : undefined;
-      return transactions.recentFor(actor, { limit: query.pageSize ?? 8, type });
+      return withDealParts(await transactions.recentFor(actor, { limit: query.pageSize ?? 8, type }));
     }
 
-    return transactions.list(
+    const listed = await transactions.list(
       {
         status: query.status && isTransactionStatus(query.status) ? query.status : undefined,
         type: query.type && isTransactionType(query.type) ? query.type : undefined,
@@ -45,5 +46,7 @@ export const GET = route<unknown, z.infer<typeof querySchema>>({
       },
       actor,
     );
+    // A transfer paid in part: what was sent of it, and what is left.
+    return { ...listed, rows: await withDealParts(listed.rows) };
   },
 });

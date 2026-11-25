@@ -1,5 +1,6 @@
 import 'server-only';
 import { prisma } from '@/core/db/prisma';
+import { dealParts } from '@/modules/bank/transfer-payments.service';
 
 /**
  * The remittances taken from WhatsApp, each followed from the notice the
@@ -100,6 +101,8 @@ export async function remittanceBoard(
         },
       })
     : [];
+  // A payout sent to the bank in parts: what was sent of it so far.
+  const parts = await dealParts(deals.map((deal) => deal.id));
   const told = deals.length
     ? await prisma.tellerChatMessage.findMany({
         where: {
@@ -216,6 +219,7 @@ export async function remittanceBoard(
             bank,
             channel: deal.payoutBankChannel,
             account: deal.payoutAccount,
+            parts: parts.get(deal.id) ?? null,
           }
         : null,
       stages,

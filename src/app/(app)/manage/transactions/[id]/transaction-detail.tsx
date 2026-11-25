@@ -23,6 +23,7 @@ import { ShareButton } from '@/ui/share';
 import { ConfirmDialog, Dialog, useToast } from '@/ui/overlay';
 import { Field, Input, Select, Textarea } from '@/ui/form';
 import { DateText, Money, Rate, StatusBadge } from '@/ui/display';
+import { PartsBar } from '../../../bank/parts';
 import { cn } from '@/ui/utils';
 import { shrinkPhoto } from '@/ui/proof-photo';
 
@@ -109,6 +110,7 @@ export function TransactionDetail({
   proofs,
   tellers,
   channels = [],
+  parts = null,
   permissions,
 }: {
   transaction: TransactionData;
@@ -119,6 +121,8 @@ export function TransactionDetail({
   tellers: { id: string; fullNameAr: string; fullNameEn: string }[];
   /** The office's accounts a remittance's payment can be put right to. */
   channels?: string[];
+  /** Its transfer paid in part: what was sent, and what is left. */
+  parts?: { total: string; paid: string; remaining: string; currency: string } | null;
   permissions: string[];
 }) {
   const { t, ln } = useLocale();
@@ -412,6 +416,11 @@ export function TransactionDetail({
             }
           />
           <CardBody>
+            {parts && (
+              <div className="mb-4 rounded-xl bg-warning-subtle/40 p-3 ring-1 ring-warning/30">
+                <PartsBar amount={parts.total} paid={parts.paid} currency={parts.currency} size="lg" />
+              </div>
+            )}
             {/* What the customer gave and took, which is the whole trade. */}
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div className="rounded-[var(--radius-control)] bg-surface-sunken p-3">

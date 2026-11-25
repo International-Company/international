@@ -28,6 +28,7 @@ import { cn } from '@/ui/utils';
 import { BankMark, LATE_AFTER, VERY_LATE_AFTER } from './bank-view';
 import { clockOf, dayKey, dayLabel } from './days';
 import type { Line } from './desk-types';
+import { PartsBar } from './parts';
 
 /**
  * The bank desk's watch over every transfer: each one followed from where it
@@ -332,6 +333,7 @@ export function TrackView({ onOpen }: { onOpen: (line: Line) => void }) {
                           <span className="flex items-baseline gap-1.5">
                             <Money value={row.line.amount} currency={row.line.currency} className="text-sm font-bold text-content" />
                           </span>
+                          <PartsBar amount={row.line.amount} paid={row.line.paid} currency={row.line.currency} className="w-32" />
                           <span className="block truncate text-xs text-content-secondary">
                             {row.line.name ?? row.line.account ?? '—'}
                             {row.line.channel && <span className="text-content-tertiary"> · {row.line.channel}</span>}

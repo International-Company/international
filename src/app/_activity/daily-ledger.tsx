@@ -615,6 +615,8 @@ function Figure({ label, amounts }: { label: string; amounts: Amount[] }) {
 }
 
 export interface DayEntry {
+  /** A transfer paid in part: what was sent, and what is left. */
+  parts?: { total: string; paid: string; remaining: string; currency: string } | null;
   id: string;
   reference: string;
   createdAt: string;

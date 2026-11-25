@@ -10,6 +10,7 @@ import { transferChannels } from '@/modules/exchange/machine.service';
 import { isAppError } from '@/core/errors/app-error';
 import { toJsonSafe } from '@/core/http/json';
 import { PageHeader } from '@/ui/primitives';
+import { dealParts } from '@/modules/bank/transfer-payments.service';
 import { TransactionDetail } from './transaction-detail';
 
 export const metadata: Metadata = { title: 'Transaction' };
@@ -33,6 +34,7 @@ export default async function TransactionPage({ params }: { params: Promise<{ id
   }
 
   const history = await historyFor('Transaction', id);
+  const parts = (await dealParts([id])).get(id) ?? null;
   const proofs = await listProofs(id);
   // Only for whoever can act on it: a teller has no reason to read the staff list.
   const tellers = session.user.permissions.includes('exchange.transaction.reverse')
@@ -65,6 +67,7 @@ export default async function TransactionPage({ params }: { params: Promise<{ id
         tellers={tellers}
         channels={channels}
         proofs={toJsonSafe(proofs)}
+        parts={parts ? toJsonSafe(parts) : null}
         permissions={session.user.permissions}
       />
     </div>
