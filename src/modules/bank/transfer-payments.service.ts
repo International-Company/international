@@ -308,3 +308,31 @@ export async function withDealParts<T extends { id: string }>(rows: T[]) {
   const parts = await dealParts(rows.map((row) => row.id));
   return rows.map((row) => ({ ...row, parts: parts.get(row.id) ?? null }));
 }
+
+/**
+ * A receipt that came from a group, read before anything is decided on it:
+ * 'whole' when it covers the transfer, 'short' when it is only part of it,
+ * 'unknown' when it could not be read in time. Waits for the reading itself.
+ */
+export async function coverOf(kind: ReceiptKind, id: string, receiptId: string, waitMs = 45_000) {
+  await syncPayments(kind, id);
+  const until = Date.now() + waitMs;
+  let row = await prisma.transferPayment.findFirst({ where: { kind, refId: id, receiptId } });
+  while (row && row.status === 'READING' && Date.now() < until) {
+    await new Promise((resolve) => setTimeout(resolve, 1_500));
+    row = await prisma.transferPayment.findFirst({ where: { kind, refId: id, receiptId } });
+  }
+  const target = await targetOf(kind, id);
+  if (!row?.amount || !target) return 'unknown' as const;
+  if (row.currency && row.currency !== target.currency) return 'unknown' as const;
+  return row.amount >= target.total ? ('whole' as const) : ('short' as const);
+}
+
+/** Sent in part already: a sum read or written on one of its other receipts. */
+export async function hasPartBefore(kind: ReceiptKind, id: string, receiptId: string) {
+  return (
+    (await prisma.transferPayment.count({
+      where: { kind, refId: id, receiptId: { not: receiptId }, amount: { not: null } },
+    })) > 0
+  );
+}

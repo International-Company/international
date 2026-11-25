@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Check, CheckCheck, CornerUpRight, History, RotateCcw, Search, Star, X } from 'lucide-react';
+import { Check, CheckCheck, CornerUpRight, History, RotateCcw, Search, SplitSquareHorizontal, Star, X } from 'lucide-react';
 import { useLocale } from '@/i18n/provider';
 import { api, ApiError } from '@/lib/api-client';
 import { say } from '@/lib/failure';
@@ -11,6 +11,33 @@ import { useToast } from '@/ui/overlay';
 import { Switch, Textarea } from '@/ui/form';
 import { cn } from '@/ui/utils';
 import { clockOf, dayKey, dayLabel } from './days';
+import { plainFigure } from './desk-types';
+
+/** A stored sum (scaled by 1e8) as the group reads it: 1,250 or 1,250.5. */
+const spoken = (scaled: bigint) => {
+  const [whole, fraction = ''] = plainFigure(scaled.toString()).split('.');
+  return `${whole!.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}${fraction ? `.${fraction}` : ''}`;
+};
+
+/**
+ * The transfer's words with only what is left of it: a line saying so at the
+ * top, and the full sum where it is written changed to what is left — so the
+ * group that carries it out sends no more than that.
+ */
+function leftWords(text: string, left: { amount: string; paid: string; currency: string }): string {
+  const total = BigInt(left.amount || '0');
+  const rest = total - BigInt(left.paid || '0');
+  if (rest <= 0n) return text;
+  const whole = plainFigure(total.toString());
+  // The full sum as it may be written: 1000, 1,000, 1000.00 — a number on its own, not part of an account.
+  const [digits, fraction] = whole.split('.');
+  const grouped = digits!.replace(/(?=(?:[0-9]{3})+$)(?!^)/g, ',?');
+  // No backslashes: [0-9] and [.] read the same however the line is written.
+  const decimals = fraction ? '[.]' + fraction + '0*' : '(?:[.]0+)?';
+  const pattern = new RegExp('(?<![0-9.,])' + grouped + decimals + '(?![0-9,]|[.][0-9])', 'g');
+  const replaced = text.replace(pattern, plainFigure(rest.toString()));
+  return [`🔁 المتبقي فقط: ${spoken(rest)} ${left.currency} (من أصل ${spoken(total)})`, replaced].join('\n');
+}
 
 export interface Group {
   id: string;
@@ -123,7 +150,10 @@ export function ForwardSheet({
   onExecutors,
   onClose,
   onForwarded,
+  left = null,
 }: {
+  /** Sent in part already: what is left of it is what is passed on. */
+  left?: { amount: string; paid: string; currency: string } | null;
   open: boolean;
   messageId: string | null;
   /** Groups ticked on opening: the quick button pressed. */
@@ -166,7 +196,8 @@ export function ForwardSheet({
       .then((result) => {
         if (gone) return;
         setTrace(result);
-        setText(result.message.text);
+        // Sent in part: only what is left goes on.
+        setText(left ? leftWords(result.message.text, left) : result.message.text);
       })
       .catch((cause) => !gone && failure(cause));
     if (!everyGroup) {
@@ -357,6 +388,24 @@ export function ForwardSheet({
                     </button>
                   )}
                 </div>
+                {left && BigInt(left.paid || '0') > 0n && (
+                  <div className="mb-2 flex items-center gap-2 rounded-xl bg-warning-subtle/60 px-2.5 py-2 ring-1 ring-warning/30">
+                    <SplitSquareHorizontal className="size-4 shrink-0 text-warning-text" />
+                    <span className="min-w-0 flex-1 text-[12px] font-semibold text-warning-text">
+                      {t('bankParts.forwardLeft', {
+                        left: spoken(BigInt(left.amount) - BigInt(left.paid)),
+                        currency: left.currency,
+                      })}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setText(leftWords(trace.message.text, left))}
+                      className="shrink-0 rounded-lg bg-warning px-2 py-1 text-[11px] font-bold text-white hover:bg-warning/90"
+                    >
+                      {t('bankParts.forwardLeftUse')}
+                    </button>
+                  </div>
+                )}
                 <Textarea
                   rows={4}
                   value={text}

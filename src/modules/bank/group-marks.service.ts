@@ -11,6 +11,7 @@ import {
 } from '@/modules/whatsapp/whatsapp.service';
 import { markSent } from './bank.service';
 import { addReceipt } from './bank-receipts.service';
+import { coverOf, hasPartBefore } from './transfer-payments.service';
 import { bankGroup, executorGroups } from './group-feed.service';
 import { markedBy, markOf, wordsOf } from './group-marks';
 
@@ -305,6 +306,21 @@ async function onReply(sighting: GroupSighting): Promise<void> {
   const added = await addReceipt(found.kind, found.id, file, { sourceKey: `${sighting.chat}|${sighting.waId}` });
   if (!added) return;
   log.info('A transfer receipt was taken from a reply in a group', { kind: found.kind });
+
+  /*
+   * Paid in parts: the receipt is read before it closes anything. One sent in
+   * part already is closed by the desk alone; a receipt short of the sum leaves
+   * it open, the group told what is left. Read whole — or not read at all — it
+   * is the transfer done, as before.
+   */
+  if (await hasPartBefore(found.kind, found.id, added)) {
+    log.info('A part of a transfer came from a group; the desk closes it');
+    return;
+  }
+  if ((await coverOf(found.kind, found.id, added)) === 'short') {
+    log.info('A receipt from a group covers only part of its transfer; left open');
+    return;
+  }
 
   // The bank's receipt is the transfer done: sent, without waiting on a 👍.
   const who =

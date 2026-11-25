@@ -2583,6 +2583,8 @@ const en = {
   bankParts: {
     partial: 'Partial',
     card: 'Sent in part',
+    forwardLeft: 'Part sent — only what is left goes on: {left} {currency}',
+    forwardLeftUse: 'Left only',
     cardHint: 'Transfers part-sent and waiting on the rest',
     complete: 'Fully sent',
     left: 'Left',

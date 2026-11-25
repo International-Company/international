@@ -2582,6 +2582,8 @@ const ar: Dictionary = {
   bankParts: {
     partial: 'جزئي',
     card: 'حُوّلت جزئياً',
+    forwardLeft: 'حُوّل جزء منها — يُوجَّه المتبقي فقط: {left} {currency}',
+    forwardLeftUse: 'نص المتبقي',
     cardHint: 'التحويلات التي حُوّل جزء منها وتنتظر الباقي',
     complete: 'اكتمل المبلغ',
     left: 'المتبقي',

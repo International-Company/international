@@ -164,6 +164,11 @@ export function BankDesk() {
         open={forwarding !== null}
         messageId={selected?.messageId ?? null}
         preset={forwarding?.preset}
+        left={
+          selected?.paid && selected.status === 'PENDING_TRANSFER'
+            ? { amount: selected.amount, paid: selected.paid, currency: selected.currency }
+            : null
+        }
         executors={executors}
         onExecutors={setExecutors}
         onClose={() => setForwarding(null)}
