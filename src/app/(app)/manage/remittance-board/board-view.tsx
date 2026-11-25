@@ -65,7 +65,7 @@ interface Line {
     toCurrency: string;
     bank: boolean;
     /** Its transfer paid in part: what was sent, and what is left. */
-    parts?: { total: string; paid: string; remaining: string; currency: string } | null;
+    parts?: { total: string; paid: string; remaining: string; currency: string; closed?: boolean } | null;
     channel: string | null;
     account: string | null;
   } | null;
@@ -406,6 +406,7 @@ export function BoardView({ everyone }: { everyone: boolean }) {
                         amount={line.deal.parts.total}
                         paid={line.deal.parts.paid}
                         currency={line.deal.parts.currency}
+                        closed={line.deal.parts.closed}
                         className="mt-1 max-w-[10rem]"
                       />
                     )}

@@ -2619,6 +2619,9 @@ const en = {
   bankParts: {
     partial: 'Partial',
     card: 'Sent in part',
+    closedShort: 'Closed short',
+    shortCard: 'Closed short',
+    shortHint: 'Transfers marked sent whose receipts come to less than their sum',
     forwardLeft: 'Part sent — only what is left goes on: {left} {currency}',
     forwardLeftUse: 'Left only',
     cardHint: 'Transfers part-sent and waiting on the rest',

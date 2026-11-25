@@ -28,7 +28,7 @@ interface TransactionRow {
   customer: { id: string; code: string; fullNameEn: string; fullNameAr: string } | null;
   createdBy: { id: string; fullNameEn: string; fullNameAr: string };
   /** A transfer paid in part: what was sent, and what is left. */
-  parts?: { total: string; paid: string; remaining: string; currency: string } | null;
+  parts?: { total: string; paid: string; remaining: string; currency: string; closed?: boolean } | null;
 }
 
 interface ListResponse {
@@ -159,7 +159,7 @@ export function TransactionsView({
         <span className="inline-block min-w-[7rem]">
           <StatusBadge status={row.status} />
           {row.parts && (
-            <PartsBar amount={row.parts.total} paid={row.parts.paid} currency={row.parts.currency} className="mt-1" />
+            <PartsBar amount={row.parts.total} paid={row.parts.paid} currency={row.parts.currency} closed={row.parts.closed} className="mt-1" />
           )}
         </span>
       ),

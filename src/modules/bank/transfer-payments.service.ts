@@ -281,19 +281,23 @@ export async function paidSoFar(lines: { kind: ReceiptKind; id: string; currency
  * teller's day, the remittance board. Only those paid in part.
  */
 export async function dealParts(ids: string[]) {
-  const parts = new Map<string, { total: bigint; paid: bigint; remaining: bigint; currency: string }>();
+  const parts = new Map<string, { total: bigint; paid: bigint; remaining: bigint; currency: string; closed: boolean }>();
   const unique = [...new Set(ids)].filter(Boolean);
   if (unique.length === 0) return parts;
   const deals = await prisma.transaction.findMany({
-    where: { id: { in: unique }, status: 'PENDING_TRANSFER', payoutBankAmount: { gt: 0n } },
-    select: { id: true, payoutBankAmount: true, toCurrency: true },
+    where: { id: { in: unique }, status: { in: ['PENDING_TRANSFER', 'POSTED'] }, payoutBankAmount: { gt: 0n } },
+    select: { id: true, payoutBankAmount: true, toCurrency: true, status: true },
   });
   if (deals.length === 0) return parts;
   const paid = await paidSoFar(deals.map((deal) => ({ kind: 'deal' as const, id: deal.id, currency: deal.toCurrency })));
   for (const deal of deals) {
     const sum = paid.get(`deal:${deal.id}`);
     if (!sum) continue;
+    const closed = deal.status !== 'PENDING_TRANSFER';
+    // Closed with all of it sent: nothing to say.
+    if (closed && sum >= deal.payoutBankAmount) continue;
     parts.set(deal.id, {
+      closed,
       total: deal.payoutBankAmount,
       paid: sum,
       remaining: deal.payoutBankAmount > sum ? deal.payoutBankAmount - sum : 0n,

@@ -2618,6 +2618,9 @@ const ar: Dictionary = {
   bankParts: {
     partial: 'جزئي',
     card: 'حُوّلت جزئياً',
+    closedShort: 'نُفذت بنقص',
+    shortCard: 'نُفذت بنقص',
+    shortHint: 'حركات أُغلقت ومجموع إشعاراتها أقل من مبلغها',
     forwardLeft: 'حُوّل جزء منها — يُوجَّه المتبقي فقط: {left} {currency}',
     forwardLeftUse: 'نص المتبقي',
     cardHint: 'التحويلات التي حُوّل جزء منها وتنتظر الباقي',

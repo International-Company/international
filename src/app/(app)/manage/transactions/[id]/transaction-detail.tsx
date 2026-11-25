@@ -122,7 +122,7 @@ export function TransactionDetail({
   /** The office's accounts a remittance's payment can be put right to. */
   channels?: string[];
   /** Its transfer paid in part: what was sent, and what is left. */
-  parts?: { total: string; paid: string; remaining: string; currency: string } | null;
+  parts?: { total: string; paid: string; remaining: string; currency: string; closed?: boolean } | null;
   permissions: string[];
 }) {
   const { t, ln } = useLocale();
@@ -417,8 +417,10 @@ export function TransactionDetail({
           />
           <CardBody>
             {parts && (
-              <div className="mb-4 rounded-xl bg-warning-subtle/40 p-3 ring-1 ring-warning/30">
-                <PartsBar amount={parts.total} paid={parts.paid} currency={parts.currency} size="lg" />
+              <div
+                className={`mb-4 rounded-xl p-3 ring-1 ${parts.closed ? 'bg-danger-subtle/40 ring-danger/30' : 'bg-warning-subtle/40 ring-warning/30'}`}
+              >
+                <PartsBar amount={parts.total} paid={parts.paid} currency={parts.currency} closed={parts.closed} size="lg" />
               </div>
             )}
             {/* What the customer gave and took, which is the whole trade. */}

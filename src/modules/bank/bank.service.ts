@@ -351,17 +351,35 @@ export async function desk(
       : [];
   const kindOf = (source: string | undefined) =>
     (source === 'group' ? 'request' : source === 'tiktok' ? 'tiktok' : 'deal') as 'deal' | 'request' | 'tiktok';
-  const open = [...lists.waiting, ...(lists.range ?? [])].filter((line) => line.status === 'PENDING_TRANSFER');
+  // Waiting, and sent: one closed short of its sum is shown so, with what is left of it.
+  const counted = [...lists.waiting, ...lists.sent, ...(lists.range ?? [])].filter((line) => line.status !== 'REVERSED');
   const paid = await paidSoFar(
-    open.map((line) => ({ kind: kindOf((line as { source?: string }).source), id: line.id, currency: line.currency })),
+    counted.map((line) => ({ kind: kindOf((line as { source?: string }).source), id: line.id, currency: line.currency })),
   );
+  /*
+   * Today's sent transfers whose receipts were never read — closed before the
+   * desk read receipts — read once in the background, so one closed short of
+   * its sum is found. Each is read once: its payments are kept.
+   */
+  const unread = lists.sent.filter((line) => !paid.has(`${kindOf((line as { source?: string }).source)}:${line.id}`));
+  if (unread.length) {
+    const known = await db.transferPayment.findMany({
+      where: { OR: unread.map((line) => ({ kind: kindOf((line as { source?: string }).source), refId: line.id })) },
+      select: { kind: true, refId: true },
+    });
+    for (const line of unread.slice(0, 40)) {
+      const kind = kindOf((line as { source?: string }).source);
+      if (known.some((row) => row.kind === kind && row.refId === line.id)) continue;
+      void syncPayments(kind, line.id).catch(() => undefined);
+    }
+  }
   const withMessage = <T extends { id: string; status: string; messageRef: { chat: string; waId: string } | null }>(line: T) => {
     const { messageRef, ...rest } = line;
     return {
       ...rest,
-      /** Sent so far of a transfer paid in parts, while it waits. */
+      /** Sent so far, as its receipts read: of one paid in parts, or one closed short of its sum. */
       paid:
-        line.status === 'PENDING_TRANSFER'
+        line.status !== 'REVERSED'
           ? (paid.get(`${kindOf((line as { source?: string }).source)}:${line.id}`) ?? null)
           : null,
       messageId:

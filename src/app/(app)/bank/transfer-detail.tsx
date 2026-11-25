@@ -463,7 +463,14 @@ export function TransferDetail({
                   />
                   <Copy className="size-4 text-content-tertiary opacity-0 transition-opacity group-hover/amount:opacity-100" />
                 </button>
-                <PartsBar amount={detail.amount} paid={line.paid} currency={detail.currency} size="lg" className="mt-2 max-w-xs" />
+                <PartsBar
+                  amount={detail.amount}
+                  paid={line.paid}
+                  currency={detail.currency}
+                  size="lg"
+                  closed={stateOf(line) === 'done'}
+                  className="mt-2 max-w-xs"
+                />
                 <p className="mt-1 text-sm font-semibold text-content">{detail.channel ?? t('bank.noChannel')}</p>
                 <p className="mt-0.5 flex items-center gap-1 text-xs text-content-secondary">
                   <Clock className="size-3.5 shrink-0 text-content-tertiary" />

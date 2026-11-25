@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import {
+  AlertTriangle,
   CheckCircle2,
   CheckSquare,
   Clock,
@@ -44,7 +45,7 @@ import type { Group } from './forward-panel';
  * table. Today's, unless other days are asked for; a search looks in every day.
  */
 
-type Show = 'all' | 'open' | 'waiting' | 'forwarded' | 'done' | 'messages' | 'unsorted' | 'partial';
+type Show = 'all' | 'open' | 'waiting' | 'forwarded' | 'done' | 'messages' | 'unsorted' | 'partial' | 'short';
 
 /**
  * A message of the bank group that looks like a transfer — it carries an
@@ -63,6 +64,7 @@ const SHOWN: Record<Show, LineState[]> = {
   messages: ['message'],
   unsorted: ['message'],
   partial: ['waiting', 'forwarded'],
+  short: ['done'],
 };
 
 const today = (): DayRange => {
@@ -216,6 +218,16 @@ export function BankTable({
         const top = [...left.entries()].sort((a, b) => (a[1] > b[1] ? -1 : 1))[0];
         return { count: open.length, left: top ? { currency: top[0], amount: top[1].toString() } : null };
       })(),
+      // Marked sent, but its receipts come to less than its sum.
+      short: (() => {
+        const lines = everything.filter(
+          (line) => line.paid && stateOf(line) === 'done' && remainingOf(line.amount, line.paid) > 0n,
+        );
+        const left = new Map<string, bigint>();
+        for (const line of lines) left.set(line.currency, (left.get(line.currency) ?? 0n) + remainingOf(line.amount, line.paid));
+        const top = [...left.entries()].sort((a, b) => (a[1] > b[1] ? -1 : 1))[0];
+        return { count: lines.length, left: top ? { currency: top[0], amount: top[1].toString() } : null };
+      })(),
       unsorted: everything.filter(unsorted).length,
     };
   }, [everything, now]);
@@ -232,7 +244,7 @@ export function BankTable({
   const needle = query.trim().toLowerCase();
   const digits = needle.replace(/\D/g, '');
   const rows = everything
-    .filter((line) => SHOWN[show].includes(stateOf(line)) && (show !== 'partial' || Boolean(line.paid)))
+    .filter((line) => SHOWN[show].includes(stateOf(line)) && (show !== 'partial' || Boolean(line.paid)) && (show !== 'short' || remainingOf(line.amount, line.paid) > 0n && Boolean(line.paid)))
     .filter((line) => show !== 'unsorted' || unsorted(line))
     .filter((line) => !channel || (line.channel ?? '—') === channel)
     .filter((line) => {
@@ -483,7 +495,7 @@ export function BankTable({
   return (
     <div className="space-y-3">
       {/* --- The day's figures, each a filter --- */}
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-7">
         <Figure which="all" label={t('bankTable.all')} icon={<ListChecks />} tone="bg-surface-sunken text-content-secondary" />
         <Figure which="waiting" label={t('bankDesk.state.waiting')} icon={<Hourglass />} tone="bg-warning-subtle text-warning-text" />
         <Figure which="forwarded" label={t('bankDesk.state.forwarded')} icon={<CornerUpRight />} tone="bg-primary-subtle text-primary-text" />
@@ -505,9 +517,35 @@ export function BankTable({
             <span className="block truncate text-[11px] font-semibold text-content-tertiary">{t('bankParts.card')}</span>
             <span className="text-xl font-extrabold tabular-nums text-content">{desk ? figures.partial.count : '…'}</span>
             {figures.partial.left && (
-              <span className="flex items-center gap-1 truncate text-[11px] text-warning-text">
+              <span className="flex flex-wrap items-center gap-x-1 text-[11px] text-warning-text">
                 {t('bankParts.left')}
                 <Money value={figures.partial.left.amount} currency={figures.partial.left.currency} />
+              </span>
+            )}
+          </span>
+        </button>
+        <button
+          type="button"
+          onClick={() => setShow(show === 'short' ? 'all' : 'short')}
+          aria-pressed={show === 'short'}
+          title={t('bankParts.shortHint')}
+          className={cn(
+            'flex min-w-0 items-center gap-3 rounded-2xl bg-surface p-3 text-start shadow-[var(--shadow-sm)] ring-1 transition',
+            show === 'short' ? 'ring-2 ring-danger' : figures.short.count > 0 ? 'ring-danger/40' : 'ring-border-subtle hover:ring-danger/30',
+          )}
+        >
+          <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-danger-subtle text-danger-text [&>svg]:size-5">
+            <AlertTriangle />
+          </span>
+          <span className="min-w-0">
+            <span className="block truncate text-[11px] font-semibold text-content-tertiary">{t('bankParts.shortCard')}</span>
+            <span className={cn('text-xl font-extrabold tabular-nums', figures.short.count > 0 ? 'text-danger-text' : 'text-content')}>
+              {desk ? figures.short.count : '…'}
+            </span>
+            {figures.short.left && (
+              <span className="flex flex-wrap items-center gap-x-1 text-[11px] text-danger-text">
+                {t('bankParts.left')}
+                <Money value={figures.short.left.amount} currency={figures.short.left.currency} />
               </span>
             )}
           </span>
@@ -743,7 +781,13 @@ export function BankTable({
                               >
                                 <Money value={line.amount} currency={line.currency} />
                               </CopyCell>
-                              <PartsBar amount={line.amount} paid={line.paid} currency={line.currency} className="ms-auto mt-0.5 max-w-[9rem]" />
+                              <PartsBar
+                                amount={line.amount}
+                                paid={line.paid}
+                                currency={line.currency}
+                                closed={stateOf(line) === 'done'}
+                                className="ms-auto mt-0.5 max-w-[9rem]"
+                              />
                             </>
                           ) : (
                             <span className="text-content-tertiary">—</span>
@@ -814,7 +858,13 @@ export function BankTable({
                       {BigInt(line.amount || '0') > 0n && (
                         <span className="shrink-0 text-end">
                           <Money value={line.amount} currency={line.currency} className="font-extrabold" />
-                          <PartsBar amount={line.amount} paid={line.paid} currency={line.currency} className="mt-0.5 w-28" />
+                          <PartsBar
+                            amount={line.amount}
+                            paid={line.paid}
+                            currency={line.currency}
+                            closed={stateOf(line) === 'done'}
+                            className="mt-0.5 w-28"
+                          />
                         </span>
                       )}
                     </div>
