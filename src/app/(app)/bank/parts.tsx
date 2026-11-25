@@ -4,11 +4,13 @@ import { useLocale } from '@/i18n/provider';
 import { Money } from '@/ui/display';
 import { cn } from '@/ui/utils';
 
-/** What is left of a transfer paid in parts, as a stored sum (scaled by 1e8). */
+/** One whole shekel or dollar, scaled: less than this left over is the fraction a receipt rounds away. */
+const WHOLE = 100_000_000n;
+
+/** What is left of a transfer paid in parts, as a stored sum (scaled by 1e8): nothing under one whole unit. */
 export function remainingOf(amount: string, paid: string | null | undefined): bigint {
-  const total = BigInt(amount || '0');
-  const sent = BigInt(paid || '0');
-  return total > sent ? total - sent : 0n;
+  const left = BigInt(amount || '0') - BigInt(paid || '0');
+  return left >= WHOLE ? left : 0n;
 }
 
 /**
@@ -35,7 +37,7 @@ export function PartsBar({
   const total = BigInt(amount || '0');
   const sent = BigInt(paid || '0');
   if (sent <= 0n || total <= 0n) return null;
-  const left = total > sent ? total - sent : 0n;
+  const left = remainingOf(amount, paid);
   if (closed && left <= 0n) return null;
   const share = Math.min(100, Number((sent * 100n) / total));
   return (

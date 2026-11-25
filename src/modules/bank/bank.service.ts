@@ -8,7 +8,7 @@ import { BANK_EXECUTE } from './bank-desk';
 import { forDesk, searchRequests } from './bank-request.service';
 import { searchTiktok, tiktokForDesk } from './bank-tiktok.service';
 import { bankGroup, executorGroups, watched } from './group-feed.service';
-import { paidSoFar, syncPayments } from './transfer-payments.service';
+import { leftOf, paidSoFar, syncPayments } from './transfer-payments.service';
 import { readTransferRequest } from './transfer-request';
 import { transferChannels } from '@/modules/exchange/machine.service';
 import { readProofImage } from '@/modules/exchange/proof-image';
@@ -660,7 +660,8 @@ export async function remainders(actor: Actor, range: { from: Date; to: Date }, 
     const key = `${(line as { source?: string }).source ?? 'deal'}:${line.id}`;
     if (seen.has(key) || line.status === 'REVERSED' || !line.paid) return false;
     seen.add(key);
-    return line.paid < line.amount;
+    // Less than one whole unit left is the fraction a receipt rounds away: not a remainder.
+    return leftOf(line.amount, line.paid) > 0n;
   });
   return { group: read.group, lines };
 }

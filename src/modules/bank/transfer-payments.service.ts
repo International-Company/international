@@ -164,6 +164,15 @@ async function readPayment(paymentId: string) {
 
 const figure = (value: bigint) => toDecimalString(value, 2).replace(/\.00$/, '');
 
+/** One whole shekel or dollar, scaled: less than this left over is the fraction a receipt rounds away. */
+const WHOLE = 100_000_000n;
+
+/** What is left of a sum once this much was sent: nothing, when it is less than one whole unit. */
+export function leftOf(total: bigint, paid: bigint): bigint {
+  const left = total - paid;
+  return left >= WHOLE ? left : 0n;
+}
+
 /** What the payments add up to, counted in the transfer's money: one in other money is not added. */
 function paidOf(rows: { amount: bigint | null; currency: string | null }[], currency: string) {
   return rows.reduce((sum, row) => (row.amount && (!row.currency || row.currency === currency) ? sum + row.amount : sum), 0n);
@@ -187,13 +196,13 @@ async function announce(kind: ReceiptKind, id: string) {
     where: { id: { in: fresh.map((row) => row.id) }, announcedAt: null },
     data: { announcedAt: now },
   });
-  if (claimed.count === 0 || paid <= 0n || paid >= target.total) return;
+  if (claimed.count === 0 || paid <= 0n || leftOf(target.total, paid) === 0n) return;
   if (!(await settings.getBoolean('whatsapp.enabled')) || !isLinked()) return;
   const sentNow = paidOf(fresh, target.currency);
   const text = [
     `💸 تم تحويل ${figure(sentNow)} ${target.currency}`,
     `المحوَّل حتى الآن: ${figure(paid)} من ${figure(target.total)}`,
-    `المتبقي: ${figure(target.total - paid)} ${target.currency}`,
+    `المتبقي: ${figure(leftOf(target.total, paid))} ${target.currency}`,
   ].join('\n');
   await target.reply(text).catch((error) => log.warn('Could not tell a group what is left of a transfer', { error }));
 }
@@ -217,8 +226,8 @@ export async function paymentSummary(kind: ReceiptKind, id: string, actor: Actor
     total: target.total,
     currency: target.currency,
     paid,
-    remaining: target.total > paid ? target.total - paid : 0n,
-    over: paid > target.total ? paid - target.total : 0n,
+    remaining: leftOf(target.total, paid),
+    over: paid - target.total >= WHOLE ? paid - target.total : 0n,
     pending: target.pending,
     payments: rows.map((row) => {
       const read = tail(row.account);
@@ -296,12 +305,12 @@ export async function dealParts(ids: string[]) {
     if (!sum) continue;
     const closed = deal.status !== 'PENDING_TRANSFER';
     // Closed with all of it sent: nothing to say.
-    if (closed && sum >= deal.payoutBankAmount) continue;
+    if (closed && leftOf(deal.payoutBankAmount, sum) === 0n) continue;
     parts.set(deal.id, {
       closed,
       total: deal.payoutBankAmount,
       paid: sum,
-      remaining: deal.payoutBankAmount > sum ? deal.payoutBankAmount - sum : 0n,
+      remaining: leftOf(deal.payoutBankAmount, sum),
       currency: deal.toCurrency,
     });
   }
@@ -330,7 +339,7 @@ export async function coverOf(kind: ReceiptKind, id: string, receiptId: string, 
   const target = await targetOf(kind, id);
   if (!row?.amount || !target) return 'unknown' as const;
   if (row.currency && row.currency !== target.currency) return 'unknown' as const;
-  return row.amount >= target.total ? ('whole' as const) : ('short' as const);
+  return leftOf(target.total, row.amount) === 0n ? ('whole' as const) : ('short' as const);
 }
 
 /** Sent in part already: a sum read or written on one of its other receipts. */
@@ -352,7 +361,7 @@ export async function settleRemainder(kind: ReceiptKind, id: string, actor: Acto
   const target = await targetOf(kind, id);
   if (!target) throw errors.notFound('Transfer', id);
   const rows = await prisma.transferPayment.findMany({ where: { kind, refId: id } });
-  const left = target.total - paidOf(rows, target.currency);
+  const left = leftOf(target.total, paidOf(rows, target.currency));
   if (left <= 0n) throw errors.conflict('Nothing is left of this transfer', 'errors.nothingLeft');
   const name =
     (await prisma.user.findUnique({ where: { id: actor.id }, select: { fullNameAr: true } }))?.fullNameAr || actor.name;

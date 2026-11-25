@@ -23,7 +23,7 @@ import { Skeleton } from '@/ui/primitives';
 import { cn } from '@/ui/utils';
 import { Lightbox } from '../manage/inbox/chat-ui';
 import { clockOf, dayKey, dayLabel } from './days';
-import { PartsBar } from './parts';
+import { PartsBar, remainingOf } from './parts';
 
 interface Reading {
   provider: string | null;
@@ -177,13 +177,15 @@ export function MessageDetail({
   const r = detail.reading;
   const transfer = detail.transfer;
   const accountMatch = r?.account && transfer?.account ? tail(r.account) === tail(transfer.account) : null;
-  const left = transfer ? BigInt(transfer.amount) - BigInt(transfer.paid ?? '0') : null;
+  const left = transfer ? remainingOf(transfer.amount, transfer.paid) : null;
+  // Within one whole unit of a sum is that sum: the fraction a receipt rounds away.
+  const near = (a: bigint, b: bigint) => (a > b ? a - b : b - a) < 100_000_000n;
   const readAmount = r?.amount ? BigInt(Math.round(Number(r.amount) * 100)) * 1_000_000n : null;
   const amountFits =
     readAmount !== null && transfer
-      ? readAmount === BigInt(transfer.amount)
+      ? near(readAmount, BigInt(transfer.amount))
         ? 'whole'
-        : left !== null && readAmount === left
+        : left !== null && left > 0n && near(readAmount, left)
           ? 'left'
           : readAmount < BigInt(transfer.amount)
             ? 'part'
