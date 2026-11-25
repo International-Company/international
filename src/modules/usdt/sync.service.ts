@@ -302,7 +302,8 @@ async function notifyTransfer(chainTransactionId: string, db: DbClient): Promise
         network: record.network,
       },
     },
-    { permission: 'usdt.transaction.view' },
+    // Not everyone who sees the transfers: only whoever is given the arrival alerts.
+    { permission: 'usdt.arrivals.alert' },
     db,
   );
 }

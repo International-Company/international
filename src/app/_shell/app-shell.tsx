@@ -414,7 +414,10 @@ export function AppShell({
         </main>
       </div>
 
-      <UsdtArrivalAlert enabled={user.permissions.includes('usdt.counter.use')} />
+      {/* Only for whoever is given the alerts: the counter's own screen still lists every arrival. */}
+      <UsdtArrivalAlert
+        enabled={user.permissions.includes('usdt.counter.use') && user.permissions.includes('usdt.arrivals.alert')}
+      />
       <CommandPalette
         open={paletteOpen}
         onClose={() => setPaletteOpen(false)}
