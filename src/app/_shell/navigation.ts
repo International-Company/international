@@ -81,11 +81,25 @@ export const NAVIGATION: NavSection[] = [
         permissions: ['treasury.supervise', 'settings.manage'],
       },
       {
+        // Customers on the private number, answered from the counter or the office.
+        href: '/manage/inbox',
+        labelKey: 'nav.inbox',
+        icon: 'inbox',
+        permissions: ['customers.whatsapp'],
+      },
+      {
         // The bank desk: whoever the settings name, and the manager.
         href: '/bank',
         labelKey: 'nav.bank',
         icon: 'bank',
         permissions: ['bank.execute', 'exchange.transfer.confirm'],
+      },
+      {
+        href: '/counter/remittance',
+        labelKey: 'nav.remittance',
+        icon: 'transfer',
+        permissions: ['exchange.remittance.use'],
+        shortcut: 'g h',
       },
       {
         href: '/treasury/handovers',
@@ -142,24 +156,10 @@ export const NAVIGATION: NavSection[] = [
         hiddenWith: ['treasury.handover.manage'],
       },
       {
-        href: '/counter/remittance',
-        labelKey: 'nav.remittance',
-        icon: 'transfer',
-        permissions: ['exchange.remittance.use'],
-        shortcut: 'g h',
-      },
-      {
         href: '/counter/tiktok',
         labelKey: 'nav.tiktok',
         icon: 'tiktok',
         permissions: ['exchange.remittance.use'],
-      },
-      {
-        // Customers on the private number, answered from the counter or the office.
-        href: '/manage/inbox',
-        labelKey: 'nav.inbox',
-        icon: 'inbox',
-        permissions: ['customers.whatsapp'],
       },
       {
         // The remittances taken from WhatsApp, each followed from notice to money paid.
