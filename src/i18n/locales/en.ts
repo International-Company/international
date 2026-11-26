@@ -276,6 +276,9 @@ const en = {
   },
 
   transactions: {
+    renameCustomer: 'Correct the customer’s name',
+    renameCustomerHint: 'It is corrected in the customer’s own file, so the new name shows on all their deals, in the customers’ WhatsApp and on receipts.',
+    customerName: 'Customer name',
     transferredTo: 'Transferred to',
     editDetails: 'Edit details',
     payoutChannelEdit: 'Wallet or bank',

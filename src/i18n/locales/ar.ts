@@ -278,6 +278,9 @@ const ar: Dictionary = {
   },
 
   transactions: {
+    renameCustomer: 'تصحيح اسم العميل',
+    renameCustomerHint: 'يُصحَّح في ملف العميل نفسه، فيظهر الاسم الجديد في كل حركاته وفي واتساب العملاء والإيصالات.',
+    customerName: 'اسم العميل',
     transferredTo: 'حُوِّل إلى',
     editDetails: 'تعديل البيانات',
     payoutChannelEdit: 'المحفظة أو البنك',

@@ -223,6 +223,43 @@ export function TransactionDetail({
     (permissions.includes('exchange.transaction.edit') ||
       permissions.includes('exchange.transaction.editOwn'));
 
+  /*
+   * The customer's name put right, from the deal: it is their file that
+   * changes, so every deal of theirs, the inbox and the receipts read it.
+   */
+  const canRename = Boolean(transaction.customer) && permissions.includes('customers.update');
+  const [renaming, setRenaming] = useState(false);
+  const [newName, setNewName] = useState('');
+  const openRename = () => {
+    setNewName(transaction.customer?.fullNameAr ?? '');
+    setRenaming(true);
+  };
+  const saveName = async () => {
+    const customer = transaction.customer;
+    const name = newName.trim().replace(/s+/g, ' ');
+    if (!customer || name.length < 2) return;
+    setBusy(true);
+    try {
+      // The English name follows when it was the same, or no name at all.
+      const english = customer.fullNameEn.trim();
+      const followEnglish = english.length < 2 || english === customer.fullNameAr.trim();
+      await api.patch(`/api/customers/${customer.id}`, {
+        fullNameAr: name,
+        ...(followEnglish ? { fullNameEn: name } : {}),
+      });
+      toast.success(t('common.saved'), name);
+      setRenaming(false);
+      router.refresh();
+    } catch (cause) {
+      toast.error(
+        t('errors.title'),
+        cause instanceof ApiError ? say(t, cause.messageKey, cause.params) || cause.message : t('errors.generic'),
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const [editing, setEditing] = useState(false);
   const [details, setDetails] = useState({
     counterpartyName: '',
@@ -511,7 +548,20 @@ export function TransactionDetail({
               </DetailRow>
               {transaction.customer && (
                 <DetailRow label={t('transactions.customer')}>
-                  {ln(transaction.customer, 'fullName')}
+                  <span className="inline-flex items-center gap-1.5">
+                    {ln(transaction.customer, 'fullName')}
+                    {canRename && (
+                      <button
+                        type="button"
+                        onClick={openRename}
+                        title={t('transactions.renameCustomer')}
+                        aria-label={t('transactions.renameCustomer')}
+                        className="inline-flex size-6 items-center justify-center rounded-md text-content-tertiary hover:bg-surface-sunken hover:text-primary-text"
+                      >
+                        <Pencil className="size-3.5" />
+                      </button>
+                    )}
+                  </span>
                 </DetailRow>
               )}
               {transaction.recipientName && (
@@ -896,6 +946,38 @@ export function TransactionDetail({
       </Dialog>
 
       {/* --- The parts that never moved money ---------------------------- */}
+      <Dialog
+        open={renaming}
+        onClose={() => setRenaming(false)}
+        title={t('transactions.renameCustomer')}
+        description={t('transactions.renameCustomerHint')}
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setRenaming(false)} disabled={busy}>
+              {t('common.cancel')}
+            </Button>
+            <Button variant="primary" loading={busy} disabled={newName.trim().length < 2} onClick={() => void saveName()}>
+              {t('common.save')}
+            </Button>
+          </>
+        }
+      >
+        <Field label={t('transactions.customerName')}>
+          {(props) => (
+          <Input
+            {...props}
+            value={newName}
+            autoFocus
+            maxLength={200}
+            onChange={(event) => setNewName(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' && newName.trim().length >= 2) void saveName();
+            }}
+          />
+          )}
+        </Field>
+      </Dialog>
+
       <Dialog
         open={editing}
         onClose={() => setEditing(false)}
