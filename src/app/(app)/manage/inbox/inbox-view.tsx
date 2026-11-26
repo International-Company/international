@@ -60,6 +60,8 @@ import {
   EmojiSheet,
   Lightbox,
   listTime,
+  PhotoViewer,
+  type ViewerPhoto,
   Marked,
   QUICK_REACTIONS,
   Ticks,
@@ -129,7 +131,16 @@ interface Thread {
 const phoneOf = (phone: string | null) => (phone ? `+${phone}` : null);
 
 /** A file in a message: a photo to open, a sound or video to play, a document to save. */
-function MediaView({ message, onOpen }: { message: Message; onOpen: (src: string) => void }) {
+function MediaView({
+  message,
+  onOpen,
+  meta,
+}: {
+  message: Message;
+  onOpen: (src: string) => void;
+  /** The time and ticks, laid on the photo when it has no words. */
+  meta?: ReactNode;
+}) {
   const { t } = useLocale();
   const src = `/api/inbox/images/${message.imageId}`;
   switch (message.mediaKind) {
@@ -156,43 +167,92 @@ function MediaView({ message, onOpen }: { message: Message; onOpen: (src: string
       );
     default:
       return (
-        <button type="button" onClick={() => onOpen(src)} className="-mx-1 -mt-0.5 mb-1 block w-[calc(100%+0.5rem)]">
+        <button
+          type="button"
+          onClick={() => onOpen(src)}
+          className="group/photo relative -mx-1 -mt-0.5 mb-1 block w-[calc(100%+0.5rem)] overflow-hidden rounded-md bg-black/5 dark:bg-white/5"
+        >
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={src}
             alt={t('inbox.photo')}
             loading="lazy"
-            className="max-h-80 w-full min-w-[12rem] rounded-md object-cover"
+            className="max-h-80 min-h-32 w-full min-w-[14rem] object-cover transition duration-300 group-hover/photo:scale-[1.02] group-hover/photo:brightness-95"
           />
+          {meta && (
+            <span className="pointer-events-none absolute inset-x-0 bottom-0 flex justify-end bg-gradient-to-t from-black/55 to-transparent px-2 pb-1.5 pt-6 text-[11px] text-white">
+              {meta}
+            </span>
+          )}
         </button>
       );
   }
 }
 
+const KIND_ICON: Record<string, string> = { image: '📷', audio: '🎤', video: '🎥', document: '📄' };
+
 /** A quoted message, as WhatsApp shows one above an answer. */
-function QuoteLine({ message, onClose }: { message: Message | null; onClose?: () => void }) {
+function QuoteLine({
+  message,
+  onClose,
+  onJump,
+}: {
+  message: Message | null;
+  onClose?: () => void;
+  /** Tapped: the conversation goes to the message quoted. */
+  onJump?: () => void;
+}) {
   const { t } = useLocale();
+  const photo = message?.imageId && (message.mediaKind ?? 'image') === 'image' && !message.deleted;
   return (
     <div
-      className="mb-1 flex items-start gap-2 rounded-md border-s-4 bg-black/5 px-2 py-1 text-xs dark:bg-white/5"
+      role={onJump ? 'button' : undefined}
+      tabIndex={onJump ? 0 : undefined}
+      title={onJump ? t('inbox.quoteJump') : undefined}
+      onClick={
+        onJump
+          ? (event) => {
+              event.stopPropagation();
+              onJump();
+            }
+          : undefined
+      }
+      onKeyDown={
+        onJump
+          ? (event) => {
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                onJump();
+              }
+            }
+          : undefined
+      }
+      className={`mb-1 flex items-stretch gap-2 overflow-hidden rounded-md border-s-4 bg-black/5 ps-2 text-xs dark:bg-white/5 ${
+        onJump ? 'cursor-pointer transition hover:bg-black/10 dark:hover:bg-white/10' : ''
+      }`}
       style={{ borderInlineStartColor: colourOf(message?.authorName ?? message?.role ?? '') }}
     >
-      <span className="min-w-0 flex-1">
+      <span className="min-w-0 flex-1 py-1">
         <span className="block font-semibold" style={{ color: colourOf(message?.authorName ?? message?.role ?? '') }}>
           {message ? (message.authorName ?? t(`inbox.role.${message.role}`)) : t('inbox.quoteEarlier')}
         </span>
         {message && (
           <span className="line-clamp-2 wa-meta">
+            {message.mediaKind && !message.text && <span className="me-1">{KIND_ICON[message.mediaKind] ?? ''}</span>}
             {message.text || (message.mediaKind ? t(`inbox.kind.${message.mediaKind}`) : '')}
           </span>
         )}
       </span>
+      {photo && (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={`/api/inbox/images/${message!.imageId}`} alt="" loading="lazy" className="size-12 shrink-0 self-center object-cover" />
+      )}
       {onClose && (
         <button
           type="button"
           aria-label={t('inbox.quoteCancel')}
           onClick={onClose}
-          className="inline-flex size-6 shrink-0 items-center justify-center rounded-full text-content-secondary hover:bg-surface"
+          className="inline-flex size-6 shrink-0 items-center justify-center self-center rounded-full text-content-secondary hover:bg-surface"
         >
           <X className="size-3.5" />
         </button>
@@ -495,6 +555,20 @@ function Conversations({
 
   /** A photo opened over everything. */
   const [viewing, setViewing] = useState<string | null>(null);
+  /** The message gone to from a quote or a photo, lit for a moment. */
+  const [flash, setFlash] = useState<string | null>(null);
+  const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const jumpTo = (messageId: string) => {
+    const node = document.getElementById(`m-${messageId}`);
+    if (!node) {
+      toast.toast({ tone: 'neutral', title: t('inbox.quoteGone'), description: t('inbox.quoteGoneHint') });
+      return;
+    }
+    node.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    setFlash(messageId);
+    if (flashTimer.current) clearTimeout(flashTimer.current);
+    flashTimer.current = setTimeout(() => setFlash(null), 1_800);
+  };
   /** On a touch screen: the message tapped, whose actions are shown beside it. */
   const [tapped, setTapped] = useState<string | null>(null);
   /** The message whose reactions are open, and the emoji sheet beside the box. */
@@ -769,6 +843,18 @@ function Conversations({
   }, [openId, toEnd]);
 
   // Something new: followed when reading at the end or when it is ours, else counted on the button.
+  /** Every photo of the open conversation, oldest first, as the viewer pages through them. */
+  const photos: ViewerPhoto[] = (thread?.messages ?? [])
+    .filter((message) => message.imageId && (message.mediaKind ?? 'image') === 'image' && !message.deleted)
+    .map((message) => ({
+      src: `/api/inbox/images/${message.imageId}`,
+      messageId: message.id,
+      author:
+        message.authorName ??
+        (message.role === 'customer' ? (thread?.name ?? phoneOf(thread?.phone ?? null)) : t(`inbox.role.${message.role}`)),
+      at: message.createdAt,
+      caption: message.text || undefined,
+    }));
   const lastId = thread?.messages.at(-1)?.id;
   const lastMine = thread?.messages.at(-1)?.role !== 'customer';
   const seenLast = useRef<string | undefined>(undefined);
@@ -1459,6 +1545,8 @@ function Conversations({
                       ? (thread.messages.find((other) => other.id === message.quotedId) ?? null)
                       : undefined;
                   const writer = message.authorName ?? (message.role === 'bot' ? t('inbox.role.bot') : null);
+                  const photoOnly =
+                    Boolean(message.imageId) && (message.mediaKind ?? 'image') === 'image' && !message.text && !message.deleted;
                   return (
                     <Fragment key={message.id}>
                       {newDay && (
@@ -1478,15 +1566,31 @@ function Conversations({
                             mine ? 'wa-out' : 'wa-in'
                           } ${firstOfRun ? (mine ? 'wa-tail-out rounded-se-none' : 'wa-tail-in rounded-ss-none') : ''} ${
                             shownHit?.id === message.id ? 'ring-2 ring-yellow-400' : ''
-                          }`}
+                          } ${flash === message.id ? 'wa-flash' : ''}`}
                         >
                           {firstOfRun && writer && (thread.group || mine) && (
                             <p className="mb-0.5 text-[12.5px] font-semibold" style={{ color: colourOf(writer) }}>
                               {writer}
                             </p>
                           )}
-                          {quoted !== undefined && <QuoteLine message={quoted} />}
-                          {message.imageId && <MediaView message={message} onOpen={setViewing} />}
+                          {quoted !== undefined && <QuoteLine message={quoted} onJump={() => jumpTo(message.quotedId!)} />}
+                          {message.imageId && (
+                            <MediaView
+                              message={message}
+                              onOpen={setViewing}
+                              meta={
+                                photoOnly ? (
+                                  <span className="inline-flex items-center gap-1 leading-none">
+                                    {message.edited && <span>{t('inbox.edited')}</span>}
+                                    <span className="tabular-nums" title={when(message.createdAt)}>
+                                      {clockOf(message.createdAt)}
+                                    </span>
+                                    {mine && <Ticks ack={message.ack} />}
+                                  </span>
+                                ) : undefined
+                              }
+                            />
+                          )}
                           {withNotices && message.imageId && message.role === 'customer' && !message.deleted && (
                             <button
                               type="button"
@@ -1507,6 +1611,7 @@ function Conversations({
                             )
                           )}
                           {/* Time and ticks sit at the end of the last line, as WhatsApp sets them. */}
+                          {!photoOnly && (
                           <span className="float-end ms-3 mt-1.5 inline-flex translate-y-0.5 items-center gap-1 text-[11px] leading-none wa-meta">
                             {message.edited && !message.deleted && <span>{t('inbox.edited')}</span>}
                             <span className="tabular-nums" title={when(message.createdAt)}>
@@ -1514,6 +1619,7 @@ function Conversations({
                             </span>
                             {mine && !message.deleted && <Ticks ack={message.ack} />}
                           </span>
+                          )}
                           {/* Reactions sit on the bubble's lower edge, as WhatsApp draws them. */}
                           {message.reactions && message.reactions.length > 0 && (
                             <button
@@ -1884,7 +1990,32 @@ function Conversations({
           </div>
         )}
       </div>
-      <Lightbox src={viewing} onClose={() => setViewing(null)} label={t('inbox.photo')} />
+      {viewing && photos.some((photo) => photo.src === viewing) ? (
+        <PhotoViewer
+          photos={photos}
+          index={Math.max(0, photos.findIndex((photo) => photo.src === viewing))}
+          onIndex={(index) => setViewing(photos[index]?.src ?? null)}
+          onClose={() => setViewing(null)}
+          onGoTo={(messageId) => {
+            setViewing(null);
+            setProfileOpen(false);
+            requestAnimationFrame(() => jumpTo(messageId));
+          }}
+          words={{
+            photo: t('inbox.photo'),
+            goTo: t('inbox.viewer.goTo'),
+            zoomIn: t('inbox.viewer.zoomIn'),
+            zoomOut: t('inbox.viewer.zoomOut'),
+            rotate: t('inbox.viewer.rotate'),
+            previous: t('inbox.viewer.previous'),
+            next: t('inbox.viewer.next'),
+            close: t('common.close'),
+            save: t('inbox.viewer.save'),
+          }}
+        />
+      ) : (
+        <Lightbox src={viewing} onClose={() => setViewing(null)} label={t('inbox.photo')} />
+      )}
       {scope && (
         <>
           <RepliesDialog

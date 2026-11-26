@@ -608,3 +608,10 @@
 .wa-accent-text {
   color: var(--wa-accent);
 }
+
+/* A message gone to from a quote or a photo: lit, then fading, as WhatsApp does. */
+@keyframes wa-flash {
+  0%, 35% { box-shadow: 0 0 0 3px rgb(250 204 21 / 0.75); filter: brightness(0.92); }
+  100% { box-shadow: 0 0 0 3px rgb(250 204 21 / 0); filter: none; }
+}
+.wa-flash { animation: wa-flash 1.8s ease-out; }

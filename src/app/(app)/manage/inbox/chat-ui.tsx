@@ -1,7 +1,20 @@
 'use client';
 
-import { useEffect, type ReactNode } from 'react';
-import { Check, CheckCheck, Clock, Download, Users, X } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import {
+  Check,
+  CheckCheck,
+  ChevronLeft,
+  ChevronRight,
+  Clock,
+  Download,
+  MessageSquareShare,
+  RotateCw,
+  Users,
+  X,
+  ZoomIn,
+  ZoomOut,
+} from 'lucide-react';
 
 /** Colours a name is drawn in, the same name always the same, as WhatsApp does for group members. */
 const PALETTE = ['#e17076', '#7bc862', '#e5ca77', '#65aadd', '#a695e7', '#ee7aae', '#6ec9cb', '#faa774', '#06cf9c', '#d64c8b'];
@@ -199,6 +212,309 @@ export function Lightbox({ src, onClose, label }: { src: string | null; onClose:
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src={src} alt={label} className="max-h-full max-w-full rounded object-contain" onClick={(event) => event.stopPropagation()} />
       </button>
+    </div>
+  );
+}
+
+/** One photo of a conversation, as the viewer pages through them. */
+export interface ViewerPhoto {
+  src: string;
+  /** The message it came in, to go back to. */
+  messageId?: string;
+  author?: string | null;
+  at?: string;
+  caption?: string;
+}
+
+export interface ViewerWords {
+  photo: string;
+  goTo: string;
+  zoomIn: string;
+  zoomOut: string;
+  rotate: string;
+  previous: string;
+  next: string;
+  close: string;
+  save: string;
+}
+
+const viewerDate = (value: string) =>
+  new Intl.DateTimeFormat('en-GB', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(new Date(value));
+
+/**
+ * The conversation's photos opened over everything, as WhatsApp's viewer: who
+ * sent it and when, page through them by arrows, keys or a swipe, zoom in by a
+ * tap, the wheel or the buttons and drag about, turn it, save it, see the strip
+ * of all of them, and go back to the message it came in.
+ */
+export function PhotoViewer({
+  photos,
+  index,
+  onIndex,
+  onClose,
+  onGoTo,
+  words,
+}: {
+  photos: ViewerPhoto[];
+  index: number;
+  onIndex: (index: number) => void;
+  onClose: () => void;
+  onGoTo?: (messageId: string) => void;
+  words: ViewerWords;
+}) {
+  const photo = photos[index];
+  const [zoom, setZoom] = useState(1);
+  const [turn, setTurn] = useState(0);
+  const [shift, setShift] = useState({ x: 0, y: 0 });
+  const [dragging, setDragging] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+  const drag = useRef<{ x: number; y: number; from: { x: number; y: number }; moved: boolean } | null>(null);
+  const swipe = useRef<number | null>(null);
+  const strip = useRef<HTMLDivElement>(null);
+  const rtl = typeof document !== 'undefined' && document.documentElement.dir === 'rtl';
+
+  // Each photo opens whole and unturned, its thumbnail brought into view.
+  useEffect(() => {
+    setZoom(1);
+    setTurn(0);
+    setShift({ x: 0, y: 0 });
+    setLoaded(false);
+    strip.current
+      ?.querySelector(`[data-at="${index}"]`)
+      ?.scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'smooth' });
+  }, [index]);
+
+  const go = useCallback(
+    (step: number) => {
+      const next = index + step;
+      if (next >= 0 && next < photos.length) onIndex(next);
+    },
+    [index, photos.length, onIndex],
+  );
+
+  useEffect(() => {
+    const key = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose();
+      // The next is the one after in reading order: to the left in Arabic.
+      else if (event.key === 'ArrowLeft') go(rtl ? 1 : -1);
+      else if (event.key === 'ArrowRight') go(rtl ? -1 : 1);
+      else if (event.key === '+' || event.key === '=') setZoom((value) => Math.min(4, value + 0.5));
+      else if (event.key === '-') setZoom((value) => Math.max(1, value - 0.5));
+    };
+    window.addEventListener('keydown', key);
+    const overflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      window.removeEventListener('keydown', key);
+      document.body.style.overflow = overflow;
+    };
+  }, [go, onClose, rtl]);
+
+  // Back to whole: back in the middle too.
+  useEffect(() => {
+    if (zoom === 1) setShift({ x: 0, y: 0 });
+  }, [zoom]);
+
+  if (!photo) return null;
+  const iconButton =
+    'inline-flex size-10 shrink-0 items-center justify-center rounded-full text-white/80 transition hover:bg-white/10 hover:text-white disabled:opacity-30';
+  const canGo = Boolean(onGoTo && photo.messageId);
+
+  return (
+    <div
+      className="fixed inset-0 z-[70] flex select-none flex-col bg-black/95 backdrop-blur-sm"
+      role="dialog"
+      aria-modal="true"
+      aria-label={words.photo}
+    >
+      {/* Who sent it, when, and what can be done to it. */}
+      <div className="flex shrink-0 items-center gap-1 bg-gradient-to-b from-black/70 to-transparent px-2 py-2 sm:gap-2 sm:px-4">
+        <button type="button" onClick={onClose} aria-label={words.close} title={words.close} className={iconButton}>
+          <X className="size-6" />
+        </button>
+        <div className="min-w-0 flex-1 px-1 text-white">
+          <p className="truncate text-sm font-semibold">{photo.author || words.photo}</p>
+          <p className="truncate text-xs text-white/60 tabular-nums">
+            <span dir="ltr">{photo.at ? viewerDate(photo.at) : ''}</span>
+            {photos.length > 1 && (
+              <span dir="ltr" className="ms-2 rounded-full bg-white/10 px-1.5 py-px text-[11px] text-white/80">
+                {index + 1} / {photos.length}
+              </span>
+            )}
+          </p>
+        </div>
+        {canGo && (
+          <button
+            type="button"
+            onClick={() => onGoTo!(photo.messageId!)}
+            aria-label={words.goTo}
+            title={words.goTo}
+            className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full bg-white/10 px-2.5 text-xs font-semibold text-white transition hover:bg-white/20 sm:px-3"
+          >
+            <MessageSquareShare className="size-4" />
+            <span className="hidden sm:inline">{words.goTo}</span>
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={() => setZoom((value) => Math.max(1, value - 0.5))}
+          disabled={zoom <= 1}
+          aria-label={words.zoomOut}
+          title={words.zoomOut}
+          className={`${iconButton} max-sm:hidden`}
+        >
+          <ZoomOut className="size-5" />
+        </button>
+        <button
+          type="button"
+          onClick={() => setZoom((value) => Math.min(4, value + 0.5))}
+          disabled={zoom >= 4}
+          aria-label={words.zoomIn}
+          title={words.zoomIn}
+          className={`${iconButton} max-sm:hidden`}
+        >
+          <ZoomIn className="size-5" />
+        </button>
+        <button
+          type="button"
+          onClick={() => setTurn((value) => value + 90)}
+          aria-label={words.rotate}
+          title={words.rotate}
+          className={iconButton}
+        >
+          <RotateCw className="size-5" />
+        </button>
+        <a href={photo.src} download aria-label={words.save} title={words.save} className={iconButton}>
+          <Download className="size-5" />
+        </a>
+      </div>
+
+      {/* The photo itself: a tap zooms, a drag moves it when zoomed, a swipe pages. */}
+      <div
+        className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden"
+        onClick={(event) => {
+          if (event.target === event.currentTarget) onClose();
+        }}
+        onWheel={(event) =>
+          setZoom((value) => Math.min(4, Math.max(1, value - Math.sign(event.deltaY) * 0.25)))
+        }
+        onTouchStart={(event) => {
+          swipe.current = zoom === 1 && event.touches.length === 1 ? event.touches[0]!.clientX : null;
+        }}
+        onTouchEnd={(event) => {
+          const start = swipe.current;
+          swipe.current = null;
+          if (start === null) return;
+          const moved = event.changedTouches[0]!.clientX - start;
+          // A swipe towards the start brings the next, as the pages turn.
+          if (Math.abs(moved) > 60) go(moved < 0 !== rtl ? 1 : -1);
+        }}
+      >
+        {!loaded && (
+          <span className="pointer-events-none absolute size-10 animate-spin rounded-full border-2 border-white/20 border-t-white/80" />
+        )}
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          key={photo.src}
+          src={photo.src}
+          alt={photo.caption || words.photo}
+          draggable={false}
+          onLoad={() => setLoaded(true)}
+          onError={() => setLoaded(true)}
+          onPointerDown={(event) => {
+            drag.current = { x: event.clientX, y: event.clientY, from: shift, moved: false };
+            event.currentTarget.setPointerCapture?.(event.pointerId);
+          }}
+          onPointerMove={(event) => {
+            const held = drag.current;
+            if (!held) return;
+            const dx = event.clientX - held.x;
+            const dy = event.clientY - held.y;
+            if (!held.moved && Math.abs(dx) + Math.abs(dy) > 6) {
+              held.moved = true;
+              setDragging(true);
+            }
+            if (zoom > 1 && held.moved) setShift({ x: held.from.x + dx, y: held.from.y + dy });
+          }}
+          onPointerUp={() => {
+            const held = drag.current;
+            drag.current = null;
+            setDragging(false);
+            if (held && !held.moved) setZoom((value) => (value > 1 ? 1 : 2.5));
+          }}
+          onPointerCancel={() => {
+            drag.current = null;
+            setDragging(false);
+          }}
+          style={{
+            transform: `translate(${shift.x}px, ${shift.y}px) scale(${zoom}) rotate(${turn}deg)`,
+            transition: dragging ? 'none' : 'transform 180ms ease, opacity 200ms ease',
+            opacity: loaded ? 1 : 0,
+            cursor: zoom > 1 ? (dragging ? 'grabbing' : 'grab') : 'zoom-in',
+            touchAction: zoom > 1 ? 'none' : 'pan-y',
+          }}
+          className="max-h-full max-w-full object-contain p-2 sm:p-6"
+        />
+        {photos.length > 1 && (
+          <>
+            <button
+              type="button"
+              onClick={() => go(-1)}
+              disabled={index === 0}
+              aria-label={words.previous}
+              title={words.previous}
+              className="absolute start-3 top-1/2 inline-flex size-12 -translate-y-1/2 items-center justify-center rounded-full bg-white/10 text-white backdrop-blur transition hover:bg-white/20 disabled:pointer-events-none disabled:opacity-0 max-sm:hidden"
+            >
+              <ChevronRight className="size-7 ltr:rotate-180" />
+            </button>
+            <button
+              type="button"
+              onClick={() => go(1)}
+              disabled={index === photos.length - 1}
+              aria-label={words.next}
+              title={words.next}
+              className="absolute end-3 top-1/2 inline-flex size-12 -translate-y-1/2 items-center justify-center rounded-full bg-white/10 text-white backdrop-blur transition hover:bg-white/20 disabled:pointer-events-none disabled:opacity-0 max-sm:hidden"
+            >
+              <ChevronLeft className="size-7 ltr:rotate-180" />
+            </button>
+          </>
+        )}
+      </div>
+
+      {/* Its words, and every photo of the conversation in a strip. */}
+      <div className="shrink-0 bg-gradient-to-t from-black/80 to-transparent pb-[max(0.5rem,env(safe-area-inset-bottom))]">
+        {photo.caption && (
+          <p className="mx-auto line-clamp-3 max-w-2xl whitespace-pre-wrap break-words px-4 pb-2 text-center text-sm text-white/90">
+            {photo.caption}
+          </p>
+        )}
+        {photos.length > 1 && (
+          <div ref={strip} className="overflow-x-auto px-3 pb-1 pt-1 [scrollbar-width:none]">
+            <div className="mx-auto flex w-max gap-1.5">
+              {photos.map((entry, at) => (
+                <button
+                  key={`${entry.src}-${at}`}
+                  type="button"
+                  data-at={at}
+                  onClick={() => onIndex(at)}
+                  className={`size-14 shrink-0 overflow-hidden rounded-md transition ${
+                    at === index ? 'scale-105 opacity-100 ring-2 ring-white' : 'opacity-50 hover:opacity-90'
+                  }`}
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={entry.src} alt="" loading="lazy" className="size-full object-cover" />
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
