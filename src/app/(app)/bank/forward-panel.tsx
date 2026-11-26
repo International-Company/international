@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Check, CheckCheck, CornerUpRight, History, RotateCcw, Search, SplitSquareHorizontal, Star, X } from 'lucide-react';
+import { Check, CheckCheck, CornerUpRight, History, RotateCcw, Search, Settings2, SplitSquareHorizontal, Star, X } from 'lucide-react';
 import { useLocale } from '@/i18n/provider';
 import { api, ApiError } from '@/lib/api-client';
 import { say } from '@/lib/failure';
@@ -190,6 +190,8 @@ export function ForwardSheet({
   const [withPhoto, setWithPhoto] = useState(true);
   const [query, setQuery] = useState('');
   const [busy, setBusy] = useState(false);
+  /** Choosing which groups are offered: every group shown, a star on each. None chosen yet, it opens so. */
+  const [managing, setManaging] = useState(false);
 
   const failure = useCallback(
     (cause: unknown) =>
@@ -207,6 +209,7 @@ export function ForwardSheet({
     setTrace(null);
     setQuery('');
     setWithPhoto(true);
+    setManaging(executors.length === 0);
     api
       .get<Trace>(`/api/bank/groups/messages/${messageId}/trace`)
       .then((result) => {
@@ -216,7 +219,19 @@ export function ForwardSheet({
         setText(left ? leftWords(result.message.text, left) : result.message.text);
       })
       .catch((cause) => !gone && failure(cause));
-    if (!everyGroup) {
+    const last = lastTargets().filter((group) => executors.some((entry) => entry.id === group.id));
+    setTargets(preset?.length ? preset : last.length ? last : executors.length === 1 ? executors : []);
+    return () => {
+      gone = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, messageId]);
+
+  // Every group read only when they are being chosen: the chosen ones are all the sheet needs.
+  useEffect(() => {
+    if (!open || !managing || everyGroup) return;
+    let gone = false;
+    {
       api
         .get<Group[]>('/api/bank/groups/all')
         .then((all) => !gone && setEveryGroup(all))
@@ -226,13 +241,11 @@ export function ForwardSheet({
           failure(cause);
         });
     }
-    const last = lastTargets().filter((group) => executors.some((entry) => entry.id === group.id));
-    setTargets(preset?.length ? preset : last.length ? last : executors.length === 1 ? executors : []);
     return () => {
       gone = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, messageId]);
+  }, [open, managing]);
 
   useEffect(() => {
     if (!open) return;
@@ -349,11 +362,27 @@ export function ForwardSheet({
                     <Star className="size-3 fill-current text-warning" />
                     {t('bankDesk.executors')}
                   </span>
-                  {targets.length > 0 && (
-                    <span className="rounded-full bg-primary px-1.5 text-[10px] font-bold normal-case text-white tabular-nums">
-                      {targets.length}
-                    </span>
-                  )}
+                  <span className="inline-flex items-center gap-1.5">
+                    {targets.length > 0 && (
+                      <span className="rounded-full bg-primary px-1.5 text-[10px] font-bold normal-case text-white tabular-nums">
+                        {targets.length}
+                      </span>
+                    )}
+                    {executors.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setManaging((current) => !current)}
+                        aria-pressed={managing}
+                        className={cn(
+                          'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold normal-case tracking-normal',
+                          managing ? 'bg-primary text-white' : 'bg-surface text-primary-text ring-1 ring-border-subtle hover:bg-primary-subtle',
+                        )}
+                      >
+                        {managing ? <Check className="size-3" /> : <Settings2 className="size-3" />}
+                        {managing ? t('bankDesk.manageDone') : t('bankDesk.manageGroups')}
+                      </button>
+                    )}
+                  </span>
                 </h3>
                 {executors.length === 0 ? (
                   <p className="rounded-xl border border-dashed border-border px-3 py-2.5 text-center text-[11px] text-content-secondary">
@@ -364,10 +393,12 @@ export function ForwardSheet({
                 )}
               </section>
 
+              {managing && (
               <section>
                 <h3 className="mb-1.5 px-1 text-[11px] font-semibold uppercase tracking-wide text-content-tertiary">
                   {t('bankDesk.allGroups')}
                 </h3>
+                <p className="mb-1.5 px-1 text-[11px] text-content-secondary">{t('bankDesk.manageHint')}</p>
                 <div className="relative mb-1.5">
                   <Search className="pointer-events-none absolute start-2.5 top-1/2 size-3.5 -translate-y-1/2 text-content-tertiary" />
                   <input
@@ -388,6 +419,7 @@ export function ForwardSheet({
                   )}
                 </div>
               </section>
+              )}
 
               {/* --- The words, and how they will look --- */}
               <section>
