@@ -1,6 +1,9 @@
 /** What the bot puts on a transfer's message once it was sent from the bank. */
 export const SENT_MARK = '✅';
 
+/** What the bot puts on a transfer's message once its bank receipt is attached: done, and proven. */
+export const RECEIPT_MARK = '👍';
+
 /**
  * The answer under a sent transfer in the transfers group: the number it went
  * to, then that it went — so whoever reads the group sees which one at once.

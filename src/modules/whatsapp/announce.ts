@@ -2,7 +2,7 @@ import 'server-only';
 import { dealAccount, DEAL_ACCOUNT_SELECT } from '@/modules/bank/deal-account';
 import { prisma } from '@/core/db/prisma';
 import { on } from '@/core/events/bus';
-import { SENT_MARK, sentWords } from './sent-words';
+import { RECEIPT_MARK, SENT_MARK, sentWords } from './sent-words';
 import { receiptFiles } from '@/modules/bank/bank-receipts.service';
 import { toDecimalString } from '@/core/money/money';
 import { createBotLogger } from '@/modules/whatsapp/bot-issues';
@@ -952,10 +952,12 @@ export function registerWhatsappSubscribers(): void {
     void import('./customer-transfer')
       .then((module) => module.tellCustomerTransfer(transactionId))
       .catch((error) => log.warn('Could not send a customer their transfer receipt', { error }));
-    await markMessages(deal, SENT_MARK);
     const chat = deal.copyChat ?? deal.announcedChat;
     const messageId = deal.copyChat ? deal.copyMessageId : deal.announcedMessageId;
-    if (!chat || !messageId) return;
+    if (!chat || !messageId) {
+      await markMessages(deal, (await receiptFiles('deal', transactionId)).length ? RECEIPT_MARK : SENT_MARK);
+      return;
+    }
     /*
      * Every receipt it carries, the first with the words under it: a transfer
      * paid in two parts is answered with both. Put right later (one receipt
@@ -965,6 +967,8 @@ export function registerWhatsappSubscribers(): void {
       ? await prisma.transactionProof.findUnique({ where: { id: proofId }, select: { data: true, mimeType: true } })
       : null;
     const files = given ? [{ bytes: Buffer.from(given.data), mimeType: given.mimeType }] : await receiptFiles('deal', transactionId);
+    // Sent with its receipt: 👍; sent with none yet: ✅, turned 👍 when one comes.
+    await markMessages(deal, files.length ? RECEIPT_MARK : SENT_MARK);
     // The number it went to, as the desk shows it: the account, else the receiver's phone.
     const words = sentWords(dealAccount(deal));
     try {

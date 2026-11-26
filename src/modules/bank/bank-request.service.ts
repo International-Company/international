@@ -7,7 +7,7 @@ import { transferChannels } from '@/modules/exchange/machine.service';
 import { readProofImage } from '@/modules/exchange/proof-image';
 import { keepMedia } from '@/modules/whatsapp/chat-images';
 import { answerInGroup } from '@/modules/whatsapp/whatsapp.service';
-import { sentWords } from '@/modules/whatsapp/sent-words';
+import { RECEIPT_MARK, sentWords } from '@/modules/whatsapp/sent-words';
 import { addReceipt, receiptFiles } from './bank-receipts.service';
 import type { Actor } from '@/modules/exchange/transaction.service';
 import { readTransferRequest, type ReadRequest } from './transfer-request';
@@ -260,7 +260,7 @@ export async function markRequestSent(id: string, receipt: string | null, actor:
         row.chat,
         quote,
         { image: file.bytes, mimetype: file.mimeType, caption: index === 0 ? words : '' },
-        index === 0 ? '✅' : undefined,
+        index === 0 ? RECEIPT_MARK : undefined,
       );
     }
   } catch (error) {

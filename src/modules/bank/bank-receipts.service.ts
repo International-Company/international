@@ -6,8 +6,8 @@ import { createLogger } from '@/core/logger/logger';
 import type { Actor } from '@/modules/exchange/transaction.service';
 import { keepMedia } from '@/modules/whatsapp/chat-images';
 import * as settings from '@/modules/settings/settings.service';
-import { answerInGroup, isLinked, sendImage, sentStub } from '@/modules/whatsapp/whatsapp.service';
-import { sentWords } from '@/modules/whatsapp/sent-words';
+import { answerInGroup, isLinked, reactOn, reactTo, sendImage, sentStub } from '@/modules/whatsapp/whatsapp.service';
+import { RECEIPT_MARK, sentWords } from '@/modules/whatsapp/sent-words';
 
 const log = createLogger('bank:receipts');
 
@@ -63,6 +63,7 @@ export async function addReceipt(
       select: { id: true },
     });
     readLater(kind, id);
+    markReceipted(kind, id);
     // Its customer, if they talk to the office on WhatsApp, sent it there too.
     void import('@/modules/whatsapp/customer-transfer')
       .then((module) => module.tellCustomerTransfer(id))
@@ -82,7 +83,44 @@ export async function addReceipt(
     await prisma.tiktokWithdrawal.updateMany({ where: { id, receiptId: null }, data: { receiptId: kept.id } });
   }
   readLater(kind, id);
+  markReceipted(kind, id);
   return row.id;
+}
+
+/**
+ * A receipt joined the transfer: a 👍 on its message in the group, above the
+ * answers — the office's copy and the deal's own message, or the member's
+ * request — so the group sees at a glance which ones are done. It takes the
+ * place of the ❤️ of "passed on" and the ✅ of "sent", as WhatsApp keeps one
+ * reaction a number. In the background: the receipt never waits on it.
+ */
+export function markReceipted(kind: ReceiptKind, id: string): void {
+  void (async () => {
+    if (!(await settings.getBoolean('whatsapp.enabled')) || !isLinked()) return;
+    if (kind === 'request') {
+      const row = await prisma.bankRequest.findUnique({ where: { id }, select: { chat: true, waId: true, senderJid: true } });
+      if (!row) return;
+      const own = await prisma.groupMessage.findFirst({ where: { chat: row.chat, waId: row.waId }, select: { fromMe: true } });
+      await reactOn(row.chat, { id: row.waId, fromMe: own?.fromMe ?? false, author: row.senderJid }, RECEIPT_MARK);
+      return;
+    }
+    const marks: [string | null, string | null][] = [];
+    if (kind === 'deal') {
+      const deal = await prisma.transaction.findUnique({
+        where: { id },
+        select: { announcedChat: true, announcedMessageId: true, copyChat: true, copyMessageId: true },
+      });
+      if (!deal) return;
+      marks.push([deal.announcedChat, deal.announcedMessageId], [deal.copyChat, deal.copyMessageId]);
+    } else {
+      const row = await prisma.tiktokWithdrawal.findUnique({ where: { id }, select: { bankChat: true, bankMessageId: true } });
+      if (!row) return;
+      marks.push([row.bankChat, row.bankMessageId]);
+    }
+    for (const [chat, messageId] of marks) {
+      if (chat && messageId) await reactTo(chat, messageId, RECEIPT_MARK).catch(() => undefined);
+    }
+  })().catch((error) => log.warn('Could not mark a transfer’s message with its receipt', { kind, error }));
 }
 
 /** The new receipt read for its sum in the background; loaded late, as the payments read receipts too. */
