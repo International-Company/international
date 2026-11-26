@@ -116,7 +116,7 @@ export async function requirePermission(...permissions: string[]): Promise<Resol
 
 /** Throws `FORBIDDEN` unless the caller holds at least one listed permission. */
 export async function requireAnyPermission(...permissions: string[]): Promise<ResolvedSession> {
-  const session = await requireActiveSession();
+  const session = await pageSession();
   if (!permissions.some((p) => session.user.permissions.includes(p))) {
     throw errors.forbidden(permissions.join(' | '));
   }
@@ -152,10 +152,22 @@ export async function auditActor(session: ResolvedSession) {
  * Kept beside the throwing versions rather than replacing them, because the two
  * audiences genuinely want different answers to the same question.
  */
+/**
+ * A page's session: one signed out is sent to sign in, as the layout does,
+ * rather than failing — a page renders beside its layout, not after it, so it
+ * meets a session gone (a sign-out, a restart) before the layout's redirect.
+ */
+async function pageSession(): Promise<ResolvedSession> {
+  const session = await getSession();
+  if (!session) redirect('/login');
+  if (session.user.twoFactorEnabled && !session.twoFactorSatisfied) redirect('/login/two-factor');
+  return session;
+}
+
 export async function requirePagePermission(
   ...permissions: string[]
 ): Promise<ResolvedSession> {
-  const session = await requireActiveSession();
+  const session = await pageSession();
   const missing = permissions.find((p) => !session.user.permissions.includes(p));
   if (missing) redirect(`/no-access?need=${encodeURIComponent(missing)}`);
   return session;
