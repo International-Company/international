@@ -2800,6 +2800,8 @@ const en = {
     fullNameHint: 'First name and family name.',
     fullNameError: 'Write the whole name: at least two words, with no figures.',
     saveCustomer: 'Save as a customer, so this address is recognised next time',
+    tellCustomer: 'Send the customer a receipt on WhatsApp',
+    tellCustomerHint: 'A receipt of what arrived and what they get, from the private number',
     brokerShare: 'Share sent by bank ({token})',
     bankPayout: 'Paid by bank ({currency}) — the rest in cash',
     shareAddress: 'Send the address on WhatsApp',

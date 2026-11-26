@@ -205,6 +205,8 @@ export function ReceiveFlow({
   const [counterpartyPhone, setCounterpartyPhone] = useState('');
   const [payoutAccount, setPayoutAccount] = useState('');
   const [saveCustomer, setSaveCustomer] = useState(true);
+  /** The customer sent their receipt on WhatsApp: on each time, left out by hand. */
+  const [tellCustomer, setTellCustomer] = useState(true);
   const [savedPayouts, setSavedPayouts] = useState<SavedPayout[]>([]);
   const [recording, setRecording] = useState(false);
   const [done, setDone] = useState<{ id: string; reference: string } | null>(null);
@@ -732,6 +734,7 @@ export function ReceiveFlow({
           counterpartyName: customer ? null : counterpartyName.trim() || null,
           counterpartyPhone: customer ? null : counterpartyPhone.trim() || null,
           saveCustomer: !customer && saveCustomer,
+          tellCustomer,
         },
       );
       toast.success(t('receive.recorded'), created.reference);
@@ -1757,6 +1760,22 @@ export function ReceiveFlow({
                   </label>
                 )}
               </>
+            )}
+
+            {/* Their receipt on WhatsApp: only for one on file, or about to be, with a number. */}
+            {(customer?.phone || (!customer && saveCustomer && counterpartyName.trim() && counterpartyPhone.trim())) && (
+              <label className="flex cursor-pointer items-start gap-2 rounded-xl bg-success-subtle/40 px-3 py-2 text-sm text-content-secondary ring-1 ring-success/20">
+                <input
+                  type="checkbox"
+                  className="mt-0.5 size-4 shrink-0 accent-[var(--color-success)]"
+                  checked={tellCustomer}
+                  onChange={(event) => setTellCustomer(event.target.checked)}
+                />
+                <span>
+                  <span className="block font-semibold text-content">{t('receive.tellCustomer')}</span>
+                  <span className="block text-xs text-content-tertiary">{t('receive.tellCustomerHint')}</span>
+                </span>
+              </label>
             )}
           </form>
         )}

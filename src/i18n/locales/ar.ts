@@ -2799,6 +2799,8 @@ const ar: Dictionary = {
     fullNameHint: 'الاسم الأول واسم العائلة.',
     fullNameError: 'اكتب الاسم كاملاً: كلمتان على الأقل وبدون أرقام.',
     saveCustomer: 'احفظه كعميل — يتعرّف عليه النظام من عنوانه في المرة القادمة',
+    tellCustomer: 'إرسال إيصال للعميل على واتساب',
+    tellCustomerHint: 'صورة إيصال بما وصل وما يستحقه، من الرقم الخاص',
     brokerShare: 'الحصة البنكية ({token})',
     bankPayout: 'المبلغ البنكي ({currency}) — والباقي نقداً',
     shareAddress: 'أرسل العنوان بواتساب',

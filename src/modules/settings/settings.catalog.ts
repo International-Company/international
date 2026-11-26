@@ -426,6 +426,14 @@ export const SETTINGS: SettingDefinition[] = [
     descriptionAr: 'السماح للتلر بفتح طلبات استلام وعرض عنوان الاستقبال',
   },
   {
+    key: 'usdt.customerReceipt', category: 'usdt', type: 'boolean', defaultValue: true,
+    labelEn: 'Send a USDT receipt to the customer', labelAr: 'إرسال إيصال USDT للعميل',
+    descriptionEn:
+      'When USDT is taken in from a customer on file, send them a receipt on WhatsApp from the private number: what arrived, what they get and how, and when. Never the price or the reference. The teller can leave one out on the receiving screen.',
+    descriptionAr:
+      'عند استلام USDT من عميل له ملف، يُرسل له إيصال على واتساب من الرقم الخاص: ما وصل، وما يستحقه وكيف يُدفع، والتاريخ. بدون السعر أو رقم المعاملة. يستطيع التلر إلغاءه لمعاملة بعينها من شاشة الاستلام.',
+  },
+  {
     key: 'usdt.autoSendEnabled', category: 'usdt', type: 'boolean', defaultValue: false,
     labelEn: 'The program sends the coins itself', labelAr: 'البرنامج يرسل العملة بنفسه',
     descriptionEn:

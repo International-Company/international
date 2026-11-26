@@ -1,6 +1,10 @@
 import { z } from 'zod';
 import { route } from '@/core/http/route';
 import * as counter from '@/modules/usdt/counter.service';
+import { tellUsdtReceipt } from '@/modules/whatsapp/usdt-receipt';
+import { createLogger } from '@/core/logger/logger';
+
+const log = createLogger('usdt:counter');
 
 const paramsSchema = z.object({ id: z.string().min(1) });
 
@@ -53,6 +57,9 @@ export const POST = route<z.infer<typeof bodySchema>, unknown, z.infer<typeof pa
 
       case 'complete': {
         const transaction = await counter.completeRequest(params.id, actor);
+        void tellUsdtReceipt(transaction.id, actor).catch((error) =>
+          log.warn('Could not send a customer their USDT receipt', { error }),
+        );
         return { status: 'COMPLETED', transaction };
       }
 

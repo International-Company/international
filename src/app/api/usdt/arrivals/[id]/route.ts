@@ -4,6 +4,10 @@ import { errors } from '@/core/errors/app-error';
 import { withTransaction } from '@/core/db/prisma';
 import { parseMoney } from '@/core/money/money';
 import * as counter from '@/modules/usdt/counter.service';
+import { tellUsdtReceipt } from '@/modules/whatsapp/usdt-receipt';
+import { createLogger } from '@/core/logger/logger';
+
+const log = createLogger('usdt:arrivals');
 
 const paramsSchema = z.object({ id: z.string().min(1) });
 
@@ -69,6 +73,8 @@ const bodySchema = z.object({
   counterpartyPhone: z.string().max(40).nullish(),
   /** With no customer chosen, make one from the name and phone, so the sender is known next time. */
   saveCustomer: z.boolean().default(false),
+  /** Send the customer their receipt on WhatsApp; on unless the teller left it out. */
+  tellCustomer: z.boolean().default(true),
   notes: z.string().max(1000).nullish(),
 });
 
@@ -121,6 +127,13 @@ export const POST = route<z.infer<typeof bodySchema>, unknown, z.infer<typeof pa
       );
 
     // Merged, it claims several transfers: either all of them or none.
-    return body.alsoArrivals.length > 0 ? withTransaction((tx) => settle(tx)) : settle();
+    const created = await (body.alsoArrivals.length > 0 ? withTransaction((tx) => settle(tx)) : settle());
+    // The customer's receipt, after the deal stands: WhatsApp failing never undoes it.
+    if (body.tellCustomer) {
+      void tellUsdtReceipt(created.id, actor).catch((error) =>
+        log.warn('Could not send a customer their USDT receipt', { error }),
+      );
+    }
+    return created;
   },
 });
