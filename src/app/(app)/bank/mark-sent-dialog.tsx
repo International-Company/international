@@ -264,7 +264,22 @@ export function MarkSentDialog({
           if (open) await api.post(sentAt, { receipt: null });
         }
       } else {
-        await api.post(sentAt, { receipt });
+        try {
+          await api.post(sentAt, { receipt });
+        } catch (cause) {
+          /*
+           * Sent meanwhile — from another screen, or by its group — while this
+           * window stood open: the receipt is not lost, it joins the transfer
+           * and is answered under it in its group.
+           */
+          const already = cause instanceof ApiError && cause.messageKey === 'errors.notPendingTransfer';
+          if (!already || !receipt) throw cause;
+          await api.post('/api/bank/receipts', { action: 'add', kind, id: line.id, receipt, tell: true });
+          toast.success(t('bankSent.receiptAddedLate'), line.reference);
+          onDone();
+          onClose();
+          return;
+        }
       }
       toast.success(t('bank.sentDone'), line.reference);
       onDone();
