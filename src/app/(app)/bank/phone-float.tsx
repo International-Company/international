@@ -198,19 +198,53 @@ function useOverlay(card: OverlayCard | null, autoStart: boolean) {
       return;
     }
     draw(paper, card, rtl);
-    player.muted = true;
+    const stream = capture.call(paper, 5);
+    /*
+     * A sound track that is silent. A phone pauses a picture with no sound once
+     * the program is left — and a paused one is taken off the screen; one with
+     * a sound track plays on, as a call or a song does.
+     */
+    let sound: AudioContext | null = null;
+    try {
+      const Context = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+      if (Context) {
+        sound = new Context();
+        const tone = sound.createOscillator();
+        const hush = sound.createGain();
+        hush.gain.value = 0;
+        const out = sound.createMediaStreamDestination();
+        tone.connect(hush).connect(out);
+        tone.start();
+        const track = out.stream.getAudioTracks()[0];
+        if (track) stream.addTrack(track);
+        void sound.resume().catch(() => undefined);
+      }
+    } catch {
+      sound = null;
+    }
+    player.muted = !sound;
     player.playsInline = true;
     player.autoplay = true;
     player.setAttribute('playsinline', '');
-    player.setAttribute('muted', '');
+    if (!sound) player.setAttribute('muted', '');
     // Safari: above the other apps by itself, when the program is left.
     player.setAttribute('autopictureinpicture', '');
     // Kept on the page, tiny and faint: some browsers will not float a video nobody can see.
     player.style.cssText =
       'position:fixed;width:4px;height:4px;opacity:0.01;pointer-events:none;bottom:0;left:0;z-index:-1';
-    player.srcObject = capture.call(paper, 5);
+    player.srcObject = stream;
     document.body.appendChild(player);
-    void player.play().catch(() => undefined);
+    // Refused with its sound: played silent instead, which is still a picture.
+    void player.play().catch(() => {
+      player.muted = true;
+      void player.play().catch(() => undefined);
+    });
+    // Paused by the phone or by the window's own button: played again, so it stays.
+    let cancelled = false;
+    const keepPlaying = () => {
+      if (!cancelled) setTimeout(() => !cancelled && void player.play().catch(() => undefined), 150);
+    };
+    player.addEventListener('pause', keepPlaying);
 
     const enter = () => {
       setOn(true);
@@ -229,6 +263,15 @@ function useOverlay(card: OverlayCard | null, autoStart: boolean) {
     } catch {
       // An older browser: the press is the way.
     }
+    // The window's pause does nothing: it is a card, not a film.
+    for (const action of ['pause', 'stop'] as MediaSessionAction[]) {
+      try {
+        session?.setActionHandler(action, () => void player.play().catch(() => undefined));
+      } catch {
+        // Not offered here.
+      }
+    }
+    if (session) session.playbackState = 'playing';
     if (session && 'MediaMetadata' in window) {
       try {
         session.metadata = new MediaMetadata({
@@ -242,7 +285,6 @@ function useOverlay(card: OverlayCard | null, autoStart: boolean) {
     }
 
     // Asked for at once, while the press that opened the card still counts.
-    let cancelled = false;
     if (autoStart) {
       const go = () => {
         if (cancelled) return;
@@ -252,17 +294,40 @@ function useOverlay(card: OverlayCard | null, autoStart: boolean) {
       else player.addEventListener('loadedmetadata', go, { once: true });
     }
 
-    // Drawn again and again: a still canvas stops its stream, and the window goes black.
-    const timer = setInterval(() => cardRef.current && draw(paper, cardRef.current, rtl), 400);
+    /*
+     * Drawn again and again: a still canvas stops its stream, and the window
+     * goes black. The beat comes from a worker, which a phone slows far less
+     * than the page once the program is behind another app.
+     */
+    const repaint = () => cardRef.current && draw(paper, cardRef.current, rtl);
+    let beat: Worker | null = null;
+    let beatUrl: string | null = null;
+    let timer: ReturnType<typeof setInterval> | null = null;
+    try {
+      beatUrl = URL.createObjectURL(new Blob(['setInterval(() => postMessage(0), 400);'], { type: 'text/javascript' }));
+      beat = new Worker(beatUrl);
+      beat.onmessage = repaint;
+    } catch {
+      timer = setInterval(repaint, 400);
+    }
     video.current = player;
     return () => {
       cancelled = true;
-      clearInterval(timer);
+      player.removeEventListener('pause', keepPlaying);
+      beat?.terminate();
+      if (beatUrl) URL.revokeObjectURL(beatUrl);
+      if (timer) clearInterval(timer);
+      void sound?.close().catch(() => undefined);
       if (document.pictureInPictureElement === player) void document.exitPictureInPicture().catch(() => undefined);
       else if (player.webkitPresentationMode === 'picture-in-picture') player.webkitSetPresentationMode?.('inline');
       try {
         session?.setActionHandler('enterpictureinpicture' as MediaSessionAction, null);
-        if (session) session.metadata = null;
+        session?.setActionHandler('pause', null);
+        session?.setActionHandler('stop', null);
+        if (session) {
+          session.metadata = null;
+          session.playbackState = 'none';
+        }
       } catch {
         // Nothing was set.
       }
