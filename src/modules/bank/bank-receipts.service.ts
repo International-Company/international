@@ -1,4 +1,5 @@
 import 'server-only';
+import { dealAccount, DEAL_ACCOUNT_SELECT } from './deal-account';
 import { prisma } from '@/core/db/prisma';
 import { errors } from '@/core/errors/app-error';
 import { createLogger } from '@/core/logger/logger';
@@ -189,12 +190,12 @@ async function tellGroup(kind: ReceiptKind, id: string, file: ReceiptFile) {
     if (kind === 'deal') {
       const deal = await prisma.transaction.findUnique({
         where: { id },
-        select: { payoutAccount: true, copyChat: true, copyMessageId: true, announcedChat: true, announcedMessageId: true },
+        select: { ...DEAL_ACCOUNT_SELECT, copyChat: true, copyMessageId: true, announcedChat: true, announcedMessageId: true },
       });
       if (!deal) return;
       chat = deal.copyChat ?? deal.announcedChat;
       messageId = deal.copyChat ? deal.copyMessageId : deal.announcedMessageId;
-      account = deal.payoutAccount;
+      account = dealAccount(deal);
     } else {
       const row = await prisma.tiktokWithdrawal.findUnique({
         where: { id },

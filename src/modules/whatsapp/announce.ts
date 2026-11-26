@@ -1,4 +1,5 @@
 import 'server-only';
+import { dealAccount, DEAL_ACCOUNT_SELECT } from '@/modules/bank/deal-account';
 import { prisma } from '@/core/db/prisma';
 import { on } from '@/core/events/bus';
 import { SENT_MARK, sentWords } from './sent-words';
@@ -939,7 +940,7 @@ export function registerWhatsappSubscribers(): void {
       where: { id: transactionId },
       select: {
         reference: true,
-        payoutAccount: true,
+        ...DEAL_ACCOUNT_SELECT,
         announcedChat: true,
         announcedMessageId: true,
         copyChat: true,
@@ -960,7 +961,8 @@ export function registerWhatsappSubscribers(): void {
       ? await prisma.transactionProof.findUnique({ where: { id: proofId }, select: { data: true, mimeType: true } })
       : null;
     const files = given ? [{ bytes: Buffer.from(given.data), mimeType: given.mimeType }] : await receiptFiles('deal', transactionId);
-    const words = sentWords(deal.payoutAccount);
+    // The number it went to, as the desk shows it: the account, else the receiver's phone.
+    const words = sentWords(dealAccount(deal));
     try {
       if (files.length === 0) await replyToSent(chat, messageId, words);
       for (const [index, file] of files.entries()) {

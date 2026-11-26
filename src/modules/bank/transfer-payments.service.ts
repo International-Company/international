@@ -8,6 +8,7 @@ import type { Actor } from '@/modules/exchange/transaction.service';
 import { answerInGroup, isLinked, replyToSent } from '@/modules/whatsapp/whatsapp.service';
 import { listReceipts, type ReceiptKind } from './bank-receipts.service';
 import { readReceiptPhoto } from './receipt-reader';
+import { dealAccount, DEAL_ACCOUNT_SELECT } from './deal-account';
 
 const log = createLogger('bank:payments');
 
@@ -39,7 +40,7 @@ async function targetOf(kind: ReceiptKind, id: string): Promise<Target | null> {
       select: {
         payoutBankAmount: true,
         toCurrency: true,
-        payoutAccount: true,
+        ...DEAL_ACCOUNT_SELECT,
         status: true,
         copyChat: true,
         copyMessageId: true,
@@ -53,7 +54,7 @@ async function targetOf(kind: ReceiptKind, id: string): Promise<Target | null> {
     return {
       total: row.payoutBankAmount,
       currency: row.toCurrency,
-      account: row.payoutAccount,
+      account: dealAccount(row),
       pending: row.status === 'PENDING_TRANSFER',
       reply: chat && messageId ? (text) => replyToSent(chat, messageId, text) : null,
     };

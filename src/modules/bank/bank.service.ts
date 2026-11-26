@@ -1,4 +1,5 @@
 import 'server-only';
+import { dealAccount, dealPhone } from './deal-account';
 import { containsInsensitive } from '@/core/db/search';
 import { prisma, type DbClient } from '@/core/db/prisma';
 import { errors } from '@/core/errors/app-error';
@@ -91,12 +92,7 @@ type Row = {
 /** One transfer as the desk reads it: where to, to whom, how much, and from which deal. */
 export function deskLine(row: Row) {
   const received = row.type === 'REMITTANCE_IN' || row.type === 'PAYPAL_IN';
-  const phone =
-    (received ? row.recipientPhone : null) ??
-    row.customer?.phone ??
-    row.counterpartyPhone ??
-    row.recipientPhone ??
-    null;
+  const phone = dealPhone(row);
   return {
     id: row.id,
     source: 'deal' as const,
@@ -106,7 +102,7 @@ export function deskLine(row: Row) {
     at: row.createdAt,
     channel: row.payoutBankChannel,
     // The account it goes to; a wallet is often just the number, so the phone stands in.
-    account: row.payoutAccount?.trim() || phone,
+    account: dealAccount(row),
     name: (received ? row.recipientName : null) ?? row.customer?.fullNameAr ?? row.counterpartyName ?? row.recipientName,
     phone,
     amount: row.payoutBankAmount,
