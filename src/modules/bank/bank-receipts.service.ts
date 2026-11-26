@@ -6,7 +6,7 @@ import { createLogger } from '@/core/logger/logger';
 import type { Actor } from '@/modules/exchange/transaction.service';
 import { keepMedia } from '@/modules/whatsapp/chat-images';
 import * as settings from '@/modules/settings/settings.service';
-import { answerInGroup, isLinked, reactOn, reactTo, sendImage, sentStub } from '@/modules/whatsapp/whatsapp.service';
+import { answerInGroup, isLinked, reactOn, reactTo, sendImage, sendText, sentStub } from '@/modules/whatsapp/whatsapp.service';
 import { RECEIPT_MARK, sentWords } from '@/modules/whatsapp/sent-words';
 
 const log = createLogger('bank:receipts');
@@ -252,6 +252,48 @@ async function tellGroup(kind: ReceiptKind, id: string, file: ReceiptFile) {
     await sendImage(chat, file.bytes, sentWords(account), sentStub(chat, messageId), file.mimeType);
   } catch (error) {
     log.warn('Could not answer a transfer with its receipt in its group', { kind, error });
+  }
+}
+
+/**
+ * Sent from another group — its receipt answered the copy passed on there, or
+ * a 👍 was put on it — and answered in the transfers group as the desk's button
+ * would: every receipt it has under its own message, the first with the number
+ * it went to and "تم التحويل"; the words alone when there is none. A deal is
+ * answered so by its own "sent"; this is a TikTok withdrawal's and a request's.
+ */
+export async function answerSentInGroup(kind: 'request' | 'tiktok', id: string): Promise<void> {
+  if (!(await settings.getBoolean('whatsapp.enabled')) || !isLinked()) return;
+  try {
+    const files = await receiptFiles(kind, id);
+    if (kind === 'request') {
+      const row = await prisma.bankRequest.findUnique({ where: { id } });
+      if (!row) return;
+      const words = sentWords(row.account);
+      const quote = { id: row.waId, author: row.senderJid, text: row.text };
+      if (files.length === 0) await answerInGroup(row.chat, quote, { text: words });
+      for (const [index, file] of files.entries()) {
+        await answerInGroup(row.chat, quote, { image: file.bytes, mimetype: file.mimeType, caption: index === 0 ? words : '' });
+      }
+      return;
+    }
+    const row = await prisma.tiktokWithdrawal.findUnique({
+      where: { id },
+      select: { account: true, bankChat: true, bankMessageId: true, announcedChat: true, announcedMessageId: true },
+    });
+    if (!row) return;
+    const chat = row.bankChat && row.bankMessageId ? row.bankChat : row.announcedChat;
+    const messageId = row.bankChat && row.bankMessageId ? row.bankMessageId : row.announcedMessageId;
+    if (!chat || !messageId) return;
+    const words = sentWords(row.account);
+    if (files.length === 0) {
+      await sendText(chat, words, sentStub(chat, messageId));
+    }
+    for (const [index, file] of files.entries()) {
+      await sendImage(chat, file.bytes, index === 0 ? words : '', sentStub(chat, messageId), file.mimeType);
+    }
+  } catch (error) {
+    log.warn('Could not answer a transfer sent from another group', { kind, error });
   }
 }
 

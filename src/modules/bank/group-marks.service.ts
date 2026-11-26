@@ -10,7 +10,7 @@ import {
   type GroupSighting,
 } from '@/modules/whatsapp/whatsapp.service';
 import { markSent } from './bank.service';
-import { addReceipt } from './bank-receipts.service';
+import { addReceipt, answerSentInGroup } from './bank-receipts.service';
 import { coverOf, hasPartBefore } from './transfer-payments.service';
 import { bankGroup, executorGroups } from './group-feed.service';
 import { markedBy, markOf, wordsOf } from './group-marks';
@@ -181,7 +181,7 @@ async function onReaction(reaction: GroupReaction): Promise<void> {
   }
 
   // 👍: sent, as the desk's "تم التنفيذ" — the group already holds the word, so the bot adds none.
-  await markDone(found, who, '👍');
+  await markDone(found, who, '👍', reaction.chat);
 }
 
 /**
@@ -190,18 +190,21 @@ async function onReaction(reaction: GroupReaction): Promise<void> {
  * the bot adds none; a deal is confirmed in the system's name, with who did it
  * and how written beside it.
  */
-async function markDone(found: Found, who: string, how: '👍' | '📎'): Promise<void> {
+async function markDone(found: Found, who: string, how: '👍' | '📎', where: string): Promise<void> {
   if (!found.waiting) return;
   if (found.kind === 'request') {
-    await prisma.bankRequest.updateMany({
+    const done = await prisma.bankRequest.updateMany({
       where: { id: found.id, status: 'PENDING' },
       data: { status: 'SENT', sentAt: new Date(), sentByName: who },
     });
+    if (done.count > 0 && where !== found.ref.chat) await answerSentInGroup('request', found.id);
   } else if (found.kind === 'tiktok') {
-    await prisma.tiktokWithdrawal.updateMany({
+    const done = await prisma.tiktokWithdrawal.updateMany({
       where: { id: found.id, sentAt: null, deletedAt: null },
       data: { sentAt: new Date(), sentByName: who },
     });
+    // Done in a group it was passed on to: the transfers group told under its own message, as a deal is.
+    if (done.count > 0 && where !== found.ref.chat) await answerSentInGroup('tiktok', found.id);
   } else {
     // A deal is confirmed in someone's name: the system's, with who reacted written beside it.
     const system = await prisma.user.findFirst({ where: { isSystem: true }, select: { id: true } });
@@ -327,7 +330,7 @@ async function onReply(sighting: GroupSighting): Promise<void> {
     sighting.name?.trim() ||
     (sighting.phone ? `+${sighting.phone.split('@')[0]}` : null) ||
     (sighting.fromMe ? 'المكتب' : 'واتساب');
-  await markDone(found, who, '📎');
+  await markDone(found, who, '📎', sighting.chat);
 }
 
 let registered = false;
