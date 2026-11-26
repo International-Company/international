@@ -2597,6 +2597,8 @@ const en = {
     overlayHint: 'The details stay above the bank app while you transfer',
     overlayOn: 'Showing above the other apps',
     overlayOff: 'Press to hide it',
+    overlayPress: 'Press here to float it above the bank app',
+    overlayUnsupported: 'This phone’s browser allows no window above other apps. Update Chrome or Safari, or copy the details here before opening the bank app.',
     receiptAddedLate: 'It was already sent: the receipt was added to it and sent to the group',
     phoneFoot: 'Choose the receipt from the gallery, then press sent',
     groupHintShort: 'On confirming, the bot answers in the bank transfers group with "{account} ✅ تم التحويل" and the receipt',

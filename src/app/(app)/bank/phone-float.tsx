@@ -37,71 +37,154 @@ export interface OverlayCard {
   words: { account: string; amount: string; left: string; channel: string };
 }
 
-const W = 720;
-const H = 480;
+/** Wide, as a phone draws its floating windows: 16 by 9, drawn at twice their size. */
+const W = 960;
+const H = 540;
 
-/** The card drawn on the canvas the video plays. */
+/** The account in groups, as it is read off and typed: the digits themselves unchanged. */
+function grouped(account: string): string {
+  const plain = account.replace(/\s+/g, '');
+  if (!/^[0-9]+$/.test(plain) || plain.length < 7) return account;
+  // Fours when they divide it (a card, an IBAN); else threes, the last ones a digit longer: 059 900 0111.
+  const sizes =
+    plain.length % 4 === 0
+      ? Array.from({ length: plain.length / 4 }, () => 4)
+      : Array.from({ length: Math.floor(plain.length / 3) }, (_, at) =>
+          at >= Math.floor(plain.length / 3) - (plain.length % 3) ? 4 : 3,
+        );
+  const parts: string[] = [];
+  let at = 0;
+  for (const size of sizes) {
+    parts.push(plain.slice(at, at + size));
+    at += size;
+  }
+  return parts.join(' ');
+}
+
+/** The card drawn on the canvas the video plays: what is typed into the bank's app, large. */
 function draw(canvas: HTMLCanvasElement, card: OverlayCard, rtl: boolean) {
   const ctx = canvas.getContext('2d');
   if (!ctx) return;
   const font = getComputedStyle(document.body).fontFamily || 'system-ui, sans-serif';
-  const grad = ctx.createLinearGradient(0, 0, W, H);
-  grad.addColorStop(0, '#0f172a');
-  grad.addColorStop(1, '#13233f');
-  ctx.fillStyle = grad;
+
+  // The ground: deep blue, lit from one corner.
+  const ground = ctx.createLinearGradient(0, 0, W, H);
+  ground.addColorStop(0, '#0b1220');
+  ground.addColorStop(1, '#111c33');
+  ctx.fillStyle = ground;
+  ctx.fillRect(0, 0, W, H);
+  const glow = ctx.createRadialGradient(rtl ? W : 0, 0, 0, rtl ? W : 0, 0, W * 0.8);
+  glow.addColorStop(0, 'rgba(37, 99, 235, 0.28)');
+  glow.addColorStop(1, 'rgba(37, 99, 235, 0)');
+  ctx.fillStyle = glow;
   ctx.fillRect(0, 0, W, H);
 
-  const pad = 36;
+  const pad = 44;
   const start = rtl ? W - pad : pad;
   const end = rtl ? pad : W - pad;
-  const text = (value: string, x: number, y: number, size: number, colour: string, weight = 600, align: 'start' | 'end' | 'center' = 'start', direction: 'rtl' | 'ltr' | 'inherit' = 'inherit') => {
+  const text = (
+    value: string,
+    x: number,
+    y: number,
+    size: number,
+    colour: string,
+    options: { weight?: number; align?: 'start' | 'end' | 'center'; ltr?: boolean; room?: number; spacing?: number } = {},
+  ) => {
+    const { weight = 700, align = 'start', ltr = false, room = W - pad * 2, spacing = 0 } = options;
     ctx.font = `${weight} ${size}px ${font}`;
     ctx.fillStyle = colour;
-    ctx.direction = direction === 'inherit' ? (rtl ? 'rtl' : 'ltr') : direction;
-    ctx.textAlign = align === 'center' ? 'center' : align === 'start' ? (rtl ? 'right' : 'left') : rtl ? 'left' : 'right';
+    ctx.direction = ltr ? 'ltr' : rtl ? 'rtl' : 'ltr';
+    ctx.textAlign = align === 'center' ? 'center' : (align === 'start') === rtl ? 'right' : 'left';
     ctx.textBaseline = 'alphabetic';
+    (ctx as CanvasRenderingContext2D & { letterSpacing?: string }).letterSpacing = `${spacing}px`;
     let shown = value;
-    const room = W - pad * 2;
     while (shown.length > 1 && ctx.measureText(shown).width > room) shown = shown.slice(0, -2) + '…';
     ctx.fillText(shown, x, y);
+    (ctx as CanvasRenderingContext2D & { letterSpacing?: string }).letterSpacing = '0px';
+    return ctx.measureText(shown).width;
   };
 
-  // Who it goes to, and the reference.
-  text(card.name || card.account || '', start, 70, 38, '#f8fafc', 800);
-  text(card.reference, start, 104, 22, '#94a3b8', 500);
+  // Top: who it goes to, and by which bank.
+  text(card.name || card.reference, start, 78, 44, '#f8fafc', { weight: 800, room: W * 0.6 });
+  if (card.channel) {
+    ctx.font = `700 26px ${font}`;
+    const width = Math.min(ctx.measureText(card.channel).width + 40, W * 0.3);
+    const left = rtl ? pad : W - pad - width;
+    ctx.fillStyle = 'rgba(255,255,255,0.10)';
+    ctx.beginPath();
+    ctx.roundRect(left, 40, width, 50, 25);
+    ctx.fill();
+    text(card.channel, left + width / 2, 75, 26, '#e2e8f0', { align: 'center', room: width - 24 });
+  }
+  text(card.reference, start, 116, 22, '#64748b', { weight: 600, ltr: true, align: 'start' });
 
-  // The account, large: what is typed into the bank's app.
+  // Middle: the account, the largest thing on it.
   ctx.fillStyle = 'rgba(255,255,255,0.06)';
+  ctx.strokeStyle = 'rgba(255,255,255,0.10)';
+  ctx.lineWidth = 2;
   ctx.beginPath();
-  ctx.roundRect(pad - 8, 128, W - pad * 2 + 16, 132, 22);
+  ctx.roundRect(pad - 10, 146, W - pad * 2 + 20, 176, 28);
   ctx.fill();
-  text(card.words.account, start, 166, 22, '#94a3b8', 600);
-  text(card.account || '—', W / 2, 236, 62, '#ffffff', 800, 'center', 'ltr');
+  ctx.stroke();
+  text(card.words.account, start + (rtl ? -18 : 18), 190, 24, '#94a3b8', { weight: 600 });
+  text(grouped(card.account || '—'), W / 2, 284, 92, '#ffffff', { weight: 800, align: 'center', ltr: true, spacing: 3 });
 
-  // The sum, or what is left of it.
+  // Bottom: the sum, or what is left of it.
   const sum = card.left ?? card.amount;
-  text(card.left ? card.words.left : card.words.amount, start, 312, 22, '#94a3b8', 600);
-  text(`${sum} ${card.currency}`, start, 372, 56, card.left ? '#fbbf24' : '#34d399', 800, 'start', 'ltr');
-  if (card.left) text(`${card.amount} ${card.currency}`, end, 372, 24, '#64748b', 600, 'end', 'ltr');
+  const colour = card.left ? '#fbbf24' : '#34d399';
+  text(card.left ? card.words.left : card.words.amount, start, 372, 24, '#94a3b8', { weight: 600 });
+  text(`${sum} ${card.currency}`, start, 450, 76, colour, { weight: 800, align: 'start', ltr: true, room: W * 0.62 });
+  if (card.left) {
+    text(`${card.words.amount}: ${card.amount} ${card.currency}`, end, 450, 26, '#64748b', { weight: 600, align: 'end' });
+  }
 
-  if (card.channel) text(`${card.words.channel}: ${card.channel}`, start, 430, 24, '#cbd5e1', 600);
-  ctx.fillStyle = '#10b981';
-  ctx.fillRect(0, H - 8, W, 8);
+  // The program's mark along the foot.
+  const foot = ctx.createLinearGradient(0, 0, W, 0);
+  foot.addColorStop(0, '#10b981');
+  foot.addColorStop(1, '#2563eb');
+  ctx.fillStyle = foot;
+  ctx.fillRect(0, H - 10, W, 10);
 }
 
+type Webkit = HTMLVideoElement & {
+  webkitSetPresentationMode?: (mode: 'inline' | 'picture-in-picture') => void;
+  webkitPresentationMode?: string;
+  webkitSupportsPresentationMode?: (mode: string) => boolean;
+};
+
 /**
- * The window above the bank's app: a canvas played as a video, ready from the
- * moment the card opens, so the press that asks for it still counts as one —
- * Safari refuses one asked for after anything waited on.
+ * The window above the bank's app: a canvas played as a video. Asked for at
+ * once when the card opens — the press on "floating window" still counts —
+ * and, where the browser offers it, again by itself whenever the program is
+ * left for another app. Where neither is allowed, a press on the card's button.
  */
-function useOverlay(card: OverlayCard | null) {
-  const canvas = useRef<HTMLCanvasElement | null>(null);
+function useOverlay(card: OverlayCard | null, autoStart: boolean) {
   const video = useRef<HTMLVideoElement | null>(null);
   const [on, setOn] = useState(false);
   const [supported, setSupported] = useState(true);
+  /** Asked for by itself and refused: the card asks for a press instead. */
+  const [needsPress, setNeedsPress] = useState(false);
   const cardRef = useRef(card);
   cardRef.current = card;
   const rtl = typeof document !== 'undefined' && document.documentElement.dir === 'rtl';
+
+  const enterWith = (player: Webkit): Promise<void> => {
+    void player.play().catch(() => undefined);
+    if (typeof player.requestPictureInPicture === 'function' && document.pictureInPictureEnabled !== false) {
+      return player.requestPictureInPicture().then(
+        () => undefined,
+        (error) => {
+          if (player.webkitSetPresentationMode) player.webkitSetPresentationMode('picture-in-picture');
+          else throw error;
+        },
+      );
+    }
+    if (player.webkitSetPresentationMode) {
+      player.webkitSetPresentationMode('picture-in-picture');
+      return Promise.resolve();
+    }
+    return Promise.reject(new Error('unsupported'));
+  };
 
   useEffect(() => {
     if (!card) return;
@@ -109,75 +192,106 @@ function useOverlay(card: OverlayCard | null) {
     paper.width = W;
     paper.height = H;
     const capture = (paper as HTMLCanvasElement & { captureStream?: (fps?: number) => MediaStream }).captureStream;
-    const player = document.createElement('video');
-    if (!capture || !('requestPictureInPicture' in player || 'webkitSetPresentationMode' in player)) {
+    const player = document.createElement('video') as Webkit;
+    if (!capture || !(typeof player.requestPictureInPicture === 'function' || player.webkitSetPresentationMode)) {
       setSupported(false);
       return;
     }
     draw(paper, card, rtl);
     player.muted = true;
     player.playsInline = true;
+    player.autoplay = true;
     player.setAttribute('playsinline', '');
     player.setAttribute('muted', '');
-    // Safari: it goes above the other apps by itself when the bank's is opened.
+    // Safari: above the other apps by itself, when the program is left.
     player.setAttribute('autopictureinpicture', '');
-    player.style.cssText = 'position:fixed;width:2px;height:2px;opacity:0;pointer-events:none;bottom:0;left:0';
-    player.srcObject = capture.call(paper, 2);
+    // Kept on the page, tiny and faint: some browsers will not float a video nobody can see.
+    player.style.cssText =
+      'position:fixed;width:4px;height:4px;opacity:0.01;pointer-events:none;bottom:0;left:0;z-index:-1';
+    player.srcObject = capture.call(paper, 5);
     document.body.appendChild(player);
     void player.play().catch(() => undefined);
-    const enter = () => setOn(true);
+
+    const enter = () => {
+      setOn(true);
+      setNeedsPress(false);
+    };
     const leave = () => setOn(false);
+    const webkitChange = () => setOn(player.webkitPresentationMode === 'picture-in-picture');
     player.addEventListener('enterpictureinpicture', enter);
     player.addEventListener('leavepictureinpicture', leave);
-    player.addEventListener('webkitpresentationmodechanged', () =>
-      setOn((player as unknown as { webkitPresentationMode?: string }).webkitPresentationMode === 'picture-in-picture'),
-    );
+    player.addEventListener('webkitpresentationmodechanged', webkitChange);
+
+    // Chrome: floated by itself when the program is left, as a video call is.
+    const session = 'mediaSession' in navigator ? navigator.mediaSession : null;
+    try {
+      session?.setActionHandler('enterpictureinpicture' as MediaSessionAction, () => void enterWith(player).catch(() => undefined));
+    } catch {
+      // An older browser: the press is the way.
+    }
+    if (session && 'MediaMetadata' in window) {
+      try {
+        session.metadata = new MediaMetadata({
+          title: card.name ?? card.account ?? card.reference,
+          artist: `${card.left ?? card.amount} ${card.currency}`,
+          album: card.channel ?? '',
+        });
+      } catch {
+        // Only the words under it.
+      }
+    }
+
+    // Asked for at once, while the press that opened the card still counts.
+    let cancelled = false;
+    if (autoStart) {
+      const go = () => {
+        if (cancelled) return;
+        enterWith(player).catch(() => !cancelled && setNeedsPress(true));
+      };
+      if (player.readyState >= 1) go();
+      else player.addEventListener('loadedmetadata', go, { once: true });
+    }
+
     // Drawn again and again: a still canvas stops its stream, and the window goes black.
-    const timer = setInterval(() => cardRef.current && draw(paper, cardRef.current, rtl), 500);
-    canvas.current = paper;
+    const timer = setInterval(() => cardRef.current && draw(paper, cardRef.current, rtl), 400);
     video.current = player;
     return () => {
+      cancelled = true;
       clearInterval(timer);
       if (document.pictureInPictureElement === player) void document.exitPictureInPicture().catch(() => undefined);
+      else if (player.webkitPresentationMode === 'picture-in-picture') player.webkitSetPresentationMode?.('inline');
+      try {
+        session?.setActionHandler('enterpictureinpicture' as MediaSessionAction, null);
+        if (session) session.metadata = null;
+      } catch {
+        // Nothing was set.
+      }
       player.removeEventListener('enterpictureinpicture', enter);
       player.removeEventListener('leavepictureinpicture', leave);
+      player.removeEventListener('webkitpresentationmodechanged', webkitChange);
       (player.srcObject as MediaStream | null)?.getTracks().forEach((track) => track.stop());
       player.remove();
-      canvas.current = null;
       video.current = null;
       setOn(false);
+      setNeedsPress(false);
     };
     // Opened once per card; its words are drawn afresh from the ref.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [Boolean(card)]);
 
   const toggle = (): boolean => {
-    const player = video.current;
+    const player = video.current as Webkit | null;
     if (!player) return false;
     if (on) {
       if (document.pictureInPictureElement) void document.exitPictureInPicture().catch(() => undefined);
-      else (player as unknown as { webkitSetPresentationMode?: (mode: string) => void }).webkitSetPresentationMode?.('inline');
+      else player.webkitSetPresentationMode?.('inline');
       return true;
     }
-    void player.play().catch(() => undefined);
-    try {
-      if ('requestPictureInPicture' in player && document.pictureInPictureEnabled !== false) {
-        player.requestPictureInPicture().catch(() => {
-          const webkit = (player as unknown as { webkitSetPresentationMode?: (mode: string) => void }).webkitSetPresentationMode;
-          if (webkit) webkit.call(player, 'picture-in-picture');
-          else setSupported(false);
-        });
-      } else {
-        (player as unknown as { webkitSetPresentationMode: (mode: string) => void }).webkitSetPresentationMode('picture-in-picture');
-      }
-      return true;
-    } catch {
-      setSupported(false);
-      return false;
-    }
+    enterWith(player).catch(() => setSupported(false));
+    return true;
   };
 
-  return { on, supported, toggle };
+  return { on, supported, needsPress, toggle };
 }
 
 /** The card floating inside the program, dragged anywhere, folded into a bubble. */
@@ -205,7 +319,7 @@ export function PhoneFloat({
   const [spot, setSpot] = useState<{ x: number; y: number } | null>(null);
   const held = useRef<{ dx: number; dy: number; moved: boolean } | null>(null);
   const box = useRef<HTMLDivElement>(null);
-  const overlay = useOverlay(open ? card : null);
+  const overlay = useOverlay(open ? card : null, true);
 
   useEffect(() => {
     if (open) {
@@ -213,6 +327,11 @@ export function PhoneFloat({
       setSpot(null);
     }
   }, [open]);
+
+  // Floating above the other apps: the card here folds out of the way.
+  useEffect(() => {
+    if (overlay.on) setSmall(true);
+  }, [overlay.on]);
 
   if (!open) return null;
 
@@ -323,7 +442,9 @@ export function PhoneFloat({
             className={`flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-start transition ${
               overlay.on
                 ? 'bg-success-subtle/60 ring-1 ring-success/30'
-                : 'bg-gradient-to-l from-primary/10 to-primary/5 ring-1 ring-primary/25 hover:from-primary/15'
+                : overlay.needsPress
+                  ? 'animate-pulse bg-primary/15 ring-2 ring-primary'
+                  : 'bg-gradient-to-l from-primary/10 to-primary/5 ring-1 ring-primary/25 hover:from-primary/15'
             }`}
           >
             <span
@@ -335,13 +456,18 @@ export function PhoneFloat({
             </span>
             <span className="min-w-0 flex-1">
               <span className="block text-[13px] font-bold text-content">
-                {overlay.on ? t('bankSent.overlayOn') : t('bankSent.overlay')}
+                {overlay.on ? t('bankSent.overlayOn') : overlay.needsPress ? t('bankSent.overlayPress') : t('bankSent.overlay')}
               </span>
               <span className="block text-[11px] leading-snug text-content-tertiary">
                 {overlay.on ? t('bankSent.overlayOff') : t('bankSent.overlayHint')}
               </span>
             </span>
           </button>
+        )}
+        {!overlay.supported && (
+          <p className="rounded-xl bg-warning-subtle/60 px-3 py-2 text-[11px] leading-relaxed text-warning-text">
+            {t('bankSent.overlayUnsupported')}
+          </p>
         )}
         {children}
       </div>
