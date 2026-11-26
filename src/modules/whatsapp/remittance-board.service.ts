@@ -1,6 +1,7 @@
 import 'server-only';
 import { prisma } from '@/core/db/prisma';
 import { dealParts } from '@/modules/bank/transfer-payments.service';
+import { agentVerdict } from './agent-reply';
 
 /**
  * The remittances taken from WhatsApp, each followed from the notice the
@@ -30,94 +31,170 @@ export interface BoardRange {
 const LATE_MIN = 15;
 const VERY_LATE_MIN = 30;
 
+/*
+ * The days asked for, and whatever is still on its way from before them: a
+ * notice sent yesterday and not yet paid is today's work, as on the bank desk.
+ */
+function noticesIn(viewer: { id: string; all: boolean }, range: BoardRange, options: { owner?: string | null }) {
+  const owner = viewer.all ? options.owner || undefined : viewer.id;
+  return {
+    ...(owner ? { ownerId: owner } : {}),
+    OR: [
+      { createdAt: { gte: range.from, lte: range.to } },
+      { createdAt: { lt: range.from }, status: { in: ['NEW', 'CHECKING', 'CONFIRMED'] } },
+    ],
+  };
+}
+
+/**
+ * A few cheap figures that change whenever anything on the board would: a
+ * notice added or moved on, a deal made or its transfer confirmed, an agent's
+ * word in a group, and the minute — the waiting times count up by it. The
+ * screen asks for this every few seconds and reads the whole board only when
+ * it differs from the last.
+ */
+export async function remittanceBoardStamp(
+  viewer: { id: string; all: boolean },
+  range: BoardRange,
+  options: { owner?: string | null } = {},
+): Promise<string> {
+  const rows = await prisma.remittanceNotice.findMany({
+    where: noticesIn(viewer, range, options),
+    orderBy: { createdAt: 'desc' },
+    take: 500,
+    select: { id: true, ownerId: true, agentChat: true, transactionId: true, updatedAt: true, createdAt: true, sentAt: true, status: true },
+  });
+  const dealIds = rows.map((row) => row.transactionId).filter((id): id is string => Boolean(id));
+  // Only a group with a notice still waiting on its agent has words that matter.
+  const waiting = rows.filter((row) => row.agentChat && row.sentAt && row.status === 'CHECKING');
+  const keys = [...new Set(waiting.map((row) => `${row.ownerId}|${row.agentChat}`))];
+  const [deals, chats] = await Promise.all([
+    dealIds.length
+      ? prisma.transaction.aggregate({ where: { id: { in: dealIds } }, _max: { updatedAt: true } })
+      : Promise.resolve(null),
+    keys.length
+      ? prisma.tellerChat.findMany({
+          where: { OR: keys.map((key) => ({ ownerId: key.split('|')[0], chat: key.split('|')[1] })) },
+          select: { id: true },
+        })
+      : Promise.resolve([]),
+  ]);
+  const talk = chats.length
+    ? await prisma.tellerChatMessage.aggregate({
+        where: { chatId: { in: chats.map((chat) => chat.id) }, fromMe: false },
+        _max: { createdAt: true },
+      })
+    : null;
+  const latest = rows.reduce((max, row) => Math.max(max, (row.updatedAt ?? row.createdAt).getTime()), 0);
+  return [
+    rows.length,
+    hash(rows.map((row) => row.id).join(',')),
+    latest,
+    deals?._max.updatedAt?.getTime() ?? 0,
+    talk?._max.createdAt?.getTime() ?? 0,
+    Math.floor(Date.now() / 60_000),
+  ].join('.');
+}
+
+/** A short number for a long list, enough to tell one list from another. */
+function hash(text: string): number {
+  let value = 0;
+  for (let at = 0; at < text.length; at++) value = (value * 31 + text.charCodeAt(at)) | 0;
+  return value >>> 0;
+}
+
 export async function remittanceBoard(
   viewer: { id: string; all: boolean },
   range: BoardRange,
   options: { owner?: string | null } = {},
 ) {
-  const owner = viewer.all ? options.owner || undefined : viewer.id;
-  /*
-   * The days asked for, and whatever is still on its way from before them: a
-   * notice sent yesterday and not yet paid is today's work, as on the bank desk.
-   */
   const rows = await prisma.remittanceNotice.findMany({
-    where: {
-      ...(owner ? { ownerId: owner } : {}),
-      OR: [
-        { createdAt: { gte: range.from, lte: range.to } },
-        { createdAt: { lt: range.from }, status: { in: ['NEW', 'CHECKING', 'CONFIRMED'] } },
-      ],
-    },
+    where: noticesIn(viewer, range, options),
     orderBy: { createdAt: 'desc' },
     take: 500,
   });
 
   // The agents' first answers: what quotes the photo sent, else what came after it.
   const sentIds = rows.map((row) => row.sentMessageId).filter((id): id is string => Boolean(id));
-  const quoted = sentIds.length
-    ? await prisma.tellerChatMessage.findMany({
-        where: { quotedId: { in: sentIds }, fromMe: false },
-        orderBy: { createdAt: 'asc' },
-        select: { quotedId: true, createdAt: true, text: true, authorName: true },
-      })
-    : [];
+  const dealIds = rows.map((row) => row.transactionId).filter((id): id is string => Boolean(id));
   const groups = [...new Set(rows.filter((row) => row.agentChat).map((row) => `${row.ownerId}|${row.agentChat}`))];
-  const groupChats = groups.length
-    ? await prisma.tellerChat.findMany({
-        where: { OR: groups.map((key) => ({ ownerId: key.split('|')[0], chat: key.split('|')[1] })) },
-        select: { id: true, ownerId: true, chat: true },
-      })
-    : [];
-  const earliestSent = rows.reduce<Date | null>((min, row) => (row.sentAt && (!min || row.sentAt < min) ? row.sentAt : min), null);
-  const groupTalk =
-    groupChats.length && earliestSent
-      ? await prisma.tellerChatMessage.findMany({
-          where: { chatId: { in: groupChats.map((chat) => chat.id) }, fromMe: false, createdAt: { gte: earliestSent } },
+  // Read side by side: none waits on another.
+  const [quoted, groupChats, deals, people] = await Promise.all([
+    sentIds.length
+      ? prisma.tellerChatMessage.findMany({
+          where: { quotedId: { in: sentIds }, fromMe: false },
+          orderBy: { createdAt: 'asc' },
+          select: { quotedId: true, createdAt: true, text: true, authorName: true },
+        })
+      : Promise.resolve([]),
+    groups.length
+      ? prisma.tellerChat.findMany({
+          where: { OR: groups.map((key) => ({ ownerId: key.split('|')[0], chat: key.split('|')[1] })) },
+          select: { id: true, ownerId: true, chat: true },
+        })
+      : Promise.resolve([]),
+    // The remittances made, and their transfers.
+    dealIds.length
+      ? prisma.transaction.findMany({
+          where: { id: { in: dealIds } },
+          select: {
+            id: true,
+            reference: true,
+            status: true,
+            type: true,
+            fromAmount: true,
+            fromCurrency: true,
+            toAmount: true,
+            toCurrency: true,
+            payoutBankAmount: true,
+            payoutBankChannel: true,
+            payoutAccount: true,
+            transferConfirmedAt: true,
+            createdAt: true,
+          },
+        })
+      : Promise.resolve([]),
+    prisma.user.findMany({
+      where: { id: { in: [...new Set(rows.map((row) => row.ownerId))] } },
+      select: { id: true, fullNameAr: true, fullNameEn: true },
+    }),
+  ]);
+
+  /*
+   * The group's talk is read only for what has no quoted answer: an agent who
+   * quoted is found already, and a notice never sent has nobody to answer it.
+   */
+  const answeredIds = new Set(quoted.map((entry) => entry.quotedId));
+  const unanswered = rows.filter((row) => row.sentAt && row.agentChat && !(row.sentMessageId && answeredIds.has(row.sentMessageId)));
+  const unansweredChats = groupChats.filter((chat) => unanswered.some((row) => row.ownerId === chat.ownerId && row.agentChat === chat.chat));
+  const earliestSent = unanswered.reduce<Date | null>((min, row) => (!min || row.sentAt! < min ? row.sentAt! : min), null);
+  // Told before the receipt was kept on the notice: its reference looked for in what was written since the deal.
+  const untold = rows.filter((row) => row.transactionId && !row.customerToldAt);
+  const untoldDeals = deals.filter((deal) => untold.some((row) => row.transactionId === deal.id));
+  const firstDeal = untoldDeals.reduce<Date | null>((min, deal) => (!min || deal.createdAt < min ? deal.createdAt : min), null);
+  const [groupTalk, parts, told] = await Promise.all([
+    unansweredChats.length && earliestSent
+      ? prisma.tellerChatMessage.findMany({
+          where: { chatId: { in: unansweredChats.map((chat) => chat.id) }, fromMe: false, createdAt: { gte: earliestSent } },
           orderBy: { createdAt: 'asc' },
           select: { chatId: true, createdAt: true, text: true, authorName: true },
           take: 2000,
         })
-      : [];
-
-  // The remittances made, their transfers, and the customer told.
-  const dealIds = rows.map((row) => row.transactionId).filter((id): id is string => Boolean(id));
-  const deals = dealIds.length
-    ? await prisma.transaction.findMany({
-        where: { id: { in: dealIds } },
-        select: {
-          id: true,
-          reference: true,
-          status: true,
-          type: true,
-          fromAmount: true,
-          fromCurrency: true,
-          toAmount: true,
-          toCurrency: true,
-          payoutBankAmount: true,
-          payoutBankChannel: true,
-          payoutAccount: true,
-          transferConfirmedAt: true,
-          createdAt: true,
-        },
-      })
-    : [];
-  // A payout sent to the bank in parts: what was sent of it so far.
-  const parts = await dealParts(deals.map((deal) => deal.id));
-  const told = deals.length
-    ? await prisma.tellerChatMessage.findMany({
-        where: {
-          chatId: { in: rows.filter((row) => row.transactionId).map((row) => row.chatId) },
-          fromMe: true,
-          OR: deals.map((deal) => ({ text: { contains: deal.reference } })),
-        },
-        select: { chatId: true, text: true, createdAt: true },
-      })
-    : [];
-
-  const people = await prisma.user.findMany({
-    where: { id: { in: [...new Set(rows.map((row) => row.ownerId))] } },
-    select: { id: true, fullNameAr: true, fullNameEn: true },
-  });
+      : Promise.resolve([]),
+    // A payout sent to the bank in parts: what was sent of it so far.
+    dealParts(deals.map((deal) => deal.id)),
+    untoldDeals.length && firstDeal
+      ? prisma.tellerChatMessage.findMany({
+          where: {
+            chatId: { in: [...new Set(untold.map((row) => row.chatId))] },
+            fromMe: true,
+            createdAt: { gte: firstDeal },
+            OR: untoldDeals.map((deal) => ({ text: { contains: deal.reference } })),
+          },
+          select: { chatId: true, text: true, createdAt: true },
+        })
+      : Promise.resolve([]),
+  ]);
 
   const now = Date.now();
   const lines = rows.map((row) => {
@@ -208,6 +285,10 @@ export async function remittanceBoard(
       currency: row.currency,
       agentName: row.agentName,
       note: row.note,
+      /** What the agent's answer says, read as yes or no; a no while still checking is flagged. */
+      agentSaid: answer ? agentVerdict(answer.text) : null,
+      /** Confirmed by itself, from the agent's yes. */
+      auto: row.status === 'CONFIRMED' && (row.decidedByName ?? '').endsWith('· تلقائي'),
       state,
       waited,
       late: waited === null ? 'ok' : waited >= VERY_LATE_MIN ? 'veryLate' : waited >= LATE_MIN ? 'late' : 'ok',

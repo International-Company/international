@@ -184,6 +184,21 @@ async function keep(
       ack: fromMe ? (extra.ack ?? 2) : null,
     },
   });
+  // An agent's word in their group: a plain yes under a notice confirms it.
+  if (group && !fromMe && text.trim()) {
+    void import('./agent-auto-confirm')
+      .then(({ confirmFromAgentReply }) =>
+        confirmFromAgentReply({
+          ownerId,
+          chatId: row.id,
+          agentChat: chat,
+          quotedId: quoted?.id ?? null,
+          text,
+          author: extra.authorName ?? null,
+        }),
+      )
+      .catch((error) => log.warn('Could not read an agent’s answer for a notice', { error }));
+  }
   return row.id;
 }
 

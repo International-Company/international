@@ -573,6 +573,14 @@ export const SETTINGS: SettingDefinition[] = [
       'عند إرفاق إشعار بنك بحركة لعميل له محادثة مع الرقم الخاص، يُرسل له الإشعار هناك مع «تم التحويل بنجاح ✔» والجهة التي حُوّل إليها. كل إشعار مرة واحدة.',
   },
   {
+    key: 'remittance.autoConfirm', category: 'whatsapp', type: 'boolean', defaultValue: true,
+    labelEn: 'Confirm a remittance from the agent’s answer', labelAr: 'تأكيد الحوالة تلقائياً من رد الوكيل',
+    descriptionEn:
+      'When the agent answers a notice sent for checking with a plain yes — «تم», «واصل», ✅ — quoting its photo (or as the only notice waiting in that group), it is confirmed by itself and marked automatic. It can be reopened.',
+    descriptionAr:
+      'عندما يرد الوكيل على إشعار أُرسل للتشييك بكلمة موافقة واضحة — «تم»، «واصل»، ✅ — مقتبساً صورته (أو كان الإشعار الوحيد المنتظر في تلك المجموعة)، يتأكد وحده ويُعلَّم «تلقائي». ويمكن إعادة فتحه.',
+  },
+  {
     key: 'whatsapp.editMessages', category: 'whatsapp', type: 'boolean', defaultValue: true,
     labelEn: 'Edited deal: correct its message',
     labelAr: 'تعديل الحركة يعدّل رسالتها',

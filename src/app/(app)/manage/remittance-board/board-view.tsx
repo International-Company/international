@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import {
   AlertTriangle,
@@ -53,6 +53,8 @@ interface Line {
   currency: string | null;
   agentName: string | null;
   note: string | null;
+  agentSaid: 'yes' | 'no' | 'unclear' | null;
+  auto: boolean;
   state: State;
   waited: number | null;
   late: 'ok' | 'late' | 'veryLate';
@@ -90,6 +92,7 @@ interface Board {
     avgDone: number | null;
   };
   owners: { id: string; nameAr: string; nameEn: string }[];
+  stamp?: string;
 }
 
 const STAGES: Stage[] = ['received', 'sent', 'answered', 'decided', 'remitted', 'paid', 'told'];
@@ -145,8 +148,14 @@ export function BoardView({ everyone }: { everyone: boolean }) {
   const [open, setOpen] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  /** What was last read: the next look asks only whether it changed. */
+  const stamp = useRef<string | null>(null);
+
+  const load = useCallback(async (quiet = false) => {
+    if (!quiet) {
+      setLoading(true);
+      stamp.current = null;
+    }
     try {
       const edge = (key: string, end: boolean) => {
         const [year, month, day] = key.split('-').map(Number) as [number, number, number];
@@ -156,9 +165,15 @@ export function BoardView({ everyone }: { everyone: boolean }) {
         ...(days.from ? { from: edge(days.from, false) } : { from: new Date(2000, 0, 1).toISOString() }),
         ...(days.to ? { to: edge(days.to, true) } : {}),
         ...(owner ? { owner } : {}),
+        ...(quiet && stamp.current ? { stamp: stamp.current } : {}),
       });
-      setBoard(await api.get<Board>(`/api/inbox/board?${params.toString()}`));
+      const read = await api.get<Board | { same: true; stamp: string }>(`/api/inbox/board?${params.toString()}`);
+      if ('same' in read) return;
+      stamp.current = read.stamp ?? null;
+      setBoard(read);
     } catch (cause) {
+      // A look in the background that failed says nothing: the next one tries again.
+      if (quiet) return;
       toast.error(t('errors.title'), cause instanceof ApiError ? say(t, cause.messageKey, cause.params) || cause.message : t('errors.generic'));
       setBoard((current) => current ?? null);
     } finally {
@@ -169,10 +184,17 @@ export function BoardView({ everyone }: { everyone: boolean }) {
 
   useEffect(() => {
     void load();
+    // Every few seconds, a light look: the board is read again only when something on it changed.
     const timer = setInterval(() => {
-      if (!document.hidden) void load();
-    }, 15_000);
-    return () => clearInterval(timer);
+      if (!document.hidden) void load(true);
+    }, 5_000);
+    // Back to the page: looked at at once.
+    const shown = () => !document.hidden && void load(true);
+    document.addEventListener('visibilitychange', shown);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener('visibilitychange', shown);
+    };
   }, [load]);
 
   const words = query.trim();
@@ -465,8 +487,20 @@ export function BoardView({ everyone }: { everyone: boolean }) {
                     })}
                   </span>
                   <span className="flex items-center justify-between gap-2 md:flex-col md:items-end">
-                    <span className={cn('rounded-full px-2 py-0.5 text-[11px] font-bold', STATE_STYLE[line.state])}>
-                      {t(`remitBoard.state.${line.state}`)}
+                    <span className="flex flex-wrap items-center justify-end gap-1">
+                      <span className={cn('rounded-full px-2 py-0.5 text-[11px] font-bold', STATE_STYLE[line.state])}>
+                        {t(`remitBoard.state.${line.state}`)}
+                      </span>
+                      {line.auto && (
+                        <span title={t('remitBoard.autoHint')} className="rounded-full bg-success-subtle px-1.5 py-0.5 text-[10px] font-bold text-success-text">
+                          {t('remitBoard.auto')}
+                        </span>
+                      )}
+                      {line.agentSaid === 'no' && (line.state === 'checking' || line.state === 'new') && (
+                        <span className="rounded-full bg-danger-subtle px-1.5 py-0.5 text-[10px] font-bold text-danger-text">
+                          {t('remitBoard.agentNo')}
+                        </span>
+                      )}
                     </span>
                     {line.waited !== null && line.state !== 'done' && line.state !== 'rejected' && (
                       <span

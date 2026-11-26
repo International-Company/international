@@ -2523,6 +2523,9 @@ const en = {
     dismiss: 'Dismiss',
   },
   remitBoard: {
+    auto: 'Auto',
+    autoHint: 'Confirmed by itself from the agent’s yes — it can be reopened from the conversation',
+    agentNo: 'Agent: not arrived',
     tell: 'Send the receipt to the customer',
     telling: 'Sending…',
     told: 'The receipt was sent to the customer on WhatsApp',

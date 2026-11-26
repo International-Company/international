@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { route } from '@/core/http/route';
 import { toJsonSafe } from '@/core/http/json';
-import { remittanceBoard } from '@/modules/whatsapp/remittance-board.service';
+import { remittanceBoard, remittanceBoardStamp } from '@/modules/whatsapp/remittance-board.service';
 import { tellCustomerByHand } from '@/modules/whatsapp/remittance-notice.service';
 
 /** The days asked for, as the browser's own midnight to midnight; none, today. */
@@ -10,6 +10,8 @@ const querySchema = z.object({
   to: z.string().datetime().optional(),
   /** The manager's choice of one teller. */
   owner: z.string().max(40).optional(),
+  /** What the screen last read: unchanged, it is told so, and nothing more is read. */
+  stamp: z.string().max(200).optional(),
 });
 
 /** The remittances taken from WhatsApp, each followed from notice to money paid. */
@@ -19,13 +21,13 @@ export const GET = route<unknown, z.infer<typeof querySchema>>({
   handler: async ({ actor, query }) => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    return toJsonSafe(
-      await remittanceBoard(
-        { id: actor.id, all: actor.permissions.includes('customers.whatsapp.monitor') },
-        { from: query.from ? new Date(query.from) : today, to: query.to ? new Date(query.to) : new Date() },
-        { owner: query.owner ?? null },
-      ),
-    );
+    const viewer = { id: actor.id, all: actor.permissions.includes('customers.whatsapp.monitor') };
+    const range = { from: query.from ? new Date(query.from) : today, to: query.to ? new Date(query.to) : new Date() };
+    const options = { owner: query.owner ?? null };
+    // Taken first: a change while the board is read shows as a new stamp next time.
+    const stamp = await remittanceBoardStamp(viewer, range, options);
+    if (query.stamp && query.stamp === stamp) return { same: true, stamp };
+    return toJsonSafe({ ...(await remittanceBoard(viewer, range, options)), stamp });
   },
 });
 

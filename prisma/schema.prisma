@@ -2364,6 +2364,8 @@ model RemittanceNotice {
   customerToldAt  DateTime?
   customerToldFor String?
   createdAt     DateTime  @default(now())
+  /// Any change to it — sent, answered, decided, paid, told — so the board knows to read it again.
+  updatedAt     DateTime? @updatedAt
 
   @@index([ownerId, status, createdAt])
   @@index([chatId])
@@ -2491,6 +2493,8 @@ model TellerChatMessage {
 
   @@index([chatId, createdAt])
   @@index([waId])
+  /// The answers to one message — an agent's word under the notice sent them — found without reading them all.
+  @@index([quotedId])
   @@map("teller_chat_messages")
 }
 
