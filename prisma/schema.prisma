@@ -2293,6 +2293,8 @@ model TransactionProof {
   /// kept, not by a unique index: one added to a table already holding rows is a change `db push`
   /// will not make on its own, and the deploy would stop on it.
   sourceKey     String?
+  /// A bank receipt sent on to the customer on WhatsApp, when — so it goes once.
+  customerSentAt DateTime?
 
   @@index([transactionId])
   @@index([sourceKey])

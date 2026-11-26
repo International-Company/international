@@ -948,6 +948,10 @@ export function registerWhatsappSubscribers(): void {
       },
     });
     if (!deal) return;
+    // Its customer, if they talk to the office on WhatsApp, sent the bank's receipt there too.
+    void import('./customer-transfer')
+      .then((module) => module.tellCustomerTransfer(transactionId))
+      .catch((error) => log.warn('Could not send a customer their transfer receipt', { error }));
     await markMessages(deal, SENT_MARK);
     const chat = deal.copyChat ?? deal.announcedChat;
     const messageId = deal.copyChat ? deal.copyMessageId : deal.announcedMessageId;

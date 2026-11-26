@@ -8,6 +8,7 @@ import { keepMedia } from './chat-images';
 import { candidateNumbers } from './inbox-numbers';
 import { privateNumberAddress, sendPrivateImage } from './whatsapp.service';
 import { usdtReceiptImage } from './usdt-receipt-image';
+import { ltr } from './customer-transfer';
 
 const log = createLogger('whatsapp:usdt-receipt');
 
@@ -107,8 +108,8 @@ export async function tellUsdtReceipt(transactionId: string, actor: { name: stri
   });
 
   const caption = [
-    `✅ تم استلام ${formatFigure(deal.fromAmount)} ${deal.fromCurrency} بنجاح`,
-    `المبلغ المستحق لك: ${formatFigure(deal.toAmount)} ${deal.toCurrency}`,
+    `✅ تم استلام ${ltr(`${formatFigure(deal.fromAmount)} ${deal.fromCurrency}`)} بنجاح`,
+    `المبلغ المستحق لك: ${ltr(`${formatFigure(deal.toAmount)} ${deal.toCurrency}`)}`,
     'شكراً لتعاملك معنا 🤝',
   ].join('\n');
 

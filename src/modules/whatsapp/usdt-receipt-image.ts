@@ -105,7 +105,11 @@ export function usdtReceiptSvg(receipt: UsdtReceipt, logoUri: string | null = lo
     );
   }
   const nameRight = logoUri ? RIGHT - mark - 26 : RIGHT;
-  parts.push(t(nameRight, 68, receipt.office || 'إيصال', 32, '#ffffff', { bold: true }));
+  // A long name made smaller to fit beside the mark, never past the edge.
+  const officeName = receipt.office || 'إيصال';
+  const room = nameRight - PAD;
+  const nameSize = Math.max(18, Math.min(32, Math.floor(room / (officeName.length * 0.52))));
+  parts.push(t(nameRight, 68, officeName, nameSize, '#ffffff', { bold: true }));
   parts.push(t(nameRight, 106, 'إيصال استلام', 22, '#c7d7fe'));
   y = HEAD;
 

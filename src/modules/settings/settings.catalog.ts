@@ -565,6 +565,14 @@ export const SETTINGS: SettingDefinition[] = [
       'تصل حركة الصرافة واستلام USDT إلى مجموعتها بتفاصيلها: نوع الحركة، الرقم، المحفظة، الاسم، المبلغ، سعر الصرف، التاريخ والوقت. عند إيقافه تصل بالأسطر الأربعة. مجموعة التحويلات البنكية تبقى دائماً بدون تفاصيل.',
   },
   {
+    key: 'customers.transferReceipt', category: 'whatsapp', type: 'boolean', defaultValue: true,
+    labelEn: 'Send the bank receipt to the customer', labelAr: 'إرسال إشعار البنك للعميل',
+    descriptionEn:
+      'When a bank receipt is attached to a deal whose customer has a conversation with the private number, send it to them there with «تم التحويل بنجاح ✔» and where it went. Each receipt once.',
+    descriptionAr:
+      'عند إرفاق إشعار بنك بحركة لعميل له محادثة مع الرقم الخاص، يُرسل له الإشعار هناك مع «تم التحويل بنجاح ✔» والجهة التي حُوّل إليها. كل إشعار مرة واحدة.',
+  },
+  {
     key: 'whatsapp.editMessages', category: 'whatsapp', type: 'boolean', defaultValue: true,
     labelEn: 'Edited deal: correct its message',
     labelAr: 'تعديل الحركة يعدّل رسالتها',

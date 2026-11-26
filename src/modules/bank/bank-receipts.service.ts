@@ -63,6 +63,10 @@ export async function addReceipt(
       select: { id: true },
     });
     readLater(kind, id);
+    // Its customer, if they talk to the office on WhatsApp, sent it there too.
+    void import('@/modules/whatsapp/customer-transfer')
+      .then((module) => module.tellCustomerTransfer(id))
+      .catch((error) => log.warn('Could not send a customer their transfer receipt', { error }));
     return proof.id;
   }
   const kept = await keepMedia(file, null);
