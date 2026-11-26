@@ -12,6 +12,7 @@ import { Money } from '@/ui/display';
 import { shrinkPhoto } from '@/ui/proof-photo';
 import { plainFigure, type Line } from './desk-types';
 import { PartsBar, remainingOf } from './parts';
+import { PhoneFloat, wantsPhoneFloat, type OverlayCard } from './phone-float';
 
 interface Field {
   key: string;
@@ -151,6 +152,8 @@ export function MarkSentDialog({
   const [copied, setCopied] = useState<string | null>(null);
   /** The floating window, while it is open. */
   const [floating, setFloating] = useState<Window | null>(null);
+  /** On a phone: the card floating inside the program instead. */
+  const [phoneFloat, setPhoneFloat] = useState(false);
 
   useEffect(() => {
     if (line) {
@@ -176,6 +179,7 @@ export function MarkSentDialog({
 
   // Closed here: the floating window goes with it.
   useEffect(() => {
+    if (!line) setPhoneFloat(false);
     if (!line && floating) {
       floating.close();
       setFloating(null);
@@ -282,6 +286,11 @@ export function MarkSentDialog({
    * as it does here.
    */
   const openFloat = async () => {
+    // A phone opens no window of its own: the card floats inside the program.
+    if (wantsPhoneFloat()) {
+      setPhoneFloat(true);
+      return;
+    }
     if (floating) {
       floating.focus();
       return;
@@ -338,10 +347,30 @@ export function MarkSentDialog({
       ].filter((field) => field.value)
     : [];
 
+  /** What the window above the bank's app shows. */
+  const card: OverlayCard | null = line
+    ? {
+        name: line.name,
+        account: line.account,
+        amount: plainFigure(line.amount),
+        currency: line.currency,
+        left: line.paid ? plainFigure(remainingOf(line.amount, line.paid).toString()) : null,
+        channel: line.channel,
+        reference: line.reference,
+        words: {
+          account: t('bank.account'),
+          amount: t('bank.amount'),
+          left: t('bankParts.left'),
+          channel: t('bankSent.channel'),
+        },
+      }
+    : null;
+  const actionWords = remainder ? (receipt ? t('bankRem.executeConfirm') : t('bankRem.settleConfirm')) : t('bank.markSentConfirm');
+
   return (
     <>
       <Dialog
-        open={line !== null && !floatOnly}
+        open={line !== null && !floatOnly && !phoneFloat}
         onClose={onClose}
         size="sm"
         title={remainder ? t('bankRem.executeTitle') : t('bank.markSentTitle')}
@@ -443,6 +472,52 @@ export function MarkSentDialog({
           </div>,
           floating.document.body,
         )}
+
+      {/* On a phone: floating inside the program, and above the bank's app to read from. */}
+      <PhoneFloat
+        open={phoneFloat && line !== null}
+        title={line ? (line.name ?? line.account ?? line.reference) : ''}
+        subtitle={line ? `${line.reference}${line.channel ? ` · ${line.channel}` : ''}` : ''}
+        badge={line ? `${card?.left ?? card?.amount} ${line.currency}` : ''}
+        card={card}
+        onClose={() => {
+          setPhoneFloat(false);
+          if (floatOnly) onClose();
+        }}
+      >
+        {line && (
+          <>
+            <div className="flex items-center justify-between gap-2 rounded-xl bg-surface-sunken/60 px-3 py-2">
+              <Money value={line.amount} currency={line.currency} className="text-xl font-extrabold" />
+              <PartsBar amount={line.amount} paid={line.paid} currency={line.currency} className="w-32" />
+            </div>
+            <Fields
+              fields={fields}
+              copied={copied}
+              onCopy={(field) => {
+                copyFrom(window, field.value);
+                setCopied(field.key);
+              }}
+            />
+            <Receipt value={receipt} onChange={setReceipt} onPick={pick} />
+            <div className="grid grid-cols-2 gap-1.5">
+              <Button
+                variant="secondary"
+                icon={<SplitSquareHorizontal />}
+                loading={partBusy}
+                disabled={!receipt || busy}
+                onClick={() => void sendPart()}
+              >
+                {t('bankParts.part')}
+              </Button>
+              <Button variant="primary" loading={busy} icon={<Check />} onClick={() => void send()}>
+                {actionWords}
+              </Button>
+            </div>
+            <p className="text-center text-[11px] leading-relaxed text-content-tertiary">{t('bankSent.phoneFoot')}</p>
+          </>
+        )}
+      </PhoneFloat>
     </>
   );
 }
