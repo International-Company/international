@@ -95,6 +95,13 @@ export const NAVIGATION: NavSection[] = [
         permissions: ['bank.execute', 'exchange.transfer.confirm'],
       },
       {
+        // The remittances taken from WhatsApp, each followed from notice to money paid.
+        href: '/manage/remittance-board',
+        labelKey: 'nav.remittanceBoard',
+        icon: 'track',
+        permissions: ['customers.whatsapp'],
+      },
+      {
         href: '/counter/remittance',
         labelKey: 'nav.remittance',
         icon: 'transfer',
@@ -160,13 +167,6 @@ export const NAVIGATION: NavSection[] = [
         labelKey: 'nav.tiktok',
         icon: 'tiktok',
         permissions: ['exchange.remittance.use'],
-      },
-      {
-        // The remittances taken from WhatsApp, each followed from notice to money paid.
-        href: '/manage/remittance-board',
-        labelKey: 'nav.remittanceBoard',
-        icon: 'track',
-        permissions: ['customers.whatsapp'],
       },
       {
         // Each deal of his own, opened to put a name, number or wallet right.
