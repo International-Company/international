@@ -344,6 +344,8 @@ export async function checkRequest(
       walletId: request.walletId,
       direction: 'IN',
       amount: request.expectedAmount,
+      // A Binance account takes every coin: a request waits on the wallet's own.
+      ...(request.wallet.network === 'BINANCE' ? { tokenSymbol: request.wallet.tokenSymbol } : {}),
       firstSeenAt: { gte: windowStart, lte: windowEnd },
       // Never take a transfer another request already owns, or one already
       // posted to the ledger by some other route.
@@ -375,7 +377,15 @@ export async function checkRequest(
    * on the address while it happens.
    */
   if (candidates.length === 0) {
-    const near = await nearArrival(request.id, request.walletId, windowStart, windowEnd, required, db);
+    const near = await nearArrival(
+      request.id,
+      request.walletId,
+      windowStart,
+      windowEnd,
+      required,
+      db,
+      request.wallet.network === 'BINANCE' ? request.wallet.tokenSymbol : null,
+    );
     if (near) {
       return {
         state: 'NEAR',
@@ -441,6 +451,8 @@ async function nearArrival(
   windowEnd: Date,
   required: number,
   db: DbClient,
+  /** Only this coin, on an account that takes every coin. */
+  token: string | null = null,
 ) {
   if (!(await soleClaimant(requestId, walletId, db))) return null;
 
@@ -448,6 +460,7 @@ async function nearArrival(
     where: {
       walletId,
       direction: 'IN',
+      ...(token ? { tokenSymbol: token } : {}),
       firstSeenAt: { gte: windowStart, lte: windowEnd },
       depositRequest: { is: null },
       linkedTransactionId: null,
@@ -878,6 +891,11 @@ export interface Arrival {
    * screen's word for it.
    */
   explorerUrl: string;
+  /**
+   * The coin that came: the wallet's own, or — on a Binance account, which
+   * takes every coin — another one, paid at a price the teller types.
+   */
+  coin: string;
   wallet: { id: string; label: string; labelAr: string; network: string; tokenSymbol: string };
   /**
    * Who this sender is, when the counter has settled one from the address
@@ -976,6 +994,7 @@ export async function unclaimedArrivals(
       confirmations: true,
       firstSeenAt: true,
       fromAddress: true,
+      tokenSymbol: true,
       wallet: {
         select: {
           id: true,
@@ -1007,6 +1026,7 @@ export async function unclaimedArrivals(
     firstSeenAt: row.firstSeenAt,
     fromAddress: row.fromAddress,
     explorerUrl: providerFor(row.wallet.network).explorerUrl(row.txHash),
+    coin: arrivedCoin(row.tokenSymbol, row.wallet),
     wallet: {
       id: row.wallet.id,
       label: row.wallet.label,
@@ -1045,6 +1065,8 @@ export async function quoteArrival(
   alsoArrivals: string[] = [],
   /** Split in two: the coins the first deal pays for, priced alone. */
   splitCoins?: bigint,
+  /** Another coin than the wallet's: what one of it is worth in the wallet's, as the teller typed. */
+  coinPrice?: bigint,
 ): Promise<{
   amount: string;
   payoutCurrency: string;
@@ -1066,11 +1088,13 @@ export async function quoteArrival(
       amount: true,
       splitSettled: true,
       direction: true,
-      wallet: { select: { tokenSymbol: true, isCounterAddress: true } },
+      tokenSymbol: true,
+      wallet: { select: { tokenSymbol: true, isCounterAddress: true, network: true } },
     },
   });
 
   if (!transfer) throw errors.notFound('Chain transaction', chainTransactionId);
+  const foreign = arrivedCoin(transfer.tokenSymbol, transfer.wallet) !== transfer.wallet.tokenSymbol;
   if (!transfer.wallet.isCounterAddress) {
     throw errors.precondition(
       'That address is not available at the counter',
@@ -1088,8 +1112,9 @@ export async function quoteArrival(
       })
     : [];
   const left = transfer.amount - transfer.splitSettled;
-  const coins =
-    splitCoins !== undefined && splitCoins > 0n && splitCoins < left
+  const coins = foreign
+    ? inWalletCoin(left, coinPrice, alsoArrivals.length > 0 || splitCoins !== undefined)
+    : splitCoins !== undefined && splitCoins > 0n && splitCoins < left
       ? splitCoins
       : others.reduce((sum, row) => sum + row.amount, left);
 
@@ -1195,6 +1220,8 @@ export interface SettleArrivalInput {
   priceCash?: bigint;
   /** Into shekels: the teller's own price per coin on what is paid by transfer. */
   priceBroker?: bigint;
+  /** Another coin than the wallet's: what one of it is worth in the wallet's, as the teller typed. */
+  coinPrice?: bigint;
   /** Which of the broker's accounts the transfer is instructed to. */
   payoutChannel?: string | null;
   /** The account on that channel the customer is paid to. Required for a transfer. */
@@ -1294,7 +1321,7 @@ export async function settleArrival(
         where: { id: { in: ids } },
         include: {
           depositRequest: { select: { id: true } },
-          wallet: { select: { tokenSymbol: true, isCounterAddress: true, isActive: true, minConfirmations: true } },
+          wallet: { select: { tokenSymbol: true, network: true, isCounterAddress: true, isActive: true, minConfirmations: true } },
         },
       })
     : [];
@@ -1303,6 +1330,8 @@ export async function settleArrival(
     others.some(
       (row) =>
         row.wallet.tokenSymbol !== transfer.wallet.tokenSymbol ||
+        // The same coin that came, not only the same wallet's coin.
+        arrivedCoin(row.tokenSymbol, row.wallet) !== arrivedCoin(transfer.tokenSymbol, transfer.wallet) ||
         !row.wallet.isCounterAddress ||
         !row.wallet.isActive ||
         row.direction !== 'IN' ||
@@ -1319,7 +1348,19 @@ export async function settleArrival(
       'errors.arrivalsNotMergeable',
     );
   }
-  const totalCoins = splitCoins ?? others.reduce((sum, row) => sum + row.amount, remaining);
+  /*
+   * Another coin — BNB, TRX, USDC on a Binance account — is paid as what it is
+   * worth in the wallet's own at the teller's price, and the deal says what came
+   * and at what price. Whole and alone: never split, never merged.
+   */
+  const coin = arrivedCoin(transfer.tokenSymbol, transfer.wallet);
+  const foreign = coin !== transfer.wallet.tokenSymbol;
+  const totalCoins = foreign
+    ? inWalletCoin(remaining, input.coinPrice, splitCoins !== null || others.length > 0)
+    : (splitCoins ?? others.reduce((sum, row) => sum + row.amount, remaining));
+  const coinNote = foreign
+    ? `وصل ${coinText(remaining)} ${coin} بسعر ${coinText(input.coinPrice!)} = ${toDecimalString(totalCoins, 2)} ${transfer.wallet.tokenSymbol}`
+    : '';
   // Said on the deal: which part of the transfer it is.
   const splitNote =
     splitCoins !== null
@@ -1667,7 +1708,7 @@ export async function settleArrival(
       counterpartyPhone: input.counterpartyPhone ?? null,
       mergedParts,
       notes:
-        [splitNote, mergedParts && `دمج تحويلات: ${mergedParts}`, percentNote && `النسبة: ${percentNote}`, ...new Set(priceNotes), editNote, input.notes]
+        [coinNote, splitNote, mergedParts && `دمج تحويلات: ${mergedParts}`, percentNote && `النسبة: ${percentNote}`, ...new Set(priceNotes), editNote, input.notes]
           .filter(Boolean)
           .join(' — ') || null,
     },
@@ -1765,6 +1806,33 @@ export async function settleArrival(
  * filled in under another's name — happens at the counter, and marking costs
  * nothing but a little typing on the next arrival from it.
  */
+/**
+ * The coin a transfer brought. A chain wallet reads one coin, so its own; a
+ * Binance account takes every coin, so what Binance named.
+ */
+function arrivedCoin(tokenSymbol: string, wallet: { network: string; tokenSymbol: string }): string {
+  if (wallet.network !== 'BINANCE') return wallet.tokenSymbol;
+  return tokenSymbol.trim().toUpperCase() || wallet.tokenSymbol;
+}
+
+/** Up to eight places, without the zeros after: 0.5 BNB, not 0.50000000. */
+function coinText(value: bigint): string {
+  return toDecimalString(value, 8).replace(/\.?0+$/, '');
+}
+
+/** Another coin, at the teller's price per coin, as so much of the wallet's own. */
+function inWalletCoin(amount: bigint, price: bigint | undefined, splitOrMerged: boolean): bigint {
+  if (splitOrMerged) {
+    throw errors.precondition('Another coin is paid whole and alone', 'errors.coinNotSplit');
+  }
+  if (price === undefined || price <= 0n) {
+    throw errors.precondition('Say what one coin is worth', 'errors.coinPriceRequired');
+  }
+  const worth = (amount * price) / MONEY_FACTOR;
+  if (worth <= 0n) throw errors.precondition('Say what one coin is worth', 'errors.coinPriceRequired');
+  return worth;
+}
+
 export async function markAddressShared(
   input: { network: string; address: string },
   actor: Actor,

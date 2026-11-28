@@ -9,6 +9,7 @@ import * as notifications from '@/modules/notifications/notifications.service';
 import { nextReference } from '@/modules/sequence/reference';
 import * as settings from '@/modules/settings/settings.service';
 import { BinanceProvider, providerForWallet, type ChainTransfer } from './providers';
+import type { WatchedAddress } from './providers/types';
 import { maskAddress } from './wallet.service';
 import { containsInsensitive } from '@/core/db/search';
 
@@ -96,6 +97,7 @@ export async function syncWallet(
     const page = await provider.fetchTransfers(wallet.address, wallet.contractAddress, {
       cursor: options.deep ? null : wallet.syncCursor,
       limit: options.deep ? 200 : 50,
+      ...(wallet.network === 'BINANCE' ? { watched: await chainWatched(db) } : {}),
     });
 
     fetched = page.transfers.length;
@@ -139,6 +141,18 @@ export async function syncWallet(
     // A failing explorer must not abort a batch across many wallets.
     return { walletId, fetched, created, updated, balance, status: 'ERROR', error: message };
   }
+}
+
+/**
+ * What the chain wallets read: a Binance account's deposit over a chain to one
+ * of these, in that coin, is left to them, so it is never offered twice.
+ */
+async function chainWatched(db: DbClient): Promise<WatchedAddress[]> {
+  const wallets = await db.wallet.findMany({
+    where: { isActive: true, network: { in: ['TRON', 'BSC', 'ETHEREUM'] } },
+    select: { network: true, address: true, tokenSymbol: true },
+  });
+  return wallets.map((wallet) => ({ network: wallet.network, address: wallet.address, token: wallet.tokenSymbol }));
 }
 
 type IngestOutcome = 'CREATED' | 'UPDATED' | 'UNCHANGED' | 'REJECTED';
@@ -446,7 +460,7 @@ async function findOffChain(id: string, db: DbClient): Promise<string[]> {
   for (const wallet of wallets) {
     const provider = await providerForWallet(wallet, db);
     if (!(provider instanceof BinanceProvider)) continue;
-    const transfer = await provider.fetchOffChain(id, wallet.address, wallet.contractAddress || 'USDT').catch((error) => {
+    const transfer = await provider.fetchOffChain(id, wallet.address).catch((error) => {
       log.warn('Binance did not answer an off-chain lookup', { error });
       failed = true;
       return null;
@@ -673,6 +687,10 @@ export async function markReconciled(
 
 export interface ChainTransactionFilter {
   walletId?: string;
+  /** Only the wallets on this network: BINANCE for everything the Binance account took. */
+  network?: string;
+  /** Only this coin. */
+  token?: string;
   direction?: 'IN' | 'OUT';
   status?: string;
   reconciled?: boolean;
@@ -692,6 +710,8 @@ export async function listChainTransactions(
 
   const where = {
     ...(filter.walletId ? { walletId: filter.walletId } : {}),
+    ...(filter.network ? { network: filter.network } : {}),
+    ...(filter.token ? { tokenSymbol: filter.token.toUpperCase() } : {}),
     ...(filter.direction ? { direction: filter.direction } : {}),
     ...(filter.status ? { status: filter.status } : {}),
     ...(filter.reconciled !== undefined ? { isReconciled: filter.reconciled } : {}),
@@ -709,6 +729,8 @@ export async function listChainTransactions(
             { txHash: containsInsensitive(filter.search) },
             { fromAddress: containsInsensitive(filter.search) },
             { toAddress: containsInsensitive(filter.search) },
+            // A Binance deposit's network and the address it reached, and a payer's name.
+            { notes: containsInsensitive(filter.search) },
           ],
         }
       : {}),

@@ -5,6 +5,8 @@ import { listChainTransactions, recordManualTransfer } from '@/modules/usdt/sync
 
 const querySchema = z.object({
   walletId: z.string().optional(),
+  network: z.string().max(20).optional(),
+  token: z.string().max(20).optional(),
   direction: z.enum(['IN', 'OUT']).optional(),
   status: z.string().optional(),
   reconciled: z

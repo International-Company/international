@@ -33,7 +33,7 @@ const record = (over: Partial<PayRecord> = {}): PayRecord => ({
 
 describe('a Binance Pay record', () => {
   it('is money in, from the payer by name, when the amount is positive', () => {
-    const transfer = payToTransfer(record(), OFFICE, 'USDT')!;
+    const transfer = payToTransfer(record(), OFFICE)!;
     assert.equal(transfer.toAddress, OFFICE);
     assert.equal(transfer.fromAddress, 'Fadi Abu Hajar');
     assert.equal(transfer.amount, 15_050_000_000n);
@@ -50,16 +50,16 @@ describe('a Binance Pay record', () => {
         receiverInfo: { binanceId: '555666777', name: 'Sami' },
       }),
       OFFICE,
-      'USDT',
     )!;
     assert.equal(transfer.fromAddress, OFFICE);
     assert.equal(transfer.toAddress, '555666777');
     assert.equal(transfer.amount, 20n * UNIT);
   });
 
-  it('ignores any other coin, and an empty amount', () => {
-    assert.equal(payToTransfer(record({ currency: 'BNB' }), OFFICE, 'USDT'), null);
-    assert.equal(payToTransfer(record({ amount: '0' }), OFFICE, 'USDT'), null);
+  it('takes any coin as what it is, and ignores an empty amount', () => {
+    assert.equal(payToTransfer(record({ currency: 'bnb', amount: '0.5' }), OFFICE)?.tokenSymbol, 'BNB');
+    assert.equal(payToTransfer(record({ currency: 'bnb', amount: '0.5' }), OFFICE)?.amount, UNIT / 2n);
+    assert.equal(payToTransfer(record({ amount: '0' }), OFFICE), null);
   });
 });
 
@@ -110,7 +110,7 @@ describe('the Binance provider', () => {
     assert.ok(calls.every((call) => call.key === 'key-1'));
   });
 
-  it('reads Pay history from the cursor and returns only the office’s USDT', async () => {
+  it('reads Pay history from the cursor, every coin', async () => {
     const now = Date.now();
     const calls = fakeBinance(
       () => ({
@@ -134,8 +134,8 @@ describe('the Binance provider', () => {
     // Ten minutes re-read behind the cursor.
     assert.ok(Number(pay[0]!.params.get('startTime')) <= now - 15 * 60_000 + 1000);
     assert.deepEqual(
-      page.transfers.map((transfer) => transfer.txHash),
-      ['A'],
+      page.transfers.map((transfer) => `${transfer.txHash}:${transfer.tokenSymbol}`),
+      ['A:USDT', 'B:BTC'],
     );
     assert.equal(page.hasMore, false);
   });

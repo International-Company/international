@@ -104,6 +104,8 @@ interface Arrival {
   firstSeenAt: string;
   fromAddress: string | null;
   explorerUrl: string;
+  /** The coin that came: on a Binance account, any coin — BNB, TRX, USDC — not only the wallet's. */
+  coin?: string;
   wallet: { id: string; label: string; labelAr: string; network: string; tokenSymbol: string };
   recognised: Recognised | null;
   /** The whole transfer, when its first part was paid as a deal of its own and this is the rest. */
@@ -188,6 +190,8 @@ export function ReceiveFlow({
    */
   const [splitOn, setSplitOn] = useState(false);
   const [splitCoins, setSplitCoins] = useState('');
+  /** Another coin than the wallet's: what one of it is worth in the wallet's, as the teller agreed it. */
+  const [coinPrice, setCoinPrice] = useState('');
   const [percentCash, setPercentCash] = useState('');
   const [percentBroker, setPercentBroker] = useState('');
   /** The teller's own shekel price per coin, each way of paying. Empty keeps the board's. */
@@ -241,6 +245,9 @@ export function ReceiveFlow({
 
   const toMerge = (arrivals ?? []).filter((arrival) => merging.includes(arrival.id));
   const mergeToken = toMerge[0]?.wallet.tokenSymbol;
+  const chosenCoin = chosen ? otherCoin(chosen) : null;
+  /** The teller's price for one coin, when there is one to use. */
+  const coinPriceValue = chosenCoin && scaleCoins(coinPrice) > 0n ? coinPrice.trim() : null;
 
   /** The ticked transfers as one to settle, oldest first in what it says. */
   const openMerged = () => {
@@ -555,6 +562,7 @@ export function ReceiveFlow({
     setSavedPayouts([]);
     setSplitOn(false);
     setSplitCoins('');
+    setCoinPrice('');
 
     const known = arrival.recognised?.status === 'KNOWN' ? arrival.recognised : null;
     setCustomer(
@@ -617,11 +625,13 @@ export function ReceiveFlow({
     if (!chosen) return;
     let current = true;
     setQuote(null);
+    // Another coin is priced once the teller has said what one of it is worth.
+    if (otherCoin(chosen) && !coinPriceValue) return;
     void api
       .get<Priced>(
         `/api/usdt/arrivals/${chosen.id}?payoutCurrency=${payoutCurrency}${
           chosen.alsoIds?.length ? `&also=${chosen.alsoIds.join(',')}` : ''
-        }${splitValue ? `&coins=${splitValue}` : ''}`,
+        }${splitValue ? `&coins=${splitValue}` : ''}${coinPriceValue ? `&coinPrice=${coinPriceValue}` : ''}`,
       )
       .then((result) => {
         if (!current) return;
@@ -637,7 +647,7 @@ export function ReceiveFlow({
     return () => {
       current = false;
     };
-  }, [chosen, payoutCurrency, splitValue]);
+  }, [chosen, payoutCurrency, splitValue, coinPriceValue]);
 
   // A remembered transfer with no broker price published today falls back to
   // cash, rather than leaving a payout of nothing and a button that stays grey.
@@ -710,6 +720,7 @@ export function ReceiveFlow({
           payoutCurrency,
           alsoArrivals: chosen.alsoIds ?? [],
           splitCoins: splitValue ?? undefined,
+          coinPrice: coinPriceValue ?? undefined,
           mode,
           /*
            * Only the broker's share of the coins travels. The till takes the
@@ -980,8 +991,15 @@ export function ReceiveFlow({
                   <li key={arrival.id} className="space-y-2 py-3">
                     <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
                       <span className="text-lg font-bold text-content tabular-nums">
-                        <Money value={arrival.amount} currency={arrival.wallet.tokenSymbol} />
+                        {otherCoin(arrival) ? (
+                          <span className="ltr-content">
+                            {toPlainAmount(BigInt(arrival.amount), 8)} {otherCoin(arrival)}
+                          </span>
+                        ) : (
+                          <Money value={arrival.amount} currency={arrival.wallet.tokenSymbol} />
+                        )}
                       </span>
+                      {otherCoin(arrival) && <Badge tone="primary">{t('receive.otherCoin')}</Badge>}
                       {/*
                         When, in the form the teller actually needs: "four
                         minutes ago" answers "is this the man in front of me",
@@ -1060,7 +1078,7 @@ export function ReceiveFlow({
                         {t('receive.details')}
                       </Button>
 
-                      {arrival.ready && (!mergeToken || mergeToken === arrival.wallet.tokenSymbol) && (
+                      {arrival.ready && !otherCoin(arrival) && (!mergeToken || mergeToken === arrival.wallet.tokenSymbol) && (
                         <label className="ms-auto inline-flex min-h-9 cursor-pointer items-center gap-2 text-sm text-content-secondary">
                           <input
                             type="checkbox"
@@ -1233,7 +1251,7 @@ export function ReceiveFlow({
             )}
 
             {/* Split in two deals: this one pays for part of the coins, the rest is a deal of its own. */}
-            {!chosen.alsoIds?.length && !chosen.splitFrom && (
+            {!chosen.alsoIds?.length && !chosen.splitFrom && !chosenCoin && (
               <div className="rounded-xl bg-surface-sunken p-3 ring-1 ring-border-subtle">
                 <label className="flex cursor-pointer items-center justify-between gap-3">
                   <span>
@@ -1317,9 +1335,49 @@ export function ReceiveFlow({
             <div className="flex items-center justify-between rounded-xl bg-surface-sunken px-3 py-2">
               <span className="text-sm text-content-secondary">{t('arrivals.arrived')}</span>
               <span className="font-semibold tabular-nums">
-                <Money value={chosen.amount} currency={chosen.wallet.tokenSymbol} />
+                {chosenCoin ? (
+                  <span className="ltr-content">
+                    {toPlainAmount(BigInt(chosen.amount), 8)} {chosenCoin}
+                  </span>
+                ) : (
+                  <Money value={chosen.amount} currency={chosen.wallet.tokenSymbol} />
+                )}
               </span>
             </div>
+
+            {/* Another coin: the teller says what one of it is worth, and it is paid as that much. */}
+            {chosenCoin && (
+              <div className="rounded-xl bg-surface-sunken p-3 ring-1 ring-border-subtle">
+                <label className="block">
+                  <span className="text-sm font-semibold text-content">
+                    {t('receive.coinPrice', { coin: chosenCoin, token: chosen.wallet.tokenSymbol })}
+                  </span>
+                  <input
+                    type="text"
+                    dir="ltr"
+                    inputMode="decimal"
+                    autoComplete="off"
+                    autoFocus
+                    value={coinPrice}
+                    onChange={(event) => setCoinPrice(cleanAmount(event.target.value, 8))}
+                    className={cn(
+                      'mt-1 h-11 w-full rounded-xl bg-surface px-3 text-end text-lg font-bold tabular-nums text-content outline-none ring-1 focus:ring-primary',
+                      coinPrice && !coinPriceValue ? 'ring-danger' : 'ring-border-subtle',
+                    )}
+                  />
+                </label>
+                <p className="mt-2 text-xs text-content-tertiary" dir={coinPriceValue ? 'ltr' : undefined}>
+                  {coinPriceValue
+                    ? t('receive.coinWorth', {
+                        amount: toPlainAmount(BigInt(chosen.amount), 8),
+                        coin: chosenCoin,
+                        worth: toPlainAmount((BigInt(chosen.amount) * scaleCoins(coinPriceValue)) / 100000000n, 2),
+                        token: chosen.wallet.tokenSymbol,
+                      })
+                    : t('receive.coinPriceHint', { token: chosen.wallet.tokenSymbol })}
+                </p>
+              </div>
+            )}
 
             <Field label={t('counter.payoutCurrency')} required>
               {(props) => (
@@ -1883,6 +1941,11 @@ function cleanAmount(raw: string, places: number): string {
 }
 
 const cleanPercent = (raw: string) => cleanAmount(raw, 4);
+
+/** The coin that came, when it is not the wallet's own: BNB, TRX, USDC on a Binance account. */
+function otherCoin(arrival: Arrival): string | null {
+  return arrival.coin && arrival.coin !== arrival.wallet.tokenSymbol ? arrival.coin : null;
+}
 
 /** A scaled amount as plain digits, for a field: 985.5, or 985 when whole. */
 function toPlainAmount(scaled: bigint, places: number): string {

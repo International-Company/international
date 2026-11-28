@@ -200,6 +200,12 @@ export const NAVIGATION: NavSection[] = [
         matchPrefix: true,
       },
       {
+        href: '/manage/binance-deposits',
+        labelKey: 'nav.binanceDeposits',
+        icon: 'wallet',
+        permissions: ['usdt.transaction.view'],
+      },
+      {
         href: '/manage/withdrawals',
         labelKey: 'nav.releases',
         icon: 'transfer',

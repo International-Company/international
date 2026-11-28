@@ -40,6 +40,18 @@ export interface FetchOptions {
   limit?: number;
   /** Only return transfers at or after this block. */
   sinceBlock?: bigint | null;
+  /**
+   * Addresses a chain wallet already reads, each with its token: a Binance
+   * account's deposit there over the chain is left to that wallet, so the same
+   * coins are never offered twice.
+   */
+  watched?: WatchedAddress[];
+}
+
+export interface WatchedAddress {
+  network: string;
+  address: string;
+  token: string;
 }
 
 /**

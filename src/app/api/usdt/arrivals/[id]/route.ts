@@ -17,6 +17,8 @@ const querySchema = z.object({
   also: z.string().max(1000).optional(),
   /** Split in two: the coins the first deal pays for. */
   coins: z.string().max(30).optional(),
+  /** Another coin than the wallet's: what one of it is worth in the wallet's. */
+  coinPrice: z.string().max(30).optional(),
 });
 
 const MAX_MERGED = 19;
@@ -38,6 +40,7 @@ export const GET = route<unknown, z.infer<typeof querySchema>, z.infer<typeof pa
       undefined,
       query.also?.split(',').filter(Boolean).slice(0, MAX_MERGED) ?? [],
       query.coins?.trim() ? parseMoney(query.coins) : undefined,
+      query.coinPrice?.trim() ? parseMoney(query.coinPrice) : undefined,
     ),
 });
 
@@ -64,6 +67,8 @@ const bodySchema = z.object({
   /** Into shekels: the teller's own price per coin, for each way of paying. */
   priceCash: z.string().max(20).optional(),
   priceBroker: z.string().max(20).optional(),
+  /** Another coin than the wallet's: what one of it is worth in the wallet's. */
+  coinPrice: z.string().max(30).optional(),
   /** Which of the broker's accounts the transfer is instructed to. */
   payoutChannel: z.string().max(80).nullish(),
   /** The account on that channel — a wallet number, a phone, an IBAN. */
@@ -114,6 +119,7 @@ export const POST = route<z.infer<typeof bodySchema>, unknown, z.infer<typeof pa
             body.payoutEditBank !== undefined ? parseMoney(body.payoutEditBank) : undefined,
           priceCash: body.priceCash !== undefined ? parseMoney(body.priceCash) : undefined,
           priceBroker: body.priceBroker !== undefined ? parseMoney(body.priceBroker) : undefined,
+          coinPrice: body.coinPrice?.trim() ? parseMoney(body.coinPrice) : undefined,
           payoutChannel: body.payoutChannel ?? null,
           payoutAccount: body.payoutAccount ?? null,
           customerId: body.customerId ?? null,

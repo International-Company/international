@@ -18,6 +18,8 @@ interface Landed {
   ready: boolean;
   firstSeenAt: string;
   fromAddress: string | null;
+  /** The coin that came, when a Binance account took another than the wallet's. */
+  coin?: string;
   wallet: { id: string; label: string; labelAr: string; network: string; tokenSymbol: string };
 }
 
@@ -161,7 +163,13 @@ export function UsdtArrivalAlert({ enabled }: { enabled: boolean }) {
                 <div className="min-w-0 flex-1">
                   <p className="text-xs font-semibold text-success-text">{t('chainTx.arrivedTitle')}</p>
                   <p className="text-xl font-extrabold tabular-nums text-content">
-                    <Money value={card.amount} currency={card.wallet.tokenSymbol} />
+                    {card.coin && card.coin !== card.wallet.tokenSymbol ? (
+                      <span className="ltr-content">
+                        {(Number(BigInt(card.amount)) / 1e8).toLocaleString('en-US', { maximumFractionDigits: 8 })} {card.coin}
+                      </span>
+                    ) : (
+                      <Money value={card.amount} currency={card.wallet.tokenSymbol} />
+                    )}
                   </p>
                   <p className="truncate text-xs text-content-tertiary">
                     {ln(card.wallet, 'label')} · {networkLabel(card.wallet.network)}

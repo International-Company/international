@@ -9,6 +9,7 @@ import type {
   FetchOptions,
   ProviderCredentials,
   TransferPage,
+  WatchedAddress,
 } from './types';
 
 /**
@@ -106,20 +107,42 @@ export function offChainId(txId: string | null | undefined): string | null {
   return OFF_CHAIN.exec(String(txId ?? '').trim())?.[1] ?? null;
 }
 
+/** Binance's name for a network, as a chain wallet's network is called here. */
+const BINANCE_NETWORK: Record<string, string> = { TRON: 'TRX', BSC: 'BSC', ETHEREUM: 'ETH' };
+
+/** Whether a chain wallet already reads this deposit: the same network, address and coin. */
+function watchedBy(record: DepositRecord, watched: WatchedAddress[]): boolean {
+  const network = record.network?.toUpperCase() ?? '';
+  const address = record.address?.trim().toLowerCase() ?? '';
+  const coin = record.coin?.toUpperCase() ?? '';
+  return watched.some(
+    (wallet) =>
+      (BINANCE_NETWORK[wallet.network] ?? wallet.network) === network &&
+      wallet.address.trim().toLowerCase() === address &&
+      wallet.token.toUpperCase() === coin,
+  );
+}
+
 /**
- * A deposit paid from another Binance account to one of this account's deposit
- * addresses, as a transfer on the office's account; null for anything else.
+ * A deposit to one of this account's deposit addresses — any coin, any network
+ * — as a transfer on the office's account; null for anything else.
  *
- * Binance moves those inside itself — "Off-chain transfer 433778693577" where
- * a hash would be — so no chain ever shows them, and the deposit address's
- * chain watch never sees the money arrive. A deposit that did go over a chain
- * is left out on purpose: the address's own watch reads it, and taking it here
- * as well would offer the same coins to be paid out twice.
+ * Paid from another Binance account, Binance moves it inside itself — "Off-chain
+ * transfer 433778693577" where a hash would be — and no chain ever shows it.
+ * Paid over a chain, it carries its hash, and it is taken here too, unless a
+ * chain wallet watches that address for that coin: that wallet reads it, and
+ * taking it twice would offer the same coins to be paid out twice.
  */
-export function depositToTransfer(record: DepositRecord, officeId: string, token: string): ChainTransfer | null {
-  if (record.coin?.toUpperCase() !== token.toUpperCase()) return null;
+export function depositToTransfer(
+  record: DepositRecord,
+  officeId: string,
+  watched: WatchedAddress[] = [],
+): ChainTransfer | null {
+  const coin = record.coin?.trim().toUpperCase();
+  if (!coin) return null;
   const id = offChainId(record.txId);
-  if (!id) return null;
+  const hash = String(record.txId ?? '').trim();
+  if (!id && (!hash || watchedBy(record, watched))) return null;
   // Failed or turned back: never money the office holds.
   if (![0, 1, 6].includes(Number(record.status))) return null;
   const amount = parseMoney(String(record.amount ?? '').trim());
@@ -127,18 +150,18 @@ export function depositToTransfer(record: DepositRecord, officeId: string, token
   const settled = Number(record.status) !== 0;
   const network = record.network?.toUpperCase() || null;
   return {
-    txHash: `Off-chain transfer ${id}`,
+    txHash: id ? `Off-chain transfer ${id}` : hash,
     fromAddress: record.sourceAddress?.trim() || 'Binance',
     toAddress: officeId,
     amount,
-    tokenSymbol: token,
+    tokenSymbol: coin,
     contractAddress: null,
     blockNumber: null,
     blockTimestamp: Number.isFinite(record.insertTime) ? new Date(record.insertTime!) : null,
     confirmations: settled ? 1 : 0,
     status: settled ? 'CONFIRMED' : 'PENDING',
     networkFee: 0n,
-    memo: ['Binance off-chain', network, record.address ? `→ ${record.address}` : null].filter(Boolean).join(' · '),
+    memo: [id ? 'Binance off-chain' : 'Binance deposit', network, record.address ? `→ ${record.address}` : null].filter(Boolean).join(' · '),
   };
 }
 
@@ -150,16 +173,13 @@ interface AssetRow {
 }
 
 /**
- * One Pay record as a transfer on the office's account, or null when it is not
- * in the token watched. Exported for its tests: this is where a sign error
- * would pay a customer for money that left.
+ * One Pay record as a transfer on the office's account, in whatever coin it was
+ * paid. Exported for its tests: this is where a sign error would pay a customer
+ * for money that left.
  */
-export function payToTransfer(
-  record: PayRecord,
-  officeId: string,
-  token: string,
-): ChainTransfer | null {
-  if (record.currency?.toUpperCase() !== token.toUpperCase()) return null;
+export function payToTransfer(record: PayRecord, officeId: string): ChainTransfer | null {
+  const token = record.currency?.trim().toUpperCase();
+  if (!token) return null;
 
   const raw = String(record.amount ?? '').trim();
   const outgoing = raw.startsWith('-');
@@ -318,9 +338,9 @@ export class BinanceProvider implements ChainProvider {
     return body.data ?? [];
   }
 
-  private async depositWindow(token: string, startTime: number, endTime: number): Promise<DepositRecord[]> {
+  /** Every coin's deposits in the window: Binance lists them all when no coin is named. */
+  private async depositWindow(startTime: number, endTime: number): Promise<DepositRecord[]> {
     const rows = await this.signed<DepositRecord[]>('GET', '/sapi/v1/capital/deposit/hisrec', {
-      coin: token,
       startTime,
       endTime,
       limit: 1000,
@@ -333,11 +353,11 @@ export class BinanceProvider implements ChainProvider {
    * An off-chain deposit named by the number Binance gave it — what the
    * customer reads off their app in place of a hash — from the last 90 days.
    */
-  async fetchOffChain(id: string, address: string, token = 'USDT'): Promise<ChainTransfer | null> {
+  async fetchOffChain(id: string, address: string): Promise<ChainTransfer | null> {
     const now = Date.now();
-    const rows = await this.depositWindow(token.toUpperCase(), now - 89 * DAY, now);
+    const rows = await this.depositWindow(now - 89 * DAY, now);
     const record = rows.find((row) => offChainId(row.txId) === id);
-    return record ? depositToTransfer(record, address.trim(), token.toUpperCase()) : null;
+    return record ? depositToTransfer(record, address.trim()) : null;
   }
 
   async fetchTransfers(
@@ -387,22 +407,23 @@ export class BinanceProvider implements ChainProvider {
       from = to + 1;
     }
 
-    const token = (contractAddress || 'USDT').toUpperCase();
+    // Every coin: what was paid in USDC, BNB or TRX is the account's as much as USDT.
     const transfers = records
-      .map((record) => payToTransfer(record, address.trim(), token))
+      .map((record) => payToTransfer(record, address.trim()))
       .filter((transfer): transfer is ChainTransfer => transfer !== null);
 
     /*
-     * And what other Binance users paid to the account's deposit addresses,
-     * which Binance keeps off every chain. One light call over the same span —
-     * Binance answers up to 90 days of deposits at once — and a failure of it
-     * does not lose the Pay history already read.
+     * And what reached the account's deposit addresses, any coin on any network:
+     * from other Binance users, kept off every chain, and over a chain, unless a
+     * chain wallet reads that address already. One light call over the same
+     * span — Binance answers up to 90 days at once — and a failure of it does
+     * not lose the Pay history already read.
      */
     const since = cursor !== null ? cursor - OVERLAP_MS : now - (deep ? DEEP_LOOKBACK_MS : FIRST_LOOKBACK_MS);
     try {
-      const deposits = await this.depositWindow(token, Math.max(since, now - 89 * DAY), now);
+      const deposits = await this.depositWindow(Math.max(since, now - 89 * DAY), now);
       for (const record of deposits) {
-        const transfer = depositToTransfer(record, address.trim(), token);
+        const transfer = depositToTransfer(record, address.trim(), options.watched ?? []);
         if (transfer) transfers.push(transfer);
       }
     } catch (error) {
