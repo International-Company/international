@@ -2420,7 +2420,7 @@ const en = {
     intakeCash: 'Cash',
     intakeTransfer: 'Transfer',
     intakeInto: 'Paid into the office’s account',
-    intakeTransferHint: 'At the bank rate, and the customer takes cash. Name and phone are required.',
+    intakeTransferHint: 'At the bank rate; the customer takes it as chosen under the payout. Name and phone are required.',
     intakeSplit: 'Both',
     intakeSplitNeedsShare: 'Type what the customer transferred into the office’s account.',
     onePrice: 'Deal rate — one rate for the whole amount',
@@ -2434,7 +2434,7 @@ const en = {
     intakeBankLeg: 'By transfer',
     intakeCashLeg: 'In cash',
     intakeSplitHint:
-      'All of it at the one rate you set; the customer takes the total in cash. Name and phone are required.',
+      'All of it at the one rate you set; the customer takes it as chosen under the payout. Name and phone are required.',
     intakeSplitTooBig: 'The transfer must be less than the amount paid — otherwise choose “Transfer”.',
     intakeSplitRemittance: 'Type what reached the office account; the rest of what the customer pays counts as cash in your drawer. The beneficiary’s number is required.',
     today: {

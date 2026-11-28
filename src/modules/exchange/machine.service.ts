@@ -415,12 +415,6 @@ async function post(input: MachineRecordInput, actor: Actor, db: DbClient) {
    */
   const intakeChannel = input.intakeChannel?.trim() || null;
   if (intakeChannel) {
-    if (input.mode !== 'CASH') {
-      throw errors.precondition(
-        'A customer who paid by transfer is paid in cash',
-        'errors.intakeTransferCashOnly',
-      );
-    }
     // Paid wholly by transfer it is the bank's price; paid both ways, a special price may be the one rate.
     if (input.priceExceptionId && input.intakeTransfer === undefined) {
       throw errors.precondition(
@@ -475,11 +469,15 @@ async function post(input: MachineRecordInput, actor: Actor, db: DbClient) {
 
   const forced = input.priceExceptionId ? await claimForDeal(input, actor, db) : null;
 
-  // Paid by transfer: priced through the bank, handed over from the till.
+  /*
+   * Paid in by transfer: the whole priced once — at the one rate, or the bank's —
+   * then handed over as the customer takes it: in notes, to their account, or
+   * the figure they name to their account and the rest in notes.
+   */
   const legs = shares
-    ? { cash: await paidBothWays(input, forced, db), broker: NO_LEG }
+    ? handedOver(await paidBothWays(input, forced, db), input)
     : intakeChannel
-      ? { cash: (await priceLegs({ ...input, mode: 'BROKER' }, db)).broker, broker: NO_LEG }
+      ? handedOver((await priceLegs({ ...input, mode: 'BROKER' }, db)).broker, input)
       : await priceLegs(input, db, forced);
   const total = legs.cash.to + legs.broker.to;
   const fromTotal = legs.cash.from + legs.broker.from;
@@ -906,6 +904,29 @@ async function paidBothWays(
     forced?.rate,
   );
   return { from: priced.fromAmount, to: priced.toAmount, profit: priced.profit, quote: priced };
+}
+
+/**
+ * A deal priced whole, divided as the customer takes it. The figure named for
+ * their account is exact; the notes are the rest. What each part cost them,
+ * and the margin on it, is shared in proportion — the rate is one.
+ */
+function handedOver(whole: Leg, input: MachineRecordInput): { cash: Leg; broker: Leg } {
+  if (input.mode === 'BROKER') return { cash: NO_LEG, broker: whole };
+  if (input.mode !== 'SPLIT') return { cash: whole, broker: NO_LEG };
+  const wanted = input.brokerPayout ?? 0n;
+  if (wanted <= 0n || wanted >= whole.to) {
+    throw errors.precondition(
+      'The transferred share must be part of the amount, not all or none of it',
+      'errors.splitShareOutOfRange',
+    );
+  }
+  const from = (whole.from * wanted) / whole.to;
+  const profit = (whole.profit * wanted) / whole.to;
+  return {
+    broker: { from, to: wanted, profit, quote: whole.quote },
+    cash: { from: whole.from - from, to: whole.to - wanted, profit: whole.profit - profit, quote: whole.quote },
+  };
 }
 
 /**

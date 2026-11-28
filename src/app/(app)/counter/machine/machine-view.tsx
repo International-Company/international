@@ -693,14 +693,29 @@ export function MachineView({
         ? quote?.broker?.rate
         : undefined;
 
+  /*
+   * Paid in by transfer, what the customer takes is handed over as they choose:
+   * all in notes, all to their account, or the figure they name to their
+   * account and the rest in notes — the whole at the one rate, divided after.
+   */
+  const handOver = (whole: bigint, paid: bigint) => {
+    if (channel === 'BROKER') return { cash: 0n, broker: whole, from: paid };
+    if (channel === 'SPLIT') {
+      const wanted = scaleAmount(brokerShare);
+      if (wanted <= 0n || wanted >= whole) return { cash: 0n, broker: 0n, from: paid };
+      return { cash: whole - wanted, broker: wanted, from: paid };
+    }
+    return { cash: whole, broker: 0n, from: paid };
+  };
+
   const legs = (() => {
     const none = { cash: 0n, broker: 0n, from: 0n };
     if (!quote) return none;
 
     /*
-     * Paid both ways: all of it at the one rate the teller set, and the
-     * customer takes it in cash — converted once, rounded once, as the server
-     * prices it before it posts.
+     * Paid both ways: all of it at the one rate the teller set — converted once,
+     * rounded once, as the server prices it before it posts — and handed over
+     * as the payout below says.
      */
     if (bothWays) {
       const priced = quote.cash ?? quote.broker;
@@ -708,14 +723,12 @@ export function MachineView({
       const paid = BigInt(priced.fromAmount);
       const shares = intakeShares(paid, scaleAmount(intakeShare));
       if (!shares || !oneRate) return { cash: 0n, broker: 0n, from: paid };
-      return { cash: convert(paid, BigInt(oneRate), toCurrency?.decimals ?? 2), broker: 0n, from: paid };
+      return handOver(convert(paid, BigInt(oneRate), toCurrency?.decimals ?? 2), paid);
     }
 
-    // Paid by transfer: the bank's price, handed back in notes.
+    // Paid by transfer: the bank's price, handed over as the payout below says.
     if (paidByTransfer) {
-      return quote.broker
-        ? { cash: BigInt(quote.broker.toAmount), broker: 0n, from: BigInt(quote.broker.fromAmount) }
-        : none;
+      return quote.broker ? handOver(BigInt(quote.broker.toAmount), BigInt(quote.broker.fromAmount)) : none;
     }
 
     if (channel === 'CASH') {
@@ -907,8 +920,8 @@ export function MachineView({
         {
           from,
           to,
-          // Paid by transfer, wholly or in part, is always handed back in cash.
-          mode: viaBank ? 'CASH' : channel,
+          // How the customer takes it, however they paid.
+          mode: channel,
           intakeChannel: viaBank ? intakeChannel : null,
           /*
            * Paid both ways is priced from what the customer hands over — the
@@ -1530,8 +1543,8 @@ export function MachineView({
               )}
             </div>
 
-            {/* Paid by transfer is handed back in cash; nothing to choose. */}
-            {!viaBank && (
+            {/* How the customer takes it — however they paid: in notes, to their account, or both. */}
+            {(
             <>
             {/*
               How it is handed over.
@@ -1545,6 +1558,11 @@ export function MachineView({
               <div className="flex items-center justify-between gap-3">
                 <span className="text-xs font-medium text-content-secondary">
                   {t('machine.payoutTitle')}
+                  {viaBank && received > 0n && (
+                    <span className="mt-0.5 block text-sm font-bold tabular-nums text-content ltr-content">
+                      {formatScaled(received.toString(), toCurrency?.decimals ?? 2)} {to}
+                    </span>
+                  )}
                 </span>
 
                 <div dir="ltr" className="flex gap-1 rounded-full bg-surface-sunken p-1">
