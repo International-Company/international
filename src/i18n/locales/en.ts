@@ -847,6 +847,10 @@ const en = {
     noPost: 'Not in the group',
   },
   bankTable: {
+    inWallets: 'In wallets',
+    inWalletsHint: 'Transfers handed to Jawwal Pay wallets and not sent yet',
+    inWallet: '{name}’s wallet',
+    fromWallet: 'From {name}’s wallet',
     lateCount: '{count} late',
     unsorted: 'Unread',
     unsortedSub: 'The bot could not read them',

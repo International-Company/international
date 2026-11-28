@@ -31,6 +31,8 @@ export interface Line {
   messageId?: string | null;
   /** Recorded in the system, or asked in the group from outside the office — and by whom. */
   origin?: Origin;
+  /** Handed to a teller's Jawwal Pay wallet: whose, and whether it was sent from there. */
+  wallet?: { status: 'ASSIGNED' | 'DONE'; teller: string } | null;
   /** Passed on by a person, or to a group that carries transfers out. */
   forwardedTo?: { group: string; at: string; inquiredAt?: string | null; inquiredBy?: string | null }[];
   /** A bare message: its words, whether it carried a file, and whether the bot reads a transfer in it. */

@@ -849,6 +849,10 @@ const ar: Dictionary = {
     noPost: 'لم تصل القروب',
   },
   bankTable: {
+    inWallets: 'المحافظ',
+    inWalletsHint: 'حوالات أُسندت لمحافظ جوال باي ولم تُنفَّذ بعد',
+    inWallet: 'محفظة {name}',
+    fromWallet: 'من محفظة {name}',
     lateCount: '{count} متأخرة',
     unsorted: 'غير مرتّبة',
     unsortedSub: 'لم يستطع البوت قراءتها',

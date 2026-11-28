@@ -374,10 +374,30 @@ export async function desk(
       void syncPayments(kind, line.id).catch(() => undefined);
     }
   }
+  // Handed to a teller's Jawwal Pay wallet: whose, and whether it was sent from there.
+  const assigned = counted.length
+    ? await db.ewalletAssignment.findMany({
+        where: { refId: { in: counted.map((line) => line.id) }, status: { in: ['ASSIGNED', 'DONE'] } },
+        select: { kind: true, refId: true, status: true, tellerId: true },
+      })
+    : [];
+  const walletTellers = assigned.length
+    ? await db.user.findMany({
+        where: { id: { in: [...new Set(assigned.map((row) => row.tellerId))] } },
+        select: { id: true, fullNameAr: true },
+      })
+    : [];
+  const walletOf = (kind: string, id: string) => {
+    const row = assigned.find((entry) => entry.kind === kind && entry.refId === id);
+    return row
+      ? { status: row.status as 'ASSIGNED' | 'DONE', teller: walletTellers.find((teller) => teller.id === row.tellerId)?.fullNameAr ?? '' }
+      : null;
+  };
   const withMessage = <T extends { id: string; status: string; messageRef: { chat: string; waId: string } | null }>(line: T) => {
     const { messageRef, ...rest } = line;
     return {
       ...rest,
+      wallet: walletOf(kindOf((line as { source?: string }).source), line.id),
       /** Sent so far, as its receipts read: of one paid in parts, or one closed short of its sum. */
       paid:
         line.status !== 'REVERSED'
@@ -632,6 +652,10 @@ export async function deskPulse(actor: Actor, db: DbClient = prisma): Promise<st
     db.tiktokWithdrawal.aggregate({ _count: { _all: true }, _max: { sentAt: true, deletedAt: true, createdAt: true } }),
     bank ? db.groupMessage.aggregate({ where: { chat: bank.id }, _max: { createdAt: true } }) : null,
   ]);
+  const wallets = await db.ewalletAssignment.aggregate({
+    _count: { _all: true },
+    _max: { assignedAt: true, doneAt: true, cancelledAt: true },
+  });
   const at = (value: Date | null | undefined) => value?.getTime() ?? 0;
   return [
     waiting,
@@ -650,6 +674,10 @@ export async function deskPulse(actor: Actor, db: DbClient = prisma): Promise<st
     at(tiktok._max.deletedAt),
     at(tiktok._max.createdAt),
     at(talk?._max.createdAt),
+    wallets._count._all,
+    at(wallets._max.assignedAt),
+    at(wallets._max.doneAt),
+    at(wallets._max.cancelledAt),
   ].join('|');
 }
 

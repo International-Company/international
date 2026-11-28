@@ -13,6 +13,7 @@ import {
   Search,
   Square,
   X,
+  Wallet,
 } from 'lucide-react';
 import { useLocale } from '@/i18n/provider';
 import { api, ApiError } from '@/lib/api-client';
@@ -56,7 +57,10 @@ const STATE_PILL: Record<LineState, string> = {
   message: 'bg-surface-sunken text-content-secondary',
 };
 
-type Show = 'all' | 'open' | 'waiting' | 'forwarded' | 'done' | 'messages' | 'unsorted' | 'partial' | 'short' | 'remain';
+type Show = 'all' | 'open' | 'waiting' | 'forwarded' | 'wallet' | 'done' | 'messages' | 'unsorted' | 'partial' | 'short' | 'remain';
+
+/** Handed to a teller's wallet and not sent yet: it waits on that teller, not on the desk. */
+const inWallet = (line: Line) => line.wallet?.status === 'ASSIGNED' && (stateOf(line) === 'waiting' || stateOf(line) === 'forwarded');
 
 /**
  * A message of the bank group that looks like a transfer — it carries an
@@ -71,6 +75,7 @@ const SHOWN: Record<Show, LineState[]> = {
   open: ['waiting', 'forwarded'],
   waiting: ['waiting'],
   forwarded: ['forwarded'],
+  wallet: ['waiting', 'forwarded'],
   done: ['done', 'reversed'],
   messages: ['message'],
   unsorted: ['message'],
@@ -216,8 +221,10 @@ export function BankTable({
 
   // The figures across the top: how many, how many late, and what they come to.
   const figures = useMemo(() => {
-    const of = (states: LineState[]) => {
-      const lines = everything.filter((line) => states.includes(stateOf(line)));
+    const of = (states: LineState[], wallet?: boolean) => {
+      const lines = everything.filter(
+        (line) => states.includes(stateOf(line)) && (wallet === undefined || inWallet(line) === wallet),
+      );
       const sums = new Map<string, bigint>();
       for (const line of lines) {
         if (line.currency) sums.set(line.currency, (sums.get(line.currency) ?? 0n) + BigInt(line.amount || '0'));
@@ -230,8 +237,9 @@ export function BankTable({
       };
     };
     return {
-      waiting: of(['waiting']),
-      forwarded: of(['forwarded']),
+      waiting: of(['waiting'], false),
+      forwarded: of(['forwarded'], false),
+      wallet: of(['waiting', 'forwarded'], true),
       done: of(['done']),
       all: of(['waiting', 'forwarded', 'done']),
       messages: everything.filter((line) => stateOf(line) === 'message').length,
@@ -279,6 +287,8 @@ export function BankTable({
   const rows = (show === 'remain' ? (remains ?? []).filter((line) => remainingOf(line.amount, line.paid) > 0n) : everything)
     .filter((line) => show === 'remain' || SHOWN[show].includes(stateOf(line)) && (show !== 'partial' || Boolean(line.paid)) && (show !== 'short' || remainingOf(line.amount, line.paid) > 0n && Boolean(line.paid)))
     .filter((line) => show !== 'unsorted' || unsorted(line))
+    // In a wallet: its own card, not the desk's waiting ones.
+    .filter((line) => (show === 'wallet' ? inWallet(line) : show === 'waiting' || show === 'forwarded' ? !inWallet(line) : true))
     .filter((line) => !channel || (line.channel ?? '—') === channel)
     .filter((line) => {
       if (!needle) return true;
@@ -612,6 +622,15 @@ export function BankTable({
     );
   };
 
+  /** Handed to a teller's wallet: whose — waiting there, or sent from it. */
+  const walletChip = (line: Line) =>
+    line.wallet && (inWallet(line) || line.wallet.status === 'DONE') ? (
+      <span className="inline-flex max-w-[10rem] items-center gap-1 truncate font-medium text-success-text">
+        <Wallet className="size-3 shrink-0" />
+        {t(line.wallet.status === 'DONE' ? 'bankTable.fromWallet' : 'bankTable.inWallet', { name: line.wallet.teller })}
+      </span>
+    ) : null;
+
   const stateChip = (line: Line) => {
     const state = stateOf(line);
     return (
@@ -625,12 +644,13 @@ export function BankTable({
   return (
     <div className="space-y-3">
       {/* --- The day's figures, each a filter --- */}
-      <div className="-mx-1 flex snap-x gap-3 overflow-x-auto px-1 pb-1 [scrollbar-width:none] sm:mx-0 sm:grid sm:grid-cols-3 sm:overflow-visible sm:px-0 sm:pb-0 xl:grid-cols-6">
+      <div className="-mx-1 flex snap-x gap-3 overflow-x-auto px-1 pb-1 [scrollbar-width:none] sm:mx-0 sm:grid sm:grid-cols-4 sm:overflow-visible sm:px-0 sm:pb-0 xl:grid-cols-7">
         {(
           [
             { key: 'all', label: t('bankTable.all'), bar: 'bg-primary', count: figures.all.count, late: figures.all.late, sum: figures.all.sum },
             { key: 'waiting', label: t('bankDesk.state.waiting'), bar: 'bg-warning', count: figures.waiting.count, late: figures.waiting.late, sum: figures.waiting.sum },
             { key: 'forwarded', label: t('bankDesk.state.forwarded'), bar: 'bg-primary', count: figures.forwarded.count, late: figures.forwarded.late, sum: figures.forwarded.sum },
+            { key: 'wallet', label: t('bankTable.inWallets'), bar: 'bg-success', count: figures.wallet.count, late: figures.wallet.late, sum: figures.wallet.sum, hint: t('bankTable.inWalletsHint') },
             { key: 'done', label: t('bankDesk.state.done'), bar: 'bg-success', count: figures.done.count, late: 0, sum: figures.done.sum },
             { key: 'remain', label: t('bankRem.card'), bar: 'bg-warning', count: figures.remain.count, late: 0, sum: figures.remain.left, left: true, tone: figures.remain.count > 0 ? 'text-warning-text' : undefined, hint: t('bankRem.cardHint') },
             { key: 'unsorted', label: t('bankTable.unsorted'), bar: 'bg-danger', count: figures.unsorted, late: 0, sum: null, tone: figures.unsorted > 0 ? 'text-danger-text' : undefined, hint: t('bankTable.unsortedHint') },
@@ -900,6 +920,7 @@ export function BankTable({
                               {(line.forwardedTo?.length ?? 0) > 0 && stateOf(line) !== 'done' && (
                                 <span className="max-w-[9rem] truncate text-primary-text">→ {line.forwardedTo!.map((entry) => entry.group).join('، ')}</span>
                               )}
+                              {walletChip(line)}
                               {askedOf(line) && stateOf(line) !== 'done' && (
                                 <span className="font-medium text-warning-text" title={askedOf(line)!.inquiredBy ?? ''}>
                                   ❓ {clockOf(askedOf(line)!.inquiredAt!)}
@@ -1040,6 +1061,7 @@ export function BankTable({
                                   {(line.forwardedTo?.length ?? 0) > 0 && stateOf(line) !== 'done' && (
                                     <span className="max-w-[10rem] truncate text-primary-text">→ {line.forwardedTo!.map((entry) => entry.group).join('، ')}</span>
                                   )}
+                                  {walletChip(line)}
                                   {askedOf(line) && stateOf(line) !== 'done' && (
                                     <span className="font-medium text-warning-text">❓ {clockOf(askedOf(line)!.inquiredAt!)}</span>
                                   )}
