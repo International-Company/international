@@ -638,7 +638,23 @@ async function claimForDeal(
   let channel: RateChannel;
   let covered: bigint;
 
-  if (input.mode === 'SPLIT') {
+  if (input.intakeTransfer !== undefined) {
+    /*
+     * Paid both ways — part into the office's account, the rest in notes — is
+     * priced at one rate for the whole of it, on the channel that rate belongs
+     * to: the approval's own, as `paidBothWays` prices it. Compared against the
+     * notes handed back instead, an approval given at the bank's price was
+     * refused as "for another way of paying" on the very deal it was asked for.
+     */
+    if (input.fromAmount === undefined) {
+      throw errors.precondition(
+        'A split is priced from what the customer hands over',
+        'errors.splitNeedsPayAmount',
+      );
+    }
+    channel = approvedFor;
+    covered = input.fromAmount;
+  } else if (input.mode === 'SPLIT') {
     if (input.fromAmount === undefined) {
       throw errors.precondition(
         'A split is priced from what the customer hands over',
