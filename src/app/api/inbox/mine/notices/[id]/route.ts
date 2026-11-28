@@ -34,6 +34,7 @@ const patchSchema = z.object({
   beneficiaryPhone: z.string().max(40).nullish(),
   beneficiaryAccount: z.string().max(80).nullish(),
   destination: z.string().max(120).nullish(),
+  country: z.string().max(80).nullish(),
   deliverAmount: z.string().max(30).nullish(),
   deliverCurrency: z.string().max(8).nullish(),
   intakeMethod: z.enum(['CASH', 'BANK', 'SPLIT']).nullish(),
@@ -57,6 +58,7 @@ export const PATCH = route<z.infer<typeof patchSchema>, unknown, z.infer<typeof 
       beneficiaryPhone: body.beneficiaryPhone,
       beneficiaryAccount: body.beneficiaryAccount,
       destination: body.destination,
+      country: body.country,
       deliverAmount:
         body.deliverAmount === undefined
           ? undefined

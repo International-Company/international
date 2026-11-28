@@ -102,6 +102,13 @@ export const NAVIGATION: NavSection[] = [
         permissions: ['customers.whatsapp'],
       },
       {
+        // Each country linked to its agent's group: the remittance goes there with a tap.
+        href: '/manage/remittance-routes',
+        labelKey: 'nav.remittanceRoutes',
+        icon: 'inbox',
+        permissions: ['customers.whatsapp.monitor'],
+      },
+      {
         href: '/counter/remittance',
         labelKey: 'nav.remittance',
         icon: 'transfer',

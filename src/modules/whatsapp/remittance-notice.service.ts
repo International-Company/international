@@ -11,6 +11,7 @@ import type { Actor } from '@/modules/exchange/transaction.service';
 import * as settings from '@/modules/settings/settings.service';
 import { createCustomer } from '@/modules/customers/customers.service';
 import { payoutsFor, remember } from '@/modules/usdt/recognition.service';
+import { routeCountries, routeFor } from './remittance-routes.service';
 
 const log = createLogger('whatsapp:notices');
 
@@ -122,6 +123,8 @@ export async function updateNotice(
     beneficiaryPhone?: string | null;
     beneficiaryAccount?: string | null;
     destination?: string | null;
+    /** Received: the country it was sent from. */
+    country?: string | null;
     deliverAmount?: bigint | null;
     deliverCurrency?: string | null;
     intakeMethod?: string | null;
@@ -155,6 +158,7 @@ export async function updateNotice(
       ...(text(input.beneficiaryPhone, 40) !== undefined ? { beneficiaryPhone: text(input.beneficiaryPhone, 40) } : {}),
       ...(text(input.beneficiaryAccount, 80) !== undefined ? { beneficiaryAccount: text(input.beneficiaryAccount, 80) } : {}),
       ...(text(input.destination, 120) !== undefined ? { destination: text(input.destination, 120) } : {}),
+      ...(text(input.country, 80) !== undefined ? { country: text(input.country, 80) } : {}),
       ...(input.deliverAmount !== undefined
         ? { deliverAmount: input.deliverAmount && input.deliverAmount > 0n ? input.deliverAmount : null }
         : {}),
@@ -346,6 +350,7 @@ function noticeLine(row: Awaited<ReturnType<typeof owned>>) {
     beneficiaryPhone: row.beneficiaryPhone,
     beneficiaryAccount: row.beneficiaryAccount,
     destination: row.destination,
+    country: row.country,
     deliverAmount: row.deliverAmount,
     deliverCurrency: row.deliverCurrency,
     intakeMethod: row.intakeMethod,
@@ -364,10 +369,20 @@ function noticeLine(row: Awaited<ReturnType<typeof owned>>) {
   };
 }
 
-/** One notice in full, with what the agent has said so far. */
+/**
+ * One notice in full, with what the agent has said so far — and the group its
+ * country and method are linked to, chosen for the teller.
+ */
 export async function noticeDetail(ownerId: string, id: string) {
   const row = await owned(ownerId, id);
-  return { ...noticeLine(row), replies: await agentReplies(row), networks: await noticeNetworks() };
+  const direction = row.direction === 'OUT' ? 'OUT' : 'IN';
+  const [replies, networks, route, countries] = await Promise.all([
+    agentReplies(row),
+    noticeNetworks(),
+    routeFor(direction, direction === 'OUT' ? row.destination : row.country, row.network),
+    routeCountries(),
+  ]);
+  return { ...noticeLine(row), replies, networks, route, countries };
 }
 
 /** The teller's notices, newest first: those still being checked, then the rest of the last days. */

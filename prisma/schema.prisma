@@ -2337,6 +2337,8 @@ model RemittanceNotice {
   beneficiaryPhone   String?
   beneficiaryAccount String?
   destination        String?
+  /// Received: the country it was sent from, as the teller chose it — what routes it to its agent's group.
+  country            String?
   deliverAmount      BigInt?
   deliverCurrency    String?
   /// Sent out: how the customer paid — CASH, BANK, or SPLIT — and into which of the office's accounts.
@@ -2370,6 +2372,26 @@ model RemittanceNotice {
   @@index([ownerId, status, createdAt])
   @@index([chatId])
   @@map("remittance_notices")
+}
+
+/// A country — and, when it matters, a method — linked to the agent's group a
+/// remittance goes to: the notice of one received, for checking, or the details
+/// of one sent, for carrying out. Chosen for the teller, who sends with a tap.
+model RemittanceRoute {
+  id        String   @id @default(cuid())
+  country   String
+  /// One method — WESTERN, MONEYGRAM… — or null for every method the country has no route of its own for.
+  network   String?
+  /// IN: notices received. OUT: remittances sent. BOTH: either.
+  direction String   @default("BOTH")
+  groupChat String
+  groupName String?
+  byName    String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([country])
+  @@map("remittance_routes")
 }
 
 /// A group on a teller's own number that the teller chose to follow from the

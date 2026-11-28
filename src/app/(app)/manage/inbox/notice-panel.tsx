@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
-import { CheckCircle2, Clock, Forward, Receipt, RotateCcw, Search, Send, X, XCircle } from 'lucide-react';
+import { CheckCircle2, Clock, Forward, Link2, Receipt, RotateCcw, Search, Send, X, XCircle } from 'lucide-react';
 import { useLocale } from '@/i18n/provider';
 import { api, ApiError } from '@/lib/api-client';
 import { say } from '@/lib/failure';
@@ -48,6 +48,8 @@ export interface NoticeLine {
   beneficiaryPhone: string | null;
   beneficiaryAccount: string | null;
   destination: string | null;
+  /** Received: the country it was sent from. */
+  country?: string | null;
   deliverAmount: string | null;
   deliverCurrency: string | null;
   intakeMethod: string | null;
@@ -73,6 +75,10 @@ export interface NoticeLine {
 interface NoticeDetail extends NoticeLine {
   replies: { quoted: Reply[]; since: Reply[] };
   networks: string[];
+  /** The group its country and method are linked to on the routes board. */
+  route: { chat: string; name: string } | null;
+  /** The countries offered: the destinations, and every country a route names. */
+  countries: string[];
 }
 
 /** A photo of the customer's in their conversation, offered as the payment's. */
@@ -112,6 +118,7 @@ function OutDetails({
       <span className="text-[11px] font-semibold text-content-tertiary">{label}</span>
       <input
         dir={ltr ? 'ltr' : undefined}
+        list={key === 'destination' ? `notice-countries-${notice.id}` : undefined}
         value={form[key]}
         disabled={disabled}
         onChange={(event) =>
@@ -141,6 +148,11 @@ function OutDetails({
         {text('beneficiaryPhone', t('inbox.out.beneficiaryPhone'), true)}
         {text('destination', t('inbox.out.destination'))}
       </div>
+      <datalist id={`notice-countries-${notice.id}`}>
+        {notice.countries.map((country) => (
+          <option key={country} value={country} />
+        ))}
+      </datalist>
       {text('beneficiaryAccount', t('inbox.out.beneficiaryAccount'), true)}
       <div className="grid grid-cols-[1fr_6rem] items-end gap-2">
         {text('deliverAmount', t('inbox.out.deliverAmount'), true)}
@@ -263,6 +275,8 @@ export function NoticePanel({
   const [people, setPeople] = useState<{ chat: string; name: string | null; phone: string | null; id: string }[] | null>(null);
   const [groupQuery, setGroupQuery] = useState('');
   const [agent, setAgent] = useState('');
+  /** The teller chose a group themselves: the linked one no longer takes its place. */
+  const [agentTouched, setAgentTouched] = useState(false);
   const [amount, setAmount] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
@@ -293,8 +307,10 @@ export function NoticePanel({
     void read().then((found) => {
       if (!found) return;
       setAmount(found.amount ? String(Number(found.amount) / 1e8) : '');
+      // Sent already: that group. Else the group its country is linked to; else the last one used.
       const remembered =
         found.agentChat ??
+        found.route?.chat ??
         (() => {
           try {
             return window.localStorage.getItem(LAST_AGENT_KEY) ?? '';
@@ -310,7 +326,7 @@ export function NoticePanel({
           .then((chats) => setPeople(chats.filter((chat) => !chat.group)))
           .catch(() => setPeople([]));
       }
-      setAgent(found.agentChat ?? (() => {
+      setAgent(found.agentChat ?? found.route?.chat ?? (() => {
         try {
           return window.localStorage.getItem(LAST_AGENT_KEY) ?? '';
         } catch {
@@ -354,6 +370,19 @@ export function NoticePanel({
       setBusy(null);
     }
   };
+
+  /*
+   * The group its country and method are linked to, chosen for the teller as
+   * soon as there is one — until they choose another themselves. Never over a
+   * group it was sent to already.
+   */
+  const routeChat = notice?.route?.chat ?? null;
+  const sentTo = notice?.agentChat ?? null;
+  useEffect(() => {
+    if (!routeChat || agentTouched || sentTo) return;
+    setAgentKind('group');
+    setAgent(routeChat);
+  }, [routeChat, agentTouched, sentTo]);
 
   const out = notice?.direction === 'OUT';
   const send = async () => {
@@ -449,6 +478,21 @@ export function NoticePanel({
           {out ? (
             <OutDetails key={notice.id} notice={notice} photos={photos} disabled={decided} patch={patch} />
           ) : (
+          <>
+          <select
+            value={notice.country ?? ''}
+            disabled={decided}
+            onChange={(event) => void patch({ country: event.target.value || null })}
+            aria-label={t('inbox.notice.country')}
+            className="h-10 w-full rounded-lg bg-surface-sunken px-2 text-sm font-semibold outline-none ring-1 ring-border-subtle"
+          >
+            <option value="">{t('inbox.notice.country')}</option>
+            {[...new Set([...(notice.countries ?? []), ...(notice.country ? [notice.country] : [])])].map((country) => (
+              <option key={country} value={country}>
+                {country}
+              </option>
+            ))}
+          </select>
           <div className="grid grid-cols-[1fr_6rem] gap-2">
             <input
               dir="ltr"
@@ -473,6 +517,7 @@ export function NoticePanel({
               ))}
             </select>
           </div>
+          </>
           )}
         </section>
 
@@ -481,6 +526,18 @@ export function NoticePanel({
           <h4 className="text-[11px] font-semibold text-content-tertiary">② {t('inbox.notice.stepCheck')}</h4>
           {!decided && (
             <>
+              {notice.route ? (
+                <p className="flex items-center gap-1.5 rounded-lg bg-primary-subtle/60 px-2.5 py-1.5 text-xs font-semibold text-primary-text">
+                  <Link2 className="size-3.5 shrink-0" />
+                  <span className="truncate">{t('inbox.notice.routed', { group: notice.route.name })}</span>
+                </p>
+              ) : (
+                (out ? notice.destination : notice.country) && (
+                  <p className="rounded-lg bg-surface-sunken px-2.5 py-1.5 text-[11px] text-content-tertiary">
+                    {t('inbox.notice.noRoute')}
+                  </p>
+                )
+              )}
               <div className="grid grid-cols-2 gap-1 rounded-lg bg-surface-sunken p-1">
                 {(['group', 'person'] as const).map((kind) => (
                   <button
@@ -521,7 +578,10 @@ export function NoticePanel({
                 ) : (
                   <select
                     value={agent}
-                    onChange={(event) => setAgent(event.target.value)}
+                    onChange={(event) => {
+                      setAgentTouched(true);
+                      setAgent(event.target.value);
+                    }}
                     className="h-10 w-full rounded-lg bg-surface-sunken px-2 text-sm font-semibold outline-none ring-1 ring-border-subtle"
                     aria-label={t('inbox.notice.agentPerson')}
                   >
@@ -539,11 +599,18 @@ export function NoticePanel({
               ) : (
                 <select
                   value={agent}
-                  onChange={(event) => setAgent(event.target.value)}
+                  onChange={(event) => {
+                    setAgentTouched(true);
+                    setAgent(event.target.value);
+                  }}
                   className="h-10 w-full rounded-lg bg-surface-sunken px-2 text-sm font-semibold outline-none ring-1 ring-border-subtle"
                   aria-label={t('inbox.notice.agentGroup')}
                 >
                   <option value="">{t('inbox.notice.agentGroup')}</option>
+                  {/* The linked group, even when this number's list does not name it. */}
+                  {notice.route && !shownGroups.some((group) => group.chat === notice.route!.chat) && (
+                    <option value={notice.route.chat}>{notice.route.name}</option>
+                  )}
                   {shownGroups.map((group) => (
                     <option key={group.chat} value={group.chat}>
                       {group.name}
