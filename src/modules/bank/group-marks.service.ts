@@ -10,7 +10,7 @@ import {
   type GroupSighting,
 } from '@/modules/whatsapp/whatsapp.service';
 import { markSent } from './bank.service';
-import { addReceipt, answerSentInGroup } from './bank-receipts.service';
+import { addReceipt, answerSentInGroup, relayReceipt } from './bank-receipts.service';
 import { coverOf, hasPartBefore } from './transfer-payments.service';
 import { bankGroup, executorGroups } from './group-feed.service';
 import { markedBy, markOf, wordsOf } from './group-marks';
@@ -316,12 +316,25 @@ async function onReply(sighting: GroupSighting): Promise<void> {
    * it open, the group told what is left. Read whole — or not read at all — it
    * is the transfer done, as before.
    */
+  /*
+   * A receipt that does not close it here — it was marked sent already, by a
+   * 👍 or at the desk, or this is a part — is still carried back under the
+   * transfer's own message, with the number, when it came in another group.
+   */
+  const elsewhere = sighting.chat !== found.ref.chat;
   if (await hasPartBefore(found.kind, found.id, added)) {
     log.info('A part of a transfer came from a group; the desk closes it');
+    if (elsewhere) await relayReceipt(found.kind, found.id, file, true);
     return;
   }
-  if ((await coverOf(found.kind, found.id, added)) === 'short') {
+  const cover = found.waiting ? await coverOf(found.kind, found.id, added) : null;
+  if (cover === 'short') {
     log.info('A receipt from a group covers only part of its transfer; left open');
+    if (elsewhere) await relayReceipt(found.kind, found.id, file, true);
+    return;
+  }
+  if (!found.waiting) {
+    if (elsewhere) await relayReceipt(found.kind, found.id, file, false);
     return;
   }
 

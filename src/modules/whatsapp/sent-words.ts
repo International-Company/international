@@ -12,3 +12,9 @@ export function sentWords(account: string | null | undefined): string {
   const number = account?.trim();
   return number ? `${number}\n${SENT_MARK} تم التحويل` : `${SENT_MARK} تم التحويل`;
 }
+
+/** The same, under a receipt for part of the sum: a part went, not the whole. */
+export function partWords(account: string | null | undefined): string {
+  const number = account?.trim();
+  return number ? `${number}\n${SENT_MARK} تم تحويل دفعة` : `${SENT_MARK} تم تحويل دفعة`;
+}

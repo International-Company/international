@@ -7,7 +7,7 @@ import type { Actor } from '@/modules/exchange/transaction.service';
 import { keepMedia } from '@/modules/whatsapp/chat-images';
 import * as settings from '@/modules/settings/settings.service';
 import { answerInGroup, isLinked, reactOn, reactTo, sendImage, sendText, sentStub } from '@/modules/whatsapp/whatsapp.service';
-import { RECEIPT_MARK, sentWords } from '@/modules/whatsapp/sent-words';
+import { partWords, RECEIPT_MARK, sentWords } from '@/modules/whatsapp/sent-words';
 
 const log = createLogger('bank:receipts');
 
@@ -210,11 +210,22 @@ export async function addReceiptByHand(
 }
 
 /**
+ * A receipt a group it was passed on to answered it with, carried back under
+ * the transfer's own message: the photo, the number it went to and "تم
+ * التحويل" — or "تم تحويل دفعة" for a part. For the receipt that does not
+ * close it there: one that came after it was marked sent, or a part.
+ */
+export async function relayReceipt(kind: ReceiptKind, id: string, file: ReceiptFile, part: boolean) {
+  await tellGroup(kind, id, file, part);
+}
+
+/**
  * A receipt given at the desk's sending window, answered under the transfer's
  * own message in its group: the photo, the number it went to and "تم التحويل".
  */
-async function tellGroup(kind: ReceiptKind, id: string, file: ReceiptFile) {
+async function tellGroup(kind: ReceiptKind, id: string, file: ReceiptFile, part = false) {
   if (!(await settings.getBoolean('whatsapp.enabled')) || !isLinked()) return;
+  const words = part ? partWords : sentWords;
   try {
     if (kind === 'request') {
       const row = await prisma.bankRequest.findUnique({ where: { id } });
@@ -222,7 +233,7 @@ async function tellGroup(kind: ReceiptKind, id: string, file: ReceiptFile) {
       await answerInGroup(
         row.chat,
         { id: row.waId, author: row.senderJid, text: row.text },
-        { image: file.bytes, mimetype: file.mimeType, caption: sentWords(row.account) },
+        { image: file.bytes, mimetype: file.mimeType, caption: words(row.account) },
       );
       return;
     }
@@ -249,7 +260,7 @@ async function tellGroup(kind: ReceiptKind, id: string, file: ReceiptFile) {
       account = row.account;
     }
     if (!chat || !messageId) return;
-    await sendImage(chat, file.bytes, sentWords(account), sentStub(chat, messageId), file.mimeType);
+    await sendImage(chat, file.bytes, words(account), sentStub(chat, messageId), file.mimeType);
   } catch (error) {
     log.warn('Could not answer a transfer with its receipt in its group', { kind, error });
   }
