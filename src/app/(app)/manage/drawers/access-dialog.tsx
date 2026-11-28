@@ -75,7 +75,11 @@ function kindLabel(
   | 'drawers.correspondent'
   | 'drawers.paypal'
   | 'drawers.difference'
-  | 'drawers.receivable' {
+  | 'drawers.receivable'
+  | 'drawers.ewallet'
+  | 'drawers.walletDue' {
+  if (kind === 'EWALLET') return 'drawers.ewallet';
+  if (kind === 'WALLET_DUE') return 'drawers.walletDue';
   if (kind === 'BROKER') return 'drawers.broker';
   if (kind === 'CORRESPONDENT') return 'drawers.correspondent';
   if (kind === 'PAYPAL') return 'drawers.paypal';

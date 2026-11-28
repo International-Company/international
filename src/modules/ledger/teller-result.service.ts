@@ -131,7 +131,7 @@ export async function tellerResults(
       // branch's figures.
       where: {
         createdAt: { gte: from, lte: to },
-        OR: [{ shift: { branchId } }, { tillCount: { branchId } }],
+        OR: [{ shift: { branchId } }, { tillCount: { branchId } }, { walletCount: { branchId } }],
       },
       select: { tellerId: true, amount: true, currencyCode: true },
     }),

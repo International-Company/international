@@ -64,7 +64,8 @@ export default async function DrawersPage() {
     // `IN_TRANSIT` is left out on purpose: transfers open it when money first
     // stops in the middle, and a drawer somebody could open or close by hand
     // would be a lever on that machinery rather than a part of it.
-    DRAWER_KINDS.filter((kind) => kind !== 'IN_TRANSIT' && !taken.has(`${currency.code}:${kind}`))
+    // A teller's e-wallet is opened for them from the wallets screen, never as the treasury's.
+    DRAWER_KINDS.filter((kind) => kind !== 'IN_TRANSIT' && kind !== 'EWALLET' && !taken.has(`${currency.code}:${kind}`))
       .map((kind) => ({
         currency: currency.code,
         kind,

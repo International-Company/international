@@ -130,6 +130,21 @@ export const NAVIGATION: NavSection[] = [
         permissions: ['treasury.handover.manage'],
       },
       {
+        // Each teller's Jawwal Pay wallet: topped up, handed transfers, counted.
+        href: '/treasury/ewallets',
+        labelKey: 'nav.ewallets',
+        icon: 'wallet',
+        permissions: ['treasury.handover.manage'],
+      },
+      {
+        // The teller's own wallet: the transfers handed to it, and its count.
+        href: '/counter/my-wallet',
+        labelKey: 'nav.myWallet',
+        icon: 'wallet',
+        permissions: ['ewallet.use'],
+        hiddenWith: ['treasury.handover.manage'],
+      },
+      {
         // One counter, two directions. Whoever holds either permission belongs
         // here; the screen offers each of them only the side they hold.
         href: '/counter/usdt',

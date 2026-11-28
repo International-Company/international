@@ -337,6 +337,7 @@ export async function openDiscrepancies(db: DbClient = prisma) {
       teller: { select: { id: true, fullNameEn: true, fullNameAr: true } },
       shift: { select: { reference: true } },
       tillCount: { select: { reference: true } },
+      walletCount: { select: { reference: true } },
       currency: { select: { decimals: true } },
     },
   });

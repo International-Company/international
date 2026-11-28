@@ -32,6 +32,10 @@ export const DRAWER_KINDS = [
   'DIFFERENCE',
   'RECEIVABLE',
   'IN_TRANSIT',
+  /** A teller's e-wallet — Jawwal Pay — that bank transfers are sent from. */
+  'EWALLET',
+  /** The treasury's claim for transfers a wallet sent that no deal of the office's paid for: requests, TikTok. */
+  'WALLET_DUE',
 ] as const;
 export type DrawerKind = (typeof DRAWER_KINDS)[number];
 
@@ -59,7 +63,7 @@ export const IN_TRANSIT: DrawerKind = 'IN_TRANSIT';
  * debtor doing anything. `IN_TRANSIT` is excluded because it is the machinery,
  * not a destination anyone chooses.
  */
-export const TRANSFERABLE_KINDS = ['CASH', 'BROKER', 'CORRESPONDENT', 'PAYPAL'] as const;
+export const TRANSFERABLE_KINDS = ['CASH', 'BROKER', 'CORRESPONDENT', 'PAYPAL', 'WALLET_DUE'] as const;
 export type TransferableKind = (typeof TRANSFERABLE_KINDS)[number];
 
 export function isTransferable(kind: string): kind is TransferableKind {

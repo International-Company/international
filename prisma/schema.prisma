@@ -387,6 +387,10 @@ model Discrepancy {
   tillCountId String?
   tillCount   TillCount? @relation(fields: [tillCountId], references: [id], onDelete: Cascade)
 
+  /// Or the count of a teller's e-wallet (Jawwal Pay): the balance its app shows against the books.
+  walletCountId String?
+  walletCount   EwalletCount? @relation(fields: [walletCountId], references: [id], onDelete: Cascade)
+
   tellerId String
   teller   User   @relation("DiscrepancyTeller", fields: [tellerId], references: [id])
 
@@ -2053,6 +2057,75 @@ model Draft {
 /// Each count closes a period: the next one starts where this one ended, and
 /// opens with what was left with the teller here (`kept`). So no deal is ever
 /// counted twice, and none falls between two counts.
+/// A transfer on the bank desk handed to one teller's e-wallet (Jawwal Pay) to
+/// carry out: the teller sends it from the wallet's app, attaches its receipt,
+/// and the wallet is debited by what was sent.
+model EwalletAssignment {
+  id        String    @id @default(cuid())
+  /// deal | request | tiktok — the bank desk's three kinds of transfer.
+  kind      String
+  refId     String
+  /// The wallet: a teller's drawer of kind EWALLET.
+  drawerId  String
+  tellerId  String
+  /// What it is to send, and in what money, when it was handed over.
+  amount    BigInt
+  currency  String
+  /// For the teller's list: where it goes and to whom, as the desk read it.
+  account   String?
+  name      String?
+  channel   String?
+  /// ASSIGNED | DONE | CANCELLED
+  status    String    @default("ASSIGNED")
+  /// What actually left the wallet, written when it was sent.
+  sentAmount BigInt?
+  assignedById   String
+  assignedByName String?
+  assignedAt     DateTime  @default(now())
+  doneAt         DateTime?
+  cancelledAt    DateTime?
+  cancelledByName String?
+
+  @@index([refId])
+  @@index([tellerId, status])
+  @@index([drawerId, status])
+  @@map("ewallet_assignments")
+}
+
+/// A teller's e-wallet counted: the balance its app shows, with a screenshot,
+/// against the books — opening, top-ups and what it sent. Confirmed by the
+/// manager; a gap goes to the differences balance like any other count's.
+model EwalletCount {
+  id         String   @id @default(cuid())
+  reference  String
+  drawerId   String
+  tellerId   String
+  branchId   String?
+  currency   String
+  /// The books' balance when the teller counted, and what the app showed.
+  expected   BigInt
+  actual     BigInt
+  /// Expected minus actual. Positive is short; negative is over.
+  difference BigInt
+  /// The screenshot of the wallet's balance, kept in chat_images.
+  screenshotId String?
+  note       String?
+  /// SUBMITTED | CONFIRMED | RETURNED
+  status     String   @default("SUBMITTED")
+  countedByName  String?
+  decidedById    String?
+  decidedByName  String?
+  decidedAt      DateTime?
+  decisionNote   String?
+  createdAt  DateTime @default(now())
+
+  discrepancies Discrepancy[]
+
+  @@index([drawerId, createdAt])
+  @@index([status])
+  @@map("ewallet_counts")
+}
+
 model TillCount {
   id        String @id @default(cuid())
   reference String @unique // CNT-20261025-00001

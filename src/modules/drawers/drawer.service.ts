@@ -136,6 +136,8 @@ function describe(currency: string, kind: DrawerKind): string {
   if (kind === 'BROKER') return `The ${currency} broker balance`;
   if (kind === 'CORRESPONDENT') return `The ${currency} correspondent balance`;
   if (kind === 'PAYPAL') return `The ${currency} PayPal balance`;
+  if (kind === 'EWALLET') return `The ${currency} e-wallet`;
+  if (kind === 'WALLET_DUE') return `The ${currency} wallet dues`;
   return `The ${currency} drawer`;
 }
 
@@ -289,7 +291,9 @@ export async function ensureTellerDrawer(
               ? 3
               : kind === 'RECEIVABLE'
                 ? 4
-                : 0),
+                : kind === 'EWALLET'
+                  ? 5
+                  : 0),
     },
   });
 }

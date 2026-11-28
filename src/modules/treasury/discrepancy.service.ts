@@ -57,6 +57,7 @@ export async function resolve(
         teller: true,
         shift: { select: { reference: true } },
         tillCount: { select: { reference: true } },
+        walletCount: { select: { reference: true } },
       },
     });
     if (!difference) throw errors.notFound('Discrepancy', id);
@@ -66,7 +67,7 @@ export async function resolve(
 
     const { currencyCode, amount } = difference;
     // The count it was found in: a shift's close, or a till count.
-    const source = difference.shift?.reference ?? difference.tillCount?.reference ?? '';
+    const source = difference.shift?.reference ?? difference.tillCount?.reference ?? difference.walletCount?.reference ?? '';
     // Positive is a shortage: the differences balance is holding it. Negative is
     // a surplus, and the balance is short by that much.
     const size = amount > 0n ? amount : -amount;
@@ -89,15 +90,26 @@ export async function resolve(
             reason: 'DIFFERENCE',
             note: `${source} — miscount`,
           },
-          {
-            currency: currencyCode,
-            kind: 'CASH',
-            owner: drawers.TREASURY,
-            direction: shortage ? 'IN' : 'OUT',
-            amount: size,
-            reason: 'DIFFERENCE',
-            note: `${source} — miscount`,
-          },
+          // A wallet's count: back to that wallet, not the treasury's till.
+          difference.walletCountId
+            ? {
+                currency: currencyCode,
+                kind: 'EWALLET',
+                owner: drawers.tellerOwner(difference.tellerId),
+                direction: shortage ? 'IN' : 'OUT',
+                amount: size,
+                reason: 'DIFFERENCE',
+                note: `${source} — miscount`,
+              }
+            : {
+                currency: currencyCode,
+                kind: 'CASH',
+                owner: drawers.TREASURY,
+                direction: shortage ? 'IN' : 'OUT',
+                amount: size,
+                reason: 'DIFFERENCE',
+                note: `${source} — miscount`,
+              },
         ],
         actor,
         tx,

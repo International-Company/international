@@ -232,7 +232,7 @@ export const REPORTS: ReportDefinition[] = [
       const rows = await db.discrepancy.findMany({
         where: {
           createdAt: { gte: from, lte: to },
-          OR: [{ shift: { branchId } }, { tillCount: { branchId } }],
+          OR: [{ shift: { branchId } }, { tillCount: { branchId } }, { walletCount: { branchId } }],
           ...(tellerId ? { tellerId } : {}),
         },
         orderBy: { createdAt: 'asc' },
@@ -240,12 +240,13 @@ export const REPORTS: ReportDefinition[] = [
           teller: { select: { fullNameEn: true, fullNameAr: true } },
           shift: { select: { reference: true } },
           tillCount: { select: { reference: true } },
+          walletCount: { select: { reference: true } },
         },
       });
 
       return rows.map((row) => ({
         at: row.createdAt,
-        shift: row.shift?.reference ?? row.tillCount?.reference ?? '',
+        shift: row.shift?.reference ?? row.tillCount?.reference ?? row.walletCount?.reference ?? '',
         tellerEn: row.teller.fullNameEn,
         tellerAr: row.teller.fullNameAr,
         currency: row.currencyCode,

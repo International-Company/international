@@ -67,6 +67,8 @@ interface Report {
 
 /** What to call a kind of balance — the drawers screen's own words. */
 function kindLabel(kind: string) {
+  if (kind === 'EWALLET') return 'drawers.ewallet' as const;
+  if (kind === 'WALLET_DUE') return 'drawers.walletDue' as const;
   if (kind === 'BROKER') return 'drawers.broker' as const;
   if (kind === 'CORRESPONDENT') return 'drawers.correspondent' as const;
   if (kind === 'PAYPAL') return 'drawers.paypal' as const;

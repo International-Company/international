@@ -890,6 +890,9 @@ function nameFor(target: Openable): { nameEn: string; nameAr: string } {
   if (target.kind === 'PAYPAL') {
     return { nameEn: `${target.nameEn} — PayPal`, nameAr: `باي بال — ${target.nameAr}` };
   }
+  if (target.kind === 'WALLET_DUE') {
+    return { nameEn: `${target.nameEn} — wallet dues`, nameAr: `مستحقات المحفظة — ${target.nameAr}` };
+  }
   return { nameEn: `${target.nameEn} drawer`, nameAr: `صندوق ${target.nameAr}` };
 }
 
@@ -903,10 +906,12 @@ function nameFor(target: Openable): { nameEn: string; nameAr: string } {
  */
 function kindLabel(
   kind: string,
-): 'drawers.broker' | 'drawers.correspondent' | 'drawers.paypal' | 'drawers.cash' {
+): 'drawers.broker' | 'drawers.correspondent' | 'drawers.paypal' | 'drawers.ewallet' | 'drawers.walletDue' | 'drawers.cash' {
   if (kind === 'BROKER') return 'drawers.broker';
   if (kind === 'CORRESPONDENT') return 'drawers.correspondent';
   if (kind === 'PAYPAL') return 'drawers.paypal';
+  if (kind === 'EWALLET') return 'drawers.ewallet';
+  if (kind === 'WALLET_DUE') return 'drawers.walletDue';
   return 'drawers.cash';
 }
 

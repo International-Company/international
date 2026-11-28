@@ -177,7 +177,9 @@ export const errors = {
               ? 'errors.insufficientCorrespondent'
               : kind === 'PAYPAL'
                 ? 'errors.insufficientPaypal'
-                : 'errors.insufficientCash',
+                : kind === 'EWALLET'
+                  ? 'errors.insufficientEwallet'
+                  : 'errors.insufficientCash',
         params: { currency, available, required },
       },
     ),

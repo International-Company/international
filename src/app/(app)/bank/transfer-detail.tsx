@@ -20,6 +20,7 @@ import {
   Route,
   Server,
   Undo2,
+  Wallet,
   X,
 } from 'lucide-react';
 import { useLocale } from '@/i18n/provider';
@@ -176,6 +177,28 @@ export function TransferDetail({
   const [correcting, setCorrecting] = useState<'reopen' | 'receipt' | null>(null);
   const receiptPicker = useRef<HTMLInputElement>(null);
   const key = line ? keyOf(line) : null;
+  /** The tellers' Jawwal Pay wallets it may be handed to, and the one holding it, if any. */
+  const [walletHold, setWalletHold] = useState<{
+    wallets: { id: string; name: string; teller: string; balance: string; currency: string }[];
+    held: { id: string; status: 'ASSIGNED' | 'DONE'; tellerName: string }[];
+  } | null>(null);
+  const [pickingWallet, setPickingWallet] = useState(false);
+  const [walletBusy, setWalletBusy] = useState(false);
+  const loadWallets = useCallback(() => {
+    if (!line || line.source === 'message') {
+      setWalletHold(null);
+      return;
+    }
+    api
+      .get<NonNullable<typeof walletHold>>(`/api/ewallets/choices?refs=${line.id}`)
+      .then(setWalletHold)
+      .catch(() => setWalletHold(null));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key]);
+  useEffect(() => {
+    setPickingWallet(false);
+    loadWallets();
+  }, [loadWallets, version]);
 
   const failure = useCallback(
     (cause: unknown) =>
@@ -1101,6 +1124,86 @@ export function TransferDetail({
                   {executors.length ? t('bankDesk.otherGroupsShort') : t('bankDesk.chooseGroup')}
                 </button>
               </div>
+            )}
+            {/* Handed to a teller's Jawwal Pay wallet: sent from it, and taken from it. */}
+            {walletHold && walletHold.held[0] ? (
+              <div className="flex items-center justify-between gap-2 rounded-xl bg-success-subtle/60 px-3 py-2 text-xs">
+                <span className="flex min-w-0 items-center gap-1.5 font-semibold text-success-text">
+                  <Wallet className="size-3.5 shrink-0" />
+                  <span className="truncate">
+                    {t(walletHold.held[0].status === 'DONE' ? 'ewallet.sentBy' : 'ewallet.heldBy', { name: walletHold.held[0].tellerName })}
+                  </span>
+                </span>
+                {walletHold.held[0].status === 'ASSIGNED' && (
+                  <button
+                    type="button"
+                    disabled={walletBusy}
+                    onClick={async () => {
+                      setWalletBusy(true);
+                      try {
+                        await api.delete(`/api/ewallets/assign/${walletHold.held[0]!.id}`);
+                        toast.success(t('ewallet.unassigned'));
+                        loadWallets();
+                        onChanged?.();
+                      } catch (cause) {
+                        failure(cause);
+                      } finally {
+                        setWalletBusy(false);
+                      }
+                    }}
+                    className="inline-flex shrink-0 items-center gap-1 rounded-full px-2.5 py-1 font-semibold text-danger-text ring-1 ring-danger/30 hover:bg-danger-subtle"
+                  >
+                    <Undo2 className="size-3.5" />
+                    {t('ewallet.unassign')}
+                  </button>
+                )}
+              </div>
+            ) : (
+              pending &&
+              walletHold &&
+              walletHold.wallets.length > 0 &&
+              (pickingWallet ? (
+                <div className="space-y-1.5 rounded-xl bg-surface-sunken p-2 ring-1 ring-border-subtle">
+                  <p className="px-1 text-[11px] text-content-tertiary">{t('ewallet.assignHint')}</p>
+                  {walletHold.wallets.map((wallet) => (
+                    <button
+                      key={wallet.id}
+                      type="button"
+                      disabled={walletBusy}
+                      onClick={async () => {
+                        setWalletBusy(true);
+                        try {
+                          await api.post('/api/ewallets/assign', { kind: deskKind, refId: line.id, drawerId: wallet.id });
+                          toast.success(t('ewallet.assigned'), wallet.teller);
+                          setPickingWallet(false);
+                          loadWallets();
+                          onChanged?.();
+                        } catch (cause) {
+                          failure(cause);
+                        } finally {
+                          setWalletBusy(false);
+                        }
+                      }}
+                      className="flex w-full items-center justify-between gap-2 rounded-lg bg-surface px-3 py-2 text-start text-sm ring-1 ring-border-subtle hover:ring-primary disabled:opacity-60"
+                    >
+                      <span className="min-w-0">
+                        <span className="block truncate font-semibold text-content">{wallet.teller}</span>
+                        <span className="block truncate text-[11px] text-content-tertiary">{wallet.name}</span>
+                      </span>
+                      <span className="shrink-0 text-xs tabular-nums text-content-secondary">
+                        {t('ewallet.balanceNow')} <Money value={wallet.balance} currency={wallet.currency} />
+                      </span>
+                    </button>
+                  ))}
+                  <button type="button" onClick={() => setPickingWallet(false)} className="w-full py-1 text-[11px] text-content-tertiary hover:text-content">
+                    {t('common.cancel')}
+                  </button>
+                </div>
+              ) : (
+                <Button variant="secondary" fullWidth icon={<Wallet />} onClick={() => setPickingWallet(true)}>
+                  {t('ewallet.assign')}
+                </Button>
+              ))
             )}
             <div className="flex gap-2">
             {line.messageId && state !== 'done' && state !== 'reversed' && onForward && (

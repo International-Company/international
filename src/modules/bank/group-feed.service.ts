@@ -542,7 +542,7 @@ export async function media(id: string, actor: Actor) {
  * hand from the desk, by a ❤️, found forwarded on WhatsApp, or by a rule to a
  * group that carries transfers out. The latest; null when it waits.
  */
-async function heldBy(message: { chat: string; waId: string }) {
+export async function heldBy(message: { chat: string; waId: string }) {
   const executors = await executorGroups();
   const forward = await prisma.groupForward.findFirst({
     where: {
@@ -612,6 +612,16 @@ export async function forwardByHand(
         group: held.group,
         by: held.by ?? '—',
       });
+    }
+    // Handed to a teller's e-wallet: it is sent from there, not passed on as well.
+    const { transferOf } = await import('./group-marks.service');
+    const found = await transferOf({ chat: message.chat, waId: message.waId }).catch(() => null);
+    if (found) {
+      const wallet = await prisma.ewalletAssignment.findFirst({
+        where: { kind: found.kind, refId: found.id, status: { in: ['ASSIGNED', 'DONE'] } },
+        select: { id: true },
+      });
+      if (wallet) throw errors.conflict('Handed to a wallet', 'errors.forwardWallet');
     }
     return await passOn(message, targets, input, actor);
   } finally {
