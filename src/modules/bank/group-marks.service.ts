@@ -6,6 +6,7 @@ import {
   groups,
   onGroupReaction,
   onGroupSighting,
+  sentByBot,
   type GroupReaction,
   type GroupSighting,
 } from '@/modules/whatsapp/whatsapp.service';
@@ -291,8 +292,18 @@ async function transferGroup(chat: string): Promise<boolean> {
  * Every such photo in a transfer group is also kept by what it answers, so the
  * desk can look for a transfer's receipts again later.
  */
+/**
+ * The bot's own answer under a transfer — the receipt it carried there, the
+ * number and "تم التحويل" under it — is never a receipt of its own: by the id
+ * it went with, or, sent before a restart, by its words.
+ */
+const BOT_WORDS = /تم التحويل|تم تحويل دفعة/;
+const fromBot = (sighting: GroupSighting) =>
+  sighting.fromMe && (sentByBot(sighting.waId) || BOT_WORDS.test(sighting.text ?? ''));
+
 async function onReply(sighting: GroupSighting): Promise<void> {
   if (!sighting.quoted || sighting.mediaKind !== 'image' || !sighting.download) return;
+  if (fromBot(sighting)) return;
   if (!(await transferGroup(sighting.chat))) return;
   const file = await sighting.download().catch(() => null);
   if (!file || !file.mimeType.startsWith('image/')) return;

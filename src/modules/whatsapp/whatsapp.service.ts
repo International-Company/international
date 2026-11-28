@@ -4,6 +4,7 @@ import makeWASocket, {
   DisconnectReason,
   downloadMediaMessage,
   fetchLatestBaileysVersion,
+  generateMessageIDV2,
   isJidBroadcast,
   isJidGroup,
   isJidNewsletter,
@@ -808,7 +809,7 @@ export async function sendImage(
   const sent = await sock.sendMessage(
     jid,
     { image, caption, mimetype },
-    quoted ? { quoted } : undefined,
+    { ...(quoted ? { quoted } : {}), messageId: botPictureId(sock) },
   );
   if (sent?.key.id && jid.endsWith('@g.us')) {
     tellGroup({
@@ -982,6 +983,31 @@ export async function privateMedia(message: WAMessage): Promise<ForwardedMedia |
   };
 }
 
+/*
+ * The pictures the bot sends, by the id they go with — chosen before sending,
+ * since WhatsApp tells of the bot's own message before the send returns. A
+ * receipt the bot answers a transfer with quotes the transfer, exactly as a
+ * person's would; without this it was read back as one more receipt — a
+ * "part" — and, answered again under the copies, it never stopped.
+ */
+const botPictures = new Map<string, number>();
+const BOT_PICTURE_MS = 24 * 60 * 60 * 1000;
+
+function botPictureId(sock: WASocket): string {
+  const id = generateMessageIDV2(sock.user?.id);
+  const now = Date.now();
+  botPictures.set(id, now);
+  if (botPictures.size > 2000) {
+    for (const [key, at] of botPictures) if (now - at > BOT_PICTURE_MS || botPictures.size > 2000) botPictures.delete(key);
+  }
+  return id;
+}
+
+/** Whether the bot itself sent this picture: never someone's receipt. */
+export function sentByBot(waId: string): boolean {
+  return botPictures.has(waId);
+}
+
 /** Sends a picture, video, sound or file to a chat. A sound carries no caption. */
 export async function sendMedia(
   jid: string,
@@ -993,7 +1019,7 @@ export async function sendMedia(
   let sent: SentMessage;
   switch (media.kind) {
     case 'image':
-      sent = await sock.sendMessage(jid, { image: data, caption, mimetype });
+      sent = await sock.sendMessage(jid, { image: data, caption, mimetype }, { messageId: botPictureId(sock) });
       break;
     case 'video':
       sent = await sock.sendMessage(jid, { video: data, caption, mimetype });
@@ -1200,7 +1226,7 @@ export async function answerInGroup(
     'text' in content
       ? { text: content.text }
       : { image: content.image, caption: content.caption, mimetype: content.mimetype },
-    { quoted },
+    'text' in content ? { quoted } : { quoted, messageId: botPictureId(sock) },
   );
   if (reaction) {
     await sock
