@@ -393,7 +393,8 @@ export async function shareable(
   const [company, units] = await Promise.all([
     settings.getString(locale === 'ar' ? 'company.name.ar' : 'company.name.en', db),
     unitsFor(
-      transaction.type === 'USDT_SALE'
+      // What the customer paid in is named too when it is said: a sale's, and an exchange paid in by transfer.
+      transaction.type === 'USDT_SALE' || transaction.intakeBrokerAmount > 0n
         ? [transaction.toCurrency, transaction.fromCurrency]
         : [transaction.toCurrency],
       locale,
