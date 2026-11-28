@@ -207,8 +207,9 @@ export function kindLabel(type: string): string {
  * group to send. So only an exchange with a transfer in it is written — in
  * whole or in part. Every other kind is written as before.
  */
-export function announced(deal: { type: string; bankPayout: boolean }): boolean {
-  return deal.type !== 'EXCHANGE' || deal.bankPayout;
+export function announced(deal: { type: string; bankPayout: boolean; bankIntake?: boolean }): boolean {
+  // Paid in by transfer too: the group checks the money reached the office's account.
+  return deal.type !== 'EXCHANGE' || deal.bankPayout || Boolean(deal.bankIntake);
 }
 
 /**
@@ -1053,7 +1054,7 @@ export function registerWhatsappSubscribers(): void {
       // A deal the group never heard of is not deleted in front of it either.
       if (
         deal.unannounced ||
-        !announced({ type: deal.type, bankPayout: deal.payoutBankAmount > 0n })
+        !announced({ type: deal.type, bankPayout: deal.payoutBankAmount > 0n, bankIntake: deal.intakeBrokerAmount > 0n })
       ) {
         return;
       }

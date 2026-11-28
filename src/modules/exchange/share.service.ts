@@ -64,6 +64,8 @@ export interface Shareable {
   type: string;
   /** Whether any of it is handed over by transfer rather than across the counter. */
   bankPayout: boolean;
+  /** Paid in part, or whole, by a transfer into the office's account. */
+  bankIntake?: boolean;
   /** The letterhead of the PDF. Not in the message: the message is the deal. */
   companyName: string;
   text: string;
@@ -410,6 +412,7 @@ export async function shareable(
     reference: transaction.reference,
     type: transaction.type,
     bankPayout: transaction.payoutBankAmount > 0n,
+    bankIntake: transaction.intakeBrokerAmount > 0n,
     companyName: company ?? '',
     // A blank line between each, the way the office types them.
     text: lines.join('\n\n'),
@@ -447,7 +450,9 @@ export async function shareable(
                 units.get(transaction.fromCurrency),
                 true,
               ).join('\n\n')
-            : null,
+            : transaction.type === 'EXCHANGE' && transaction.intakeBrokerAmount > 0n
+              ? intakeCopy(transaction, locale, units.get(transaction.fromCurrency) ?? transaction.fromCurrency)
+              : null,
     detailText:
       DETAILED_KIND[transaction.type] && (await settings.getBoolean('whatsapp.dealDetailed', db))
         ? detailedDeal(transaction, locale, company ?? '')
@@ -524,6 +529,16 @@ function detailedDeal(transaction: ShareRow, locale: Locale, company: string): s
     ),
     block(
       line('المستلم', 'Received', money(transaction.fromAmount, transaction.fromCurrency)),
+      transaction.intakeBrokerAmount > 0n
+        ? line(
+            'استلام بنكي',
+            'Received by transfer',
+            `${money(transaction.intakeBrokerAmount, transaction.fromCurrency)}${transaction.intakeBankChannel ? ` — ${transaction.intakeBankChannel}` : ''}`,
+          )
+        : null,
+      transaction.intakeBrokerAmount > 0n && transaction.intakeBrokerAmount < transaction.fromAmount
+        ? line('استلام نقدي', 'Received in cash', money(transaction.fromAmount - transaction.intakeBrokerAmount, transaction.fromCurrency))
+        : null,
       line('السعر', 'Rate', rate),
       line('المسلّم', 'Delivered', money(transaction.toAmount, transaction.toCurrency)),
       bank > 0n && cash > 0n
@@ -550,6 +565,30 @@ function detailedDeal(transaction: ShareRow, locale: Locale, company: string): s
       : null,
   ]
     .filter((entry): entry is string => Boolean(entry))
+    .join('\n\n');
+}
+
+/**
+ * An exchange the customer paid, in part or whole, by a transfer into the
+ * office's account: told to the transfers group as coming in — the bank, the
+ * sum, who sent it — so it is checked as arrived, never read as one to send.
+ */
+function intakeCopy(transaction: ShareRow, locale: Locale, unit: string): string {
+  const ar = locale === 'ar';
+  const who = transaction.customer
+    ? ar
+      ? transaction.customer.fullNameAr
+      : transaction.customer.fullNameEn
+    : transaction.counterpartyName;
+  const phone = transaction.customer?.phone ?? transaction.counterpartyPhone ?? null;
+  return [
+    ar ? '📥 *وارد لحساب المكتب*' : '📥 *Into the office’s account*',
+    transaction.intakeBankChannel,
+    `${wholeAmount(transaction.intakeBrokerAmount)} ${unit}`,
+    who,
+    phone,
+  ]
+    .filter((line): line is string => Boolean(line?.trim()))
     .join('\n\n');
 }
 
