@@ -7,7 +7,7 @@ import type { Actor } from '@/modules/exchange/transaction.service';
 import { keepMedia } from '@/modules/whatsapp/chat-images';
 import * as settings from '@/modules/settings/settings.service';
 import { answerInGroup, isLinked, reactOn, reactTo, sendImage, sendText, sentStub } from '@/modules/whatsapp/whatsapp.service';
-import { partWords, RECEIPT_MARK, sentWords } from '@/modules/whatsapp/sent-words';
+import { partWords, RECEIPT_MARK, SENT_MARK, sentWords } from '@/modules/whatsapp/sent-words';
 
 const log = createLogger('bank:receipts');
 
@@ -64,6 +64,7 @@ export async function addReceipt(
     });
     readLater(kind, id);
     markReceipted(kind, id);
+    tellCopies(kind, id, proof.id, file);
     // Its customer, if they talk to the office on WhatsApp, sent it there too.
     void import('@/modules/whatsapp/customer-transfer')
       .then((module) => module.tellCustomerTransfer(id))
@@ -84,7 +85,96 @@ export async function addReceipt(
   }
   readLater(kind, id);
   markReceipted(kind, id);
+  tellCopies(kind, id, row.id, file);
   return row.id;
+}
+
+/**
+ * Every receipt a transfer gets — answered in a group, given at the desk —
+ * answered under its copy in each group it was passed on to for carrying out:
+ * the photo, the number it went to and "تم التحويل" ("تم تحويل دفعة" for a
+ * part), and a ✅ on the office's own copy. Always, even under a copy the
+ * receipt itself answered there. In the background: the receipt never waits.
+ */
+export function tellCopies(kind: ReceiptKind, id: string, receiptId: string, file: ReceiptFile): void {
+  void (async () => {
+    if (!(await settings.getBoolean('whatsapp.enabled')) || !isLinked()) return;
+    const copies = await forwardedCopies(kind, id);
+    if (copies.length === 0) return;
+    const [payments, account] = await Promise.all([import('./transfer-payments.service'), accountOf(kind, id)]);
+    const part =
+      (await payments.hasPartBefore(kind, id, receiptId)) || (await payments.coverOf(kind, id, receiptId)) === 'short';
+    const caption = (part ? partWords : sentWords)(account);
+    for (const copy of copies) {
+      try {
+        if (copy.ours) {
+          await sendImage(copy.chat, file.bytes, caption, sentStub(copy.chat, copy.waId), file.mimeType);
+          await reactTo(copy.chat, copy.waId, SENT_MARK).catch(() => undefined);
+        } else {
+          await answerInGroup(
+            copy.chat,
+            { id: copy.waId, author: copy.author, text: copy.text },
+            { image: file.bytes, mimetype: file.mimeType, caption },
+            SENT_MARK,
+          );
+        }
+      } catch (error) {
+        log.warn('Could not answer a forwarded copy with its receipt', { kind, error });
+      }
+    }
+  })().catch((error) => log.warn('Could not tell the forwarding groups of a receipt', { kind, error }));
+}
+
+/** The number a transfer went to, as the desk shows it. */
+async function accountOf(kind: ReceiptKind, id: string): Promise<string | null> {
+  if (kind === 'deal') {
+    const deal = await prisma.transaction.findUnique({ where: { id }, select: DEAL_ACCOUNT_SELECT });
+    return deal ? dealAccount(deal) : null;
+  }
+  if (kind === 'request') {
+    return (await prisma.bankRequest.findUnique({ where: { id }, select: { account: true } }))?.account ?? null;
+  }
+  return (await prisma.tiktokWithdrawal.findUnique({ where: { id }, select: { account: true } }))?.account ?? null;
+}
+
+/**
+ * The copies of a transfer in the groups it was passed on to for carrying out:
+ * by hand — from the desk, or forwarded on the phone — or by a rule to a group
+ * that carries transfers out. The latest in each group, and whose it is.
+ */
+async function forwardedCopies(kind: ReceiptKind, id: string) {
+  const places = await messagesOf(kind, id);
+  if (places.length === 0) return [];
+  const { bankGroup, executorGroups } = await import('./group-feed.service');
+  const [bank, list] = await Promise.all([bankGroup(), executorGroups()]);
+  const executors = new Set(list.map((group) => group.id));
+  const forwards = await prisma.groupForward.findMany({
+    where: { OR: places.map((place) => ({ targetChat: place.chat, targetWaId: place.waId })) },
+    orderBy: { createdAt: 'desc' },
+  });
+  const chosen = forwards.filter(
+    (entry, index) =>
+      entry.targetChat !== bank?.id &&
+      (!entry.auto || executors.has(entry.targetChat)) &&
+      forwards.findIndex((other) => other.targetChat === entry.targetChat) === index,
+  );
+  const messages = chosen.length
+    ? await prisma.groupMessage.findMany({
+        where: { OR: chosen.map((entry) => ({ chat: entry.targetChat, waId: entry.targetWaId! })) },
+        select: { chat: true, waId: true, fromMe: true, senderJid: true, text: true },
+      })
+    : [];
+  return chosen.map((entry) => {
+    const message = messages.find((row) => row.chat === entry.targetChat && row.waId === entry.targetWaId);
+    return {
+      chat: entry.targetChat,
+      waId: entry.targetWaId!,
+      // The office's own copy, sent by the desk or a rule; else a person's forward, answered quoting them.
+      ours: message ? message.fromMe : (entry.auto || Boolean(entry.byUserId)) && !entry.reactor,
+      author: message?.senderJid ?? null,
+      text: message?.text ?? '',
+    };
+  });
 }
 
 /**

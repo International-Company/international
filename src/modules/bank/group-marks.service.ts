@@ -6,7 +6,6 @@ import {
   groups,
   onGroupReaction,
   onGroupSighting,
-  reactTo,
   type GroupReaction,
   type GroupSighting,
 } from '@/modules/whatsapp/whatsapp.service';
@@ -400,8 +399,6 @@ async function takeReceipt(sighting: GroupSighting, quoted: string, file: Photo)
   const added = await addReceipt(found.kind, found.id, file, { sourceKey: `${sighting.chat}|${sighting.waId}` });
   if (!added) return;
   log.info('A transfer receipt was taken from a reply in a group', { kind: found.kind });
-  // Done there too: a ✅ on the office's copy in the group it was passed on to.
-  if (sighting.chat !== found.ref.chat) void markCopy(sighting.chat, quoted);
 
   /*
    * Paid in parts: the receipt is read before it closes anything. One sent in
@@ -437,19 +434,6 @@ async function takeReceipt(sighting: GroupSighting, quoted: string, file: Photo)
     (sighting.phone ? `+${sighting.phone.split('@')[0]}` : null) ||
     (sighting.fromMe ? 'المكتب' : 'واتساب');
   await markDone(found, who, '📎', sighting.chat);
-}
-
-/** A ✅ on the copy the office sent into a group, once its receipt came there. */
-async function markCopy(chat: string, waId: string): Promise<void> {
-  try {
-    const own = await prisma.groupMessage.findFirst({ where: { chat, waId }, select: { fromMe: true } });
-    const sent = await prisma.groupForward.findFirst({ where: { targetChat: chat, targetWaId: waId }, select: { id: true } });
-    // Only the office's own copy: a reaction on someone else's message is theirs to put.
-    if (own ? !own.fromMe : !sent) return;
-    await reactTo(chat, waId, '✅');
-  } catch (error) {
-    log.warn('Could not mark the copy of a transfer done', { error });
-  }
 }
 
 let registered = false;

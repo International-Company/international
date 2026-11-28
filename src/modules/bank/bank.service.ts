@@ -507,6 +507,10 @@ export async function markSent(
     });
     proofId = proof.id;
     void syncPayments('deal', id).catch(() => undefined);
+    // And under its copies in the groups it was passed on to.
+    void import('./bank-receipts.service')
+      .then((receipts) => receipts.tellCopies('deal', id, proof.id, image))
+      .catch(() => undefined);
   }
 
   log.info('A transfer was sent from the bank desk', { reference: result.reference });
