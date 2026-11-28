@@ -6,12 +6,15 @@ import {
   groups,
   onGroupReaction,
   onGroupSighting,
+  reactTo,
   type GroupReaction,
   type GroupSighting,
 } from '@/modules/whatsapp/whatsapp.service';
 import { markSent } from './bank.service';
 import { addReceipt, answerSentInGroup, relayReceipt } from './bank-receipts.service';
-import { coverOf, hasPartBefore } from './transfer-payments.service';
+import { coverOf, hasPartBefore, transferTarget } from './transfer-payments.service';
+import { readReceiptPhoto } from './receipt-reader';
+import { parseMoney } from '@/core/money/money';
 import { bankGroup, executorGroups } from './group-feed.service';
 import { markedBy, markOf, wordsOf } from './group-marks';
 
@@ -294,21 +297,111 @@ async function onReply(sighting: GroupSighting): Promise<void> {
   if (!(await transferGroup(sighting.chat))) return;
   const file = await sighting.download().catch(() => null);
   if (!file || !file.mimeType.startsWith('image/')) return;
+  await takeReceipt(sighting, sighting.quoted, file);
+}
+
+type Photo = { bytes: Buffer; mimeType: string };
+
+/** Only the digits of an account, a phone or an IBAN. */
+const digitsOf = (value: string | null | undefined) => (value ?? '').replace(/\D/g, '');
+
+/** The same account written two ways: 0598…, 970598…, or an IBAN's tail. */
+function sameAccount(a: string | null | undefined, b: string | null | undefined): boolean {
+  const x = digitsOf(a);
+  const y = digitsOf(b);
+  if (x.length < 6 || y.length < 6) return false;
+  const tail = Math.min(9, x.length, y.length);
+  return x.slice(-tail) === y.slice(-tail);
+}
+
+/**
+ * A receipt put in a group the office passes transfers on to, without quoting
+ * the one it pays: matched to the transfer passed on there in the last day and
+ * still waiting, by what the receipt says — the account it went to, else the
+ * sum — and taken as though it had quoted it. Nothing is guessed: a photo the
+ * receipt reader cannot tie to exactly one of them is left alone.
+ */
+const LOOSE_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+async function onLoosePhoto(sighting: GroupSighting): Promise<void> {
+  if (sighting.quoted || sighting.fromMe || sighting.mediaKind !== 'image' || !sighting.download) return;
+  const bank = await bankGroup();
+  // In the transfers group itself a photo is a request's or nobody's: only the groups passed on to.
+  if (!bank || bank.id === sighting.chat) return;
+  const copies = await prisma.groupForward.findMany({
+    where: { targetChat: sighting.chat, targetWaId: { not: null }, createdAt: { gte: new Date(Date.now() - LOOSE_WINDOW_MS) } },
+    orderBy: { createdAt: 'desc' },
+    take: 30,
+    select: { targetWaId: true },
+  });
+  if (copies.length === 0) return;
+
+  const waiting = new Map<string, { found: Found; waId: string }>();
+  for (const copy of copies) {
+    const found = await transferOf({ chat: sighting.chat, waId: copy.targetWaId! });
+    const key = found ? `${found.kind}:${found.id}` : null;
+    if (found?.waiting && key && !waiting.has(key)) waiting.set(key, { found, waId: copy.targetWaId! });
+  }
+  if (waiting.size === 0) return;
+
+  const file = await sighting.download().catch(() => null);
+  if (!file || !file.mimeType.startsWith('image/')) return;
+  const reading = await readReceiptPhoto(file);
+  if (!reading.available || (!reading.account && !reading.amount)) return;
+
+  const candidates = await Promise.all(
+    [...waiting.values()].map(async (entry) => ({ ...entry, target: await transferTarget(entry.found.kind, entry.found.id) })),
+  );
+  const sum = reading.amount ? parseMoney(reading.amount) : null;
+  const byAccount = reading.account ? candidates.filter((entry) => sameAccount(entry.target?.account, reading.account)) : [];
+  const bySum =
+    sum && sum > 0n
+      ? candidates.filter(
+          (entry) =>
+            entry.target?.total === sum &&
+            (!reading.currency || entry.target.currency === reading.currency.toUpperCase()),
+        )
+      : [];
+  // The account first: two transfers of the same sum are told apart by it.
+  const match =
+    byAccount.length === 1
+      ? byAccount[0]
+      : byAccount.length > 1
+        ? (byAccount.filter((entry) => bySum.includes(entry)).length === 1 ? byAccount.find((entry) => bySum.includes(entry)) : undefined)
+        : bySum.length === 1
+          ? bySum[0]
+          : undefined;
+  if (!match) {
+    log.info('A receipt in a forwarding group matched no single transfer; left alone', {
+      waiting: candidates.length,
+      byAccount: byAccount.length,
+      bySum: bySum.length,
+    });
+    return;
+  }
+  log.info('A receipt put in a forwarding group without a quote was matched to its transfer', { kind: match.found.kind });
+  await takeReceipt(sighting, match.waId, file);
+}
+
+/** A photo taken as the receipt of the message it answers — quoted, or matched. */
+async function takeReceipt(sighting: GroupSighting, quoted: string, file: Photo): Promise<void> {
 
   const kept = await keepMedia(file, null);
   if (kept) {
     await prisma.groupReply
-      .create({ data: { chat: sighting.chat, waId: sighting.waId, quotedWaId: sighting.quoted, mediaId: kept.id } })
+      .create({ data: { chat: sighting.chat, waId: sighting.waId, quotedWaId: quoted, mediaId: kept.id } })
       .catch((error: { code?: string }) => {
         if (error?.code !== 'P2002') throw error;
       });
   }
 
-  const found = await transferOf({ chat: sighting.chat, waId: sighting.quoted });
+  const found = await transferOf({ chat: sighting.chat, waId: quoted });
   if (!found) return;
   const added = await addReceipt(found.kind, found.id, file, { sourceKey: `${sighting.chat}|${sighting.waId}` });
   if (!added) return;
   log.info('A transfer receipt was taken from a reply in a group', { kind: found.kind });
+  // Done there too: a ✅ on the office's copy in the group it was passed on to.
+  if (sighting.chat !== found.ref.chat) void markCopy(sighting.chat, quoted);
 
   /*
    * Paid in parts: the receipt is read before it closes anything. One sent in
@@ -346,6 +439,19 @@ async function onReply(sighting: GroupSighting): Promise<void> {
   await markDone(found, who, '📎', sighting.chat);
 }
 
+/** A ✅ on the copy the office sent into a group, once its receipt came there. */
+async function markCopy(chat: string, waId: string): Promise<void> {
+  try {
+    const own = await prisma.groupMessage.findFirst({ where: { chat, waId }, select: { fromMe: true } });
+    const sent = await prisma.groupForward.findFirst({ where: { targetChat: chat, targetWaId: waId }, select: { id: true } });
+    // Only the office's own copy: a reaction on someone else's message is theirs to put.
+    if (own ? !own.fromMe : !sent) return;
+    await reactTo(chat, waId, '✅');
+  } catch (error) {
+    log.warn('Could not mark the copy of a transfer done', { error });
+  }
+}
+
 let registered = false;
 
 /** Reads the marks and the receipts in the groups. Once per process. */
@@ -360,5 +466,8 @@ export function registerGroupMarks(): void {
   );
   onGroupSighting((sighting) =>
     onCopy(sighting).catch((error) => log.warn('Could not trace a forwarded transfer', { error })),
+  );
+  onGroupSighting((sighting) =>
+    onLoosePhoto(sighting).catch((error) => log.warn('Could not match a receipt put without a quote', { error })),
   );
 }

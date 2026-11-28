@@ -86,6 +86,12 @@ async function targetOf(kind: ReceiptKind, id: string): Promise<Target | null> {
   };
 }
 
+/** What a transfer is to send — sum, money, account — and whether it still waits. */
+export async function transferTarget(kind: ReceiptKind, id: string) {
+  const target = await targetOf(kind, id);
+  return target ? { total: target.total, currency: target.currency, account: target.account, pending: target.pending } : null;
+}
+
 /** The photo a receipt is, wherever it is kept. */
 async function photoOf(kind: ReceiptKind, receiptId: string) {
   if (kind === 'deal') {
