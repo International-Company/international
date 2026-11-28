@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Check, CheckCheck, CornerUpRight, History, RotateCcw, Search, Settings2, SplitSquareHorizontal, Star, X } from 'lucide-react';
+import { Ban, Check, CheckCheck, CornerUpRight, History, RotateCcw, Search, Settings2, SplitSquareHorizontal, Star, X } from 'lucide-react';
 import { useLocale } from '@/i18n/provider';
 import { api, ApiError } from '@/lib/api-client';
 import { say } from '@/lib/failure';
@@ -63,6 +63,8 @@ export interface Group {
 interface Trace {
   message: { group: string; text: string; mediaId: string | null; mediaKind: string | null };
   forwards: { group: string; auto: boolean; by: string | null; at: string; delivered: boolean }[];
+  /** Passed on already: where, by whom and when. It is not passed on again until taken back. */
+  held: { group: string; by: string | null; at: string } | null;
 }
 
 /** The groups last chosen, ticked again for the next transfer: a convenience of this browser. */
@@ -192,6 +194,8 @@ export function ForwardSheet({
   const [busy, setBusy] = useState(false);
   /** Choosing which groups are offered: every group shown, a star on each. None chosen yet, it opens so. */
   const [managing, setManaging] = useState(false);
+  /** The group chosen, asked once more before it goes: its name large, the words under it. */
+  const [confirming, setConfirming] = useState(false);
 
   const failure = useCallback(
     (cause: unknown) =>
@@ -209,6 +213,7 @@ export function ForwardSheet({
     setTrace(null);
     setQuery('');
     setWithPhoto(true);
+    setConfirming(false);
     setManaging(executors.length === 0);
     api
       .get<Trace>(`/api/bank/groups/messages/${messageId}/trace`)
@@ -220,7 +225,8 @@ export function ForwardSheet({
       })
       .catch((cause) => !gone && failure(cause));
     const last = lastTargets().filter((group) => executors.some((entry) => entry.id === group.id));
-    setTargets(preset?.length ? preset : last.length ? last : executors.length === 1 ? executors : []);
+    // One group: the quick button's, else the last one used, else the only one there is.
+    setTargets((preset?.length ? preset : last.length ? last : executors.length === 1 ? executors : []).slice(0, 1));
     return () => {
       gone = true;
     };
@@ -258,12 +264,11 @@ export function ForwardSheet({
 
   if (!open) return null;
 
-  const toggle = (group: Group) =>
-    setTargets((chosen) =>
-      chosen.some((entry) => entry.id === group.id)
-        ? chosen.filter((entry) => entry.id !== group.id)
-        : [...chosen, group],
-    );
+  // One group only: choosing another takes the place of the first.
+  const toggle = (group: Group) => {
+    setConfirming(false);
+    setTargets((chosen) => (chosen.some((entry) => entry.id === group.id) ? [] : [group]));
+  };
   const isPinned = (group: Group) => executors.some((entry) => entry.id === group.id);
   const pin = async (group: Group) => {
     const next = isPinned(group) ? executors.filter((entry) => entry.id !== group.id) : [...executors, group];
@@ -276,7 +281,7 @@ export function ForwardSheet({
   const sentTo = (group: Group) => trace?.forwards.filter((entry) => entry.group === group.name).at(-1)?.at ?? null;
 
   const send = async () => {
-    if (!messageId || targets.length === 0) return;
+    if (!messageId || targets.length !== 1 || trace?.held) return;
     setBusy(true);
     try {
       const result = await api.post<{ sent: string[] }>(`/api/bank/groups/messages/${messageId}/forward`, {
@@ -355,6 +360,21 @@ export function ForwardSheet({
         ) : (
           <>
             <div className="min-h-0 flex-1 space-y-4 overflow-y-auto bg-surface-sunken/40 p-3">
+              {/* --- Passed on already: not again, until it is taken back --- */}
+              {trace.held && (
+                <div className="flex items-start gap-2 rounded-xl bg-danger-subtle/70 px-3 py-2.5 ring-1 ring-danger/30">
+                  <Ban className="mt-0.5 size-4 shrink-0 text-danger-text" />
+                  <div className="min-w-0 text-[12px] text-danger-text">
+                    <p className="font-bold">
+                      {t('bankDesk.heldTitle', { group: trace.held.group })}
+                    </p>
+                    <p className="mt-0.5">
+                      {(trace.held.by ?? '—') + ' · ' + when(trace.held.at)}
+                    </p>
+                    <p className="mt-1 text-[11px]">{t('bankDesk.heldHint')}</p>
+                  </div>
+                </div>
+              )}
               {/* --- The groups: the pinned first, then all the rest --- */}
               <section>
                 <h3 className="mb-1.5 flex items-center justify-between px-1 text-[11px] font-semibold uppercase tracking-wide text-content-tertiary">
@@ -524,22 +544,46 @@ export function ForwardSheet({
               </section>
             </div>
 
-            {/* --- Send --- */}
+            {/* --- Send: the group asked once more, its name large, before anything goes --- */}
             <footer className="border-t border-border-subtle bg-surface p-3">
-              <Button
-                variant="primary"
-                fullWidth
-                loading={busy}
-                icon={<CornerUpRight />}
-                disabled={targets.length === 0 || (!text.trim() && !(hasPhoto && withPhoto))}
-                onClick={() => void send()}
-              >
-                {targets.length === 0
-                  ? t('bankDesk.pickGroup')
-                  : targets.length === 1
-                    ? t('bankDesk.sendToOne', { group: targets[0]!.name })
-                    : t('bankDesk.sendTo', { count: targets.length })}
-              </Button>
+              {confirming && targets.length === 1 ? (
+                <div className="space-y-2.5">
+                  <div className="rounded-xl bg-primary-subtle/60 px-3 py-2.5 text-center ring-1 ring-primary/30">
+                    <p className="text-[11px] font-semibold text-content-secondary">{t('bankDesk.confirmTo')}</p>
+                    <p className="mt-0.5 text-lg font-extrabold text-primary-text">{targets[0]!.name}</p>
+                    <p className="mt-1 line-clamp-3 whitespace-pre-wrap text-[12px] text-content">{text}</p>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button variant="secondary" onClick={() => setConfirming(false)} disabled={busy}>
+                      {t('bankDesk.confirmBack')}
+                    </Button>
+                    <Button
+                      variant="primary"
+                      fullWidth
+                      autoFocus
+                      loading={busy}
+                      icon={<CornerUpRight />}
+                      onClick={() => void send()}
+                    >
+                      {t('bankDesk.confirmSend')}
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <Button
+                  variant="primary"
+                  fullWidth
+                  icon={<CornerUpRight />}
+                  disabled={Boolean(trace.held) || targets.length !== 1 || (!text.trim() && !(hasPhoto && withPhoto))}
+                  onClick={() => setConfirming(true)}
+                >
+                  {trace.held
+                    ? t('bankDesk.heldButton')
+                    : targets.length === 0
+                      ? t('bankDesk.pickGroup')
+                      : t('bankDesk.sendToOne', { group: targets[0]!.name })}
+                </Button>
+              )}
             </footer>
           </>
         )}

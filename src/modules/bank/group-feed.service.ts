@@ -481,10 +481,12 @@ export async function trace(messageId: string, actor: Actor) {
         })()
       : null;
 
+  const held = await heldBy(message);
   return {
     message: point(message),
     suggested,
     origins,
+    held: held ? { group: held.group, by: held.by, at: held.at } : null,
     forwards: forwards.map((forward) => ({
       group: forward.targetName ?? nameOf(forward.targetChat),
       auto: forward.auto,
@@ -536,8 +538,52 @@ export async function media(id: string, actor: Actor) {
 // ---------------------------------------------------------------------------
 
 /**
- * A message passed on from the desk to one group or several, by the bot, with
- * its words as the person left them and its photo when it had one.
+ * Where a transfer's message was passed on already, as the desk counts it: by
+ * hand from the desk, by a ❤️, found forwarded on WhatsApp, or by a rule to a
+ * group that carries transfers out. The latest; null when it waits.
+ */
+async function heldBy(message: { chat: string; waId: string }) {
+  const executors = await executorGroups();
+  const forward = await prisma.groupForward.findFirst({
+    where: {
+      sourceChat: message.chat,
+      sourceWaId: message.waId,
+      OR: [{ auto: false }, { targetChat: { in: executors.map((group) => group.id) } }],
+    },
+    orderBy: { createdAt: 'desc' },
+  });
+  if (!forward) return null;
+  /*
+   * Paid in part since: a receipt came after that forward, so what is left is
+   * passed on again — to the same group or another. Only the forward with
+   * nothing back from it holds the transfer.
+   */
+  const { transferOf } = await import('./group-marks.service');
+  const found = await transferOf({ chat: message.chat, waId: message.waId }).catch(() => null);
+  if (found) {
+    const since = { gt: forward.createdAt };
+    const later =
+      found.kind === 'deal'
+        ? await prisma.transactionProof.count({ where: { transactionId: found.id, kind: 'TRANSFER', createdAt: since } })
+        : await prisma.transferReceipt.count({ where: { kind: found.kind, refId: found.id, createdAt: since } });
+    if (later > 0) return null;
+  }
+  const name = forward.targetName ?? (await watched()).find((group) => group.id === forward.targetChat)?.name ?? forward.targetChat;
+  return { group: name, by: forward.byName ?? null, at: forward.createdAt };
+}
+
+/** The messages being passed on this moment: a second press, or a second desk, waits on none. */
+const forwarding = new Set<string>();
+
+/**
+ * A transfer's message passed on from the desk to the one group that carries it
+ * out, by the bot, with its words as the person left them and its photo when it
+ * had one.
+ *
+ * One group, once: a transfer passed on to two groups is sent twice. A second
+ * group, or the same message again — from another desk, or a second press —
+ * is refused, saying where it went and by whom; to send it elsewhere the
+ * forward is taken back first.
  */
 export async function forwardByHand(
   messageId: string,
@@ -551,6 +597,34 @@ export async function forwardByHand(
   if (targets.length === 0) {
     throw errors.validation([{ path: 'targets', message: 'Choose a group' }]);
   }
+  if (targets.length > 1) {
+    throw errors.precondition('A transfer goes to one group', 'errors.forwardOneGroup');
+  }
+  const key = `${message.chat}|${message.waId}`;
+  if (forwarding.has(key)) {
+    throw errors.conflict('It is being passed on this moment', 'errors.forwardBusy');
+  }
+  forwarding.add(key);
+  try {
+    const held = await heldBy(message);
+    if (held) {
+      throw errors.conflict(`Passed on already to ${held.group}`, 'errors.alreadyForwarded', {
+        group: held.group,
+        by: held.by ?? '—',
+      });
+    }
+    return await passOn(message, targets, input, actor);
+  } finally {
+    forwarding.delete(key);
+  }
+}
+
+async function passOn(
+  message: NonNullable<Awaited<ReturnType<typeof prisma.groupMessage.findUnique>>>,
+  targets: WatchedGroup[],
+  input: { text: string; withPhoto?: boolean },
+  actor: Actor & { name: string },
+) {
   const text = input.text.trim().slice(0, 4000);
   const photo =
     input.withPhoto !== false && message.mediaId && message.mediaKind === 'image'

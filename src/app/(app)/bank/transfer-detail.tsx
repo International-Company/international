@@ -1070,7 +1070,8 @@ export function TransferDetail({
                 </button>
               </div>
             )}
-            {line.messageId && state !== 'done' && state !== 'reversed' && onForward && (
+            {/* Passed on already: one group only — the way to another is taking it back, above. */}
+            {line.messageId && state !== 'done' && state !== 'reversed' && state !== 'forwarded' && onForward && (
               <div className="flex items-center gap-1.5 overflow-x-auto [scrollbar-width:none]">
                 <span className="shrink-0 text-[11px] font-semibold text-content-tertiary">{t('bankDesk.forwardTo')}</span>
                 {executors.slice(0, 4).map((group) => {
